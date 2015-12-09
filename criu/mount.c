@@ -3246,6 +3246,18 @@ int prepare_mnt_ns(void)
 			return -1;
 		}
 
+		if (opts.unshare_flags & 0x1) {
+			mount(NULL, "/proc", NULL, MS_PRIVATE, NULL);
+			if (mount("proc", "/proc", "proc",
+						MS_MGC_VAL | MS_NOSUID | MS_NOEXEC | MS_NODEV,
+						NULL)) {
+				pr_perror("Can't mount proc\n");
+				return -1;
+			}
+
+			pr_info("Re-mounted new fake proc\n");
+		}
+
 		goto ns_created;
 	}
 
