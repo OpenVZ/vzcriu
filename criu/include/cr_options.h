@@ -71,6 +71,7 @@ struct cr_options {
 	bool			tcp_established_ok;
 	bool			evasive_devices;
 	bool			link_remap_ok;
+	unsigned long		unshare_flags;
 	bool			log_file_per_pid;
 	bool			swrk_restore;
 	char			*output;

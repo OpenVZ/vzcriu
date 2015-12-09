@@ -778,6 +778,25 @@ static int prepare_pstree_kobj_ids(void)
 	return 0;
 }
 
+static int prepare_pstree_for_unshare(void)
+{
+	{
+		unsigned long aux;
+
+		/*
+		 * Move root into desired set of namespaces, but keep
+		 * in opts.unshare_flags those that were deliberately
+		 * enforced for further reference.
+		 */
+		aux = rsti(root_item)->clone_flags;
+		rsti(root_item)->clone_flags |= opts.unshare_flags;
+		opts.unshare_flags &= ~aux;
+	}
+
+	root_ns_mask |= opts.unshare_flags;
+	return 0;
+}
+
 int prepare_pstree(void)
 {
 	int ret;
@@ -795,6 +814,8 @@ int prepare_pstree(void)
 		 * of shared objects at clone time
 		 */
 		ret = prepare_pstree_kobj_ids();
+	if (!ret)
+		ret = prepare_pstree_for_unshare();
 	if (!ret)
 		/*
 		 * Session/Group leaders might be dead. Need to fix
