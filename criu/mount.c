@@ -3305,6 +3305,28 @@ int prepare_mnt_ns(void)
 
 	pr_info("Restoring mount namespace\n");
 
+	if (opts.unshare_flags & CLONE_NEWNS) {
+		if (opts.root) {
+			pr_err("The --root option is incompatible with fake new mntns\n");
+			return -1;
+		}
+
+		/*
+		 * Fake newns preparation -- just copy the existing one
+		 * and go on with the rest.
+		 */
+		if (rst_collect_local_mntns(NS_ROOT))
+			return -1;
+
+		ret = chdir("/");
+		if (ret) {
+			pr_perror("chdir to new root failed");
+			return -1;
+		}
+
+		goto ns_created;
+	}
+
 	old = collect_mntinfo(&ns, false);
 	if (old == NULL)
 		return -1;
@@ -3376,6 +3398,7 @@ int prepare_mnt_ns(void)
 	if (ret)
 		return -1;
 
+ns_created:
 	rst = open_proc(PROC_SELF, "ns/mnt");
 	if (rst < 0)
 		return -1;
