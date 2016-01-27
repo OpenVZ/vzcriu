@@ -1190,6 +1190,13 @@ static int tmpfs_dump(struct mount_info *pm)
 	if (fd < 0)
 		return -1;
 
+	/* if fd happens to be 0 here, we need to move it to something
+	 * non-zero, because cr_system_userns closes STDIN_FILENO as we are not
+	 * interested in passing stdin to tar.
+	 */
+	if (move_img_fd(&fd, STDIN_FILENO) < 0)
+		goto out;
+
 	if (fcntl(fd, F_SETFD, fcntl(fd, F_GETFD) & ~FD_CLOEXEC) == -1) {
 		pr_perror("Can not drop FD_CLOEXEC");
 		goto out;
@@ -1534,7 +1541,6 @@ static int binfmt_misc_restore(struct mount_info *mi)
 			ret = -1;
 		} else if (bme->magic) {
 			ret = make_bfmtm_magic_str(buf, bme);
-			pr_perror("xxxbuf=%s\n", buf);
 		} else if (bme->extension) {
 			/* :name:E::extension::interpreter:flags */
 			ret = snprintf(buf, BINFMT_MISC_STR, ":%s:E::%s::%s:%s",
@@ -1542,8 +1548,10 @@ static int binfmt_misc_restore(struct mount_info *mi)
 				       bme->flags ? : "\0");
 		}
 
-		if (ret > 0)
+		if (ret > 0) {
+			pr_debug("binfmt_misc_pattern=%s\n", buf);
 			ret = restore_binfmt_misc_entry(mi->mountpoint, buf, bme);
+		}
 
 		binfmt_misc_entry__free_unpacked(bme, NULL);
 	}
@@ -2670,11 +2678,11 @@ out:
 	return exit_code;
 }
 
-static int rst_collect_local_mntns(void)
+static int rst_collect_local_mntns(enum ns_type typ)
 {
 	struct ns_id *nsid;
 
-	nsid = rst_new_ns_id(0, getpid(), &mnt_ns_desc);
+	nsid = rst_new_ns_id(0, getpid(), &mnt_ns_desc, typ);
 	if (!nsid)
 		return -1;
 
@@ -3096,7 +3104,7 @@ int prepare_mnt_ns(void)
 	struct ns_id *nsid;
 
 	if (!(root_ns_mask & CLONE_NEWNS))
-		return rst_collect_local_mntns();
+		return rst_collect_local_mntns(NS_CRIU);
 
 	pr_info("Restoring mount namespace\n");
 
