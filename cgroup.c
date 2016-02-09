@@ -82,6 +82,17 @@ static const char *freezer_props[] = {
 };
 
 /*
+ * FIXME
+ * PCS7 scpefic props. Must be dropped off once
+ * custom props engine is merged in.
+ */
+static const char *ve_props[] = {
+	"ve.clock_monotonic",
+	"ve.clock_bootbased",
+	NULL
+};
+
+/*
  * This structure describes set of controller groups
  * a task lives in. The cg_ctl entries are stored in
  * the @ctls list sorted by the .name field and then
@@ -387,6 +398,8 @@ static const char **get_known_properties(char *controller)
 		prop_arr = blkio_props;
 	else if (!strcmp(controller, "freezer"))
 		prop_arr = freezer_props;
+	else if (!strcmp(controller, "ve"))
+		prop_arr = ve_props;
 
 	return prop_arr;
 }
@@ -1181,8 +1194,8 @@ static int prepare_cgroup_dirs(char **controllers, int n_controllers, char *paux
 			}
 
 			if (opts.manage_cgroups & (CG_MODE_SOFT | CG_MODE_NONE)) {
-				pr_info("Skip restoring properties on cgroup dir %s\n", paux);
-				if (e->n_properties > 0) {
+				if (e->n_properties > 0 && strncmp(paux, "ve/", 3)) {
+					pr_info("Skip restoring properties on cgroup dir %s\n", paux);
 					xfree(e->properties);
 					e->properties = NULL;
 					e->n_properties = 0;
