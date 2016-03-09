@@ -63,7 +63,10 @@ struct rst_info {
 	 */
 	bool			has_seccomp;
 
-	void			*breakpoint;
+	union {
+		void		*breakpoint;
+		void		(*helper_cb)(void);
+	};
 };
 
 #endif /* __CR_RST_INFO_H__ */

@@ -2,6 +2,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <sched.h>
+#include <sys/wait.h>
 
 #include "cr_options.h"
 #include "pstree.h"
@@ -12,6 +13,8 @@
 #include "tty.h"
 #include "mount.h"
 #include "asm/dump.h"
+#include "setproctitle.h"
+#include "files.h"
 
 #include "protobuf.h"
 #include "images/pstree.pb-c.h"
@@ -875,9 +878,63 @@ static int prepare_pstree_kobj_ids(void)
 	return 0;
 }
 
+static void do_fake_init(void)
+{
+	close_old_fds();
+	close_image_dir();
+	close_proc();
+	close_service_fd(CR_PROC_FD_OFF);
+	close_service_fd(ROOT_FD_OFF);
+	close_service_fd(USERNSD_SK);
+	log_fini();
+
+	setproctitle("criu-init");
+
+	while (wait(NULL) >= 0)
+		;
+	exit(0);
+}
+
 static int prepare_pstree_for_unshare(void)
 {
-	{
+	/*
+	 * Unsharing in anything but pid namespace just puts the
+	 * root task into the requesting set. If pidns is the aim,
+	 * then check for the root task to already live in it,
+	 * otherwise -- insert fake init entry into the tree.
+	 */
+
+	if ((opts.unshare_flags & CLONE_NEWPID) &&
+			!(rsti(root_item)->clone_flags & CLONE_NEWPID)) {
+		struct pstree_item *fake_root;
+
+		fake_root = lookup_create_item(INIT_PID);
+		if (fake_root == NULL)
+			return -1;
+
+		fake_root->pid.state = TASK_HELPER;
+		fake_root->pid.virt = INIT_PID;
+		fake_root->pgid = INIT_PID;
+		fake_root->sid = INIT_PID;
+		fake_root->nr_threads = 1;
+		fake_root->threads = xmalloc(sizeof(struct pid));
+		if (!fake_root->threads)
+			return -1;
+
+		fake_root->threads->real = -1;
+		fake_root->threads->virt = INIT_PID;
+		fake_root->ids = root_ids;
+		rsti(fake_root)->clone_flags = opts.unshare_flags | rsti(root_item)->clone_flags;
+
+		rsti(fake_root)->helper_cb = do_fake_init;
+
+		list_add_tail(&root_item->sibling, &fake_root->children);
+		root_item->parent = fake_root;
+		rsti(root_item)->clone_flags = 0;
+
+		task_entries->nr_helpers++;
+		root_item = fake_root;
+	} else {
 		unsigned long aux;
 
 		/*
