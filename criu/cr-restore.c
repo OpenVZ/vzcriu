@@ -1130,6 +1130,8 @@ static int restore_one_task(int pid, CoreEntry *core)
 		ret = restore_one_zombie(core);
 	else if (current->state == TASK_HELPER) {
 		restore_finish_stage(CR_STATE_RESTORE);
+		if (rsti(current)->helper_cb)
+			rsti(current)->helper_cb();
 		if (wait_on_helpers_zombies()) {
 			pr_err("failed to wait on helpers and zombies\n");
 			ret = -1;
@@ -1239,7 +1241,10 @@ static inline int fork_with_pid(struct pstree_item *item)
 		 * Helper entry will not get moved around and thus
 		 * will live in the parent's cgset.
 		 */
-		rsti(item)->cg_set = rsti(item->parent)->cg_set;
+		if (item->parent)
+			rsti(item)->cg_set = rsti(item->parent)->cg_set;
+		else
+			rsti(item)->cg_set = root_cg_set;
 		ca.core = NULL;
 	}
 
