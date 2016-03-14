@@ -1,6 +1,6 @@
-#!/bin/env python
+#!/bin/env python2
 
-import pycriu
+import py as pycriu
 import sys
 import os
 import subprocess
@@ -50,6 +50,10 @@ for imgf in find.stdout.readlines():
 	if imgf_b.startswith('ifaddr-'):
 		continue
 	if imgf_b.startswith('tmpfs-'):
+		continue
+	if imgf_b.startswith('netns-ct-'):
+		continue
+	if imgf_b.startswith('netns-exp-'):
 		continue
 
 	o_img = open(imgf).read()
