@@ -228,7 +228,7 @@ struct pstree_item *alloc_pstree_helper(void)
 
 	ret = alloc_pstree_item_with_rst();
 	if (ret) {
-		ret->state = TASK_HELPER;
+		ret->pid.state = TASK_HELPER;
 		rsti(ret)->clone_flags = CLONE_FILES | CLONE_FS;
 		task_entries->nr_helpers++;
 	}
@@ -565,7 +565,7 @@ static int prepare_pstree_ids(void)
 		if (!item->parent) /* skip the root task */
 			continue;
 
-		if (item->state == TASK_HELPER)
+		if (item->pid.state == TASK_HELPER)
 			continue;
 
 		if (item->sid != item->pid.virt) {
@@ -600,7 +600,7 @@ static int prepare_pstree_ids(void)
 
 		/* Try to find helpers, who should be connected to the leader */
 		list_for_each_entry(child, &helpers, sibling) {
-			if (child->state != TASK_HELPER)
+			if (child->pid.state != TASK_HELPER)
 				continue;
 
 			if (child->sid != item->sid)
@@ -813,7 +813,7 @@ static int prepare_pstree_for_unshare(void)
 
 		fake_root = alloc_pstree_item_with_rst();
 
-		fake_root->state = TASK_HELPER;
+		fake_root->pid.state = TASK_HELPER;
 		fake_root->pid.virt = INIT_PID;
 		fake_root->pgid = INIT_PID;
 		fake_root->sid = INIT_PID;
