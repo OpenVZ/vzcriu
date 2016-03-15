@@ -20,8 +20,10 @@
 #include "images/pstree.pb-c.h"
 
 struct pstree_item *root_item;
+static struct rb_root pid_root_rb;
 
 #define CLONE_ALLNS     (CLONE_NEWPID | CLONE_NEWNET | CLONE_NEWIPC | CLONE_NEWUTS | CLONE_NEWNS | CLONE_NEWUSER)
+#define alloc_pstree_item_with_rst() __alloc_pstree_item(true)
 
 void core_entry_free(CoreEntry *core)
 {
@@ -229,7 +231,7 @@ void init_pstree_helper(struct pstree_item *ret)
 	task_entries->nr_helpers++;
 }
 
-struct pstree_item *alloc_pstree_helper(void)
+static struct pstree_item *alloc_pstree_helper(void)
 {
 	struct pstree_item *ret;
 
@@ -384,7 +386,61 @@ static int prepare_pstree_for_shell_job(void)
 	max_pid = max((int)current_sid, max_pid);
 	max_pid = max((int)current_gid, max_pid);
 
+	if (lookup_create_item(current_sid) == NULL)
+		return -1;
+	if (lookup_create_item(current_gid) == NULL)
+		return -1;
+
 	return 0;
+}
+
+/*
+ * Try to find a pid node in the tree and insert a new one,
+ * it is not there yet. If pid_node isn't set, pstree_item
+ * is inserted.
+ */
+static struct pid *lookup_create_pid(pid_t pid, struct pid *pid_node)
+{
+	struct rb_node *node = pid_root_rb.rb_node;
+	struct rb_node **new = &pid_root_rb.rb_node;
+	struct rb_node *parent = NULL;
+
+	while (node) {
+		struct pid *this = rb_entry(node, struct pid, node);
+
+		parent = *new;
+		if (pid < this->virt)
+			node = node->rb_left, new = &((*new)->rb_left);
+		else if (pid > this->virt)
+			node = node->rb_right, new = &((*new)->rb_right);
+		else
+			return this;
+	}
+
+	if (!pid_node) {
+		struct pstree_item *item;
+
+		item = alloc_pstree_item_with_rst();
+		if (item == NULL)
+			return NULL;
+
+		item->pid.virt = pid;
+		pid_node = &item->pid;
+	}
+	rb_link_and_balance(&pid_root_rb, &pid_node->node, parent, new);
+	return pid_node;
+}
+
+struct pstree_item *lookup_create_item(pid_t pid)
+{
+	struct pid *node;;
+
+	node = lookup_create_pid(pid, NULL);
+	if (!node)
+		return NULL;
+	BUG_ON(node->state == TASK_THREAD);
+
+	return container_of(node, struct pstree_item, pid);
 }
 
 static int read_pstree_ids(struct pstree_item *pi)
@@ -430,18 +486,29 @@ static int read_pstree_image(void)
 			break;
 
 		ret = -1;
-		pi = alloc_pstree_item_with_rst();
+		pi = lookup_create_item(e->pid);
 		if (pi == NULL)
+			break;
+		BUG_ON(pi->pid.state != TASK_UNDEF);
+
+		/*
+		 * All pids should be added in the tree to be able to find
+		 * free pid-s for helpers. pstree_item for these pid-s will
+		 * be initialized when we meet PstreeEntry with this pid or
+		 * we will create helpers for them.
+		 */
+		if (lookup_create_item(e->pgid) == NULL)
+			break;
+		if (lookup_create_item(e->sid) == NULL)
 			break;
 
 		pi->pid.virt = e->pid;
 		max_pid = max((int)e->pid, max_pid);
-
 		pi->pgid = e->pgid;
 		max_pid = max((int)e->pgid, max_pid);
-
 		pi->sid = e->sid;
 		max_pid = max((int)e->sid, max_pid);
+		pi->pid.state = TASK_ALIVE;
 
 		if (e->ppid == 0) {
 			if (root_item) {
@@ -489,9 +556,19 @@ static int read_pstree_image(void)
 			break;
 
 		for (i = 0; i < e->n_threads; i++) {
+			struct pid *node;
 			pi->threads[i].real = -1;
 			pi->threads[i].virt = e->threads[i];
-			max_pid = max((int)e->threads[i], max_pid);
+			pi->threads[i].state = TASK_THREAD;
+			if (i == 0)
+				continue; /* A thread leader is in a tree already */
+			node = lookup_create_pid(pi->threads[i].virt, &pi->threads[i]);
+
+			BUG_ON(node == NULL);
+			if (node != &pi->threads[i]) {
+				pr_err("Unexpected task %d in a tree %d\n", e->threads[i], i);
+				return -1;
+			}
 		}
 
 		task_entries->nr_threads += e->n_threads;
@@ -815,7 +892,9 @@ static int prepare_pstree_for_unshare(void)
 			!(rsti(root_item)->clone_flags & CLONE_NEWPID)) {
 		struct pstree_item *fake_root;
 
-		fake_root = alloc_pstree_item_with_rst();
+		fake_root = lookup_create_item(INIT_PID);
+		if (fake_root == NULL)
+			return -1;
 
 		fake_root->pid.state = TASK_HELPER;
 		fake_root->pid.virt = INIT_PID;
