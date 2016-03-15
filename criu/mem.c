@@ -3,6 +3,7 @@
 #include <sys/mman.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <sys/syscall.h>
 
 #include "cr_options.h"
 #include "servicefd.h"
@@ -16,6 +17,7 @@
 #include "stats.h"
 #include "vma.h"
 #include "shmem.h"
+#include "uffd.h"
 #include "pstree.h"
 #include "restorer.h"
 #include "rst-malloc.h"
@@ -657,6 +659,7 @@ static int restore_priv_vma_content(struct pstree_item *t)
 	unsigned int nr_shared = 0;
 	unsigned int nr_droped = 0;
 	unsigned int nr_compared = 0;
+	unsigned int nr_lazy = 0;
 	unsigned long va;
 	struct page_read pr;
 
@@ -710,6 +713,17 @@ static int restore_priv_vma_content(struct pstree_item *t)
 			off = (va - vma->e->start) / PAGE_SIZE;
 			p = decode_pointer((off) * PAGE_SIZE +
 					vma->premmaped_addr);
+
+			/*
+			 * This means that userfaultfd is used to load the pages
+			 * on demand.
+			 */
+			if (opts.lazy_pages && vma_entry_can_be_lazy(vma->e)) {
+				pr_debug("Lazy restore skips %lx\n", vma->e->start);
+				pr.skip_pages(&pr, PAGE_SIZE);
+				nr_lazy++;
+				continue;
+			}
 
 			set_bit(off, vma->page_bitmap);
 			if (vma->ppage_bitmap) { /* inherited vma */
@@ -799,6 +813,7 @@ err_read:
 	pr_info("nr_restored_pages: %d\n", nr_restored);
 	pr_info("nr_shared_pages:   %d\n", nr_shared);
 	pr_info("nr_droped_pages:   %d\n", nr_droped);
+	pr_info("nr_lazy:           %d\n", nr_lazy);
 
 	return 0;
 
