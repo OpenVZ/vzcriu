@@ -3248,7 +3248,11 @@ int prepare_mnt_ns(void)
 		}
 
 		if (opts.unshare_flags & UNSHARE_MOUNT_PROC) {
-			mount(NULL, "/proc", NULL, MS_PRIVATE, NULL);
+			if (mount(NULL, "/proc", NULL, MS_PRIVATE, NULL)) {
+				pr_perror("Can't make proc private for unshare");
+				return -1;
+			}
+
 			if (mount("proc", "/proc", "proc",
 						MS_MGC_VAL | MS_NOSUID | MS_NOEXEC | MS_NODEV,
 						NULL)) {
