@@ -1754,7 +1754,7 @@ static struct fstype fstypes[32] = {
 		.code = FSTYPE__AUTOFS,
 		.parse = autofs_parse,
 		.dump = autofs_dump,
-		.restore = always_fail,
+		.mount = autofs_mount,
 	},
 };
 
