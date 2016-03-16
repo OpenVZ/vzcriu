@@ -39,6 +39,8 @@
 #define CLONE_SUBNS	(CLONE_NEWNS)
 #define EXTRA_SIZE	20
 
+#define UNSHARE_MOUNT_PROC	0x1
+
 struct ns_desc {
 	unsigned int	cflag;
 	char		*str;
