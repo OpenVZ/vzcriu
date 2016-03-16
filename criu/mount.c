@@ -28,6 +28,7 @@
 #include "kerndat.h"
 #include "fs-magic.h"
 #include "sysfs_parse.h"
+#include "syscall-types.h"
 
 #include "images/mnt.pb-c.h"
 #include "images/binfmt-misc.pb-c.h"
@@ -3246,7 +3247,7 @@ int prepare_mnt_ns(void)
 			return -1;
 		}
 
-		if (opts.unshare_flags & 0x1) {
+		if (opts.unshare_flags & UNSHARE_MOUNT_PROC) {
 			mount(NULL, "/proc", NULL, MS_PRIVATE, NULL);
 			if (mount("proc", "/proc", "proc",
 						MS_MGC_VAL | MS_NOSUID | MS_NOEXEC | MS_NODEV,

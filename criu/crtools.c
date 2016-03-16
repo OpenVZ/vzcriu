@@ -43,7 +43,7 @@
 #include "fault-injection.h"
 #include "lsm.h"
 #include "proc_parse.h"
-
+#include "syscall-types.h"
 #include "setproctitle.h"
 
 struct cr_options opts;
@@ -93,7 +93,7 @@ static int parse_unshare_arg(char *opt)
 		else if (!strcmp(opt, "user"))
 			opts.unshare_flags |= CLONE_NEWUSER;
 		else if (!strcmp(opt, "proc"))
-			opts.unshare_flags |= 0x1; /* mount new proc */
+			opts.unshare_flags |= UNSHARE_MOUNT_PROC; /* mount new proc */
 		else {
 			pr_msg("Error: unknown unshare flag %s\n", opt);
 			return -1;
@@ -106,7 +106,7 @@ static int parse_unshare_arg(char *opt)
 	}
 
 	/* Only pid, mnt and user for now */
-	if (opts.unshare_flags & ~(CLONE_NEWNS | CLONE_NEWPID | 0x1)) {
+	if (opts.unshare_flags & ~(CLONE_NEWNS | CLONE_NEWPID | UNSHARE_MOUNT_PROC)) {
 		pr_err("Unsharing this namespace(s) is not supported yet\n");
 		return -1;
 	}
