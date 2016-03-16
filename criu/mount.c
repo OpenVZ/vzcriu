@@ -2422,6 +2422,13 @@ static int do_bind_mount(struct mount_info *mi)
 	private = !mi->master_id && !shared;
 	cut_root = cut_root_for_bind(mi->root, mi->bind->root);
 
+	/* Mount private can be initialized on mount() callback, which is
+	 * called only once.
+	 * It have to be copied to all it's sibling structures to provide users
+	 * of it with actual data.
+	 */
+	mi->private = mi->bind->private;
+
 	if (list_empty(&mi->bind->children))
 		mnt_path = mi->bind->mountpoint;
 	else {
