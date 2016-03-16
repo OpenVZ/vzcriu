@@ -213,4 +213,8 @@ extern int inherit_fd_lookup_id(char *id);
 
 extern bool inherited_fd(struct file_desc *, int *fdp);
 
+extern FdinfoEntry *dup_fdinfo(FdinfoEntry *old, int fd, unsigned flags);
+int dup_fle(struct pstree_item *task, struct fdinfo_list_entry *ple,
+	    int fd, unsigned flags);
+
 #endif /* __CR_FILES_H__ */
