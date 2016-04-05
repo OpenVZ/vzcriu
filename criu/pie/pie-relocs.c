@@ -15,7 +15,7 @@
 #include "asm-generic/int.h"
 
 #include "compiler.h"
-#include "piegen/uapi/types.h"
+#include "compel/include/uapi/types.h"
 #include "bug.h"
 
 __maybe_unused void elf_relocs_apply(void *mem, void *vbase, size_t size, elf_reloc_t *elf_relocs, size_t nr_relocs)
