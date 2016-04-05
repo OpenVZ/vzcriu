@@ -179,6 +179,9 @@ endif
 # on anything else.
 $(eval $(call gen-built-in,images))
 
+# Compel get used by CRIU, build it earlier
+$(eval $(call gen-built-in,compel))
+
 #
 # CRIU building done in own directory
 # with slightly different rules so we
@@ -187,9 +190,9 @@ $(eval $(call gen-built-in,images))
 #
 # But note that we're already included
 # the nmk so we can reuse it there.
-criu/%: images/built-in.o $(VERSION_HEADER)
+criu/%: images/built-in.o compel/compel $(VERSION_HEADER)
 	$(Q) $(MAKE) -C criu $@
-criu: images/built-in.o $(VERSION_HEADER)
+criu: images/built-in.o compel/compel $(VERSION_HEADER)
 	$(Q) $(MAKE) -C criu all
 .PHONY: criu
 
@@ -203,7 +206,7 @@ lib: criu
 	$(Q) $(MAKE) -C lib all
 .PHONY: lib
 
-all: criu lib
+all: compel criu lib
 .PHONY: all
 
 subclean:
@@ -215,12 +218,14 @@ subclean:
 
 clean: subclean
 	$(Q) $(MAKE) $(build)=images $@
+	$(Q) $(MAKE) $(build)=compel $@
 	$(Q) $(MAKE) -C criu $@
 .PHONY: clean
 
 # mrproper depends on clean in nmk
 mrproper: subclean
 	$(Q) $(MAKE) $(build)=images $@
+	$(Q) $(MAKE) $(build)=compel $@
 	$(Q) $(MAKE) -C criu $@
 	$(Q) $(RM) $(VERSION_HEADER)
 	$(Q) $(RM) cscope.*

@@ -99,25 +99,13 @@ arch_lib: syscalls_lib
 .PHONY: arch_lib
 
 #
-# piegen tool needed for PIE code.
-ifeq ($(piegen-y),y)
-piegen-bin		:= pie/piegen/piegen
-
-pie/piegen/%: config
-	$(Q) CC=$(HOSTCC) LD=$(HOSTLD) CFLAGS="$(ccflags-y) $(HOSTCFLAGS) $(WARNINGS) $(DEFINES)" $(MAKE) $(build)=pie/piegen $@
-$(piegen-bin): pie/piegen/built-in.o
-	$(call msg-link, $@)
-	$(Q) $(HOSTCC) $(HOSTCFLAGS) $^ $(LDFLAGS) -o $@
-endif
-
-#
 # PIE library code.
 pie/lib.a: arch_lib
 	$(Q) $(MAKE) $(call build-as,Makefile.library,pie) all
 
 #
 # PIE code blobs themseves.
-pie: $(piegen-bin) pie/lib.a
+pie: pie/lib.a
 	$(Q) $(MAKE) $(build)=pie all
 .PHONY: pie
 
@@ -138,7 +126,6 @@ criu: $(PROGRAM-BUILTINS)
 subclean:
 	$(Q) $(RM) ./*.{gcda,gcno,gcov}
 	$(Q) $(RM) ./pie/*.{gcda,gcno,gcov}
-	$(Q) $(RM) ./pie/piegen/*.{gcda,gcno,gcov}
 	$(Q) $(RM) -r ./gcov
 	$(Q) $(RM) criu
 .PHONY: subclean
@@ -150,7 +137,6 @@ clean: subclean
 	$(Q) $(MAKE) $(call build-as,Makefile,$(ARCH_DIR)) $@
 	$(Q) $(MAKE) $(call build-as,Makefile.library,pie) $@
 	$(Q) $(MAKE) $(call build-as,Makefile.crtools,.) $@
-	$(Q) $(MAKE) $(build)=pie/piegen $@
 	$(Q) $(MAKE) $(build)=pie $@
 .PHONY: clean
 
@@ -161,7 +147,6 @@ mrproper: subclean
 	$(Q) $(MAKE) $(call build-as,Makefile,$(ARCH_DIR)) $@
 	$(Q) $(MAKE) $(call build-as,Makefile.library,pie) $@
 	$(Q) $(MAKE) $(call build-as,Makefile.crtools,.) $@
-	$(Q) $(MAKE) $(build)=pie/piegen $@
 	$(Q) $(MAKE) $(build)=pie $@
 	$(Q) $(RM) $(VERSION_HEADER)
 	$(Q) $(RM) $(CONFIG_HEADER)
