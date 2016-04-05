@@ -70,7 +70,7 @@ $(obj)/%.built-in.bin.o: $(obj)/%.built-in.o $(obj)/lib.a $(obj)/$(PIELDS)
 
 $(obj)/%-blob.h: $(obj)/%.built-in.bin.o $(obj)/$(PIELDS) pie/piegen
 	$(call msg-gen, $@)
-	$(Q) pie/piegen/piegen -f $< -v $(call target-name,$@)_relocs -p $(call target-name,$@)_blob_offset__ -s $(call target-name,$@)_blob -o $@ $(piegen_stdout)
+	$(Q) pie/piegen/piegen piegen -f $< -v $(call target-name,$@)_relocs -p $(call target-name,$@)_blob_offset__ -s $(call target-name,$@)_blob -o $@ $(piegen_stdout)
 
 else
 
