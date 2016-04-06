@@ -1,0 +1,4 @@
+CRIU_VERSION_SUBLEVEL	:= $(shell cat Makefile.version | cut -d'.' -f3)
+CRIU_VERSION_EXTRA	:= $(shell cat Makefile.version | cut -d'.' -f4)
+
+CRIU_VERSION		:= $(CRIU_VERSION_MAJOR)$(if $(CRIU_VERSION_MINOR),.$(CRIU_VERSION_MINOR))$(if $(CRIU_VERSION_SUBLEVEL),.$(CRIU_VERSION_SUBLEVEL))$(if $(CRIU_VERSION_EXTRA),.$(CRIU_VERSION_EXTRA))
