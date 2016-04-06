@@ -44,6 +44,10 @@ static unsigned int join_ns_flags;
 int check_namespace_opts(void)
 {
 	errno = 22;
+	if (join_ns_flags & opts.unshare_flags) {
+		pr_perror("Conflict flags: -join-ns and -unshare");
+		return -1;
+	}
 	if (join_ns_flags & opts.empty_ns) {
 		pr_perror("Conflict flags: -join-ns and -empty-ns");
 		return -1;
