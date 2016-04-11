@@ -316,9 +316,7 @@ int main(int argc, char *argv[], char *envp[])
 		{ "external",			required_argument,	0, 1073	},
 		{ "empty-ns",			required_argument,	0, 1074	},
 		{ "unshare",			required_argument,	0, 1075 },
-#ifdef CONFIG_HAS_UFFD
 		{ "lazy-pages",			no_argument,		0, 1076 },
-#endif
 		{ "extra",			no_argument,		0, 1077	},
 		{ "experimental",		no_argument,		0, 1078	},
 		{ "all",			no_argument,		0, 1079	},
@@ -584,11 +582,9 @@ int main(int argc, char *argv[], char *envp[])
 			if (parse_unshare_arg(optarg))
 				return -1;
 			break;
-#ifdef CONFIG_HAS_UFFD
 		case 1076:
 			opts.lazy_pages = true;
 			break;
-#endif
 		case 'M':
 			{
 				char *aux;
@@ -812,9 +808,7 @@ usage:
 "  criu page-server\n"
 "  criu service [<options>]\n"
 "  criu dedup\n"
-#ifdef CONFIG_HAS_UFFD
 "  criu lazy-pages -D DIR [<options>]\n"
-#endif
 "\n"
 "Commands:\n"
 "  dump           checkpoint a process/tree identified by pid\n"
@@ -854,12 +848,10 @@ usage:
 "  --unshare FLAGS       what namespaces to unshare when restoring\n"
 "  --freeze-cgroup\n"
 "                        use cgroup freezer to collect processes\n"
-#ifdef CONFIG_HAS_UFFD
 "  --lazy-pages          restore pages on demand\n"
 "                        this requires running a second instance of criu\n"
 "                        in lazy-pages mode: 'criu lazy-pages -D DIR'\n"
 "                        --lazy-pages and lazy-pages mode require userfaultfd\n"
-#endif
 "\n"
 "* Special resources support:\n"
 "  -x|--" USK_EXT_PARAM "inode,.." "      allow external unix connections (optionally can be assign socket's inode that allows one-sided dump)\n"
