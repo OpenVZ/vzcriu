@@ -693,8 +693,10 @@ static int check_mem_dirty_track(void)
 	if (kerndat_get_dirty_track() < 0)
 		return -1;
 
-	if (!kdat.has_dirty_track)
+	if (!kdat.has_dirty_track) {
 		pr_warn("Dirty tracking is OFF. Memory snapshot will not work.\n");
+		return -1;
+	}
 	return 0;
 }
 
@@ -1080,6 +1082,7 @@ struct feature_list {
 
 static struct feature_list feature_list[] = {
 	{ "mnt_id", check_mnt_id },
+	{ "mem_dirty_track", check_mem_dirty_track },
 	{ "aio_remap", check_aio_remap },
 	{ "timerfd", check_timerfd },
 	{ "tun", check_tun },
