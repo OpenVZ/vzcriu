@@ -31,9 +31,9 @@ criu/include/syscall-codes*.h
 criu/include/syscall*.h
 criu/include/version.h
 criu/pie/restorer-blob.h
-criu/pie/parasite-blob.h
+criu/pie/parasite-*-blob.h
 criu/pie/piegen/piegen
-criu/pie/pie.lds.S
+criu/pie/pie.lds*.S
 criu/protobuf-desc-gen.h
 scripts/build/qemu-user-static/*
 lib/.crit-setup.files

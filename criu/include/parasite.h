@@ -266,7 +266,7 @@ struct parasite_dump_cgroup_args {
 
 /* the parasite prefix is added by gen_offsets.sh */
 #define __pblob_offset(ptype, symbol)					\
-	parasite ## _blob_offset__ ## symbol
+	parasite_ ## ptype ## _blob_offset__ ## symbol
 #define parasite_sym(pblob, ptype, symbol)				\
 	((void *)(pblob) + __pblob_offset(ptype, symbol))
 
