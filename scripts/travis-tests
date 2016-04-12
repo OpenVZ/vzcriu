@@ -4,7 +4,9 @@ set -x -e
 test "$1" = "x86_64" || exit 0
 
 apt-get update -qq
-apt-get install -qq protobuf-c-compiler libprotobuf-c0-dev libaio-dev libprotobuf-dev protobuf-compiler python-ipaddr libcap-dev libnl-3-dev
+apt-get install -qq protobuf-c-compiler libprotobuf-c0-dev libaio-dev	\
+	libprotobuf-dev protobuf-compiler python-ipaddr libcap-dev	\
+	libnl-3-dev gcc-multilib libc6-dev-i386
 chmod a+x $HOME
 make GCOV=1
 make -C test/zdtm
