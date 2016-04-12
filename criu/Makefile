@@ -105,12 +105,12 @@ arch_lib: syscalls_lib
 
 #
 # PIE library code.
-pie/lib.a: arch_lib
+pie/native.lib.a: arch_lib
 	$(Q) $(MAKE) $(call build-as,Makefile.library,pie) all
 
 #
 # PIE code blobs themseves.
-pie: pie/lib.a
+pie: pie/native.lib.a
 	$(Q) $(MAKE) $(build)=pie all
 .PHONY: pie
 
@@ -118,7 +118,7 @@ pie: pie/lib.a
 # CRIU executable
 PROGRAM-BUILTINS	+= ../images/built-in.o
 PROGRAM-BUILTINS	+= built-in.o
-PROGRAM-BUILTINS	+= pie/lib.a
+PROGRAM-BUILTINS	+= pie/native.lib.a
 
 built-in.o: pie
 	$(Q) $(MAKE) $(call build-as,Makefile.crtools,.) all
