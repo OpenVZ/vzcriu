@@ -86,7 +86,12 @@ config: $(VERSION_HEADER)
 
 #
 # System calls library.
+ifeq ($(ARCH),x86)
+# Do not need 32-bit compatible syscall lib compiled in criu
+SYSCALL-LIB		:= $(ARCH_DIR)/syscalls-64.built-in.o
+else
 SYSCALL-LIB		:= $(ARCH_DIR)/syscalls.built-in.o
+endif
 syscalls_lib: config
 	$(Q) $(MAKE) $(call build-as,Makefile.syscalls,$(ARCH_DIR)) all
 .PHONY: syscalls_lib
