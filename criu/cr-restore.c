@@ -2257,7 +2257,7 @@ static int prepare_restorer_blob(void)
 	 * in turn will lead to set-exe-file prctl to fail with EBUSY.
 	 */
 
-	restorer_len = pie_size(restorer_blob);
+	restorer_len = pie_size(restorer);
 	restorer = mmap(NULL, restorer_len,
 			PROT_READ | PROT_WRITE | PROT_EXEC,
 			MAP_PRIVATE | MAP_ANON, 0, 0);
@@ -2281,7 +2281,7 @@ static int remap_restorer_blob(void *addr)
 		return -1;
 	}
 
-	ELF_RELOCS_APPLY_RESTORER(addr, addr);
+	ELF_RELOCS_APPLY(restorer, addr, addr);
 	return 0;
 }
 

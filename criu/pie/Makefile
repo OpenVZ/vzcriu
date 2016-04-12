@@ -77,7 +77,13 @@ $(obj)/%.built-in.bin.o: $(obj)/%.built-in.o $(obj)/native.lib.a $(obj)/$(PIELDS
 
 $(obj)/%-blob.h: $(obj)/%.built-in.bin.o $(obj)/$(PIELDS) $(SRC_DIR)/compel/compel
 	$(call msg-gen, $@)
-	$(Q) $(SRC_DIR)/compel/compel piegen -f $< -v $(call target-name,$@)_relocs -p $(call target-name,$@)_blob_offset__ -s $(call target-name,$@)_blob -u $(SRC_DIR)/compel/include/uapi -o $@ $(piegen_stdout)
+	$(Q) $(SRC_DIR)/compel/compel piegen -f $<		 	\
+		-v $(call target-name,$@)_relocs			\
+		-p $(call target-name,$@)_blob_offset__			\
+		-s $(call target-name,$@)_blob				\
+		-r $(call target-name,$@)_nr_gotpcrel			\
+		-u $(SRC_DIR)/compel/include/uapi			\
+		-o $@ $(piegen_stdout)
 
 else
 
