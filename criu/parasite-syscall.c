@@ -28,6 +28,7 @@
 #include "vma.h"
 #include "proc_parse.h"
 #include "aio.h"
+#include "fault-injection.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -44,7 +45,7 @@
 static int can_run_syscall(unsigned long ip, unsigned long start,
 			   unsigned long end, unsigned long pad)
 {
-	return ip >= start && ip < (end - code_syscall_size - pad);
+	return ip >= start && ip < (end - BUILTIN_SYSCALL_SIZE - pad);
 }
 
 static int syscall_fits_vma_area(struct vma_area *vma_area, unsigned long pad)
@@ -210,7 +211,8 @@ err:
 	return ret;
 }
 
-int __parasite_execute_syscall(struct parasite_ctl *ctl, user_regs_struct_t *regs)
+int __parasite_execute_syscall(struct parasite_ctl *ctl,
+		user_regs_struct_t *regs, const char *code_syscall)
 {
 	pid_t pid = ctl->pid.real;
 	int err;
@@ -809,14 +811,16 @@ struct parasite_tty_args *parasite_dump_tty(struct parasite_ctl *ctl, int fd, in
 }
 
 int parasite_drain_fds_seized(struct parasite_ctl *ctl,
-		struct parasite_drain_fd *dfds, int *lfds, struct fd_opts *opts)
+		struct parasite_drain_fd *dfds, int nr_fds, int off,
+		int *lfds, struct fd_opts *opts)
 {
 	int ret = -1, size;
 	struct parasite_drain_fd *args;
 
 	size = drain_fds_size(dfds);
 	args = parasite_args_s(ctl, size);
-	memcpy(args, dfds, size);
+	args->nr_fds = nr_fds;
+	memcpy(&args->fds, dfds->fds + off, sizeof(int) * nr_fds);
 
 	ret = __parasite_execute_daemon(PARASITE_CMD_DRAIN_FDS, ctl);
 	if (ret) {
@@ -824,7 +828,7 @@ int parasite_drain_fds_seized(struct parasite_ctl *ctl,
 		goto err;
 	}
 
-	ret = recv_fds(ctl->tsock, lfds, dfds->nr_fds, opts);
+	ret = recv_fds(ctl->tsock, lfds, nr_fds, opts);
 	if (ret)
 		pr_err("Can't retrieve FDs from socket\n");
 
@@ -972,7 +976,7 @@ int parasite_stop_on_syscall(int tasks, const int sys_nr, enum trace_flags trace
 			return -1;
 		}
 
-		pr_debug("%d is going to execute the syscall %lx\n", pid, REG_SYSCALL_NR(regs));
+		pr_debug("%d is going to execute the syscall %lu\n", pid, REG_SYSCALL_NR(regs));
 		if (REG_SYSCALL_NR(regs) == sys_nr) {
 			/*
 			 * The process is going to execute the required syscall,
@@ -1190,6 +1194,9 @@ static int parasite_memfd_exchange(struct parasite_ctl *ctl, unsigned long size)
 	pid_t pid = ctl->pid.real;
 	unsigned long sret = -ENOSYS;
 	int ret, fd, lfd;
+
+	if (fault_injected(FI_NO_MEMFD))
+		return 1;
 
 	BUILD_BUG_ON(sizeof(orig_code) < sizeof(long));
 

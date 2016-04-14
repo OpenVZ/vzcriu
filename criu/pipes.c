@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <sys/mman.h>
 
+#include "crtools.h"
 #include "imgset.h"
 #include "image.h"
 #include "files.h"
@@ -52,48 +53,26 @@ static int pipe_data_read(struct cr_img *img, struct pipe_data_rst *r)
 	return read_img_buf(img, r->data, bytes);
 }
 
-int collect_pipe_data(int img_type, struct pipe_data_rst **hash)
+int do_collect_pipe_data(struct pipe_data_rst *r, ProtobufCMessage *msg,
+		struct cr_img *img, struct pipe_data_rst **hash)
 {
-	int ret;
-	struct cr_img *img;
-	struct pipe_data_rst *r = NULL;
+	int aux;
 
-	img = open_image(img_type, O_RSTR);
-	if (!img)
-		return -1;
+	r->pde = pb_msg(msg, PipeDataEntry);
+	aux = pipe_data_read(img, r);
+	if (aux < 0)
+		return aux;
 
-	while (1) {
-		ret = -1;
-		r = xmalloc(sizeof(*r));
-		if (!r)
-			break;
-
-		ret = pb_read_one_eof(img, &r->pde, PB_PIPE_DATA);
-		if (ret <= 0)
-			break;
-
-		ret = pipe_data_read(img, r);
-		if (ret < 0)
-			break;
-
-		ret = r->pde->pipe_id & PIPE_DATA_HASH_MASK;
-		r->next = hash[ret];
-		hash[ret] = r;
-
-		pr_info("Collected pipe data for %#x (chain %u)\n",
-				r->pde->pipe_id, ret);
-	}
-
-	if (r && r->pde)
-		pipe_data_entry__free_unpacked(r->pde, NULL);
-	xfree(r);
-
-	close_image(img);
-	return ret;
+	aux = r->pde->pipe_id & PIPE_DATA_HASH_MASK;
+	r->next = hash[aux];
+	hash[aux] = r;
+	pr_info("Collected pipe data for %#x (chain %u)\n",
+			r->pde->pipe_id, aux);
+	return 0;
 }
 
 /* Choose who will restore a pipe. */
-void mark_pipe_master(void)
+static int mark_pipe_master(void *unused)
 {
 	LIST_HEAD(head);
 
@@ -156,6 +135,7 @@ void mark_pipe_master(void)
 	}
 
 	list_splice(&head, &pipes);
+	return 0;
 }
 
 static struct pipe_data_rst *pd_hash_pipes[PIPE_DATA_HASH_SIZE];
@@ -370,7 +350,7 @@ static struct file_desc_ops pipe_desc_ops = {
 	.name		= pipe_d_name,
 };
 
-static int collect_one_pipe(void *o, ProtobufCMessage *base)
+static int collect_one_pipe(void *o, ProtobufCMessage *base, struct cr_img *i)
 {
 	struct pipe_info *pi = o, *tmp;
 
@@ -394,6 +374,10 @@ static int collect_one_pipe(void *o, ProtobufCMessage *base)
 			list_add(&pi->pipe_list, &tmp->pipe_list);
 	}
 
+	if (list_empty(&pipes))
+		if (add_post_prepare_cb(mark_pipe_master, NULL))
+			return -1;
+
 	list_add_tail(&pi->list, &pipes);
 
 	return 0;
@@ -406,10 +390,17 @@ struct collect_image_info pipe_cinfo = {
 	.collect = collect_one_pipe,
 };
 
-int collect_pipes(void)
+static int collect_pipe_data(void *obj, ProtobufCMessage *msg, struct cr_img *img)
 {
-	return collect_pipe_data(CR_FD_PIPES_DATA, pd_hash_pipes);
+	return do_collect_pipe_data(obj, msg, img, pd_hash_pipes);
 }
+
+struct collect_image_info pipe_data_cinfo = {
+	.fd_type = CR_FD_PIPES_DATA,
+	.pb_type = PB_PIPE_DATA,
+	.priv_size = sizeof(struct pipe_data_rst),
+	.collect = collect_pipe_data,
+};
 
 int dump_one_pipe_data(struct pipe_data_dump *pd, int lfd, const struct fd_parms *p)
 {

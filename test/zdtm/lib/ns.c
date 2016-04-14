@@ -23,7 +23,7 @@ extern int pivot_root(const char *new_root, const char *put_old);
 static int prepare_mntns(void)
 {
 	int dfd, ret;
-	char *root;
+	char *root, *criu_path;
 	char path[PATH_MAX];
 
 	root = getenv("ZDTM_ROOT");
@@ -45,6 +45,16 @@ static int prepare_mntns(void)
 	if (mount(root, root, NULL, MS_BIND | MS_REC, NULL)) {
 		fprintf(stderr, "Can't bind-mount root: %m\n");
 		return -1;
+	}
+
+	criu_path = getenv("ZDTM_CRIU");
+	if (criu_path) {
+		snprintf(path, sizeof(path), "%s%s", root, criu_path);
+		if (mount(criu_path, path, NULL, MS_BIND, NULL) ||
+		    mount(NULL, path, NULL, MS_PRIVATE, NULL)) {
+			pr_perror("Unable to mount %s", path);
+			return -1;
+		}
 	}
 
 	/* Move current working directory to the new root */
@@ -239,7 +249,7 @@ int ns_init(int argc, char **argv)
 		.sa_flags	= SA_RESTART,
 	};
 	int ret, fd, status_pipe = STATUS_FD;
-	char buf[128];
+	char buf[128], *x;
 	pid_t pid;
 
 	ret = fcntl(status_pipe, F_SETFD, FD_CLOEXEC);
@@ -256,6 +266,10 @@ int ns_init(int argc, char **argv)
 		fprintf(stderr, "Can't set SIGTERM handler: %m\n");
 		exit(1);
 	}
+
+	x = malloc(strlen(pidfile) + 3);
+	sprintf(x, "%sns", pidfile);
+	pidfile = x;
 
 	/* Start test */
 	pid = fork();
@@ -335,11 +349,9 @@ int ns_init(int argc, char **argv)
 void ns_create(int argc, char **argv)
 {
 	pid_t pid;
-	char pname[PATH_MAX];
 	int ret, status;
 	struct ns_exec_args args;
-	int fd, flags;
-	char *val;
+	int flags;
 
 	args.argc = argc;
 	args.argv = argv;
@@ -353,8 +365,7 @@ void ns_create(int argc, char **argv)
 	flags = CLONE_NEWPID | CLONE_NEWNS | CLONE_NEWUTS |
 		CLONE_NEWNET | CLONE_NEWIPC | SIGCHLD;
 
-	val = getenv("ZDTM_USERNS");
-	if (val)
+	if (getenv("ZDTM_USERNS"))
 		flags |= CLONE_NEWUSER;
 
 	pid = clone(ns_exec, args.stack_ptr, flags, &args);
@@ -366,6 +377,9 @@ void ns_create(int argc, char **argv)
 	close(args.status_pipe[1]);
 
 	if (flags & CLONE_NEWUSER) {
+		char pname[PATH_MAX];
+		int fd;
+
 		snprintf(pname, sizeof(pname), "/proc/%d/uid_map", pid);
 		fd = open(pname, O_WRONLY);
 		if (fd < 0) {
@@ -404,21 +418,8 @@ void ns_create(int argc, char **argv)
 		exit(1);
 	}
 
-	pidfile = getenv("ZDTM_PIDFILE");
-	if (pidfile == NULL) {
-		fprintf(stderr, "ZDTM_PIDFILE isn't defined");
+	if (write_pidfile(pid))
 		exit(1);
-	}
-	fd = open(pidfile, O_CREAT | O_EXCL | O_WRONLY, 0666);
-	if (fd == -1) {
-		fprintf(stderr, "Can't create the file %s: %m\n", pidfile);
-		exit(1);
-	}
-	if (dprintf(fd, "%d", pid) == -1) {
-		fprintf(stderr, "Can't write in the file %s: %m\n", pidfile);
-		exit(1);
-	}
-	close(fd);
 
 	exit(0);
 }

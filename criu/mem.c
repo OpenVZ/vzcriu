@@ -20,6 +20,7 @@
 #include "restorer.h"
 #include "files-reg.h"
 #include "pagemap-cache.h"
+#include "fault-injection.h"
 
 #include "protobuf.h"
 #include "images/pagemap.pb-c.h"
@@ -175,7 +176,7 @@ static int generate_iovs(struct vma_area *vma, struct page_pipe *pp, u64 *map, u
 }
 
 static struct parasite_dump_pages_args *prep_dump_pages_args(struct parasite_ctl *ctl,
-		struct vm_area_list *vma_area_list)
+		struct vm_area_list *vma_area_list, struct page_pipe **pp_ret)
 {
 	struct parasite_dump_pages_args *args;
 	struct parasite_vma_entry *p_vma;
@@ -188,6 +189,12 @@ static struct parasite_dump_pages_args *prep_dump_pages_args(struct parasite_ctl
 
 	list_for_each_entry(vma, &vma_area_list->h, list) {
 		if (!vma_area_is_private(vma, kdat.task_size))
+			continue;
+		/*
+		 * Kernel write to aio ring is not soft-dirty tracked,
+		 * so we ignore them at pre-dump.
+		 */
+		if (vma_entry_is(vma->e, VMA_AREA_AIORING) && pp_ret)
 			continue;
 		if (vma->e->prot & PROT_READ)
 			continue;
@@ -297,17 +304,23 @@ static int __parasite_dump_pages_seized(struct parasite_ctl *ctl,
 	 */
 	args->off = 0;
 	list_for_each_entry(vma_area, &vma_area_list->h, list) {
+		bool has_parent = !!xfer.parent;
 		u64 off = 0;
 		u64 *map;
 
 		if (!vma_area_is_private(vma_area, kdat.task_size))
 			continue;
+		if (vma_entry_is(vma_area->e, VMA_AREA_AIORING)) {
+			if (pp_ret)
+				continue;
+			has_parent = false;
+		}
 
 		map = pmc_get_map(&pmc, vma_area);
 		if (!map)
 			goto out_xfer;
 again:
-		ret = generate_iovs(vma_area, pp, map, &off, xfer.parent);
+		ret = generate_iovs(vma_area, pp, map, &off, has_parent);
 		if (ret == -EAGAIN) {
 			BUG_ON(pp_ret);
 
@@ -353,7 +366,7 @@ int parasite_dump_pages_seized(struct parasite_ctl *ctl,
 	int ret;
 	struct parasite_dump_pages_args *pargs;
 
-	pargs = prep_dump_pages_args(ctl, vma_area_list);
+	pargs = prep_dump_pages_args(ctl, vma_area_list, pp);
 
 	/*
 	 * Add PROT_READ protection for all VMAs we're about to
@@ -370,9 +383,18 @@ int parasite_dump_pages_seized(struct parasite_ctl *ctl,
 		return ret;
 	}
 
+	if (fault_injected(FI_DUMP_PAGES)) {
+		pr_err("fault: Dump VMA pages failure!\n");
+		return -1;
+	}
+
 	ret = __parasite_dump_pages_seized(ctl, pargs, vma_area_list, pp);
-	if (ret)
+
+	if (ret) {
 		pr_err("Can't dump page with parasite\n");
+		/* Parasite will unprotect VMAs after fail in fini() */
+		return ret;
+	}
 
 	pargs->add_prot = 0;
 	if (parasite_execute_daemon(PARASITE_CMD_MPROTECT_VMAS, ctl)) {

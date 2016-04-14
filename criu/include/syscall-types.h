@@ -31,6 +31,7 @@ struct rusage;
 struct file_handle;
 struct robust_list_head;
 struct io_event;
+struct iocb;
 struct timespec;
 
 typedef unsigned long aio_context_t;
@@ -70,9 +71,6 @@ struct itimerspec;
 #endif
 
 #define CLONE_ALLNS	(CLONE_NEWPID | CLONE_NEWNET | CLONE_NEWIPC | CLONE_NEWUTS | CLONE_NEWNS | CLONE_NEWUSER | CLONE_NEWCGROUP)
-
-struct rlimit;
-struct rlimit64;
 
 struct krlimit {
 	unsigned long rlim_cur;

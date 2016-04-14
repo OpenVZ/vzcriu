@@ -78,7 +78,7 @@ int switch_ns(int pid, struct ns_desc *nd, int *rst)
 
 	nsfd = open_proc(pid, "ns/%s", nd->str);
 	if (nsfd < 0) {
-		pr_perror("Can't open ipcns file");
+		pr_perror("Can't open ns file");
 		goto err_ns;
 	}
 
@@ -412,7 +412,7 @@ static struct file_desc_ops ns_desc_ops = {
 	.open = open_ns_fd,
 };
 
-static int collect_one_nsfile(void *o, ProtobufCMessage *base)
+static int collect_one_nsfile(void *o, ProtobufCMessage *base, struct cr_img *img)
 {
 	struct ns_file_info *nfi = o;
 

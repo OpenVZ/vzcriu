@@ -40,6 +40,7 @@
 #include "cr_options.h"
 #include "namespaces.h"
 #include "pstree.h"
+#include "fault-injection.h"
 
 #include "protobuf.h"
 #include "images/fsnotify.pb-c.h"
@@ -209,7 +210,6 @@ static int open_handle(unsigned int s_dev, unsigned long i_ino,
 
 	fd = userns_call(open_by_handle, UNS_FDOUT, &handle, sizeof(handle), mntfd);
 	if (fd < 0) {
-		errno = -fd;
 		pr_perror("Can't open file handle for 0x%08x:0x%016lx",
 				s_dev, i_ino);
 	}
@@ -225,7 +225,13 @@ int check_open_handle(unsigned int s_dev, unsigned long i_ino,
 	int fd = -1;
 	char *path;
 
+	if (fault_injected(FI_CHECK_OPEN_HANDLE)) {
+		fd = -1;
+		goto fault;
+	}
+
 	fd = open_handle(s_dev, i_ino, f_handle);
+fault:
 	if (fd >= 0) {
 		struct mount_info *mi;
 
@@ -718,7 +724,6 @@ static int open_fanotify_fd(struct file_desc *d)
 
 	ret = fanotify_init(flags, info->ffe->evflags);
 	if (ret < 0) {
-		errno = -ret;
 		pr_perror("Can't init fanotify mark (%d)", ret);
 		return -1;
 	}
@@ -823,7 +828,7 @@ static int collect_fanotify_mark(struct fsnotify_mark_info *mark)
 	return -1;
 }
 
-static int collect_one_inotify(void *o, ProtobufCMessage *msg)
+static int collect_one_inotify(void *o, ProtobufCMessage *msg, struct cr_img *img)
 {
 	struct fsnotify_file_info *info = o;
 	int i;
@@ -858,7 +863,7 @@ struct collect_image_info inotify_cinfo = {
 	.collect	= collect_one_inotify,
 };
 
-static int collect_one_fanotify(void *o, ProtobufCMessage *msg)
+static int collect_one_fanotify(void *o, ProtobufCMessage *msg, struct cr_img *img)
 {
 	struct fsnotify_file_info *info = o;
 	int i;
@@ -893,7 +898,7 @@ struct collect_image_info fanotify_cinfo = {
 	.collect	= collect_one_fanotify,
 };
 
-static int collect_one_inotify_mark(void *o, ProtobufCMessage *msg)
+static int collect_one_inotify_mark(void *o, ProtobufCMessage *msg, struct cr_img *i)
 {
 	struct fsnotify_mark_info *mark = o;
 
@@ -921,7 +926,7 @@ struct collect_image_info inotify_mark_cinfo = {
 	.collect	= collect_one_inotify_mark,
 };
 
-static int collect_one_fanotify_mark(void *o, ProtobufCMessage *msg)
+static int collect_one_fanotify_mark(void *o, ProtobufCMessage *msg, struct cr_img *i)
 {
 	struct fsnotify_mark_info *mark = o;
 

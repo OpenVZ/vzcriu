@@ -170,8 +170,8 @@ static int dump_sched_info(int pid, ThreadCoreEntry *tc)
 
 	errno = 0;
 	ret = getpriority(PRIO_PROCESS, pid);
-	if (errno) {
-		pr_perror("Can't get nice for %d", pid);
+	if (ret == -1 && errno) {
+		pr_perror("Can't get nice for %d ret %d", pid, ret);
 		return -1;
 	}
 
@@ -184,10 +184,11 @@ static int dump_sched_info(int pid, ThreadCoreEntry *tc)
 
 struct cr_imgset *glob_imgset;
 
-static int collect_fds(pid_t pid, struct parasite_drain_fd *dfds)
+static int collect_fds(pid_t pid, struct parasite_drain_fd **dfds)
 {
 	struct dirent *de;
 	DIR *fd_dir;
+	int size = 0;
 	int n;
 
 	pr_info("\n");
@@ -203,13 +204,20 @@ static int collect_fds(pid_t pid, struct parasite_drain_fd *dfds)
 		if (dir_dots(de))
 			continue;
 
-		if (n > PARASITE_MAX_FDS - 1)
-			return -ENOMEM;
+		if (sizeof(struct parasite_drain_fd) + sizeof(int) * (n + 1) > size) {
+			struct parasite_drain_fd *t;
 
-		dfds->fds[n++] = atoi(de->d_name);
+			size += PAGE_SIZE;
+			t = xrealloc(*dfds, size);
+			if (!t)
+				return -1;
+			*dfds = t;
+		}
+
+		(*dfds)->fds[n++] = atoi(de->d_name);
 	}
 
-	dfds->nr_fds = n;
+	(*dfds)->nr_fds = n;
 	pr_info("Found %d file descriptors\n", n);
 	pr_info("----------------------------------------\n");
 
@@ -307,9 +315,9 @@ static int dump_task_rlimits(int pid, TaskRlimitsEntry *rls)
 	int res;
 
 	for (res = 0; res <rls->n_rlimits ; res++) {
-		struct rlimit lim;
+		struct rlimit64 lim;
 
-		if (prlimit(pid, res, NULL, &lim)) {
+		if (syscall(__NR_prlimit64, pid, res, NULL, &lim)) {
 			pr_perror("Can't get rlimit %d", res);
 			return -1;
 		}
@@ -522,7 +530,7 @@ static int get_task_futex_robust_list(pid_t pid, ThreadCoreEntry *info)
 	int ret;
 
 	ret = syscall(SYS_get_robust_list, pid, &head, &len);
-	if (ret == -ENOSYS) {
+	if (ret < 0 && errno == ENOSYS) {
 		/*
 		 * If the kernel says get_robust_list is not implemented, then
 		 * check whether set_robust_list is also not implemented, in
@@ -534,7 +542,8 @@ static int get_task_futex_robust_list(pid_t pid, ThreadCoreEntry *info)
 		 * implemented, in which case it will return -EINVAL because
 		 * len should be greater than zero.
 		 */
-		if (syscall(SYS_set_robust_list, NULL, 0) != -ENOSYS)
+		ret = syscall(SYS_set_robust_list, NULL, 0);
+		if (ret == 0 || (ret < 0 && errno != ENOSYS))
 			goto err;
 
 		head = NULL;
@@ -631,7 +640,7 @@ int get_task_ids(struct pstree_item *item)
 
 	task_kobj_ids_entry__init(item->ids);
 
-	if (item->pid.state != TASK_DEAD) {
+	if (item->state != TASK_DEAD) {
 		ret = dump_task_kobj_ids(item);
 		if (ret)
 			goto err_free;
@@ -713,7 +722,7 @@ static int dump_task_core_all(struct parasite_ctl *ctl,
 
 	strlcpy((char *)core->tc->comm, stat->comm, TASK_COMM_LEN);
 	core->tc->flags = stat->flags;
-	core->tc->task_state = item->pid.state;
+	core->tc->task_state = item->state;
 	core->tc->exit_code = 0;
 
 	ret = parasite_dump_thread_leader_seized(ctl, pid, core);
@@ -768,14 +777,14 @@ static int collect_pstree_ids_predump(void)
 	 * write_img_inventory().
 	 */
 
-	crt.i.pid.state = TASK_ALIVE;
+	crt.i.state = TASK_ALIVE;
 	crt.i.pid.real = getpid();
 
 	if (predump_task_ns_ids(&crt.i))
 		return -1;
 
 	for_each_pstree_item(item) {
-		if (item->pid.state == TASK_DEAD)
+		if (item->state == TASK_DEAD)
 			continue;
 
 		if (predump_task_ns_ids(item))
@@ -1060,7 +1069,7 @@ static int dump_zombies(void)
 	 */
 
 	for_each_pstree_item(item) {
-		if (item->pid.state != TASK_DEAD)
+		if (item->state != TASK_DEAD)
 			continue;
 
 		if (item->pid.virt < 0) {
@@ -1108,12 +1117,12 @@ static int pre_dump_one_task(struct pstree_item *item, struct list_head *ctls)
 	pr_info("Pre-dumping task (pid: %d)\n", pid);
 	pr_info("========================================\n");
 
-	if (item->pid.state == TASK_STOPPED) {
+	if (item->state == TASK_STOPPED) {
 		pr_warn("Stopped tasks are not supported\n");
 		return 0;
 	}
 
-	if (item->pid.state == TASK_DEAD)
+	if (item->state == TASK_DEAD)
 		return 0;
 
 	ret = collect_mappings(pid, &vmas);
@@ -1185,7 +1194,7 @@ static int dump_one_task(struct pstree_item *item)
 	pr_info("Dumping task (pid: %d)\n", pid);
 	pr_info("========================================\n");
 
-	if (item->pid.state == TASK_DEAD)
+	if (item->state == TASK_DEAD)
 		/*
 		 * zombies are dumped separately in dump_zombies()
 		 */
@@ -1207,7 +1216,7 @@ static int dump_one_task(struct pstree_item *item)
 		if (!dfds)
 			goto err;
 
-		ret = collect_fds(pid, dfds);
+		ret = collect_fds(pid, &dfds);
 		if (ret) {
 			pr_err("Collect fds (pid: %d) failed with %d\n", pid, ret);
 			goto err;
@@ -1262,7 +1271,7 @@ static int dump_one_task(struct pstree_item *item)
 		goto err_cure_imgset;
 	}
 
-	ret = parasite_check_aios(parasite_ctl, &vmas); /* FIXME -- merge with above */
+	ret = parasite_collect_aios(parasite_ctl, &vmas); /* FIXME -- merge with above */
 	if (ret) {
 		pr_err("Failed to check aio rings (pid: %d)\n", pid);
 		goto err_cure_imgset;

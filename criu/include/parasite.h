@@ -139,6 +139,7 @@ struct parasite_dump_posix_timers_args {
 
 struct parasite_aio {
 	unsigned long ctx;
+	unsigned int size;
 	unsigned int max_reqs;
 	unsigned int *vma_nr_reqs;
 };
@@ -221,16 +222,28 @@ static inline void copy_sas(ThreadSasEntry *dst, const stack_t *src)
 	dst->ss_flags = src->ss_flags;
 }
 
-#define PARASITE_MAX_FDS	(PAGE_SIZE / sizeof(int))
+/*
+ * How many descriptrs can be transfered from parasite:
+ *
+ * 1) struct parasite_drain_fd + all descriptors should fit into one page
+ * 2) The value should be a multiple of CR_SCM_MAX_FD, because descriptors
+ *    are transfered with help of send_fds and recv_fds.
+ * 3) criu should work with a defaul value of the file limit (1024)
+ */
+#define PARASITE_MAX_FDS	CR_SCM_MAX_FD * 3
 
 struct parasite_drain_fd {
 	int	nr_fds;
-	int	fds[PARASITE_MAX_FDS];
+	int	fds[0];
 };
 
 static inline int drain_fds_size(struct parasite_drain_fd *dfds)
 {
-	return sizeof(dfds->nr_fds) + dfds->nr_fds * sizeof(dfds->fds[0]);
+	int nr_fds = min((int)PARASITE_MAX_FDS, dfds->nr_fds);
+
+	BUILD_BUG_ON(sizeof(*dfds) + PARASITE_MAX_FDS * sizeof(dfds->fds[0]) > PAGE_SIZE);
+
+	return sizeof(dfds) + nr_fds * sizeof(dfds->fds[0]);
 }
 
 struct parasite_tty_args {

@@ -70,7 +70,7 @@ unsigned long aio_rings_args_size(struct vm_area_list *vmas)
 		vmas->nr_aios * sizeof(struct parasite_aio);
 }
 
-int parasite_check_aios(struct parasite_ctl *ctl, struct vm_area_list *vmas)
+int parasite_collect_aios(struct parasite_ctl *ctl, struct vm_area_list *vmas)
 {
 	struct vma_area *vma;
 	struct parasite_check_aios_args *aa;
@@ -99,6 +99,7 @@ int parasite_check_aios(struct parasite_ctl *ctl, struct vm_area_list *vmas)
 		pr_debug(" `- Ring #%ld @%"PRIx64"\n",
 				(long)(pa - &aa->ring[0]), vma->e->start);
 		pa->ctx = vma->e->start;
+		pa->size = vma->e->end - vma->e->start;
 		pa->max_reqs = 0;
 		pa->vma_nr_reqs = &vma->aio_nr_req;
 		pa++;

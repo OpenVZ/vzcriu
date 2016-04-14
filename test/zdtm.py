@@ -18,6 +18,8 @@ import imp
 import socket
 import fcntl
 import errno
+import datetime
+import yaml
 
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
@@ -76,6 +78,8 @@ def add_to_report(path, tgt_name):
 		if os.path.isdir(path):
 			shutil.copytree(path, tgt_path)
 		else:
+			if not os.path.exists(os.path.dirname(tgt_path)):
+				os.mkdir(os.path.dirname(tgt_path))
 			shutil.copy2(path, tgt_path)
 
 
@@ -237,6 +241,12 @@ flavors = { 'h': host_flavor, 'ns': ns_flavor, 'uns': userns_flavor }
 # Helpers
 #
 
+def encode_flav(f):
+	return (flavors.keys().index(f) + 128)
+
+def decode_flav(i):
+	return flavors.keys()[i - 128]
+
 def tail(path):
 	p = subprocess.Popen(['tail', '-n1', path],
 			stdout = subprocess.PIPE)
@@ -312,10 +322,7 @@ class zdtm_test:
 			self.__freezer.freeze()
 
 	def __pidfile(self):
-		if self.__flavor.ns:
-			return self.__name + '.init.pid'
-		else:
-			return self.__name + '.pid'
+		return self.__name + '.pid'
 
 	def __wait_task_die(self):
 		wait_pid_die(int(self.__pid), self.__name)
@@ -346,12 +353,18 @@ class zdtm_test:
 
 		if self.__flavor.ns:
 			env['ZDTM_NEWNS'] = "1"
-			env['ZDTM_PIDFILE'] = os.path.realpath(self.__name + '.init.pid')
 			env['ZDTM_ROOT'] = self.__flavor.root
+			env['PATH'] = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 			if self.__flavor.uns:
 				env['ZDTM_USERNS'] = "1"
 				self.__add_wperms()
+			if os.getenv("GCOV"):
+				criu_dir = os.path.dirname(os.getcwd())
+				criu_dir_r = "%s%s" % (self.__flavor.root, criu_dir)
+
+				env['ZDTM_CRIU'] = os.path.dirname(os.getcwd());
+				subprocess.check_call(["mkdir", "-p", criu_dir_r])
 
 		self.__make_action('pid', env, self.__flavor.root)
 
@@ -359,6 +372,11 @@ class zdtm_test:
 			os.kill(int(self.getpid()), 0)
 		except:
 			raise test_fail_exc("start")
+
+		if not self.static():
+			# Wait less than a second to give the test chance to
+			# move into some semi-random state
+			time.sleep(random.random())
 
 	def kill(self, sig = signal.SIGKILL):
 		self.__freezer.thaw()
@@ -408,7 +426,7 @@ class zdtm_test:
 
 		self.__wait_task_die()
 		self.__pid = 0
-		if force or self.__flavor.ns:
+		if force:
 			os.unlink(self.__pidfile())
 
 	def print_output(self):
@@ -661,7 +679,7 @@ class criu_cli:
 		ret = self.__criu(action, s_args, self.__fault, strace, preexec)
 		grep_errors(os.path.join(__ddir, log))
 		if ret != 0:
-			if self.__fault:
+			if self.__fault and int(self.__fault) < 128:
 				try_run_hook(self.__test, ["--fault", action])
 				if action == "dump":
 					# create a clean directory for images
@@ -707,6 +725,11 @@ class criu_cli:
 
 		a_opts += [ "--timeout", "10" ]
 
+		criu_dir = os.path.dirname(os.getcwd())
+		if os.getenv("GCOV"):
+			a_opts.append("--ext-mount-map")
+			a_opts.append("%s:zdtm" % criu_dir)
+
 		self.__criu_act(action, opts = a_opts + opts)
 
 		if self.__page_server:
@@ -720,6 +743,10 @@ class criu_cli:
 		r_opts += self.__test.getropts()
 
 		self.__prev_dump_iter = None
+		criu_dir = os.path.dirname(os.getcwd())
+		if os.getenv("GCOV"):
+			r_opts.append("--ext-mount-map")
+			r_opts.append("zdtm:%s" % criu_dir)
 		self.__criu_act("restore", opts = r_opts + ["--restore-detached"])
 
 	@staticmethod
@@ -780,6 +807,7 @@ def cr(cr_api, test, opts):
 				cr_api.dump("dump", opts = ["--leave-running"])
 			else:
 				cr_api.dump("pre-dump")
+				try_run_hook(test, ["--post-pre-dump"])
 			time.sleep(pres[1])
 
 		sbs('pre-dump')
@@ -939,6 +967,8 @@ def do_run_test(tname, tdesc, flavs, opts):
 	for f in flavs:
 		print
 		print_sep("Run %s in %s" % (tname, f))
+		if opts['dry_run']:
+			continue
 		flav = flavors[f](opts)
 		t = tclass(tname, tdesc, flav, fcg)
 		cr_api = criu_cli(opts)
@@ -959,12 +989,14 @@ def do_run_test(tname, tdesc, flavs, opts):
 			print_sep("Test %s FAIL at %s" % (tname, e.step), '#')
 			t.print_output()
 			t.kill()
-			add_to_report(cr_api.logs(), "cr_logs")
+			if cr_api.logs():
+				add_to_report(cr_api.logs(), tname.replace('/', '_') + "_" + f + "/images")
 			if opts['keep_img'] == 'never':
 				cr_api.cleanup()
-			# This exit does two things -- exits from subprocess and
-			# aborts the main script execution on the 1st error met
-			sys.exit(1)
+			# When option --keep-going not specified this exit
+			# does two things: exits from subprocess and aborts the
+			# main script execution on the 1st error met
+			sys.exit(encode_flav(f))
 		else:
 			if opts['keep_img'] != 'always':
 				cr_api.cleanup()
@@ -974,16 +1006,33 @@ class launcher:
 	def __init__(self, opts, nr_tests):
 		self.__opts = opts
 		self.__total = nr_tests
+		self.__runtest = 0
 		self.__nr = 0
 		self.__max = int(opts['parallel'] or 1)
 		self.__subs = {}
 		self.__fail = False
+		self.__file_report = None
 		if self.__max > 1 and self.__total > 1:
 			self.__use_log = True
 		elif opts['report']:
 			self.__use_log = True
 		else:
 			self.__use_log = False
+
+		if opts['report'] and (opts['keep_going'] or self.__total == 1):
+			now = datetime.datetime.now()
+			att = 0
+			reportname = os.path.join(report_dir, "criu-testreport.tap")
+			while os.access(reportname, os.F_OK):
+				reportname = os.path.join(report_dir, "criu-testreport" + ".%d.tap" % att)
+				att += 1
+
+			self.__file_report = open(reportname, 'a')
+			print >> self.__file_report, "# Hardware architecture: " + arch
+			print >> self.__file_report, "# Timestamp: " + now.strftime("%Y-%m-%d %H:%M") + " (GMT+1)"
+			print >> self.__file_report, "# "
+			print >> self.__file_report, "TAP version 13"
+			print >> self.__file_report, "1.." + str(nr_tests)
 
 	def __show_progress(self):
 		perc = self.__nr * 16 / self.__total
@@ -992,6 +1041,10 @@ class launcher:
 	def skip(self, name, reason):
 		print "Skipping %s (%s)" % (name, reason)
 		self.__nr += 1
+		self.__runtest += 1
+		if self.__file_report:
+			testline = "ok %d - %s # SKIP %s" % (self.__runtest, name, reason)
+			print >> self.__file_report, testline
 
 	def run_test(self, name, desc, flavor):
 
@@ -1006,7 +1059,7 @@ class launcher:
 
 		nd = ('nocr', 'norst', 'pre', 'iters', 'page_server', 'sibling', \
 				'fault', 'keep_img', 'report', 'snaps', 'sat', \
-				'dedup', 'sbs', 'freezecg', 'user')
+				'dedup', 'sbs', 'freezecg', 'user', 'dry_run')
 		arg = repr((name, desc, flavor, { d: self.__opts[d] for d in nd }))
 
 		if self.__use_log:
@@ -1018,20 +1071,31 @@ class launcher:
 
 		sub = subprocess.Popen(["./zdtm_ct", "zdtm.py"], \
 				env = dict(os.environ, CR_CT_TEST_INFO = arg ), \
-				stdout = log, stderr = subprocess.STDOUT)
-		self.__subs[sub.pid] = { 'sub': sub, 'log': logf }
+				stdout = log, stderr = subprocess.STDOUT, close_fds = True)
+		self.__subs[sub.pid] = { 'sub': sub, 'log': logf, 'name': name }
 
 		if test_flag(desc, 'excl'):
 			self.wait()
 
 	def __wait_one(self, flags):
 		pid, status = os.waitpid(0, flags)
+		self.__runtest += 1
 		if pid != 0:
 			sub = self.__subs.pop(pid)
 			if status != 0:
 				self.__fail = True
+				failed_flavor = decode_flav(os.WEXITSTATUS(status))
+				if self.__file_report:
+					testline = "not ok %d - %s # flavor %s" % (self.__runtest, sub['name'], failed_flavor)
+					details = { 'output': open(sub['log']).read() }
+					print >> self.__file_report, testline
+					print >> self.__file_report, yaml.dump(details, explicit_start=True, explicit_end=True, default_style='|')
 				if sub['log']:
-					add_to_report(sub['log'], "output")
+					add_to_report(sub['log'], sub['name'].replace('/', '_') + "_" + failed_flavor + "/output")
+			else:
+				if self.__file_report:
+					testline = "ok %d - %s" % (self.__runtest, sub['name'])
+					print >> self.__file_report, testline
 
 			if sub['log']:
 				print open(sub['log']).read()
@@ -1050,16 +1114,18 @@ class launcher:
 		while self.__subs:
 			if not self.__wait_one(os.WNOHANG):
 				break
-		if self.__fail:
+		if self.__fail and not opts['keep_going']:
 			raise test_fail_exc('')
 
 	def wait_all(self):
 		self.__wait_all()
-		if self.__fail:
+		if self.__fail and not opts['keep_going']:
 			raise test_fail_exc('')
 
 	def finish(self):
 		self.__wait_all()
+		if self.__file_report:
+			self.__file_report.close()
 		if self.__fail:
 			print_sep("FAIL", "#")
 			sys.exit(1)
@@ -1122,16 +1188,29 @@ def run_tests(opts):
 	excl = None
 	features = {}
 
+	if opts['keep_going'] and (not opts['all']):
+		print "[WARNING] Option --keep-going is more useful with option --all."
+
 	if opts['all']:
 		torun = all_tests(opts)
 		run_all = True
 	elif opts['tests']:
 		r = re.compile(opts['tests'])
 		torun = filter(lambda x: r.match(x), all_tests(opts))
+		opts['keep_going'] = False
 		run_all = True
 	elif opts['test']:
 		torun = opts['test']
+		opts['keep_going'] = False
 		run_all = False
+	elif opts['from']:
+		if not os.access(opts['from'], os.R_OK):
+			print "No such file"
+			return
+
+		torun = map(lambda x: x.strip(), open(opts['from']))
+		opts['keep_going'] = False
+		run_all = True
 	else:
 		print "Specify test with -t <name> or -a"
 		return
@@ -1194,22 +1273,10 @@ def run_tests(opts):
 			else:
 				run_flavs = set([test_flavs.pop()])
 			if not criu_cli.check("userns"):
-				try:
-					run_flavs.remove("uns")
-				except KeyError:
-					# don't worry if uns isn't in run_flavs
-					pass
-
+				run_flavs -= set(['uns'])
 			if opts['user']:
 				# FIXME -- probably uns will make sense
-				try:
-					run_flavs.remove("ns")
-				except KeyError:
-					pass
-				try:
-					run_flavs.remove("uns")
-				except KeyError:
-					pass
+				run_flavs -= set(['ns', 'uns'])
 
 			if run_flavs:
 				l.run_test(t, tdesc, run_flavs)
@@ -1266,6 +1333,24 @@ class group:
 	def size(self):
 		return len(self.__tests)
 
+	# common method to write a "meta" auxiliary script (hook/checkskip)
+	# which will call all tests' scripts in turn
+	def __dump_meta(self, fname, ext):
+		scripts = filter(lambda names: os.access(names[1], os.X_OK),
+		                 map(lambda test: (test, test + ext),
+		                     self.__tests))
+		if scripts:
+			f = open(fname + ext, "w")
+			f.write("#!/bin/sh -e\n")
+
+			for test, script in scripts:
+				f.write("echo 'Running %s for %s'\n" % (ext, test))
+				f.write('%s "$@"\n' % script)
+
+			f.write("echo 'All %s scripts OK'\n" % ext)
+			f.close()
+			os.chmod(fname + ext, 0700)
+
 	def dump(self, fname):
 		f = open(fname, "w")
 		for t in self.__tests:
@@ -1280,6 +1365,9 @@ class group:
 			f.write(repr(self.__desc))
 			f.close()
 
+		# write "meta" .checkskip and .hook scripts
+		self.__dump_meta(fname, '.checkskip')
+		self.__dump_meta(fname, '.hook')
 
 def group_tests(opts):
 	excl = None
@@ -1318,7 +1406,7 @@ def group_tests(opts):
 	suf = opts['name'] or 'group'
 
 	for g in groups:
-		if g.size() == 1: # Not much point in group test for this
+		if maxs > 1 and g.size() == 1: # Not much point in group test for this
 			continue
 
 		fn = os.path.join("groups", "%s.%d" % (suf, nr))
@@ -1352,7 +1440,9 @@ if os.environ.has_key('CR_CT_TEST_INFO'):
 		while True:
 			wpid, status = os.wait()
 			if wpid == pid:
-				if not os.WIFEXITED(status) or os.WEXITSTATUS(status) != 0:
+				if os.WIFEXITED(status):
+					status = os.WEXITSTATUS(status)
+				else:
 					status = 1
 				break;
 
@@ -1369,6 +1459,7 @@ rp.set_defaults(action = run_tests)
 rp.add_argument("-a", "--all", action = 'store_true')
 rp.add_argument("-t", "--test", help = "Test name", action = 'append')
 rp.add_argument("-T", "--tests", help = "Regexp")
+rp.add_argument("-F", "--from", help = "From file")
 rp.add_argument("-f", "--flavor", help = "Flavor to run")
 rp.add_argument("-x", "--exclude", help = "Exclude tests from --all run", action = 'append')
 
@@ -1387,10 +1478,12 @@ rp.add_argument("--user", help = "Run CRIU as regular user", action = 'store_tru
 
 rp.add_argument("--page-server", help = "Use page server dump", action = 'store_true')
 rp.add_argument("-p", "--parallel", help = "Run test in parallel")
+rp.add_argument("--dry-run", help="Don't run tests, just pretend to", action='store_true')
 
 rp.add_argument("-k", "--keep-img", help = "Whether or not to keep images after test",
 		choices = [ 'always', 'never', 'failed' ], default = 'failed')
 rp.add_argument("--report", help = "Generate summary report in directory")
+rp.add_argument("--keep-going", help = "Keep running tests in spite of failures", action = 'store_true')
 
 lp = sp.add_parser("list", help = "List tests")
 lp.set_defaults(action = list_tests)

@@ -281,8 +281,43 @@ bool phys_stat_dev_match(dev_t st_dev, dev_t phys_dev,
  */
 static bool mounts_sb_equal(struct mount_info *a, struct mount_info *b)
 {
-	return a->s_dev == b->s_dev && a->fstype == b->fstype &&
-		!strcmp(a->source, b->source) && !strcmp(a->options, b->options);
+	if (a->fstype != b->fstype)
+		return false;
+
+	/* There is a btrfs bug where it doesn't emit subvol= correctly when
+	 * files are bind mounted, so let's ignore it for now.
+	 * https://marc.info/?l=linux-btrfs&m=145857372803614&w=2
+	 */
+	if (!strcmp(a->fstype->name, "btrfs")) {
+		char *posa = strstr(a->options, "subvol="), *posb = strstr(b->options, "subvol=");
+		bool equal;
+
+		if (!posa || !posb) {
+			pr_err("invalid btrfs options, no subvol argument");
+			return false;
+		}
+
+		*posa = *posb = 0;
+		equal = !strcmp(a->options, b->options);
+		*posa = *posb = 's';
+
+		if (!equal)
+			return false;
+
+		posa = strchr(posa, ',');
+		posb = strchr(posb, ',');
+
+		if ((posa && !posb) || (!posa && posb))
+			return false;
+
+		if (posa && strcmp(posa, posb))
+			return false;
+	} else {
+		if (strcmp(a->options, b->options))
+			return false;
+	}
+
+	return a->s_dev == b->s_dev && !strcmp(a->source, b->source);
 }
 
 /*
@@ -1597,6 +1632,22 @@ out:
 	return ret;
 }
 
+static int cgroup_parse(struct mount_info *pm)
+{
+	if (!(root_ns_mask & CLONE_NEWCGROUP))
+		return 0;
+
+	/* cgroup namespaced mounts don't look rooted to CRIU, so let's fake it
+	 * here.
+	 */
+	xfree(pm->root);
+	pm->root = xstrdup("/");
+	if (!pm->root)
+		return -1;
+
+	return 0;
+}
+
 static int dump_empty_fs(struct mount_info *pm)
 {
 	int fd, ret = -1;
@@ -1682,6 +1733,7 @@ static struct fstype fstypes[32] = {
 	}, {
 		.name = "cgroup",
 		.code = FSTYPE__CGROUP,
+		.parse = cgroup_parse,
 	}, {
 		.name = "aufs",
 		.code = FSTYPE__AUFS,

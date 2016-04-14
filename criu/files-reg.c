@@ -360,16 +360,17 @@ static int open_remap_dead_process(struct reg_file_info *rfi,
 {
 	struct pstree_item *helper;
 
-	helper = lookup_create_item(rfe->remap_id);
-	if (!helper)
-		return -1;
+	for_each_pstree_item(helper) {
 
-	if (helper->pid.state != TASK_UNDEF) {
+		if (helper->pid.virt == rfe->remap_id) {
 		pr_info("Skipping helper for restoring /proc/%d; pid exists\n", rfe->remap_id);
 		return 0;
+		}
 	}
 
-	init_pstree_helper(helper);
+	helper = alloc_pstree_helper();
+	if (!helper)
+		return -1;
 
 	helper->sid = root_item->sid;
 	helper->pgid = root_item->pgid;
@@ -388,7 +389,7 @@ struct remap_info {
 	struct reg_file_info *rfi;
 };
 
-static int collect_one_remap(void *obj, ProtobufCMessage *msg)
+static int collect_one_remap(void *obj, ProtobufCMessage *msg, struct cr_img *i)
 {
 	struct remap_info *ri = obj;
 	RemapFilePathEntry *rfe;
@@ -1656,7 +1657,7 @@ struct file_desc *try_collect_special_file(u32 id, int optional)
 	return fdesc;
 }
 
-static int collect_one_regfile(void *o, ProtobufCMessage *base)
+static int collect_one_regfile(void *o, ProtobufCMessage *base, struct cr_img *i)
 {
 	struct reg_file_info *rfi = o;
 	static char dot[] = ".";

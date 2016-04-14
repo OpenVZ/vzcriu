@@ -3,6 +3,7 @@
 
 #include <linux/securebits.h>
 #include <linux/capability.h>
+#include <linux/aio_abi.h>
 #include <sys/types.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -16,6 +17,7 @@
 #include <signal.h>
 
 #include "compiler.h"
+#include "asm/string.h"
 #include "asm/types.h"
 #include "syscall.h"
 #include "config.h"
@@ -394,8 +396,7 @@ die:
 	return -1;
 }
 
-static int restore_thread_common(struct rt_sigframe *sigframe,
-		struct thread_restore_args *args)
+static int restore_thread_common(struct thread_restore_args *args)
 {
 	sys_set_tid_address((int *)decode_pointer(args->clear_tid_addr));
 
@@ -452,7 +453,7 @@ long __export_restore_thread(struct thread_restore_args *args)
 
 	rt_sigframe = (void *)args->mem_zone.rt_sigframe;
 
-	if (restore_thread_common(rt_sigframe, args))
+	if (restore_thread_common(args))
 		goto core_restore_end;
 
 	ret = restore_creds(args->creds_args, args->ta->proc_fd);
@@ -544,6 +545,136 @@ static unsigned long restore_mapping(const VmaEntry *vma_entry)
 		sys_close(vma_entry->fd);
 
 	return addr;
+}
+
+/*
+ * This restores aio ring header, content, head and in-kernel position
+ * of tail. To set tail, we write to /dev/null and use the fact this
+ * operation is synchronious for the device. Also, we unmap temporary
+ * anonymous area, used to store content of ring buffer during restore
+ * and mapped in map_private_vma().
+ */
+static int restore_aio_ring(struct rst_aio_ring *raio)
+{
+	struct aio_ring *ring = (void *)raio->addr, *new;
+	int i, maxr, count, fd, ret;
+	unsigned head = ring->head;
+	unsigned tail = ring->tail;
+	struct iocb *iocb, **iocbp;
+	unsigned long ctx = 0;
+	unsigned size;
+	char buf[1];
+
+	ret = sys_io_setup(raio->nr_req, &ctx);
+	if (ret < 0) {
+		pr_err("Ring setup failed with %d\n", ret);
+		return -1;
+	}
+
+	new = (struct aio_ring *)ctx;
+	i = (raio->len - sizeof(struct aio_ring)) / sizeof(struct io_event);
+	if (tail >= ring->nr || head >= ring->nr || ring->nr != i ||
+	    new->nr != ring->nr) {
+		pr_err("wrong aio parametrs: tail=%x head=%x nr=%x len=%lx\n",
+			tail, head, raio->nr_req, raio->len);
+		return -1;
+	}
+
+	if (tail == 0 && head == 0)
+		goto populate;
+
+	fd = sys_open("/dev/null", O_WRONLY, 0);
+	if (fd < 0) {
+		pr_err("Can't open /dev/null for aio\n");
+		return -1;
+	}
+
+	/*
+	 * If tail < head, we have to do full turn and then submit
+	 * tail more request, i.e. ring->nr + tail.
+	 * If we do not do full turn, in-kernel completed_events
+	 * will initialize wrong.
+	 *
+	 * Maximum number reqs to submit at once are ring->nr-1,
+	 * so we won't allocate more.
+	 */
+	if (tail < head)
+		count = ring->nr + tail;
+	else
+		count = tail;
+	maxr = min_t(unsigned, count, ring->nr-1);
+
+	/*
+	 * Since we only interested in moving the tail, the requests
+	 * may be any. We submit count identical requests.
+	 */
+	size = sizeof(struct iocb) + maxr * sizeof(struct iocb *);
+	iocb = (void *)sys_mmap(NULL, size, PROT_READ|PROT_WRITE,
+				MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
+	iocbp = (void *)iocb + sizeof(struct iocb);
+
+	if (iocb == MAP_FAILED) {
+		pr_err("Can't mmap aio tmp buffer\n");
+		return -1;
+	}
+
+	iocb->aio_fildes = fd;
+	iocb->aio_buf = (unsigned long)buf;
+	iocb->aio_nbytes = 1;
+	iocb->aio_lio_opcode = IOCB_CMD_PWRITE; /* Write is nop, read populates buf */
+
+	for (i = 0; i < maxr; i++)
+		iocbp[i] = iocb;
+
+	i = 0;
+	do {
+		ret = sys_io_submit(ctx, count - i, iocbp);
+		if (ret < 0) {
+			pr_err("Can't submit aio iocbs: ret=%d\n", ret);
+			return -1;
+		}
+		i += ret;
+
+		 /*
+		  * We may submit less than requested, because of too big
+		  * count OR behaviour of get_reqs_available(), which
+		  * takes available requests only if their number is
+		  * aliquot to kioctx::req_batch. Free part of buffer
+		  * for next iteration.
+		  *
+		  * Direct set of head is equal to sys_io_getevents() call,
+		  * and faster. See kernel for the details.
+		  */
+		((struct aio_ring *)ctx)->head = i < head ? i : head;
+	} while (i < count);
+
+	sys_munmap(iocb, size);
+	sys_close(fd);
+
+populate:
+	i = offsetof(struct aio_ring, io_events);
+	builtin_memcpy((void *)ctx + i, (void *)ring + i, raio->len - i);
+
+	/*
+	 * If we failed to get the proper nr_req right and
+	 * created smaller or larger ring, then this remap
+	 * will (should) fail, since AIO rings has immutable
+	 * size.
+	 *
+	 * This is not great, but anyway better than putting
+	 * a ring of wrong size into correct place.
+	 *
+	 * Also, this unmaps temporary anonymous area on raio->addr.
+	 */
+
+	ctx = sys_mremap(ctx, raio->len, raio->len,
+				MREMAP_FIXED | MREMAP_MAYMOVE,
+				raio->addr);
+	if (ctx != raio->addr) {
+		pr_err("Ring remap failed with %ld\n", ctx);
+		return -1;
+	}
+	return 0;
 }
 
 static void rst_tcp_repair_off(struct rst_tcp_sock *rts)
@@ -1000,54 +1131,9 @@ long __export_restore_task(struct task_restore_args *args)
 	 * up AIO rings.
 	 */
 
-	for (i = 0; i < args->rings_n; i++) {
-		struct rst_aio_ring *raio = &args->rings[i];
-		unsigned long ctx = 0;
-		int ret;
-
-		ret = sys_io_setup(raio->nr_req, &ctx);
-		if (ret < 0) {
-			pr_err("Ring setup failed with %d\n", ret);
+	for (i = 0; i < args->rings_n; i++)
+		if (restore_aio_ring(&args->rings[i]) < 0)
 			goto core_restore_end;
-		}
-
-		if (ctx == raio->addr) /* Lucky bastards we are! */
-			continue;
-
-		/*
-		 * If we failed to get the proper nr_req right and
-		 * created smaller or larger ring, then this remap
-		 * will (should) fail, since AIO rings has immutable
-		 * size.
-		 *
-		 * This is not great, but anyway better than putting
-		 * a ring of wrong size into correct place.
-		 */
-
-		ctx = sys_mremap(ctx, raio->len, raio->len,
-					MREMAP_FIXED | MREMAP_MAYMOVE,
-					raio->addr);
-		if (ctx != raio->addr) {
-			pr_err("Ring remap failed with %ld\n", ctx);
-			goto core_restore_end;
-		}
-
-		/*
-		 * Now check that kernel not just remapped the
-		 * ring into new place, but updated the internal
-		 * context state respectively.
-		 */
-
-		ret = sys_io_getevents(ctx, 0, 1, NULL, NULL);
-		if (ret != 0) {
-			if (ret < 0)
-				pr_err("Kernel doesn't remap AIO rings\n");
-			else
-				pr_err("AIO context screwed up\n");
-
-			goto core_restore_end;
-		}
-	}
 
 	/*
 	 * Finally restore madivse() bits
@@ -1142,7 +1228,7 @@ long __export_restore_task(struct task_restore_args *args)
 	 */
 	rt_sigframe = (void *)args->t->mem_zone.rt_sigframe;
 
-	if (restore_thread_common(rt_sigframe, args->t))
+	if (restore_thread_common(args->t))
 		goto core_restore_end;
 
 	/*

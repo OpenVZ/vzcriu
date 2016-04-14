@@ -56,7 +56,8 @@ struct cr_options {
 	int			final_state;
 	char			*show_dump_file;
 	char			*show_fmt;
-	bool			check_ms_kernel;
+	bool			check_extra_features;
+	bool			check_experimental_features;
 	bool			show_pages_content;
 	union {
 		bool		restore_detach;
@@ -70,7 +71,6 @@ struct cr_options {
 	bool			tcp_established_ok;
 	bool			evasive_devices;
 	bool			link_remap_ok;
-	unsigned int		rst_namespaces_flags;
 	bool			log_file_per_pid;
 	bool			swrk_restore;
 	char			*output;

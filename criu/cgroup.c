@@ -92,17 +92,6 @@ static const char *global_props[] = {
 };
 
 /*
- * FIXME
- * PCS7 scpefic props. Must be dropped off once
- * custom props engine is merged in.
- */
-static const char *ve_props[] = {
-	"ve.clock_monotonic",
-	"ve.clock_bootbased",
-	NULL
-};
-
-/*
  * This structure describes set of controller groups
  * a task lives in. The cg_ctl entries are stored in
  * the @ctls list sorted by the .name field and then
@@ -446,8 +435,6 @@ static const char **get_known_properties(char *controller)
 		prop_arr = blkio_props;
 	else if (!strcmp(controller, "freezer"))
 		prop_arr = freezer_props;
-	else if (!strcmp(controller, "ve"))
-		prop_arr = ve_props;
 
 	return prop_arr;
 }
@@ -1471,8 +1458,8 @@ static int prepare_cgroup_dirs(char **controllers, int n_controllers, char *paux
 			}
 
 			if (opts.manage_cgroups & (CG_MODE_SOFT | CG_MODE_NONE)) {
-				if (e->n_properties > 0 && strncmp(paux, "ve/", 3)) {
-					pr_info("Skip restoring properties on cgroup dir %s\n", paux);
+				pr_info("Skip restoring properties on cgroup dir %s\n", paux);
+				if (e->n_properties > 0) {
 					xfree(e->properties);
 					e->properties = NULL;
 					e->n_properties = 0;
@@ -1625,6 +1612,7 @@ static int rewrite_cgsets(CgroupEntry *cge, char **controllers, int n_controller
 				 */
 				if (!set_from) {
 					set_from = true;
+					tmp2 = *from;
 					/* -1 because cgns_prefix includes leading / */
 					*from = xsprintf("%s%s", to, (*from) + cg->cgns_prefix - 1);
 				}
@@ -1638,15 +1626,15 @@ static int rewrite_cgsets(CgroupEntry *cge, char **controllers, int n_controller
 							strlen(*from) + 1);
 				if (!set_from) {
 					set_from = true;
+					tmp2 = *from;
 					*from = xstrdup(to);
 				}
 			}
 
 			if (tmp2) {
+				xfree(tmp2);
 				if (!*from)
 					return -1;
-
-				xfree(tmp2);
 			}
 
 			if (!cg->path)
