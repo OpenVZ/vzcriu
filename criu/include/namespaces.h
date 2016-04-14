@@ -3,6 +3,7 @@
 
 #include "compiler.h"
 #include "files.h"
+#include "list.h"
 
 /* including syscall-types.h gives another weird error; do we really need to
  * define this twice? */
@@ -12,11 +13,30 @@
 
 /* Nested namespaces are supported only for these types */
 #define CLONE_SUBNS	(CLONE_NEWNS)
+#define EXTRA_SIZE	20
 
 struct ns_desc {
 	unsigned int	cflag;
 	char		*str;
 	size_t		len;
+};
+
+struct user_ns_extra {
+	char	*uid;
+	char	*gid;
+};
+
+/* struct join_ns is used for storing parameters specified by --join-ns */
+struct join_ns {
+	struct list_head	list;
+	char			*ns_file;
+	struct ns_desc		*nd;	/* namespace descriptor */
+	int			ns_fd;
+	/* extra options of --join-ns, like uid&gid in user namespace */
+	union {
+		struct user_ns_extra	user_extra;
+		char			*common_extra;
+	} extra_opts;
 };
 
 enum ns_type {
@@ -100,6 +120,9 @@ extern gid_t userns_gid(gid_t gid);
 
 extern int dump_user_ns(pid_t pid, int ns_id);
 extern void free_userns_maps(void);
+extern int join_ns_add(const char *type, char *ns_file, char *extra_opts);
+extern int check_namespace_opts(void);
+extern int join_namespaces(void);
 
 typedef int (*uns_call_t)(void *arg, int fd, pid_t pid);
 /*
@@ -133,5 +156,7 @@ extern int __userns_call(const char *func_name, uns_call_t call, int flags,
 #define userns_call(__call, __flags, __arg, __arg_size, __fd)	\
 	__userns_call(__stringify(__call), __call, __flags,	\
 		      __arg, __arg_size, __fd)
+
+extern int add_ns_shared_cb(int (*actor)(void *data), void *data);
 
 #endif /* __CR_NS_H__ */

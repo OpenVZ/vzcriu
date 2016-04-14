@@ -175,6 +175,7 @@ class ns_flavor:
 		self.__mknod("null", os.makedev(1, 3))
 		self.__mknod("net/tun")
 		self.__mknod("rtc")
+		self.__mknod("autofs", os.makedev(10, 235));
 
         def __copy_deps(self, deps):
 		for d in deps.split('|'):
@@ -601,6 +602,7 @@ test_classes = { 'zdtm': zdtm_test, 'inhfd': inhfd_test, 'groups': groups_test }
 #
 
 criu_bin = "../criu/criu"
+join_ns_file = '/run/netns/zdtm_netns'
 class criu_cli:
 	def __init__(self, opts):
 		self.__test = None
@@ -609,6 +611,7 @@ class criu_cli:
 		self.__prev_dump_iter = None
 		self.__page_server = (opts['page_server'] and True or False)
 		self.__restore_sibling = (opts['sibling'] and True or False)
+		self.__join_ns = (opts['join_ns'] and True or False)
 		self.__fault = (opts['fault'])
 		self.__sat = (opts['sat'] and True or False)
 		self.__dedup = (opts['dedup'] and True or False)
@@ -741,6 +744,9 @@ class criu_cli:
 			r_opts = ["--restore-sibling"]
 			self.__test.auto_reap = False
 		r_opts += self.__test.getropts()
+		if self.__join_ns:
+			r_opts.append("--join-ns")
+			r_opts.append("net:%s" % join_ns_file)
 
 		self.__prev_dump_iter = None
 		criu_dir = os.path.dirname(os.getcwd())
@@ -1057,7 +1063,7 @@ class launcher:
 		self.__nr += 1
 		self.__show_progress()
 
-		nd = ('nocr', 'norst', 'pre', 'iters', 'page_server', 'sibling', \
+		nd = ('nocr', 'norst', 'pre', 'iters', 'page_server', 'sibling', 'join_ns', \
 				'fault', 'keep_img', 'report', 'snaps', 'sat', \
 				'dedup', 'sbs', 'freezecg', 'user', 'dry_run')
 		arg = repr((name, desc, flavor, { d: self.__opts[d] for d in nd }))
@@ -1188,6 +1194,11 @@ def run_tests(opts):
 	excl = None
 	features = {}
 
+	if opts['pre'] or opts['snaps']:
+		if not criu_cli.check("mem_dirty_track"):
+			print "Tracking memory is not available"
+			return;
+
 	if opts['keep_going'] and (not opts['all']):
 		print "[WARNING] Option --keep-going is more useful with option --all."
 
@@ -1225,6 +1236,9 @@ def run_tests(opts):
 	if opts['parallel'] and opts['freezecg']:
 		print "Parallel launch with freezer not supported"
 		opts['parallel'] = None
+
+	if opts['join_ns']:
+		subprocess.Popen(["ip", "netns", "add", "zdtm_netns"])
 
 	l = launcher(opts, len(torun))
 	try:
@@ -1266,6 +1280,11 @@ def run_tests(opts):
 					l.skip(t, "criu root prio needed")
 					continue
 
+			if opts['join_ns']:
+				if test_flag(tdesc, 'samens'):
+					l.skip(t, "samens test in the same namespace")
+					continue
+
 			test_flavs = tdesc.get('flavor', 'h ns uns').split()
 			opts_flavs = (opts['flavor'] or 'h,ns,uns').split(',')
 			if opts_flavs != ['best']:
@@ -1278,13 +1297,18 @@ def run_tests(opts):
 				# FIXME -- probably uns will make sense
 				run_flavs -= set(['ns', 'uns'])
 
+			#remove ns and uns flavor in join_ns
+			if opts['join_ns']:
+				run_flavs -= set(['ns', 'uns'])
+
 			if run_flavs:
 				l.run_test(t, tdesc, run_flavs)
 			else:
 				l.skip(t, "no flavors")
 	finally:
 		l.finish()
-
+		if opts['join_ns']:
+			subprocess.Popen(["ip", "netns", "delete", "zdtm_netns"])
 
 sti_fmt = "%-40s%-10s%s"
 
@@ -1464,6 +1488,7 @@ rp.add_argument("-f", "--flavor", help = "Flavor to run")
 rp.add_argument("-x", "--exclude", help = "Exclude tests from --all run", action = 'append')
 
 rp.add_argument("--sibling", help = "Restore tests as siblings", action = 'store_true')
+rp.add_argument("--join-ns", help = "Restore tests and join existing namespace", action = 'store_true')
 rp.add_argument("--pre", help = "Do some pre-dumps before dump (n[:pause])")
 rp.add_argument("--snaps", help = "Instead of pre-dumps do full dumps", action = 'store_true')
 rp.add_argument("--dedup", help = "Auto-deduplicate images on iterations", action = 'store_true')

@@ -71,6 +71,7 @@ struct cr_options {
 	bool			tcp_established_ok;
 	bool			evasive_devices;
 	bool			link_remap_ok;
+	unsigned long		unshare_flags;
 	bool			log_file_per_pid;
 	bool			swrk_restore;
 	char			*output;
@@ -82,6 +83,7 @@ struct cr_options {
 	struct list_head	ext_mounts;
 	struct list_head	inherit_fds;
 	struct list_head	external;
+	struct list_head	join_ns;
 	char			*libdir;
 	bool			use_page_server;
 	unsigned short		port;
@@ -107,6 +109,7 @@ struct cr_options {
 	char			*lsm_profile;
 	unsigned int		timeout;
 	unsigned int		empty_ns;
+	bool			lazy_pages;
 };
 
 extern struct cr_options opts;

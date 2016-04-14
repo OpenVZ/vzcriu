@@ -19,6 +19,7 @@
 #include <sys/shm.h>
 #include <sys/mount.h>
 #include <sys/prctl.h>
+#include <sys/syscall.h>
 
 #include <sched.h>
 
@@ -76,6 +77,7 @@
 #include "seccomp.h"
 #include "bitmap.h"
 #include "fault-injection.h"
+#include "uffd.h"
 #include "sk-queue.h"
 
 #include "parasite-syscall.h"
@@ -247,7 +249,7 @@ static int root_prepare_shared(void)
 		return -1;
 
 	for_each_pstree_item(pi) {
-		if (pi->state == TASK_HELPER)
+		if (pi->pid.state == TASK_HELPER)
 			continue;
 
 		ret = prepare_mm_pid(pi);
@@ -448,6 +450,7 @@ static int restore_priv_vma_content(void)
 	unsigned int nr_shared = 0;
 	unsigned int nr_droped = 0;
 	unsigned int nr_compared = 0;
+	unsigned int nr_lazy = 0;
 	unsigned long va;
 	struct page_read pr;
 
@@ -501,6 +504,17 @@ static int restore_priv_vma_content(void)
 			off = (va - vma->e->start) / PAGE_SIZE;
 			p = decode_pointer((off) * PAGE_SIZE +
 					vma->premmaped_addr);
+
+			/*
+			 * This means that userfaultfd is used to load the pages
+			 * on demand.
+			 */
+			if (opts.lazy_pages && vma_entry_can_be_lazy(vma->e)) {
+				pr_debug("Lazy restore skips 0x%016"PRIx64"\n", vma->e->start);
+				pr.skip_pages(&pr, PAGE_SIZE);
+				nr_lazy++;
+				continue;
+			}
 
 			set_bit(off, vma->page_bitmap);
 			if (vma->ppage_bitmap) { /* inherited vma */
@@ -590,6 +604,7 @@ err_read:
 	pr_info("nr_restored_pages: %d\n", nr_restored);
 	pr_info("nr_shared_pages:   %d\n", nr_shared);
 	pr_info("nr_droped_pages:   %d\n", nr_droped);
+	pr_info("nr_lazy:           %d\n", nr_lazy);
 
 	return 0;
 
@@ -804,7 +819,7 @@ static int collect_child_pids(int state, int *n)
 	list_for_each_entry(pi, &current->children, sibling) {
 		pid_t *child;
 
-		if (pi->state != state)
+		if (pi->pid.state != state)
 			continue;
 
 		child = rst_mem_alloc(sizeof(*child), RM_PRIVATE);
@@ -1021,7 +1036,7 @@ static int wait_on_helpers_zombies(void)
 		pid_t pid = pi->pid.virt;
 		int status;
 
-		switch (pi->state) {
+		switch (pi->pid.state) {
 		case TASK_DEAD:
 			if (waitid(P_PID, pid, NULL, WNOWAIT | WEXITED) < 0) {
 				pr_perror("Wait on %d zombie failed\n", pid);
@@ -1126,10 +1141,12 @@ static int restore_one_task(int pid, CoreEntry *core)
 
 	if (task_alive(current))
 		ret = restore_one_alive_task(pid, core);
-	else if (current->state == TASK_DEAD)
+	else if (current->pid.state == TASK_DEAD)
 		ret = restore_one_zombie(core);
-	else if (current->state == TASK_HELPER) {
+	else if (current->pid.state == TASK_HELPER) {
 		restore_finish_stage(CR_STATE_RESTORE);
+		if (rsti(current)->helper_cb)
+			rsti(current)->helper_cb();
 		if (wait_on_helpers_zombies()) {
 			pr_err("failed to wait on helpers and zombies\n");
 			ret = -1;
@@ -1204,7 +1221,7 @@ static inline int fork_with_pid(struct pstree_item *item)
 	int ret = -1;
 	pid_t pid = item->pid.virt;
 
-	if (item->state != TASK_HELPER) {
+	if (item->pid.state != TASK_HELPER) {
 		struct cr_img *img;
 
 		img = open_image(CR_FD_CORE, O_RSTR, pid);
@@ -1220,15 +1237,15 @@ static inline int fork_with_pid(struct pstree_item *item)
 		if (check_core(ca.core, item))
 			return -1;
 
-		item->state = ca.core->tc->task_state;
+		item->pid.state = ca.core->tc->task_state;
 		rsti(item)->cg_set = ca.core->tc->cg_set;
 
 		rsti(item)->has_seccomp = ca.core->tc->seccomp_mode != SECCOMP_MODE_DISABLED;
 
-		if (item->state == TASK_DEAD)
+		if (item->pid.state == TASK_DEAD)
 			rsti(item->parent)->nr_zombies++;
 		else if (!task_alive(item)) {
-			pr_err("Unknown task state %d\n", item->state);
+			pr_err("Unknown task state %d\n", item->pid.state);
 			return -1;
 		}
 
@@ -1239,7 +1256,10 @@ static inline int fork_with_pid(struct pstree_item *item)
 		 * Helper entry will not get moved around and thus
 		 * will live in the parent's cgset.
 		 */
-		rsti(item)->cg_set = rsti(item->parent)->cg_set;
+		if (item->parent)
+			rsti(item)->cg_set = rsti(item->parent)->cg_set;
+		else
+			rsti(item)->cg_set = root_cg_set;
 		ca.core = NULL;
 	}
 
@@ -1375,7 +1395,7 @@ static void sigchld_handler(int signal, siginfo_t *siginfo, void *data)
 				break;
 
 		BUG_ON(&pi->sibling == &current->children);
-		if (pi->state != TASK_HELPER)
+		if (pi->pid.state != TASK_HELPER)
 			break;
 	}
 
@@ -1612,7 +1632,7 @@ static int restore_task_with_children(void *_arg)
 	if ( !(ca->clone_flags & CLONE_FILES))
 		close_safe(&ca->fd);
 
-	if (current->state != TASK_HELPER) {
+	if (current->pid.state != TASK_HELPER) {
 		ret = clone_service_fd(rsti(current)->service_fd_id);
 		if (ret)
 			goto err;
@@ -1654,6 +1674,11 @@ static int restore_task_with_children(void *_arg)
 
 	/* Restore root task */
 	if (current->parent == NULL) {
+		if (join_namespaces()) {
+			pr_perror("Join namespaces failed");
+			goto err;
+		}
+
 		if (restore_finish_stage(CR_STATE_RESTORE_NS) < 0)
 			goto err;
 
@@ -1897,7 +1922,7 @@ static void finalize_restore(void)
 
 		xfree(ctl);
 
-		if (item->state == TASK_STOPPED)
+		if (item->pid.state == TASK_STOPPED)
 			kill(item->pid.real, SIGSTOP);
 	}
 }
@@ -2175,6 +2200,10 @@ static int restore_root_task(struct pstree_item *init)
 
 	write_stats(RESTORE_STATS);
 
+	ret = run_scripts(ACT_POST_RESUME);
+	if (ret != 0)
+		pr_err("Post-resume script ret code %d\n", ret);
+
 	if (!opts.restore_detach && !opts.exec_cmd)
 		wait(NULL);
 
@@ -2218,7 +2247,7 @@ out:
 	return -1;
 }
 
-static int prepare_task_entries(void)
+int prepare_task_entries(void)
 {
 	task_entries_pos = rst_mem_align_cpos(RM_SHREMAP);
 	task_entries = rst_mem_alloc(sizeof(*task_entries), RM_SHREMAP);
@@ -3306,6 +3335,11 @@ static int sigreturn_restore(pid_t pid, CoreEntry *core)
 
 	strncpy(task_args->comm, core->tc->comm, sizeof(task_args->comm));
 
+	if (!opts.lazy_pages)
+		task_args->uffd = -1;
+	else
+		if (setup_uffd(task_args, pid) != 0)
+			goto err;
 
 	/*
 	 * Fill up per-thread data.

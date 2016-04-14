@@ -2,6 +2,7 @@
 #define __CR_PID_H__
 
 #include "stdbool.h"
+#include "rbtree.h"
 
 struct pid {
 	/*
@@ -17,6 +18,10 @@ struct pid {
 	 * dumpee context, because the dumpee might have own pid namespace.
 	 */
 	pid_t virt;
+
+	int state;	/* TASK_XXX constants */
+
+	struct rb_node node;
 };
 
 /*

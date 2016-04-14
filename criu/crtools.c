@@ -36,6 +36,7 @@
 #include "cr-service.h"
 #include "plugin.h"
 #include "mount.h"
+#include "namespaces.h"
 #include "cgroup.h"
 #include "cpu.h"
 #include "action-scripts.h"
@@ -43,7 +44,7 @@
 #include "fault-injection.h"
 #include "lsm.h"
 #include "proc_parse.h"
-
+#include "syscall-types.h"
 #include "setproctitle.h"
 
 struct cr_options opts;
@@ -60,6 +61,7 @@ void init_opts(void)
 	INIT_LIST_HEAD(&opts.ext_mounts);
 	INIT_LIST_HEAD(&opts.inherit_fds);
 	INIT_LIST_HEAD(&opts.external);
+	INIT_LIST_HEAD(&opts.join_ns);
 	INIT_LIST_HEAD(&opts.new_cgroup_roots);
 	INIT_LIST_HEAD(&opts.irmap_scan_paths);
 
@@ -69,6 +71,72 @@ void init_opts(void)
 	opts.ghost_limit = DEFAULT_GHOST_LIMIT;
 	opts.timeout = DEFAULT_TIMEOUT;
 	opts.empty_ns = 0;
+}
+
+static int parse_unshare_arg(char *opt)
+{
+	while (1) {
+		char *aux;
+
+		aux = strchr(opt, ',');
+		if (aux)
+			*aux = '\0';
+
+		if (!strcmp(opt, "uts"))
+			opts.unshare_flags |= CLONE_NEWUTS;
+		else if (!strcmp(opt, "ipc"))
+			opts.unshare_flags |= CLONE_NEWIPC;
+		else if (!strcmp(opt, "mnt"))
+			opts.unshare_flags |= CLONE_NEWNS;
+		else if (!strcmp(opt, "pid"))
+			opts.unshare_flags |= CLONE_NEWPID;
+		else if (!strcmp(opt, "net"))
+			opts.unshare_flags |= CLONE_NEWNET;
+		else if (!strcmp(opt, "user"))
+			opts.unshare_flags |= CLONE_NEWUSER;
+		else if (!strcmp(opt, "proc"))
+			opts.unshare_flags |= UNSHARE_MOUNT_PROC; /* mount new proc */
+		else {
+			pr_msg("Error: unknown unshare flag %s\n", opt);
+			return -1;
+		}
+
+		if (!aux)
+			break;
+
+		opt = aux + 1;
+	}
+
+	/* Only pid, mnt and user for now */
+	if (opts.unshare_flags & ~(CLONE_NEWNS | CLONE_NEWPID | UNSHARE_MOUNT_PROC)) {
+		pr_err("Unsharing this namespace(s) is not supported yet\n");
+		return -1;
+	}
+
+	return 0;
+}
+
+static int parse_join_ns(const char *ptr)
+{
+	char *aux, *ns_file, *extra_opts = NULL;
+
+	aux = strchr(ptr, ':');
+	if (aux == NULL)
+		return -1;
+	*aux = '\0';
+
+	ns_file = aux + 1;
+	aux = strchr(ns_file, ',');
+	if (aux != NULL) {
+		*aux = '\0';
+		extra_opts = aux + 1;
+	} else {
+		extra_opts = NULL;
+	}
+	if (join_ns_add(ptr, ns_file, extra_opts))
+		return -1;
+
+	return 0;
 }
 
 static int parse_cpu_cap(struct cr_options *opts, const char *optarg)
@@ -190,7 +258,7 @@ int main(int argc, char *argv[], char *envp[])
 	int log_level = LOG_UNSET;
 	char *imgs_dir = ".";
 	char *work_dir = NULL;
-	static const char short_opts[] = "dSsRf:F:t:p:hcD:o:n:v::x::Vr:jlW:L:M:";
+	static const char short_opts[] = "dSsRf:F:t:p:hcD:o:n:v::x::Vr:jJ:lW:L:M:";
 	static struct option long_opts[] = {
 		{ "tree",			required_argument,	0, 't'	},
 		{ "pid",			required_argument,	0, 'p'	},
@@ -206,6 +274,7 @@ int main(int argc, char *argv[], char *envp[])
 		{ "work-dir",			required_argument,	0, 'W'	},
 		{ "log-file",			required_argument,	0, 'o'	},
 		{ "namespaces",			required_argument,	0, 'n'	},
+		{ "join-ns",			required_argument,	0, 'J'	},
 		{ "root",			required_argument,	0, 'r'	},
 		{ USK_EXT_PARAM,		optional_argument,	0, 'x'	},
 		{ "help",			no_argument,		0, 'h'	},
@@ -247,6 +316,10 @@ int main(int argc, char *argv[], char *envp[])
 		{ "timeout",			required_argument,	0, 1072 },
 		{ "external",			required_argument,	0, 1073	},
 		{ "empty-ns",			required_argument,	0, 1074	},
+		{ "unshare",			required_argument,	0, 1075 },
+#ifdef CONFIG_HAS_UFFD
+		{ "lazy-pages",			no_argument,		0, 1076 },
+#endif
 		{ "extra",			no_argument,		0, 1077	},
 		{ "experimental",		no_argument,		0, 1078	},
 		{ "all",			no_argument,		0, 1079	},
@@ -339,6 +412,10 @@ int main(int argc, char *argv[], char *envp[])
 			break;
 		case 'n':
 			pr_warn("The -n|--namespaces option has no effect and will soon be removed.\n");
+			break;
+		case 'J':
+			if (parse_join_ns(optarg))
+				goto bad_arg;
 			break;
 		case 'v':
 			if (log_level == LOG_UNSET)
@@ -501,6 +578,15 @@ int main(int argc, char *argv[], char *envp[])
 		case 1072:
 			opts.timeout = atoi(optarg);
 			break;
+		case 1075:
+			if (parse_unshare_arg(optarg))
+				return -1;
+			break;
+#ifdef CONFIG_HAS_UFFD
+		case 1076:
+			opts.lazy_pages = true;
+			break;
+#endif
 		case 'M':
 			{
 				char *aux;
@@ -552,6 +638,11 @@ int main(int argc, char *argv[], char *envp[])
 		default:
 			goto usage;
 		}
+	}
+
+	if (check_namespace_opts()) {
+		pr_msg("Error: namespace flags confict\n");
+		return 1;
 	}
 
 	if (!opts.restore_detach && opts.restore_sibling) {
@@ -667,6 +758,9 @@ int main(int argc, char *argv[], char *envp[])
 		return -1;
 	}
 
+	if (!strcmp(argv[optind], "lazy-pages"))
+		return uffd_listen() != 0;
+
 	if (!strcmp(argv[optind], "check"))
 		return cr_check() != 0;
 
@@ -707,6 +801,9 @@ usage:
 "  criu page-server\n"
 "  criu service [<options>]\n"
 "  criu dedup\n"
+#ifdef CONFIG_HAS_UFFD
+"  criu lazy-pages -D DIR [<options>]\n"
+#endif
 "\n"
 "Commands:\n"
 "  dump           checkpoint a process/tree identified by pid\n"
@@ -743,8 +840,15 @@ usage:
 "                        'cpu','fpu','all','ins','none'. To disable capability, prefix it with '^'.\n"
 "     --exec-cmd         execute the command specified after '--' on successful\n"
 "                        restore making it the parent of the restored process\n"
+"  --unshare FLAGS       what namespaces to unshare when restoring\n"
 "  --freeze-cgroup\n"
 "                        use cgroup freezer to collect processes\n"
+#ifdef CONFIG_HAS_UFFD
+"  --lazy-pages          restore pages on demand\n"
+"                        this requires running a second instance of criu\n"
+"                        in lazy-pages mode: 'criu lazy-pages -D DIR'\n"
+"                        --lazy-pages and lazy-pages mode require userfaultfd\n"
+#endif
 "\n"
 "* Special resources support:\n"
 "  -x|--" USK_EXT_PARAM "inode,.." "      allow external unix connections (optionally can be assign socket's inode that allows one-sided dump)\n"
@@ -797,6 +901,12 @@ usage:
 "  --empty-ns {net}\n"
 "                        Create a namespace, but don't restore its properies.\n"
 "                        An user will retore them from action scripts.\n"
+"  -J|--join-ns NS:PID|NS_FILE[,EXTRA_OPTS]\n"
+"			Join exist namespace and restore process in it.\n"
+"			Namespace can be specified in pid or file path format.\n"
+"			    --join-ns net:12345 or --join-ns net:/foo/bar.\n"
+"			Extra_opts is optional, for now only user namespace support:\n"
+"			    --join-ns user:PID,UID,GID to specify uid and gid.\n"
 "Check options:\n"
 "  without any arguments, \"criu check\" checks availability of absolutely required\n"
 "  kernel features; if any of these features is missing dump and restore will fail\n"

@@ -11,6 +11,7 @@
 #include "files.h"
 #include "pipes.h"
 #include "util-pie.h"
+#include "autofs.h"
 
 #include "protobuf.h"
 #include "images/pipe.pb-c.h"
@@ -350,7 +351,7 @@ static struct file_desc_ops pipe_desc_ops = {
 	.name		= pipe_d_name,
 };
 
-static int collect_one_pipe(void *o, ProtobufCMessage *base, struct cr_img *i)
+int collect_one_pipe_ops(void *o, ProtobufCMessage *base, struct file_desc_ops *ops)
 {
 	struct pipe_info *pi = o, *tmp;
 
@@ -361,7 +362,7 @@ static int collect_one_pipe(void *o, ProtobufCMessage *base, struct cr_img *i)
 	pr_info("Collected pipe entry ID %#x PIPE ID %#x\n",
 			pi->pe->id, pi->pe->pipe_id);
 
-	if (file_desc_add(&pi->d, pi->pe->id, &pipe_desc_ops))
+	if (file_desc_add(&pi->d, pi->pe->id, ops))
 		return -1;
 
 	INIT_LIST_HEAD(&pi->pipe_list);
@@ -381,6 +382,11 @@ static int collect_one_pipe(void *o, ProtobufCMessage *base, struct cr_img *i)
 	list_add_tail(&pi->list, &pipes);
 
 	return 0;
+}
+
+static int collect_one_pipe(void *o, ProtobufCMessage *base, struct cr_img *i)
+{
+	return collect_one_pipe_ops(o, base, &pipe_desc_ops);
 }
 
 struct collect_image_info pipe_cinfo = {
@@ -490,14 +496,14 @@ static int dump_one_pipe(int lfd, u32 id, const struct fd_parms *p)
 	pr_info("Dumping pipe %d with id %#x pipe_id %#x\n",
 			lfd, id, pipe_id(p));
 
-	if (p->flags & O_DIRECT) {
+	if ((p->flags & O_DIRECT) && !is_autofs_pipe(pipe_id(p))) {
 		pr_err("The packetized mode for pipes is not supported yet\n");
 		return -1;
 	}
 
 	pe.id		= id;
 	pe.pipe_id	= pipe_id(p);
-	pe.flags	= p->flags;
+	pe.flags	= p->flags & ~O_DIRECT;
 	pe.fown		= (FownEntry *)&p->fown;
 
 	if (pb_write_one(img_from_set(glob_imgset, CR_FD_PIPES), &pe, PB_PIPE))

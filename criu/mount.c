@@ -28,6 +28,8 @@
 #include "kerndat.h"
 #include "fs-magic.h"
 #include "sysfs_parse.h"
+#include "syscall-types.h"
+#include "autofs.h"
 
 #include "images/mnt.pb-c.h"
 #include "images/binfmt-misc.pb-c.h"
@@ -1747,6 +1749,12 @@ static struct fstype fstypes[32] = {
 		.name = "overlay",
 		.code = FSTYPE__OVERLAYFS,
 		.parse = overlayfs_parse,
+	}, {
+		.name = "autofs",
+		.code = FSTYPE__AUTOFS,
+		.parse = autofs_parse,
+		.dump = autofs_dump,
+		.mount = autofs_mount,
 	},
 };
 
@@ -2413,6 +2421,13 @@ static int do_bind_mount(struct mount_info *mi)
 	master = mi->master_id && mi->master_id == mi->bind->master_id;
 	private = !mi->master_id && !shared;
 	cut_root = cut_root_for_bind(mi->root, mi->bind->root);
+
+	/* Mount private can be initialized on mount() callback, which is
+	 * called only once.
+	 * It have to be copied to all it's sibling structures to provide users
+	 * of it with actual data.
+	 */
+	mi->private = mi->bind->private;
 
 	if (list_empty(&mi->bind->children))
 		mnt_path = mi->bind->mountpoint;
@@ -3227,6 +3242,44 @@ int prepare_mnt_ns(void)
 
 	pr_info("Restoring mount namespace\n");
 
+	if (opts.unshare_flags & CLONE_NEWNS) {
+		if (opts.root) {
+			pr_err("The --root option is incompatible with fake new mntns\n");
+			return -1;
+		}
+
+		/*
+		 * Fake newns preparation -- just copy the existing one
+		 * and go on with the rest.
+		 */
+		if (rst_collect_local_mntns(NS_ROOT))
+			return -1;
+
+		ret = chdir("/");
+		if (ret) {
+			pr_perror("chdir to new root failed");
+			return -1;
+		}
+
+		if (opts.unshare_flags & UNSHARE_MOUNT_PROC) {
+			if (mount(NULL, "/proc", NULL, MS_PRIVATE, NULL)) {
+				pr_perror("Can't make proc private for unshare");
+				return -1;
+			}
+
+			if (mount("proc", "/proc", "proc",
+						MS_MGC_VAL | MS_NOSUID | MS_NOEXEC | MS_NODEV,
+						NULL)) {
+				pr_perror("Can't mount proc\n");
+				return -1;
+			}
+
+			pr_info("Re-mounted new fake proc\n");
+		}
+
+		goto ns_created;
+	}
+
 	old = collect_mntinfo(&ns, false);
 	if (old == NULL)
 		return -1;
@@ -3298,6 +3351,7 @@ int prepare_mnt_ns(void)
 	if (ret)
 		return -1;
 
+ns_created:
 	rst = open_proc(PROC_SELF, "ns/mnt");
 	if (rst < 0)
 		return -1;

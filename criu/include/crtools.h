@@ -26,6 +26,12 @@ extern int convert_to_elf(char *elf_path, int fd_core);
 extern int cr_check(void);
 extern int cr_exec(int pid, char **opts);
 extern int cr_dedup(void);
+#ifdef CONFIG_HAS_UFFD
+extern int uffd_listen(void);
+#else
+static inline int uffd_listen() { return 0; };
+#endif /* CONFIG_HAS_UFFD */
+extern int prepare_task_entries(void);
 
 extern int check_add_feature(char *arg);
 

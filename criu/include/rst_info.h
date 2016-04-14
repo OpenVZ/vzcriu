@@ -27,6 +27,7 @@ struct fdt {
 struct _MmEntry;
 
 struct rst_info {
+	struct list_head	used;
 	struct list_head	fds;
 	struct list_head	eventpoll;
 	struct list_head	tty_slaves;
@@ -65,7 +66,10 @@ struct rst_info {
 	 */
 	bool			has_seccomp;
 
-	void			*breakpoint;
+	union {
+		void		*breakpoint;
+		void		(*helper_cb)(void);
+	};
 };
 
 #endif /* __CR_RST_INFO_H__ */

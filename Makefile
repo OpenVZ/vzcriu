@@ -67,7 +67,7 @@ ifeq ($(ARCH),ppc64)
                 error := $(error ppc64 big endian not yet supported)
         endif
 
-        DEFINES		:= -DCONFIG_PPC64
+        DEFINES		:= -DCONFIG_PPC64 -D__SANE_USERSPACE_TYPES__
 endif
 
 export PROTOUFIX DEFINES USERCFLAGS
@@ -108,6 +108,10 @@ CFLAGS			+= $(WARNINGS) $(DEFINES)
 # on anything else.
 $(eval $(call gen-built-in,images))
 
+# Compel get used by CRIU, build it earlier
+compel/%:
+	$(Q) $(MAKE) $(build)=compel $@
+
 #
 # CRIU building done in own directory
 # with slightly different rules so we
@@ -116,9 +120,9 @@ $(eval $(call gen-built-in,images))
 #
 # But note that we're already included
 # the nmk so we can reuse it there.
-criu/%: images/built-in.o
+criu/%: images/built-in.o compel/compel
 	$(Q) $(MAKE) -C criu $@
-criu: images/built-in.o
+criu: images/built-in.o compel/compel
 	$(Q) $(MAKE) -C criu all
 .PHONY: criu
 
@@ -132,7 +136,7 @@ lib: criu
 	$(Q) $(MAKE) -C lib all
 .PHONY: lib
 
-all: criu lib
+all: compel criu lib
 .PHONY: all
 
 subclean:
@@ -144,12 +148,14 @@ subclean:
 
 clean: subclean
 	$(Q) $(MAKE) $(build)=images $@
+	$(Q) $(MAKE) $(build)=compel $@
 	$(Q) $(MAKE) -C criu $@
 .PHONY: clean
 
 # mrproper depends on clean in nmk
 mrproper: subclean
 	$(Q) $(MAKE) $(build)=images $@
+	$(Q) $(MAKE) $(build)=compel $@
 	$(Q) $(MAKE) -C criu $@
 	$(Q) $(RM) cscope.*
 	$(Q) $(RM) tags TAGS

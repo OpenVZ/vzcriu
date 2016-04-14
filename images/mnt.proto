@@ -19,6 +19,7 @@ enum fstype {
 	FUSE			= 15;
 	AUTO			= 16;
 	OVERLAYFS		= 17;
+	AUTOFS			= 18;
 };
 
 message mnt_entry {

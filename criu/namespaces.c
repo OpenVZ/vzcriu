@@ -10,7 +10,11 @@
 #include <signal.h>
 #include <sched.h>
 #include <sys/capability.h>
+#include <sys/stat.h>
+#include <limits.h>
+#include <errno.h>
 
+#include "cr_options.h"
 #include "util.h"
 #include "imgset.h"
 #include "uts_ns.h"
@@ -34,6 +38,150 @@ static struct ns_desc *ns_desc_array[] = {
 	&mnt_ns_desc,
 	&cgroup_ns_desc,
 };
+
+static unsigned int join_ns_flags;
+
+int check_namespace_opts(void)
+{
+	errno = 22;
+	if (join_ns_flags & opts.unshare_flags) {
+		pr_perror("Conflict flags: -join-ns and -unshare");
+		return -1;
+	}
+	if (join_ns_flags & opts.empty_ns) {
+		pr_perror("Conflict flags: -join-ns and -empty-ns");
+		return -1;
+	}
+	errno = 0;
+	return 0;
+}
+
+static int check_int_str(char *str)
+{
+	char *endptr;
+	long val;
+
+	if (str == NULL)
+		return 0;
+
+	if (*str == '\0') {
+		str = NULL;
+		return 0;
+	}
+
+	errno = 22;
+	val = strtol(str, &endptr, 10);
+	if ((errno == ERANGE) || (endptr == str)
+			|| (*endptr != '\0')
+			|| (val < 0) || (val > 65535)) {
+		str = NULL;
+		return -1;
+	}
+
+	errno = 0;
+	return 0;
+}
+
+static int check_ns_file(char *ns_file)
+{
+	int pid, ret, proc_dir;
+
+	if (!check_int_str(ns_file)) {
+		pid = atoi(ns_file);
+		if (pid <= 0) {
+			pr_perror("Invalid join_ns pid %s", ns_file);
+			return -1;
+		}
+		proc_dir = open_pid_proc(pid);
+		if (proc_dir < 0) {
+			pr_perror("Invalid join_ns pid: /proc/%s not found", ns_file);
+			return -1;
+		}
+		return 0;
+	}
+
+	ret = access(ns_file, 0);
+	if (ret < 0) {
+		pr_perror("Can't access join-ns file: %s", ns_file);
+		return -1;
+	}
+	return 0;
+}
+
+static int set_user_extra_opts(struct join_ns *jn, char *extra_opts)
+{
+	char *uid, *gid, *aux;
+
+	if (extra_opts == NULL) {
+		jn->extra_opts.user_extra.uid = NULL;
+		jn->extra_opts.user_extra.gid = NULL;
+		return 0;
+	}
+
+	uid = extra_opts;
+	aux = strchr(extra_opts, ',');
+	if (aux == NULL) {
+		gid = NULL;
+	} else {
+		*aux = '\0';
+		gid = aux + 1;
+	}
+
+	if (check_int_str(uid) || check_int_str(gid))
+		return -1;
+
+	jn->extra_opts.user_extra.uid = uid;
+	jn->extra_opts.user_extra.gid = gid;
+
+	return 0;
+}
+
+int join_ns_add(const char *type, char *ns_file, char *extra_opts)
+{
+	struct join_ns *jn;
+
+	if (check_ns_file(ns_file))
+		return -1;
+
+	jn = xmalloc(sizeof(*jn));
+	if (!jn)
+		return -1;
+
+	jn->ns_file = ns_file;
+	if (!strncmp(type, "net", 4)) {
+		jn->nd = &net_ns_desc;
+		join_ns_flags |= CLONE_NEWNET;
+	} else if (!strncmp(type, "uts", 4)) {
+		jn->nd = &uts_ns_desc;
+		join_ns_flags |= CLONE_NEWUTS;
+	} else if (!strncmp(type, "ipc", 4)) {
+		jn->nd = &ipc_ns_desc;
+		join_ns_flags |= CLONE_NEWIPC;
+	} else if (!strncmp(type, "pid", 4)) {
+		pr_err("join-ns pid namespace not supported\n");
+		goto err;
+	} else if (!strncmp(type, "user", 5)) {
+		jn->nd = &user_ns_desc;
+		if (set_user_extra_opts(jn, extra_opts)) {
+			pr_err("invalid user namespace extra_opts %s\n", extra_opts);
+			goto err;
+		}
+		join_ns_flags |= CLONE_NEWUSER;
+	} else if (!strncmp(type, "mnt", 4)) {
+		jn->nd = &mnt_ns_desc;
+		join_ns_flags |= CLONE_NEWNS;
+	} else {
+		pr_perror("invalid namespace type %s\n", type);
+		goto err;
+	}
+
+	list_add_tail(&jn->list, &opts.join_ns);
+	pr_info("Added %s:%s join namespace\n", type, ns_file);
+	return 0;
+err:
+	xfree(jn);
+	return -1;
+}
 
 static unsigned int parse_ns_link(char *link, size_t len, struct ns_desc *d)
 {
@@ -1369,6 +1517,126 @@ static int prepare_userns_creds()
 	}
 
 	return 0;
+}
+
+static int get_join_ns_fd(struct join_ns *jn)
+{
+	int pid, fd;
+	char nsf[32];
+	char *pnsf;
+
+	pid = atoi(jn->ns_file);
+	if (pid > 0) {
+		snprintf(nsf, sizeof(nsf), "/proc/%d/ns/%s", pid, jn->nd->str);
+		pnsf = nsf;
+	} else {
+		pnsf = jn->ns_file;
+	}
+
+	fd = open(pnsf, O_RDONLY);
+	if (fd < 0) {
+		pr_perror("Can't open ns file: %s", pnsf);
+		return -1;
+	}
+	jn->ns_fd = fd;
+	return 0;
+}
+
+static int switch_join_ns(struct join_ns *jn)
+{
+	struct stat st, self_st;
+	char buf[32];
+
+	if (jn->nd == &user_ns_desc) {
+		/* It is not permitted to use setns() to reenter the caller's current
+		 * user namespace.  This prevents a caller that has dropped capabilities
+		 * from regaining those capabilities via a call to setns()
+		 */
+		if (fstat(jn->ns_fd, &st) == -1) {
+			pr_perror("Can't get ns file %s stat", jn->ns_file);
+			return -1;
+		}
+
+		snprintf(buf, sizeof(buf), "/proc/self/ns/%s", jn->nd->str);
+		if (stat(buf, &self_st) == -1) {
+			pr_perror("Can't get ns file %s stat", buf);
+			return -1;
+		}
+
+		if (st.st_ino == self_st.st_ino)
+			return 0;
+	}
+
+	if (setns(jn->ns_fd, jn->nd->cflag)) {
+		pr_perror("Failed to setns when join-ns %s:%s", jn->nd->str, jn->ns_file);
+		return -1;
+	}
+
+	return 0;
+}
+
+static int switch_user_join_ns(struct join_ns *jn)
+{
+	uid_t uid;
+	gid_t gid;
+
+	if (jn == NULL)
+		return 0;
+
+	if (switch_join_ns(jn))
+		return -1;
+
+	if (jn->extra_opts.user_extra.uid == NULL)
+		uid = getuid();
+	else
+		uid = atoi(jn->extra_opts.user_extra.uid);
+
+	if (jn->extra_opts.user_extra.gid == NULL)
+		gid = getgid();
+	else
+		gid = atoi(jn->extra_opts.user_extra.gid);
+
+	/* FIXME:
+	 * if err occurs in setuid/setgid, should we just alert or
+	 * return an error
+	 */
+	if (setuid(uid)) {
+		pr_perror("setuid failed while joining userns");
+		return -1;
+	}
+	if (setgid(gid)) {
+		pr_perror("setgid failed while joining userns");
+		return -1;
+	}
+
+	return 0;
+}
+
+int join_namespaces(void)
+{
+	struct join_ns *jn, *user_jn = NULL;
+	int ret = -1;
+
+	list_for_each_entry(jn, &opts.join_ns, list)
+		if (get_join_ns_fd(jn))
+			goto err_out;
+
+	list_for_each_entry(jn, &opts.join_ns, list)
+		if (jn->nd == &user_ns_desc) {
+			user_jn = jn;
+		} else {
+			if (switch_join_ns(jn))
+				goto err_out;
+		}
+
+	if (switch_user_join_ns(user_jn))
+		goto err_out;
+
+	ret = 0;
+err_out:
+	list_for_each_entry(jn, &opts.join_ns, list)
+		close_safe(&jn->ns_fd);
+	return ret;
 }
 
 int prepare_namespace(struct pstree_item *item, unsigned long clone_flags)

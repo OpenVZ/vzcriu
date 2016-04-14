@@ -39,6 +39,7 @@
 #include "fs-magic.h"
 #include "proc_parse.h"
 #include "cr_options.h"
+#include "autofs.h"
 
 #include "parasite.h"
 #include "parasite-syscall.h"
@@ -321,6 +322,8 @@ static const struct fdtype_ops *get_misc_dev_ops(int minor)
 	switch (minor) {
 	case TUN_MINOR:
 		return &tunfile_dump_ops;
+	case AUTOFS_MINOR:
+		return &regfile_dump_ops;
 	};
 
 	return NULL;
@@ -649,10 +652,41 @@ static int collect_fd(int pid, FdinfoEntry *e, struct rst_info *rst_info)
 	else
 		collect_gen_fd(new_le, rst_info);
 
+	collect_used_fd(new_le, rst_info);
+
 	list_add_tail(&new_le->desc_list, &le->desc_list);
 	new_le->desc = fdesc;
 
 	return 0;
+}
+
+FdinfoEntry *dup_fdinfo(FdinfoEntry *old, int fd, unsigned flags)
+{
+	FdinfoEntry *e;
+
+	e = shmalloc(sizeof(*e));
+	if (!e)
+		return NULL;
+
+	fdinfo_entry__init(e);
+
+	e->id		= old->id;
+	e->type		= old->type;
+	e->fd		= fd;
+	e->flags	= flags;
+	return e;
+}
+
+int dup_fle(struct pstree_item *task, struct fdinfo_list_entry *ple,
+		   int fd, unsigned flags)
+{
+	FdinfoEntry *e;
+
+	e = dup_fdinfo(ple->fe, fd, flags);
+	if (!e)
+		return -1;
+
+	return collect_fd(task->pid.virt, e, rsti(task));
 }
 
 int prepare_ctl_tty(int pid, struct rst_info *rst_info, u32 ctl_tty_id)
@@ -689,6 +723,7 @@ int prepare_fd_pid(struct pstree_item *item)
 	pid_t pid = item->pid.virt;
 	struct rst_info *rst_info = rsti(item);
 
+	INIT_LIST_HEAD(&rst_info->used);
 	INIT_LIST_HEAD(&rst_info->fds);
 	INIT_LIST_HEAD(&rst_info->eventpoll);
 	INIT_LIST_HEAD(&rst_info->tty_slaves);

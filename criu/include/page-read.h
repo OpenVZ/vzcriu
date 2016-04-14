@@ -51,6 +51,7 @@ struct page_read {
 	/* stop working on current pagemap */
 	void (*put_pagemap)(struct page_read *);
 	void (*close)(struct page_read *);
+	void (*skip_pages)(struct page_read *, unsigned long len);
 
 	/* Private data of reader */
 	struct cr_img *pmi;

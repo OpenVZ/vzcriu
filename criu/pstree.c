@@ -2,6 +2,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <sched.h>
+#include <sys/wait.h>
 
 #include "cr_options.h"
 #include "pstree.h"
@@ -12,11 +13,14 @@
 #include "tty.h"
 #include "mount.h"
 #include "asm/dump.h"
+#include "setproctitle.h"
+#include "files.h"
 
 #include "protobuf.h"
 #include "images/pstree.pb-c.h"
 
 struct pstree_item *root_item;
+static struct rb_root pid_root_rb;
 
 #define CLONE_ALLNS     (CLONE_NEWPID | CLONE_NEWNET | CLONE_NEWIPC | CLONE_NEWUTS | CLONE_NEWNS | CLONE_NEWUSER)
 
@@ -219,18 +223,11 @@ struct pstree_item *__alloc_pstree_item(bool rst)
 	return item;
 }
 
-struct pstree_item *alloc_pstree_helper(void)
+void init_pstree_helper(struct pstree_item *ret)
 {
-	struct pstree_item *ret;
-
-	ret = alloc_pstree_item_with_rst();
-	if (ret) {
-		ret->state = TASK_HELPER;
+	ret->pid.state = TASK_HELPER;
 	rsti(ret)->clone_flags = CLONE_FILES | CLONE_FS;
 	task_entries->nr_helpers++;
-	}
-
-	return ret;
 }
 
 /* Deep first search on children */
@@ -326,8 +323,6 @@ err:
 	return ret;
 }
 
-static int max_pid = 0;
-
 static int prepare_pstree_for_shell_job(void)
 {
 	pid_t current_sid = getsid(getpid());
@@ -374,10 +369,78 @@ static int prepare_pstree_for_shell_job(void)
 			pi->sid = current_sid;
 	}
 
-	max_pid = max((int)current_sid, max_pid);
-	max_pid = max((int)current_gid, max_pid);
+	if (lookup_create_item(current_sid) == NULL)
+		return -1;
+	if (lookup_create_item(current_gid) == NULL)
+		return -1;
 
 	return 0;
+}
+
+/*
+ * Try to find a pid node in the tree and insert a new one,
+ * it is not there yet. If pid_node isn't set, pstree_item
+ * is inserted.
+ */
+static struct pid *lookup_create_pid(pid_t pid, struct pid *pid_node)
+{
+	struct rb_node *node = pid_root_rb.rb_node;
+	struct rb_node **new = &pid_root_rb.rb_node;
+	struct rb_node *parent = NULL;
+
+	while (node) {
+		struct pid *this = rb_entry(node, struct pid, node);
+
+		parent = *new;
+		if (pid < this->virt)
+			node = node->rb_left, new = &((*new)->rb_left);
+		else if (pid > this->virt)
+			node = node->rb_right, new = &((*new)->rb_right);
+		else
+			return this;
+	}
+
+	if (!pid_node) {
+		struct pstree_item *item;
+
+		item = __alloc_pstree_item(true);
+		if (item == NULL)
+			return NULL;
+
+		item->pid.virt = pid;
+		pid_node = &item->pid;
+	}
+	rb_link_and_balance(&pid_root_rb, &pid_node->node, parent, new);
+	return pid_node;
+}
+
+struct pstree_item *lookup_create_item(pid_t pid)
+{
+	struct pid *node;;
+
+	node = lookup_create_pid(pid, NULL);
+	if (!node)
+		return NULL;
+	BUG_ON(node->state == TASK_THREAD);
+
+	return container_of(node, struct pstree_item, pid);
+}
+
+static struct pid *pstree_pid_by_virt(pid_t pid)
+{
+	struct rb_node *node = pid_root_rb.rb_node;
+
+	while (node) {
+		struct pid *this = rb_entry(node, struct pid, node);
+
+		if (pid < this->virt)
+			node = node->rb_left;
+		else if (pid > this->virt)
+			node = node->rb_right;
+		else
+			return this;
+	}
+	return NULL;
 }
 
 static int read_pstree_ids(struct pstree_item *pi)
@@ -423,18 +486,26 @@ static int read_pstree_image(void)
 			break;
 
 		ret = -1;
-		pi = alloc_pstree_item_with_rst();
+		pi = lookup_create_item(e->pid);
 		if (pi == NULL)
+			break;
+		BUG_ON(pi->pid.state != TASK_UNDEF);
+
+		/*
+		 * All pids should be added in the tree to be able to find
+		 * free pid-s for helpers. pstree_item for these pid-s will
+		 * be initialized when we meet PstreeEntry with this pid or
+		 * we will create helpers for them.
+		 */
+		if (lookup_create_item(e->pgid) == NULL)
+			break;
+		if (lookup_create_item(e->sid) == NULL)
 			break;
 
 		pi->pid.virt = e->pid;
-		max_pid = max((int)e->pid, max_pid);
-
 		pi->pgid = e->pgid;
-		max_pid = max((int)e->pgid, max_pid);
-
 		pi->sid = e->sid;
-		max_pid = max((int)e->sid, max_pid);
+		pi->pid.state = TASK_ALIVE;
 
 		if (e->ppid == 0) {
 			if (root_item) {
@@ -482,9 +553,19 @@ static int read_pstree_image(void)
 			break;
 
 		for (i = 0; i < e->n_threads; i++) {
+			struct pid *node;
 			pi->threads[i].real = -1;
 			pi->threads[i].virt = e->threads[i];
-			max_pid = max((int)e->threads[i], max_pid);
+			pi->threads[i].state = TASK_THREAD;
+			if (i == 0)
+				continue; /* A thread leader is in a tree already */
+			node = lookup_create_pid(pi->threads[i].virt, &pi->threads[i]);
+
+			BUG_ON(node == NULL);
+			if (node != &pi->threads[i]) {
+				pr_err("Unexpected task %d in a tree %d\n", e->threads[i], i);
+				return -1;
+			}
 		}
 
 		task_entries->nr_threads += e->n_threads;
@@ -496,9 +577,32 @@ static int read_pstree_image(void)
 		if (ret < 0)
 			goto err;
 	}
+
 err:
 	close_image(img);
 	return ret;
+}
+
+#define RESERVED_PIDS           300
+static int get_free_pid()
+{
+	static struct pstree_item *prev, *next;
+
+	if (prev == NULL)
+		prev = rb_entry(rb_first(&pid_root_rb), struct pstree_item, pid.node);
+
+	while (1) {
+		pid_t pid;
+		pid = prev->pid.virt + 1;
+		pid = pid < RESERVED_PIDS ? RESERVED_PIDS + 1 : pid;
+
+		next = rb_entry(rb_next(&prev->pid.node), struct pstree_item, pid.node);
+		if (&next->pid.node == NULL || next->pid.virt > pid)
+			return pid;
+		prev = next;
+	}
+
+	return -1;
 }
 
 static int prepare_pstree_ids(void)
@@ -515,6 +619,7 @@ static int prepare_pstree_ids(void)
 	 * reparented to init.
 	 */
 	list_for_each_entry(item, &root_item->children, sibling) {
+		struct pstree_item *leader;
 
 		/*
 		 * If a child belongs to the root task's session or it's
@@ -524,15 +629,37 @@ static int prepare_pstree_ids(void)
 		if (item->sid == root_item->sid || item->sid == item->pid.virt)
 			continue;
 
-		helper = alloc_pstree_helper();
+		leader = pstree_item_by_virt(item->sid);
+		BUG_ON(leader == NULL);
+		if (leader->pid.state != TASK_UNDEF) {
+			pid_t pid;
+
+			pid = get_free_pid();
+			if (pid < 0)
+				break;
+			helper = lookup_create_item(pid);
 			if (helper == NULL)
 				return -1;
+
+			pr_info("Session leader %d\n", item->sid);
+
+			helper->sid = item->sid;
+			helper->pgid = leader->pgid;
+			helper->ids = leader->ids;
+			helper->parent = leader;
+			list_add(&helper->sibling, &leader->children);
+
+			pr_info("Attach %d to the task %d\n",
+					helper->pid.virt, leader->pid.virt);
+		} else {
+			helper = leader;
 			helper->sid = item->sid;
 			helper->pgid = item->sid;
-		helper->pid.virt = item->sid;
 			helper->parent = root_item;
 			helper->ids = root_item->ids;
 			list_add_tail(&helper->sibling, &helpers);
+		}
+		init_pstree_helper(helper);
 
 		pr_info("Add a helper %d for restoring SID %d\n",
 				helper->pid.virt, helper->sid);
@@ -562,7 +689,7 @@ static int prepare_pstree_ids(void)
 		if (!item->parent) /* skip the root task */
 			continue;
 
-		if (item->state == TASK_HELPER)
+		if (item->pid.state == TASK_HELPER)
 			continue;
 
 		if (item->sid != item->pid.virt) {
@@ -592,27 +719,6 @@ static int prepare_pstree_ids(void)
 
 			continue;
 		}
-
-		pr_info("Session leader %d\n", item->sid);
-
-		/* Try to find helpers, who should be connected to the leader */
-		list_for_each_entry(child, &helpers, sibling) {
-			if (child->state != TASK_HELPER)
-				continue;
-
-			if (child->sid != item->sid)
-				continue;
-
-			child->pgid = item->pgid;
-			child->pid.virt = ++max_pid;
-			child->parent = item;
-			list_move(&child->sibling, &item->children);
-
-			pr_info("Attach %d to the task %d\n",
-					child->pid.virt, item->pid.virt);
-
-			break;
-		}
 	}
 
 	/* All other helpers are session leaders for own sessions */
@@ -620,18 +726,15 @@ static int prepare_pstree_ids(void)
 
 	/* Add a process group leader if it is absent  */
 	for_each_pstree_item(item) {
-		struct pstree_item *gleader;
+		struct pid *pid;
 
 		if (!item->pgid || item->pid.virt == item->pgid)
 			continue;
 
-		for_each_pstree_item(gleader) {
-			if (gleader->pid.virt == item->pgid)
-				break;
-		}
-
-		if (gleader) {
-			rsti(item)->pgrp_leader = gleader;
+		pid = pstree_pid_by_virt(item->pgid);
+		if (pid->state != TASK_UNDEF) {
+			BUG_ON(pid->state == TASK_THREAD);
+			rsti(item)->pgrp_leader = container_of(pid, struct pstree_item, pid);
 			continue;
 		}
 
@@ -643,9 +746,9 @@ static int prepare_pstree_ids(void)
 		if (current_pgid == item->pgid)
 			continue;
 
-		helper = alloc_pstree_helper();
-		if (helper == NULL)
-			return -1;
+		helper = container_of(pid, struct pstree_item, pid);
+		init_pstree_helper(helper);
+
 		helper->sid = item->sid;
 		helper->pgid = item->pgid;
 		helper->pid.virt = item->pgid;
@@ -778,6 +881,79 @@ static int prepare_pstree_kobj_ids(void)
 	return 0;
 }
 
+static void do_fake_init(void)
+{
+	close_old_fds();
+	close_image_dir();
+	close_proc();
+	close_service_fd(CR_PROC_FD_OFF);
+	close_service_fd(ROOT_FD_OFF);
+	close_service_fd(USERNSD_SK);
+	log_fini();
+
+	setproctitle("criu-init");
+
+	while (wait(NULL) >= 0)
+		;
+	exit(0);
+}
+
+static int prepare_pstree_for_unshare(void)
+{
+	/*
+	 * Unsharing in anything but pid namespace just puts the
+	 * root task into the requesting set. If pidns is the aim,
+	 * then check for the root task to already live in it,
+	 * otherwise -- insert fake init entry into the tree.
+	 */
+
+	if ((opts.unshare_flags & CLONE_NEWPID) &&
+			!(rsti(root_item)->clone_flags & CLONE_NEWPID)) {
+		struct pstree_item *fake_root;
+
+		fake_root = lookup_create_item(INIT_PID);
+		if (fake_root == NULL)
+			return -1;
+
+		fake_root->pid.state = TASK_HELPER;
+		fake_root->pid.virt = INIT_PID;
+		fake_root->pgid = INIT_PID;
+		fake_root->sid = INIT_PID;
+		fake_root->nr_threads = 1;
+		fake_root->threads = xmalloc(sizeof(struct pid));
+		if (!fake_root->threads)
+			return -1;
+
+		fake_root->threads->real = -1;
+		fake_root->threads->virt = INIT_PID;
+		fake_root->ids = root_ids;
+		rsti(fake_root)->clone_flags = opts.unshare_flags | rsti(root_item)->clone_flags;
+
+		rsti(fake_root)->helper_cb = do_fake_init;
+
+		list_add_tail(&root_item->sibling, &fake_root->children);
+		root_item->parent = fake_root;
+		rsti(root_item)->clone_flags = 0;
+
+		task_entries->nr_helpers++;
+		root_item = fake_root;
+	} else {
+		unsigned long aux;
+
+		/*
+		 * Move root into desired set of namespaces, but keep
+		 * in opts.unshare_flags those that were deliberately
+		 * enforced for further reference.
+		 */
+		aux = rsti(root_item)->clone_flags;
+		rsti(root_item)->clone_flags |= opts.unshare_flags;
+		opts.unshare_flags &= ~aux;
+	}
+
+	root_ns_mask |= opts.unshare_flags;
+	return 0;
+}
+
 int prepare_pstree(void)
 {
 	int ret;
@@ -795,6 +971,8 @@ int prepare_pstree(void)
 		 * of shared objects at clone time
 		 */
 		ret = prepare_pstree_kobj_ids();
+	if (!ret)
+		ret = prepare_pstree_for_unshare();
 	if (!ret)
 		/*
 		 * Session/Group leaders might be dead. Need to fix
@@ -817,13 +995,14 @@ bool restore_before_setsid(struct pstree_item *child)
 
 struct pstree_item *pstree_item_by_virt(pid_t virt)
 {
-	struct pstree_item *item;
+	struct pid *pid;
 
-	for_each_pstree_item(item) {
-		if (item->pid.virt == virt)
-			return item;
-	}
+	pid = pstree_pid_by_virt(virt);
+	if (pid == NULL)
 		return NULL;
+	BUG_ON(pid->state == TASK_THREAD);
+
+	return container_of(pid, struct pstree_item, pid);
 }
 
 struct pstree_item *pstree_item_by_real(pid_t real)

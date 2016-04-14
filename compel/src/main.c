@@ -14,11 +14,15 @@
 #include <sys/mman.h>
 
 #include "compiler.h"
-#include "config.h"
 #include "piegen.h"
+
+static const char compel_cflags_pie[] = "-fpie -Wa,--noexecstack -fno-stack-protector";
+static const char compel_cflags_nopic[] = "-fno-pic -Wa,--noexecstack -fno-stack-protector";
+static const char compel_ldflags[] = "-r";
 
 piegen_opt_t opts = {
 	.input_filename		= NULL,
+	.uapi_dir		= "piegen/uapi",
 	.stream_name		= "stream",
 	.prefix_name		= "__",
 	.var_name		= "elf_relocs",
@@ -65,63 +69,11 @@ static int handle_elf(void *mem, size_t size)
 	return -1;
 }
 
-/*
- * That;s the tool to generate patches object files.
- */
-int main(int argc, char *argv[])
+static int piegen(void)
 {
 	struct stat st;
-	int opt, idx;
 	void *mem;
 	int fd;
-
-	static const char short_opts[] = "f:o:s:p:v:r:h";
-	static struct option long_opts[] = {
-		{ "file",	required_argument,	0, 'f' },
-		{ "output",	required_argument,	0, 'o' },
-		{ "stream",	required_argument,	0, 's' },
-		{ "sym-prefix",	required_argument,	0, 'p' },
-		{ "variable",	required_argument,	0, 'v' },
-		{ "pcrelocs",	required_argument,	0, 'r' },
-		{ "help",	required_argument,	0, 'h' },
-		{ },
-	};
-
-	if (argc < 3)
-		goto usage;
-
-	while (1) {
-		idx = -1;
-		opt = getopt_long(argc, argv, short_opts, long_opts, &idx);
-		if (opt == -1)
-			break;
-		switch (opt) {
-		case 'f':
-			opts.input_filename = optarg;
-			break;
-		case 'o':
-			opts.output_filename = optarg;
-			break;
-		case 's':
-			opts.stream_name = optarg;
-			break;
-		case 'p':
-			opts.prefix_name = optarg;
-			break;
-		case 'v':
-			opts.var_name = optarg;
-			break;
-		case 'r':
-			opts.nrgotpcrel_name = optarg;
-			break;
-		case 'h':
-		default:
-			goto usage;
-		}
-	}
-
-	if (!opts.input_filename)
-		goto usage;
 
 	fd = open(opts.input_filename, O_RDONLY);
 	if (fd < 0) {
@@ -151,11 +103,132 @@ int main(int argc, char *argv[])
 		unlink(opts.output_filename);
 		goto err;
 	}
+
+err:
 	fclose(fout);
 	printf("%s generated successfully.\n", opts.output_filename);
 	return 0;
+}
+
+int main(int argc, char *argv[])
+{
+	const char *current_cflags = NULL;
+	int opt, idx, i;
+	char *action;
+
+	typedef struct {
+		const char	*arch;
+		const char	*cflags;
+	} compel_cflags_t;
+
+	static const compel_cflags_t compel_cflags[] = {
+		{
+			.arch	= "x86",
+			.cflags	= compel_cflags_pie,
+		}, {
+			.arch	= "ia32",
+			.cflags	= compel_cflags_nopic,
+		}, {
+			.arch	= "aarch64",
+			.cflags	= compel_cflags_pie,
+		}, {
+			.arch	= "arm",
+			.cflags	= compel_cflags_pie,
+		}, {
+			.arch	= "ppc64",
+			.cflags	= compel_cflags_pie,
+		},
+	};
+
+	static const char short_opts[] = "a:f:o:s:p:v:r:u:h";
+	static struct option long_opts[] = {
+		{ "arch",	required_argument,	0, 'a' },
+		{ "file",	required_argument,	0, 'f' },
+		{ "output",	required_argument,	0, 'o' },
+		{ "stream",	required_argument,	0, 's' },
+		{ "uapi-dir",	required_argument,	0, 'u' },
+		{ "sym-prefix",	required_argument,	0, 'p' },
+		{ "variable",	required_argument,	0, 'v' },
+		{ "pcrelocs",	required_argument,	0, 'r' },
+		{ "help",	required_argument,	0, 'h' },
+		{ },
+	};
+
+	if (argc < 3)
+		goto usage;
+
+	while (1) {
+		idx = -1;
+		opt = getopt_long(argc, argv, short_opts, long_opts, &idx);
+		if (opt == -1)
+			break;
+		switch (opt) {
+		case 'a':
+			for (i = 0; i < ARRAY_SIZE(compel_cflags); i++) {
+				if (!strcmp(optarg, compel_cflags[i].arch)) {
+					current_cflags = compel_cflags[i].cflags;
+					break;
+				}
+			}
+
+			if (!current_cflags)
+				goto usage;
+			break;
+		case 'f':
+			opts.input_filename = optarg;
+			break;
+		case 'o':
+			opts.output_filename = optarg;
+			break;
+		case 'u':
+			opts.uapi_dir = optarg;
+			break;
+		case 's':
+			opts.stream_name = optarg;
+			break;
+		case 'p':
+			opts.prefix_name = optarg;
+			break;
+		case 'v':
+			opts.var_name = optarg;
+			break;
+		case 'r':
+			opts.nrgotpcrel_name = optarg;
+			break;
+		case 'h':
+			goto usage;
+		default:
+			break;
+		}
+	}
+
+	if (optind >= argc)
+		goto usage;
+
+	action = argv[optind++];
+
+	if (!strcmp(action, "cflags")) {
+		if (!current_cflags)
+			goto usage;
+		printf("%s", current_cflags);
+		return 0;
+	}
+
+	if (!strcmp(action, "ldflags")) {
+		printf("%s", compel_ldflags);
+		return 0;
+	}
+
+	if (!strcmp(action, "piegen")) {
+		if (!opts.input_filename)
+			goto usage;
+		return piegen();
+	}
+
 usage:
-	fprintf(stderr, "Usage: %s -f filename\n", argv[0]);
-err:
+	printf("Usage:\n");
+	printf("  compel --arch=(x86|ia32|aarch64|arm|ppc64) cflags\n");
+	printf("  compel --arch=(x86|ia32|aarch64|arm|ppc64) ldflags\n");
+	printf("  compel -f filename piegen\n");
 	return 1;
 }
