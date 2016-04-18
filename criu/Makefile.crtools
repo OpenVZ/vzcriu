@@ -78,13 +78,12 @@ obj-y			+= util.o
 obj-y			+= uts_ns.o
 obj-y			+= path.o
 obj-y			+= autofs.o
+obj-y	+= uffd.o
 
 ifeq ($(VDSO),y)
 obj-y			+= pie-util-vdso.o
 obj-y			+= vdso.o
 endif
-
-obj-y	+= uffd.o
 
 PROTOBUF_GEN := $(SRC_DIR)/scripts/protobuf-gen.sh
 
