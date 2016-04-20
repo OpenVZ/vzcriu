@@ -1608,6 +1608,11 @@ static int restore_task_with_children(void *_arg)
 
 	current = ca->item;
 
+	if (ca->clone_flags & CLONE_NEWUSER) {
+		if (restore_finish_stage(CR_STATE_RESTORE_USERNS) < 0)
+			goto err;
+	}
+
 	if (current != root_item) {
 		char buf[12];
 		int fd;
@@ -1752,6 +1757,7 @@ static inline int stage_participants(int next_stage)
 	switch (next_stage) {
 	case CR_STATE_FAIL:
 		return 0;
+	case CR_STATE_RESTORE_USERNS:
 	case CR_STATE_RESTORE_NS:
 	case CR_STATE_RESTORE_SHARED:
 		return 1;
@@ -2047,6 +2053,9 @@ static int restore_root_task(struct pstree_item *init)
 	futex_set(&task_entries->nr_in_progress,
 			stage_participants(CR_STATE_RESTORE_NS));
 
+	if (root_ns_mask & CLONE_NEWUSER)
+		__restore_switch_stage(CR_STATE_RESTORE_USERNS);
+
 	ret = fork_with_pid(init);
 	if (ret < 0)
 		goto out;
@@ -2078,8 +2087,13 @@ static int restore_root_task(struct pstree_item *init)
 	 * uid_map and gid_map must be filled from a parent user namespace.
 	 * prepare_userns_creds() must be called after filling mappings.
 	 */
-	if ((root_ns_mask & CLONE_NEWUSER) && prepare_userns(init))
-		goto out_kill;
+	if (root_ns_mask & CLONE_NEWUSER) {
+		if  (prepare_userns(init))
+			goto out_kill;
+		ret = restore_switch_stage(CR_STATE_RESTORE_NS);
+		if (ret < 0)
+			goto out_kill;
+	}
 
 	pr_info("Wait until namespaces are created\n");
 	ret = restore_wait_inprogress_tasks();
