@@ -213,8 +213,7 @@ static inline unsigned long restorer_stack(struct thread_restore_args *a)
 
 enum {
 	CR_STATE_FAIL		= -1,
-	CR_STATE_RESTORE_USERNS = 0,	/* restore uid_map and gid_map */
-	CR_STATE_RESTORE_NS,		/* is used for executing "setup-namespace" scripts */
+	CR_STATE_RESTORE_NS	= 0, /* is used for executing "setup-namespace" scripts */
 	CR_STATE_RESTORE_SHARED,
 	CR_STATE_FORKING,
 	CR_STATE_RESTORE,
