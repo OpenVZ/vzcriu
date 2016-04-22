@@ -3333,7 +3333,7 @@ int prepare_mnt_ns(void)
 			if (mount("proc", "/proc", "proc",
 						MS_MGC_VAL | MS_NOSUID | MS_NOEXEC | MS_NODEV,
 						NULL)) {
-				pr_perror("Can't mount proc\n");
+				pr_perror("Can't mount proc");
 				return -1;
 			}
 
