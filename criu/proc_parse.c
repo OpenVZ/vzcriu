@@ -2160,6 +2160,7 @@ int parse_cgroup_file(FILE *f, struct list_head *retl, unsigned int *n)
 	while (fgets(buf, BUF_SIZE, f)) {
 		struct cg_ctl *ncc, *cc;
 		char *name, *path = NULL, *e;
+		size_t i;
 
 		ncc = xmalloc(sizeof(*cc));
 		if (!ncc)
@@ -2184,6 +2185,19 @@ int parse_cgroup_file(FILE *f, struct list_head *retl, unsigned int *n)
 		*path++ = '\0';
 		if (e)
 			*e = '\0';
+
+		if (opts.nr_cgroup_only) {
+			for (i = 0; i < opts.nr_cgroup_only; i++) {
+				if (!strncmp(name, opts.cgroup_only[i],
+					     strlen(opts.cgroup_only[i])))
+					break;
+			}
+			if (i >= opts.nr_cgroup_only) {
+				pr_debug("cg: Skip controller %s\n", name);
+				xfree(ncc);
+				continue;
+			}
+		}
 
 		ncc->name = xstrdup(name);
 		ncc->path = xstrdup(path);
