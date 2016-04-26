@@ -592,7 +592,22 @@ static int vma_list_add(struct vma_area *vma_area,
 	return 0;
 }
 
-int parse_smaps(pid_t pid, struct vm_area_list *vma_area_list)
+static void close_prev_vma(struct vma_area *vma, bool borrowed)
+{
+	if (!vma)
+		return;
+
+	if (!vma_entry_is(vma->e, VMA_FILE_PRIVATE) &&
+			!vma_entry_is(vma->e, VMA_FILE_SHARED))
+		return;
+
+	if (!borrowed)
+		close_safe(&vma->vm_file_fd);
+	vma->vm_file_fd = -1;
+}
+
+int parse_smaps(pid_t pid, struct vm_area_list *vma_area_list,
+					dump_filemap_t dump_filemap)
 {
 	struct vma_area *vma_area = NULL;
 	unsigned long start, end, pgoff, prev_end = 0;
@@ -694,7 +709,16 @@ int parse_smaps(pid_t pid, struct vm_area_list *vma_area_list)
 		if (handle_vma(pid, vma_area, str + path_off, map_files_dir,
 					&vfi, &prev_vfi, vma_area_list))
 			goto err;
+
+		if (vma_entry_is(vma_area->e, VMA_FILE_PRIVATE) ||
+				vma_entry_is(vma_area->e, VMA_FILE_SHARED)) {
+			if (dump_filemap && dump_filemap(vma_area))
+				goto err;
+		}
+
+		close_prev_vma(prev_vfi.vma, vma_area->file_borrowed);
 	}
+	close_prev_vma(prev_vfi.vma, false);
 
 	vma_area = NULL;
 	ret = 0;

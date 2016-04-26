@@ -114,7 +114,8 @@ void free_mappings(struct vm_area_list *vma_area_list)
 	vma_area_list->nr = 0;
 }
 
-int collect_mappings(pid_t pid, struct vm_area_list *vma_area_list)
+int collect_mappings(pid_t pid, struct vm_area_list *vma_area_list,
+						dump_filemap_t dump_file)
 {
 	int ret = -1;
 
@@ -122,7 +123,7 @@ int collect_mappings(pid_t pid, struct vm_area_list *vma_area_list)
 	pr_info("Collecting mappings (pid: %d)\n", pid);
 	pr_info("----------------------------------------\n");
 
-	ret = parse_smaps(pid, vma_area_list);
+	ret = parse_smaps(pid, vma_area_list, dump_file);
 	if (ret < 0)
 		goto err;
 
@@ -364,8 +365,7 @@ static int dump_pid_misc(pid_t pid, TaskCoreEntry *tc)
 	return 0;
 }
 
-static int dump_filemap(pid_t pid, struct vma_area *vma_area,
-		const struct cr_imgset *imgset)
+static int dump_filemap(struct vma_area *vma_area)
 {
 	struct fd_parms p = FD_PARMS_INIT;
 	VmaEntry *vma = vma_area->e;
@@ -469,9 +469,6 @@ static int dump_task_mm(pid_t pid, const struct proc_pid_stat *stat,
 			ret = check_sysvipc_map_dump(pid, vma);
 		else if (vma_entry_is(vma, VMA_ANON_SHARED))
 			ret = add_shmem_area(pid, vma);
-		else if (vma_entry_is(vma, VMA_FILE_PRIVATE) ||
-				vma_entry_is(vma, VMA_FILE_SHARED))
-			ret = dump_filemap(pid, vma_area, imgset);
 		else if (vma_entry_is(vma, VMA_AREA_SOCKET))
 			ret = dump_socket_map(vma_area);
 		else
@@ -1125,7 +1122,7 @@ static int pre_dump_one_task(struct pstree_item *item, struct list_head *ctls)
 	if (item->pid.state == TASK_DEAD)
 		return 0;
 
-	ret = collect_mappings(pid, &vmas);
+	ret = collect_mappings(pid, &vmas, NULL);
 	if (ret) {
 		pr_err("Collect mappings (pid: %d) failed with %d\n", pid, ret);
 		goto err;
@@ -1205,7 +1202,7 @@ static int dump_one_task(struct pstree_item *item)
 	if (ret < 0)
 		goto err;
 
-	ret = collect_mappings(pid, &vmas);
+	ret = collect_mappings(pid, &vmas, dump_filemap);
 	if (ret) {
 		pr_err("Collect mappings (pid: %d) failed with %d\n", pid, ret);
 		goto err;
