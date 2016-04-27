@@ -37,6 +37,10 @@
 
 /* Nested namespaces are supported only for these types */
 #define CLONE_SUBNS	(CLONE_NEWNS)
+
+/* Special flag for additional --unshare feature */
+#define UNSHARE_MOUNT_PROC	0x1
+
 #define EXTRA_SIZE	20
 
 #define UNSHARE_MOUNT_PROC	0x1
