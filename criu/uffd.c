@@ -16,21 +16,23 @@
 #include <sys/socket.h>
 #include <sys/epoll.h>
 
-#include "asm/page.h"
-#include "include/log.h"
-#include "include/criu-plugin.h"
-#include "include/page-read.h"
-#include "include/files-reg.h"
-#include "include/kerndat.h"
-#include "include/mem.h"
-#include "include/uffd.h"
-#include "include/util-pie.h"
-#include "include/pstree.h"
-#include "include/crtools.h"
-#include "include/cr_options.h"
-#include "xmalloc.h"
+#include "linux/userfaultfd.h"
 
-#ifdef CONFIG_HAS_UFFD
+#include "asm/page.h"
+#include "log.h"
+#include "criu-plugin.h"
+#include "page-read.h"
+#include "files-reg.h"
+#include "kerndat.h"
+#include "mem.h"
+#include "uffd.h"
+#include "util-pie.h"
+#include "pstree.h"
+#include "crtools.h"
+#include "cr_options.h"
+#include "xmalloc.h"
+#include "syscall-codes.h"
+#include "restorer.h"
 
 #undef  LOG_PREFIX
 #define LOG_PREFIX "lazy-pages: "
@@ -166,7 +168,7 @@ int setup_uffd(struct task_restore_args *task_args, int pid)
 	 * Open userfaulfd FD which is passed to the restorer blob and
 	 * to a second process handling the userfaultfd page faults.
 	 */
-	task_args->uffd = syscall(__NR_userfaultfd, O_CLOEXEC | O_NONBLOCK);
+	task_args->uffd = syscall(SYS_userfaultfd, O_CLOEXEC | O_NONBLOCK);
 
 	/*
 	 * Check if the UFFD_API is the one which is expected
@@ -833,13 +835,3 @@ int cr_lazy_pages()
 
 	return ret;
 }
-
-#else /* CONFIG_HAS_UFFD */
-
-int cr_lazy_pages()
-{
-	pr_msg("userfaultfd system call is not supported, cannot start lazy-pages daemon\n");
-	return -1;
-}
-
-#endif /* CONFIG_HAS_UFFD */
