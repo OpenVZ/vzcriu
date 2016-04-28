@@ -2536,6 +2536,14 @@ static bool can_mount_now(struct mount_info *mi)
 	if (!mi->parent)
 		return true;
 
+	if (strcmp(mi->parent->mountpoint, mi->mountpoint) == 0) {
+		struct mount_info *b;
+
+		list_for_each_entry(b, &mi->parent->mnt_bind, mnt_bind)
+			if (!b->mounted)
+				return false;
+	}
+
 	if (mi->external)
 		goto shared;
 
