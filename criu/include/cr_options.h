@@ -98,8 +98,6 @@ struct cr_options {
 	unsigned int		manage_cgroups;
 	char			*new_global_cg_root;
 	struct list_head	new_cgroup_roots;
-	char			**cgroup_only;
-	size_t			nr_cgroup_only;
 	bool			autodetect_ext_mounts;
 	bool			enable_external_sharing;
 	bool			enable_external_masters;

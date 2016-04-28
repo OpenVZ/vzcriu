@@ -323,7 +323,6 @@ int main(int argc, char *argv[], char *envp[])
 		{ "extra",			no_argument,		0, 1077	},
 		{ "experimental",		no_argument,		0, 1078	},
 		{ "all",			no_argument,		0, 1079	},
-		{ "cgroup-only",		required_argument,	0, 1080	},
 		{ },
 	};
 
@@ -627,13 +626,6 @@ int main(int argc, char *argv[], char *envp[])
 		case 1079:
 			opts.check_extra_features = true;
 			opts.check_experimental_features = true;
-			break;
-		case 1080:
-			if (xrealloc_safe(&opts.cgroup_only,
-					  sizeof(char *) * (opts.nr_cgroup_only + 1)))
-				return 1;
-			opts.cgroup_only[opts.nr_cgroup_only] = optarg;
-			opts.nr_cgroup_only++;
 			break;
 		case 'V':
 			pr_msg("Version: %s\n", CRIU_VERSION);
