@@ -2295,6 +2295,14 @@ int parse_threads(int pid, struct pid **_t, int *_n)
 
 int parse_cgroup_file(FILE *f, struct list_head *retl, unsigned int *n)
 {
+	/* XXX for https://jira.sw.ru/browse/PSBM-46382 */
+	static const char *predefined[] = {
+		"hugetlb", "perf_event", "net_cls", "freezer",
+		"ve", "devices", "name=systemd", "cpuset", "cpuacct,cpu",
+		"beancounter", "memory", "blkio",
+	};
+	size_t i;
+
 	while (fgets(buf, BUF_SIZE, f)) {
 		struct cg_ctl *ncc, *cc;
 		char *name, *path = NULL, *e;
@@ -2331,6 +2339,17 @@ int parse_cgroup_file(FILE *f, struct list_head *retl, unsigned int *n)
 		 */
 		if (cgp_should_skip_controller(name)) {
 			pr_debug("cg-prop: Skipping controller %s\n", name);
+			xfree(ncc);
+			continue;
+		}
+
+		/* XXX for https://jira.sw.ru/browse/PSBM-46382 */
+		for (i = 0; i < ARRAY_SIZE(predefined); i++) {
+			if (!strcmp(name, predefined[i]))
+				break;
+		}
+		if (i >= ARRAY_SIZE(predefined)) {
+			pr_debug("cg: Skip controller %s\n", name);
 			xfree(ncc);
 			continue;
 		}
