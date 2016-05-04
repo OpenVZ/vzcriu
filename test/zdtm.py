@@ -647,6 +647,7 @@ class criu_cli:
 		self.__page_server = (opts['page_server'] and True or False)
 		self.__restore_sibling = (opts['sibling'] and True or False)
 		self.__join_ns = (opts['join_ns'] and True or False)
+		self.__unshare = (opts['unshare'] and True or False)
 		self.__fault = (opts['fault'])
 		self.__script = opts['script']
 		self.__sat = (opts['sat'] and True or False)
@@ -788,6 +789,9 @@ class criu_cli:
 		if self.__join_ns:
 			r_opts.append("--join-ns")
 			r_opts.append("net:%s" % join_ns_file)
+		if self.__unshare:
+			r_opts.append("--unshare")
+			r_opts.append("pid,mnt,proc")
 
 		self.__prev_dump_iter = None
 		criu_dir = os.path.dirname(os.getcwd())
@@ -1018,6 +1022,10 @@ def cmp_ns(ns1, match, ns2, msg):
 def check_joinns_state(t):
 	cmp_ns("/proc/%s/ns/net" % t.getpid(), "!=", join_ns_file, "join-ns")
 
+def check_unshare_state(t):
+	cmp_ns("/proc/%s/ns/pid" % t.getpid(), '==', "/proc/self/ns/pid", "unshare pid")
+	cmp_ns("/proc/%s/ns/mnt" % t.getpid(), '==', "/proc/self/ns/mnt", "unshare mnt")
+	cmp_ns("/proc/%s/ns/net" % t.getpid(), '!=', "/proc/self/ns/net", "unshare net")
 
 def do_run_test(tname, tdesc, flavs, opts):
 	tcname = tname.split('/')[0]
@@ -1054,6 +1062,8 @@ def do_run_test(tname, tdesc, flavs, opts):
 				check_visible_state(t, s, opts)
 				if opts['join_ns']:
 					check_joinns_state(t)
+				if opts['unshare']:
+					check_unshare_state(t)
 				t.stop()
 				try_run_hook(t, ["--clean"])
 		except test_fail_exc as e:
@@ -1129,7 +1139,7 @@ class launcher:
 		self.__nr += 1
 		self.__show_progress()
 
-		nd = ('nocr', 'norst', 'pre', 'iters', 'page_server', 'sibling',
+		nd = ('nocr', 'norst', 'pre', 'iters', 'page_server', 'sibling', 'unshare',
 				'fault', 'keep_img', 'report', 'snaps', 'sat', 'script',
 				'join_ns', 'dedup', 'sbs', 'freezecg', 'user', 'dry_run')
 		arg = repr((name, desc, flavor, {d: self.__opts[d] for d in nd}))
@@ -1373,6 +1383,8 @@ def run_tests(opts):
 			# remove ns and uns flavor in join_ns
 			if opts['join_ns']:
 				run_flavs -= set(['ns', 'uns'])
+			if opts['unshare']:
+				run_flavs -= set(['ns', 'uns'])
 
 			if run_flavs:
 				l.run_test(t, tdesc, run_flavs)
@@ -1573,6 +1585,7 @@ rp.add_argument("--iters", help = "Do CR cycle several times before check (n[:pa
 rp.add_argument("--fault", help = "Test fault injection")
 rp.add_argument("--sat", help = "Generate criu strace-s for sat tool (restore is fake, images are kept)", action = 'store_true')
 rp.add_argument("--sbs", help = "Do step-by-step execution, asking user for keypress to continue", action = 'store_true')
+rp.add_argument("--unshare", help = "Restore tests into unshared context", action = 'store_true')
 rp.add_argument("--freezecg", help = "Use freeze cgroup (path:state)")
 rp.add_argument("--user", help = "Run CRIU as regular user", action = 'store_true')
 
