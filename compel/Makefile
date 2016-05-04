@@ -5,9 +5,9 @@ ccflags-y	+= -iquote compel/include
 ccflags-y	+= -iquote compel/arch/$(ARCH)/include
 ccflags-y	+= -DCOMPEL_VERSION=\"$(COMPEL_SO_VERSION_MAJOR).$(COMPEL_SO_VERSION_MINOR)\"
 
-host-ccflags-y	+= $(ccflags-y)
-HOSTCFLAGS	+= $(WARNINGS) $(filter-out -DCONFIG_X86_64,$(DEFINES))
-HOSTLDFLAGS	+= $(LDFLAGS)
+host-ccflags-y	+= $(filter-out -pg $(CFLAGS-GCOV),$(ccflags-y))
+HOSTCFLAGS	+= $(filter-out -pg $(CFLAGS-GCOV),$(WARNINGS) $(filter-out -DCONFIG_X86_64,$(DEFINES)))
+HOSTLDFLAGS	+= $(filter-out -pg $(CFLAGS-GCOV),$(LDFLAGS))
 
 hostprogs-y	+= compel
 compel-objs	+= main.o
