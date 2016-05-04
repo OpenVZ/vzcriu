@@ -492,6 +492,9 @@ static int setup_opts_from_req(int sk, CriuOpts *req)
 			goto err;
 	}
 
+	if (req->has_unshare)
+		opts.unshare_flags = req->unshare;
+
 	if (req->n_irmap_scan_paths) {
 		for (i = 0; i < req->n_irmap_scan_paths; i++) {
 			if (irmap_scan_path_add(req->irmap_scan_paths[i]))
@@ -563,7 +566,7 @@ static int restore_using_req(int sk, CriuOpts *req)
 	success = true;
 exit:
 	if (send_criu_restore_resp(sk, success,
-				   root_item ? root_item->pid.real : -1) == -1) {
+				   root_item ? restored_root_pid(): -1) == -1) {
 		pr_perror("Can't send response");
 		success = false;
 	}
