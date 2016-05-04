@@ -12,6 +12,7 @@
 
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/resource.h>
 
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -248,6 +249,19 @@ int add_external(char *key)
 	return 0;
 }
 
+/* FIXME: This is temp solution for huge number of VMAs with files carried */
+static void init_self_rlimits(void)
+{
+	struct rlimit r;
+
+	if (getrlimit(RLIMIT_NOFILE, &r) == 0) {
+		r.rlim_cur = 100000;
+		r.rlim_max = 100000;
+
+		setrlimit(RLIMIT_NOFILE, &r);
+	}
+}
+
 int main(int argc, char *argv[], char *envp[])
 {
 	pid_t pid = 0, tree_id = 0;
@@ -338,7 +352,8 @@ int main(int argc, char *argv[], char *envp[])
 		goto usage;
 
 	init_opts();
-
+	init_self_rlimits();
+	
 	if (init_service_fd())
 		return 1;
 
