@@ -1130,7 +1130,7 @@ static int open_mountpoint(struct mount_info *pm)
 	char mnt_path_tmp[] = "/tmp/cr-tmpfs.XXXXXX";
 	char mnt_path_root[] = "/cr-tmpfs.XXXXXX";
 	char *mnt_path = mnt_path_tmp;
-	int cwd_fd;
+	int cwd_fd, mnt_id;
 
 	/*
 	 * If a mount doesn't have children, we can open a mount point,
@@ -1157,6 +1157,19 @@ static int open_mountpoint(struct mount_info *pm)
 
 	if (switch_ns(pm->nsid->ns_pid, &mnt_ns_desc, &ns_old) < 0)
 		goto out;
+
+	/* check that a correct mountpoint can be opened */
+	fd = open(pm->mountpoint, O_RDONLY);
+	if (fd < 0) {
+		pr_perror("Unable to open %s", pm->mountpoint);
+		goto out;
+	}
+
+	if (get_fd_mntid(fd, &mnt_id) || mnt_id != pm->mnt_id) {
+		pr_err("Unable to open %d(%d):%s\n", pm->mnt_id, mnt_id, pm->mountpoint);
+		goto out;
+	}
+	close_safe(&fd);
 
 	mnt_path = get_clean_mnt(pm, mnt_path_tmp, mnt_path_root);
 	if (mnt_path == NULL)
@@ -1223,7 +1236,7 @@ static int tmpfs_dump(struct mount_info *pm)
 
 	fd = open_mountpoint(pm);
 	if (fd < 0)
-		return -1;
+		return 1;
 
 	/* if fd happens to be 0 here, we need to move it to something
 	 * non-zero, because cr_system_userns closes STDIN_FILENO as we are not
@@ -1434,7 +1447,7 @@ static int binfmt_misc_dump(struct mount_info *pm)
 
 	fd = open_mountpoint(pm);
 	if (fd < 0)
-		return -1;
+		return 1;
 
 	fdir = fdopendir(fd);
 	if (fdir == NULL) {
@@ -1605,7 +1618,7 @@ static int fusectl_dump(struct mount_info *pm)
 
 	fd = open_mountpoint(pm);
 	if (fd < 0)
-		return -1;
+		return 1;
 
 	fdir = fdopendir(fd);
 	if (fdir == NULL) {
@@ -1662,7 +1675,7 @@ static int dump_empty_fs(struct mount_info *pm)
 	fd = open_mountpoint(pm);
 
 	if (fd < 0)
-		return -1;
+		return 1;
 
 	ret = is_empty_dir(fd);
 	close(fd);
@@ -1878,6 +1891,40 @@ uns:
 	return &fstypes[0];
 }
 
+static int dump_one_fs(struct mount_info *mi)
+{
+	struct mount_info *pm = mi;
+	struct mount_info *t;
+	bool first = true;
+
+	if (mi->is_ns_root || mi->need_plugin || mi->external || !mi->fstype->dump)
+		return 0;
+
+	for (; &pm->mnt_bind != &mi->mnt_bind || first;
+	     pm = list_entry(pm->mnt_bind.next, typeof(*pm), mnt_bind)) {
+		int ret;
+
+		first = false;
+
+		if (!fsroot_mounted(pm))
+			continue;
+
+		ret = pm->fstype->dump(pm);
+		if (ret == 1)
+			continue;
+		if (ret < 0)
+			return ret;
+
+		list_for_each_entry(t, &pm->mnt_bind, mnt_bind)
+			t->dumped = true;
+		return 0;
+	}
+
+	pr_err("Unable to dump a file system for %d:%s\n",
+				mi->mnt_id, mi->mountpoint);
+	return -1;
+}
+
 static int dump_one_mountpoint(struct mount_info *pm, struct cr_img *img)
 {
 	MntEntry me = MNT_ENTRY__INIT;
@@ -1890,16 +1937,9 @@ static int dump_one_mountpoint(struct mount_info *pm, struct cr_img *img)
 	if (me.fstype == FSTYPE__AUTO)
 		me.fsname = pm->fstype->name;
 
-	if (pm->parent && !pm->dumped && !pm->need_plugin && !pm->external &&
-	    pm->fstype->dump && fsroot_mounted(pm)) {
-		struct mount_info *t;
 
-		if (pm->fstype->dump(pm))
-			return -1;
-
-		list_for_each_entry(t, &pm->mnt_bind, mnt_bind)
-			t->dumped = true;
-	}
+	if (!pm->dumped && dump_one_fs(pm))
+		return -1;
 
 	me.mnt_id		= pm->mnt_id;
 	me.root_dev		= pm->s_dev;
