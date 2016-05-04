@@ -4,9 +4,9 @@ ccflags-y	+= -iquote criu/include
 ccflags-y	+= -iquote compel/include
 ccflags-y	+= -DCOMPEL_VERSION=\"$(COMPEL_SO_VERSION_MAJOR).$(COMPEL_SO_VERSION_MINOR)\"
 
-host-ccflags-y	+= $(ccflags-y)
-HOSTCFLAGS	+= $(WARNINGS) $(DEFINES)
-HOSTLDFLAGS	+= $(LDFLAGS)
+host-ccflags-y	+= $(filter-out -pg $(CFLAGS-GCOV),$(ccflags-y))
+HOSTCFLAGS	+= $(filter-out -pg $(CFLAGS-GCOV),$(WARNINGS) $(DEFINES))
+HOSTLDFLAGS	+= $(filter-out -pg $(CFLAGS-GCOV),$(LDFLAGS))
 
 hostprogs-y	+= compel
 compel-objs	+= src/main.o
