@@ -1593,6 +1593,23 @@ static void restore_origin_ns_hook(void)
 		pr_err("Restore original /proc/self/loginuid failed");
 }
 
+/*
+ * In this case the task that we have just restored
+ * is really the root_item's only child. So write
+ * its pid into pidfile to make everybody else see
+ * the correct task.
+ */
+pid_t restored_root_pid(void)
+{
+	struct pstree_item *r;
+
+	r = root_item;
+	if (opts.unshare_flags & CLONE_NEWPID)
+		r = list_first_entry(&r->children, struct pstree_item, sibling);
+
+	return r->pid.real;
+}
+
 static int write_restored_pid(void)
 {
 	int pid;
@@ -1600,8 +1617,7 @@ static int write_restored_pid(void)
 	if (!opts.pidfile)
 		return 0;
 
-	pid = root_item->pid.real;
-
+	pid = restored_root_pid();
 	if (write_pidfile(pid) < 0) {
 		pr_perror("Can't write pidfile");
 		return -1;

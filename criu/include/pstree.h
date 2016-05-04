@@ -98,6 +98,6 @@ extern int pstree_alloc_cores(struct pstree_item *item);
 extern void pstree_free_cores(struct pstree_item *item);
 
 extern int collect_pstree_ids(void);
-
 extern int preorder_pstree_traversal(struct pstree_item *item, int (*f)(struct pstree_item *));
+extern pid_t restored_root_pid(void);
 #endif /* __CR_PSTREE_H__ */

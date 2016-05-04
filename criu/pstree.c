@@ -908,6 +908,16 @@ static int prepare_pstree_for_unshare(void)
 			!(rsti(root_item)->clone_flags & CLONE_NEWPID)) {
 		struct pstree_item *fake_root;
 
+		if (opts.restore_sibling) {
+			/*
+			 * In this case the restored root task will be
+			 * the fake init one, not the original init, so
+			 * don't allow this (for now).
+			 */
+			pr_err("Unshare pidns for sibling is not supported\n");
+			return -1;
+		}
+
 		fake_root = lookup_create_item(INIT_PID);
 		if (fake_root == NULL)
 			return -1;
