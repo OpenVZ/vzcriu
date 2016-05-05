@@ -2689,8 +2689,10 @@ static int rst_prep_creds(pid_t pid, CoreEntry *core, unsigned long *creds_pos)
 	 * present. It means we don't have
 	 * creds either, just ignore and exit
 	 * early.
+	 *
+	 * Or -- we're doing --unshare user restore from non-root context
 	 */
-	if (unlikely(!core->thread_core)) {
+	if (unlikely(!core->thread_core || (opts.unshare_flags & UNSHARE_UNPRIVILEDGED))) {
 		*creds_pos = 0;
 		return 0;
 	}

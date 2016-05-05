@@ -133,6 +133,11 @@ static int restore_creds(struct thread_creds_args *args, int procfd)
 	struct cap_header hdr;
 	struct cap_data data[_LINUX_CAPABILITY_U32S_3];
 
+	if (!args) {
+		pr_info("No creds to restore\n");
+		return 0;
+	}
+
 	/*
 	 * We're still root here and thus can do it without failures.
 	 */
