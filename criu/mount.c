@@ -1875,6 +1875,8 @@ uns:
 static int dump_one_mountpoint(struct mount_info *pm, struct cr_img *img)
 {
 	MntEntry me = MNT_ENTRY__INIT;
+	bool overmounted = false;
+	struct mount_info *c;
 
 	pr_info("\t%d: %x:%s @ %s\n", pm->mnt_id, pm->s_dev,
 			pm->root, pm->mountpoint);
@@ -1884,8 +1886,12 @@ static int dump_one_mountpoint(struct mount_info *pm, struct cr_img *img)
 	if (me.fstype == FSTYPE__AUTO)
 		me.fsname = pm->fstype->name;
 
+	list_for_each_entry(c, &pm->children, siblings)
+		if (strcmp(pm->mountpoint, c->mountpoint) == 0)
+			overmounted = true;
+
 	if (pm->parent && !pm->dumped && !pm->need_plugin && !pm->external &&
-	    pm->fstype->dump && fsroot_mounted(pm)) {
+	    pm->fstype->dump && fsroot_mounted(pm) && !overmounted) {
 		struct mount_info *t;
 
 		if (pm->fstype->dump(pm))
