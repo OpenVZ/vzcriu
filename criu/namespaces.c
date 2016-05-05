@@ -24,6 +24,7 @@
 #include "namespaces.h"
 #include "net.h"
 #include "cgroup.h"
+#include "syscall-types.h"
 
 #include "protobuf.h"
 #include "images/ns.pb-c.h"
@@ -1458,11 +1459,78 @@ int stop_usernsd(void)
 	return ret;
 }
 
+static int try_generate_map(pid_t pid, char *type)
+{
+	UidGidExtent ext, *ep = &ext;
+
+	if (!(opts.unshare_flags & UNSHARE_UNPRIVILEDGED)) {
+		/*
+		 * Try the maximal mapping. This should suit
+		 * the case when we restore from root.
+		 */
+
+		ext.first = ext.lower_first = 0;
+		ext.count = -1;
+		if (write_id_map(pid, &ep, 1, type) == 0) {
+			pr_info("Created root %s\n", type);
+			return 0;
+		}
+	} else {
+		/*
+		 * Try the 1:1 mapping, for user restore, but
+		 * first disable setgroups for gid mapping.
+		 */
+		if (type[0] == 'g') {
+			int fd;
+
+			fd = open_proc_rw(pid, "setgroups");
+			if (fd < 0)
+				return -1;
+
+			if (write(fd, "deny", 5) != 5) {
+				pr_perror("Can't ban setgroups");
+				close(fd);
+				return -1;
+			}
+
+			close(fd);
+
+			ext.first = ext.lower_first = getegid();
+		} else
+			ext.first = ext.lower_first = getuid();
+
+		ext.count = 1;
+		if (write_id_map(pid, &ep, 1, type) == 0) {
+			pr_info("Created user %s\n", type);
+			return 0;
+		}
+	}
+
+	return -1;
+}
+
+static int try_generate_xid_mappings(struct pstree_item *item)
+{
+	pid_t pid = item->pid.real;
+
+	if (try_generate_map(pid, "uid_map"))
+		return -1;
+
+
+	if (try_generate_map(pid, "gid_map"))
+		return -1;
+
+	return 0;
+}
+
 int prepare_userns(struct pstree_item *item)
 {
 	struct cr_img *img;
 	UsernsEntry *e;
 	int ret;
+
+	if (opts.unshare_flags & CLONE_NEWUSER)
+		return try_generate_xid_mappings(item);
 
 	img = open_image(CR_FD_USERNS, O_RSTR, item->ids->user_ns_id);
 	if (!img)
@@ -1502,6 +1570,13 @@ int collect_namespaces(bool for_dump)
 
 static int prepare_userns_creds()
 {
+	if (opts.unshare_flags & UNSHARE_UNPRIVILEDGED)
+		/*
+		 * Mappings has been set up to 1:1, so we're
+		 * already in needed state.
+		 */
+		return 0;
+
 	/* UID and GID must be set after restoring /proc/PID/{uid,gid}_maps */
 	if (setuid(0) || setgid(0) || setgroups(0, NULL)) {
 		pr_perror("Unable to initialize id-s");

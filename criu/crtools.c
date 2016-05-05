@@ -132,7 +132,7 @@ static int parse_unshare_arg(char *opt)
 	}
 
 	/* Only pid, mnt and user for now */
-	if (opts.unshare_flags & ~(CLONE_NEWNS | CLONE_NEWPID | UNSHARE_MOUNT_PROC)) {
+	if (opts.unshare_flags & ~(CLONE_NEWNS | CLONE_NEWPID | UNSHARE_MOUNT_PROC | CLONE_NEWUSER)) {
 		pr_err("Unsharing this namespace(s) is not supported yet\n");
 		return -1;
 	}

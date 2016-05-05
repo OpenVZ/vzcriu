@@ -791,7 +791,7 @@ class criu_cli:
 			r_opts.append("net:%s" % join_ns_file)
 		if self.__unshare:
 			r_opts.append("--unshare")
-			r_opts.append("pid,mnt,proc")
+			r_opts.append("pid,user,mnt,proc")
 
 		self.__prev_dump_iter = None
 		criu_dir = os.path.dirname(os.getcwd())

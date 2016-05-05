@@ -15,6 +15,7 @@
 #include "asm/dump.h"
 #include "setproctitle.h"
 #include "files.h"
+#include "syscall-types.h"
 
 #include "protobuf.h"
 #include "images/pstree.pb-c.h"
@@ -955,6 +956,19 @@ static int prepare_pstree_for_unshare(void)
 		aux = rsti(root_item)->clone_flags;
 		rsti(root_item)->clone_flags |= opts.unshare_flags;
 		opts.unshare_flags &= ~aux;
+	}
+
+	if (opts.unshare_flags & CLONE_NEWUSER) {
+		/*
+		 * Let's try to find out whether we have enough rights
+		 * to restore caps, creds, xids and full uns mappings.
+		 *
+		 * FIXME: this should probably be done on caps basis?
+		 */
+		if (geteuid() != 0 || getegid() != 0) {
+			pr_info("Will do unpriviledged unshare\n");
+			opts.unshare_flags |= UNSHARE_UNPRIVILEDGED;
+		}
 	}
 
 	root_ns_mask |= opts.unshare_flags;

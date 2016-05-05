@@ -41,6 +41,9 @@
 /* Special flag for additional --unshare feature */
 #define UNSHARE_MOUNT_PROC	0x1
 
+/* Service flag for userns unsharing */
+#define UNSHARE_UNPRIVILEDGED	0x2
+
 #define EXTRA_SIZE	20
 
 #define UNSHARE_MOUNT_PROC	0x1
