@@ -57,6 +57,7 @@ struct mount_info {
 	struct fstype		*fstype;
 	char			*source;
 	char			*options;
+	char			*fsname;
 	union {
 		bool		mounted;
 		bool		dumped;
