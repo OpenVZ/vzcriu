@@ -46,7 +46,9 @@ CFLAGS			+= -iquote arch/$(ARCH)/include -iquote $(SRC_DIR)
 CFLAGS			+= -iquote $(SRC_DIR)/criu/include
 
 ccflags-y		+= -DCR_NOGLIBC
+ifneq ($(filter-out clean mrproper,$(MAKECMDGOALS)),)
 NATIVE_CFLAGS		:= $(shell $(SRC_DIR)/compel/compel --arch=$(ARCH) cflags)
+endif
 
 ifeq ($(ARCH),x86)
         NATIVE_CFLAGS	+= -DCONFIG_X86_64
