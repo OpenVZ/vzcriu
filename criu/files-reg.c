@@ -225,7 +225,7 @@ again:
 			msg = "Can't make ghost dir";
 	} else {
 		if ((ret = mkreg_ghost(path, gfe->mode, img)) < 0)
-			msg = "Can't create ghost regfile\n";
+			msg = "Can't create ghost regfile";
 	}
 
 	if (ret < 0) {
