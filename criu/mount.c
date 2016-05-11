@@ -2483,7 +2483,7 @@ static int do_bind_mount(struct mount_info *mi)
 		mnt_path = mnt_fd_path;
 	}
 
-	if (!list_empty(&mi->bind->children)) {
+	if (!list_empty(&mi->bind->children) && cut_root[0] != 0) {
 		/* mi->bind->mountpoint may be overmounted */
 		if (mount(mnt_path, mnt_clean_path, NULL, MS_BIND, NULL)) {
 			pr_perror("Unable to bind-mount %s to %s",
