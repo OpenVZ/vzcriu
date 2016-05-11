@@ -56,7 +56,7 @@ static int aio_wait_pending(void)
 	fd = sys_open("/proc/self/aio", O_RDONLY, 0);
 	if (fd < 0) {
 		pr_err("Can't open /proc/self/aio\n");
-		return -1;
+		return fd == -ENOENT ? 0 : -1;
 	}
 
 	ret = sys_ioctl(fd, VE_AIO_IOC_WAIT_ACTIVE, 0);
