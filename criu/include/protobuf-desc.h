@@ -58,6 +58,7 @@ enum {
 	PB_NETNS,
 	PB_BINFMT_MISC,		/* 50 */
 	PB_AUTOFS,
+	PB_TTY_DATA,
 
 	/* PB_AUTOGEN_STOP */
 

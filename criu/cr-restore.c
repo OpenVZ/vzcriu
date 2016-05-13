@@ -178,6 +178,7 @@ static struct collect_image_info *cinfos[] = {
 	&fanotify_mark_cinfo,
 	&tty_info_cinfo,
 	&tty_cinfo,
+	&tty_cdata,
 	&tunfile_cinfo,
 	&ext_file_cinfo,
 	&timerfd_cinfo,
@@ -244,9 +245,6 @@ static int root_prepare_shared(void)
 		if (ret)
 			return -1;
 	}
-
-	if (tty_verify_active_pairs())
-		return -1;
 
 	for_each_pstree_item(pi) {
 		if (pi->pid.state == TASK_HELPER)

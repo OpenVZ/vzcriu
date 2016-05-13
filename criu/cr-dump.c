@@ -1749,7 +1749,7 @@ int cr_dump_tasks(pid_t pid)
 	if (ret)
 		goto err;
 
-	ret = tty_verify_active_pairs();
+	ret = tty_post_actions();
 	if (ret)
 		goto err;
 
