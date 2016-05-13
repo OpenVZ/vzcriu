@@ -765,7 +765,7 @@ static int prepare_epoll(int nr_fds, struct epoll_event **events)
 	int epollfd;
 
 	*events = malloc(sizeof(struct epoll_event) * nr_fds);
-	if (!events) {
+	if (!*events) {
 		pr_err("memory allocation failed\n");
 		return -1;
 	}
