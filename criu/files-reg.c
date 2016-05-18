@@ -1121,6 +1121,13 @@ static bool should_check_size(int flags)
 	return true;
 }
 
+static bool path_is_unreachable(struct fd_link *link, const struct fd_parms *parms)
+{
+	if (parms->fs_type == NFS_SUPER_MAGIC)
+		return true;
+	return false;
+}
+
 int dump_one_reg_file(int lfd, u32 id, const struct fd_parms *p)
 {
 	struct fd_link _link, *link;
@@ -1189,6 +1196,9 @@ ext:
 
 	rfe.has_mode = true;
 	rfe.mode = p->stat.st_mode;
+
+	rfe.has_unreachable	= true;
+	rfe.unreachable		= path_is_unreachable(link, p);
 
 	rimg = img_from_set(glob_imgset, CR_FD_REG_FILES);
 	return pb_write_one(rimg, &rfe, PB_REG_FILE);
