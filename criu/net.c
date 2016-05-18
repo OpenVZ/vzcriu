@@ -1823,7 +1823,9 @@ int network_lock(void)
 	if (run_scripts(ACT_NET_LOCK))
 		return -1;
 
-	return network_lock_internal();
+	if (network_lock_internal())
+		return -1;
+	return run_scripts(ACT_POST_NET_LOCK);
 }
 
 void network_unlock(void)
