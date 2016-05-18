@@ -1809,6 +1809,9 @@ static struct fstype fstypes[32] = {
 	}, {
 		.name = "nfs",
 		.code = FSTYPE__NFS,
+	}, {
+		.name = "nfs4",
+		.code = FSTYPE__NFS4,
 	}
 };
 
