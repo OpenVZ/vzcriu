@@ -29,6 +29,7 @@
 #include "pstree.h"
 #include "fault-injection.h"
 #include "external.h"
+#include "spfs.h"
 
 #include "protobuf.h"
 #include "util.h"
@@ -1512,6 +1513,13 @@ int open_path(struct file_desc *d,
 
 	mntns_root = mntns_get_root_by_mnt_id(rfi->rfe->mnt_id);
 ext:
+	if (rfi->rfe->unreachable) {
+		if (spfs_create_file(mntns_root, rfi) < 0) {
+			pr_err("Failed to create SPFS path\n");
+			return -1;
+		}
+	}
+
 	tmp = open_cb(mntns_root, rfi, arg);
 	if (tmp < 0) {
 		pr_perror("Can't open file %s", rfi->path);
