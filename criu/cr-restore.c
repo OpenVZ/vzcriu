@@ -3458,6 +3458,7 @@ static int sigreturn_restore(pid_t pid, CoreEntry *core)
 	close_proc();
 	close_service_fd(ROOT_FD_OFF);
 	close_service_fd(USERNSD_SK);
+	close_service_fd(SPFS_MNGR_SK);
 
 	__gcov_flush();
 
