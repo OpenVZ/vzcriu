@@ -21,6 +21,7 @@ enum fstype {
 	OVERLAYFS		= 17;
 	AUTOFS			= 18;
 	RPC_PIPEFS		= 19;
+	NFS			= 20;
 };
 
 message mnt_entry {
