@@ -149,6 +149,8 @@ ifeq ($(PYTHON),python3)
 	$(E) "  INSTALL " scripts/criu-ns
 	$(Q) install -m 755 scripts/criu-ns $(DESTDIR)$(SBINDIR)
 endif
+	$(Q) install -m 755 $(SRC_DIR)/scripts/systemd-autofs-restart.sh $(DESTDIR)$(LIBEXECDIR)/criu/scripts
+	$(Q) install -m 755 $(SRC_DIR)/scripts/nfs-ports-allow.sh $(DESTDIR)$(LIBEXECDIR)/criu/scripts
 .PHONY: install
 
 uninstall:
