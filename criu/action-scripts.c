@@ -11,6 +11,7 @@
 #include "cr-service.h"
 #include "action-scripts.h"
 #include "pstree.h"
+#include "spfs.h"
 
 static const char *action_names[ACT_MAX] = {
 	[ ACT_PRE_DUMP ]	= "pre-dump",
@@ -55,6 +56,9 @@ int run_scripts(enum script_actions act)
 			return -1;
 		}
 	}
+
+	if (spfs_set_env())
+		return -1;
 
 	list_for_each_entry(script, &opts.scripts, node) {
 		if (script->path == SCRIPT_RPC_NOTIFY) {
