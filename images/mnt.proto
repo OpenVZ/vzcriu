@@ -28,7 +28,7 @@ enum fstype {
 
 	/* These three are reserved for NFS support */
 	RPC_PIPEFS		= 20;
-	// NFS			= 21;
+	NFS			= 21;
 	// NFS4			= 22;
 
 	CGROUP2			= 23;
