@@ -1803,7 +1803,10 @@ static struct fstype fstypes[32] = {
 		.parse = autofs_parse,
 		.dump = autofs_dump,
 		.mount = autofs_mount,
-	},
+	}, {
+		.name = "rpc_pipefs",
+		.code = FSTYPE__RPC_PIPEFS,
+	}
 };
 
 static char fsauto_all[] = "all";
