@@ -16,6 +16,7 @@
 #include <sys/un.h>
 #include <sys/socket.h>
 #include "common/scm.h"
+#include "spfs.h"
 
 static const char *action_names[ACT_MAX] = {
 	[ ACT_PRE_DUMP ]	= "pre-dump",
@@ -69,6 +70,9 @@ static int run_shell_scripts(const char *action)
 		}
 		env_set |= ENV_IMGDIR;
 	}
+
+	if (spfs_set_env())
+		return -1;
 
 	if (!(env_set & ENV_ROOTPID) && root_item) {
 		int pid;
