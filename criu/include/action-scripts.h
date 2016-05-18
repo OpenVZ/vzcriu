@@ -16,6 +16,7 @@ enum script_actions {
 	ACT_PRE_RESUME,
 	ACT_ORPHAN_PTS_MASTER,
 	ACT_STATUS_READY,
+	ACT_POST_NET_LOCK,
 
 	ACT_MAX
 };
