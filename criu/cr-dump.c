@@ -365,11 +365,19 @@ static int dump_filemap(struct vma_area *vma_area, int fd)
 	struct fd_parms p = FD_PARMS_INIT;
 	VmaEntry *vma = vma_area->e;
 	int ret = 0;
+	struct statfs fst;
 	u32 id;
 
 	BUG_ON(!vma_area->vmst);
 	p.stat = *vma_area->vmst;
 	p.mnt_id = vma_area->mnt_id;
+
+	if (fstatfs(fd, &fst)) {
+		pr_perror("Unable to statfs fd %d", fd);
+		return -1;
+	}
+
+	p.fs_type = fst.f_type;
 
 	/*
 	 * AUFS support to compensate for the kernel bug
