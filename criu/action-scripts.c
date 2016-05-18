@@ -16,6 +16,7 @@
 #include <sys/un.h>
 #include <sys/socket.h>
 #include "common/scm.h"
+#include "spfs.h"
 
 #include "mount.h"
 #include "spfs.h"
@@ -73,6 +74,9 @@ static int run_shell_scripts(const char *action)
 		}
 		env_set |= ENV_IMGDIR;
 	}
+
+	if (spfs_set_env())
+		return -1;
 
 	if (!(env_set & ENV_ROOTPID) && root_item) {
 		char mnt_ns_roots[PATH_MAX];
