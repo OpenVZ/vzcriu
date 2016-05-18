@@ -1806,6 +1806,9 @@ static struct fstype fstypes[32] = {
 	}, {
 		.name = "rpc_pipefs",
 		.code = FSTYPE__RPC_PIPEFS,
+	}, {
+		.name = "nfs",
+		.code = FSTYPE__NFS,
 	}
 };
 
