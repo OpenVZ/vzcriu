@@ -1187,6 +1187,9 @@ ext:
 		rfe.size = p->stat.st_size;
 	}
 
+	rfe.has_mode = true;
+	rfe.mode = p->stat.st_mode;
+
 	rimg = img_from_set(glob_imgset, CR_FD_REG_FILES);
 	return pb_write_one(rimg, &rfe, PB_REG_FILE);
 }
