@@ -27,6 +27,7 @@
 #include "mem.h"
 #include "uffd.h"
 #include "util-pie.h"
+#include "protobuf.h"
 #include "pstree.h"
 #include "crtools.h"
 #include "cr_options.h"
