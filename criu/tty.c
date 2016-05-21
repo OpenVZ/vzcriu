@@ -1647,6 +1647,7 @@ static int dump_tty_info(int lfd, u32 id, const struct fd_parms *p, struct tty_d
 	dinfo->pgrp		= pti->pgrp;
 	dinfo->fd		= p->fd;
 	dinfo->driver		= driver;
+	dinfo->flags		= p->flags;
 
 	if (is_pty(driver)) {
 		dinfo->lfd = dup(lfd);
@@ -1656,7 +1657,6 @@ static int dump_tty_info(int lfd, u32 id, const struct fd_parms *p, struct tty_d
 			return -1;
 		}
 		dinfo->index	= index;
-		dinfo->flags	= p->flags;
 	} else {
 		dinfo->index	= -1;
 		dinfo->lfd	= -1;
