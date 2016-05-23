@@ -42,6 +42,7 @@ static int sock_seqpacket_connect(char *path)
 	err = connect(sock, (struct sockaddr *)&addr, sizeof(addr));
 	if (err) {
 		pr_perror("failed to connect to socket %s (-%d)", addr.sun_path, errno);
+		close(sock);
 		return -1;
 	}
 	return sock;
@@ -78,7 +79,7 @@ static int create_dir(int ns_root_fd, const char *new_dir, mode_t mode)
 	char *path, *dentry;
 
 	path = strdup(new_dir);
-	if (path < 0) {
+	if (!path) {
 		pr_err("failed to duplicate string\n");
 		return -ENOMEM;
 	}
@@ -117,7 +118,7 @@ static int create_reg_file(int ns_root_fd, const char *file_path, mode_t mode, s
 	int fd, err;
 
 	path = strdup(file_path);
-	if (path < 0) {
+	if (!path) {
 		pr_err("failed to duplicate string\n");
 		return -ENOMEM;
 	}
@@ -140,12 +141,14 @@ static int create_reg_file(int ns_root_fd, const char *file_path, mode_t mode, s
 	}
 
 	if (size && ftruncate(fd, size)) {
-		pr_perror("failed to truncate %s to %ld bytes", file_path, size);
+		pr_perror("failed to truncate %s to %lu bytes",
+				file_path, (unsigned long)size);
 		err = -errno;
 		goto close_fd;
 	}
 
-	pr_debug("file %s was created with mode 0777 and size %ld\n", file_path, size);
+	pr_debug("file %s was created with mode 0777 and size %lu\n",
+				file_path, (unsigned long)size);
 
 close_fd:
 	close(fd);
@@ -160,7 +163,7 @@ static int create_fifo(int ns_root_fd, const char *file_path, mode_t mode, size_
 	int err;
 
 	path = strdup(file_path);
-	if (path < 0) {
+	if (!path) {
 		pr_err("failed to duplicate string\n");
 		return -ENOMEM;
 	}
@@ -187,7 +190,8 @@ static int create_fifo(int ns_root_fd, const char *file_path, mode_t mode, size_
 		goto free_path;
 	}
 
-	pr_debug("fifo %s was created with mode 0777 and size %ld\n", file_path, size);
+	pr_debug("fifo %s was created with mode 0777 and size %lu\n",
+				file_path, (unsigned long)size);
 
 free_path:
 	free(path);
