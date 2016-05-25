@@ -179,11 +179,13 @@ endif
 # on anything else.
 $(eval $(call gen-built-in,images))
 
+.PHONY: .FORCE
+
 # Compel get used by CRIU, build it earlier
-compel/%:
+compel/%: .FORCE
 	$(Q) $(MAKE) $(build)=compel $@
 
-test/compel/%:
+test/compel/%: .FORCE
 	$(Q) $(MAKE) $(build)=compel $@
 
 #
@@ -194,7 +196,7 @@ test/compel/%:
 #
 # But note that we're already included
 # the nmk so we can reuse it there.
-criu/%: images/built-in.o compel/compel $(VERSION_HEADER)
+criu/%: images/built-in.o compel/compel $(VERSION_HEADER) .FORCE
 	$(Q) $(MAKE) -C criu $@
 criu: images/built-in.o compel/compel $(VERSION_HEADER)
 	$(Q) $(MAKE) -C criu all
@@ -204,7 +206,7 @@ criu: images/built-in.o compel/compel $(VERSION_HEADER)
 # Libraries next once criu it ready
 # (we might generate headers and such
 # when building criu itself).
-lib/%: criu
+lib/%: criu .FORCE
 	$(Q) $(MAKE) -C lib $@
 lib: criu
 	$(Q) $(MAKE) -C lib all
