@@ -139,13 +139,12 @@ syscalls_lib: config
 #
 # Architecture dependant part.
 ARCH-LIB		:= $(ARCH_DIR)/crtools.built-in.o
-arch_lib: syscalls_lib
+$(ARCH-LIB): syscalls_lib
 	$(Q) $(MAKE) $(call build-as,Makefile,$(ARCH_DIR)) all
-.PHONY: arch_lib
 
 #
 # PIE library code.
-pie/lib.a: arch_lib
+pie/lib.a: $(ARCH-LIB)
 	$(Q) $(MAKE) $(call build-as,Makefile.library,pie) all
 
 #
@@ -159,13 +158,14 @@ pie: pie/lib.a
 PROGRAM-BUILTINS	+= ../images/built-in.o
 PROGRAM-BUILTINS	+= built-in.o
 PROGRAM-BUILTINS	+= pie/lib.a
+PROGRAM-BUILTINS	+= $(ARCH-LIB)
 
 built-in.o: pie
 	$(Q) $(MAKE) $(call build-as,Makefile.crtools,.) all
 
 criu: $(PROGRAM-BUILTINS)
 	$(call msg-link, $@)
-	$(Q) $(CC) $(CFLAGS) $^ $(ARCH-LIB) $(LIBS) $(LDFLAGS) $(GMONLDOPT) -rdynamic -o $@
+	$(Q) $(CC) $(CFLAGS) $^ $(LIBS) $(LDFLAGS) $(GMONLDOPT) -rdynamic -o $@
 
 
 subclean:
