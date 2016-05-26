@@ -1849,6 +1849,25 @@ static char *resolve_source(struct mount_info *mi)
 	return NULL;
 }
 
+static int __restore_shared_options(char *mountpoint, int mnt_id, bool private,
+				    bool shared, bool slave)
+{
+	if (private && mount(NULL, mountpoint, NULL, MS_PRIVATE, NULL)) {
+		pr_perror("Unable to make %d:%s private", mnt_id, mountpoint);
+		return -1;
+	}
+	if (slave && mount(NULL, mountpoint, NULL, MS_SLAVE, NULL)) {
+		pr_perror("Unable to make %d:%s slave", mnt_id, mountpoint);
+		return -1;
+	}
+	if (shared && mount(NULL, mountpoint, NULL, MS_SHARED, NULL)) {
+		pr_perror("Unable to make %d:%s shared", mnt_id, mountpoint);
+		return -1;
+	}
+
+	return 0;
+}
+
 static int restore_shared_options(struct mount_info *mi, bool private, bool shared, bool slave)
 {
 	pr_debug("%d:%s private %d shared %d slave %d\n",
@@ -1876,20 +1895,8 @@ static int restore_shared_options(struct mount_info *mi, bool private, bool shar
 		}
 	}
 
-	if (private && mount(NULL, mi->mountpoint, NULL, MS_PRIVATE, NULL)) {
-		pr_perror("Unable to make %d private", mi->mnt_id);
-		return -1;
-	}
-	if (slave && mount(NULL, mi->mountpoint, NULL, MS_SLAVE, NULL)) {
-		pr_perror("Unable to make %d slave", mi->mnt_id);
-		return -1;
-	}
-	if (shared && mount(NULL, mi->mountpoint, NULL, MS_SHARED, NULL)) {
-		pr_perror("Unable to make %d shared", mi->mnt_id);
-		return -1;
-	}
-
-	return 0;
+	return __restore_shared_options(mi->mountpoint, mi->mnt_id,
+					private, shared, slave);
 }
 
 /*
@@ -2212,17 +2219,24 @@ static int do_bind_mount(struct mount_info *mi)
 	char mnt_fd_path[PSFDS];
 	char *root, *cut_root, rpath[PATH_MAX];
 	unsigned long mflags;
-	int exit_code = -1, mp_len;
+	int exit_code = -1;
 	bool shared = false;
 	bool master = false;
 	bool private = false;
 	char *mnt_path = NULL;
 	struct stat st;
-	bool umount_mnt_path = false;
-	struct mount_info *c;
+	int umount_mnt_fd = -1, fd;
 
 	if (mi->need_plugin) {
 		if (restore_ext_mount(mi))
+			return -1;
+		/*
+		 * shared - the mount is in the same shared group with mi->bind
+		 * mi->shared_id && !shared - create a new shared group
+		 */
+		if (restore_shared_options(mi, private,
+					   mi->shared_id && !shared,
+					   mi->master_id && !master))
 			return -1;
 		goto out;
 	}
@@ -2260,42 +2274,33 @@ static int do_bind_mount(struct mount_info *mi)
 		mnt_path = mnt_fd_path;
 	}
 
-	if (cut_root[0] == 0) /* This case is handled by mi->bind->fd */
-		goto skip_overmount_check;
-
-	/*
-	 * The target path may be over-mounted by one of child mounts
-	 * and we need to create a new bind-mount to get access to the path.
-	 */
-	mp_len = strlen(mi->bind->mountpoint);
-	if (mp_len > 1) /* skip a joining / if mi->bind->mountpoint isn't "/" */
-		mp_len++;
-
-	list_for_each_entry(c, &mi->bind->children, siblings) {
-		if (!c->mounted)
-			continue;
-		if (issubpath(cut_root, c->mountpoint + mp_len))
-			break; /* a source path is overmounted */
+	/* mi->bind->mountpoint may be overmounted */
+	if (mount(mnt_path, mnt_clean_path, NULL, MS_BIND, NULL)) {
+		pr_perror("Unable to bind-mount %s to %s",
+				mi->bind->mountpoint, mnt_clean_path);
+		return -1;
 	}
-
-	if (&c->siblings != &mi->bind->children) {
-		/* Get a copy of mi->bind without child mounts */
-		if (mount(mnt_path, mnt_clean_path, NULL, MS_BIND, NULL)) {
-			pr_perror("Unable to bind-mount %s to %s",
-					mnt_path, mnt_clean_path);
-			return -1;
-		}
-		mnt_path = mnt_clean_path;
-		umount_mnt_path = true;
+	mnt_path = mnt_clean_path;
+	umount_mnt_fd = open(mnt_clean_path, O_PATH);
+	if (umount_mnt_fd < 0) {
+		pr_perror("Unable to open %s", mnt_clean_path);
+		return -1;
 	}
+	if (__restore_shared_options(mnt_path, mi->mnt_id, private,
+				     mi->shared_id && !shared,
+				     mi->master_id && !master))
+		return -1;
 
 	if (mnt_path == NULL)
 		return -1;
 
-skip_overmount_check:
-	snprintf(rpath, sizeof(rpath), "%s/%s",
-			mnt_path, cut_root);
-	root = rpath;
+	if (cut_root[0]) {
+		snprintf(rpath, sizeof(rpath), "%s/%s",
+				mnt_path, cut_root);
+		root = rpath;
+	} else {
+		root = mnt_path;
+	}
 do_bind:
 	pr_info("\tBind %s to %s\n", root, mi->mountpoint);
 
@@ -2325,10 +2330,19 @@ do_bind:
 		}
 	}
 
-	if (mount(root, mi->mountpoint, NULL, MS_BIND | (mi->flags & MS_REC), NULL) < 0) {
-		pr_perror("Can't mount at %s", mi->mountpoint);
+	fd = open(root, O_PATH); /* autofs hack*/
+	if (fd < 0) {
+		pr_perror("Unable to open %s", root);
 		goto err;
 	}
+	snprintf(mnt_fd_path, sizeof(mnt_fd_path),
+				"/proc/self/fd/%d", fd);
+	if (mount(mnt_fd_path, mi->mountpoint, NULL, MS_BIND | (mi->flags & MS_REC), NULL) < 0) {
+		pr_perror("Can't mount at %s", mi->mountpoint);
+		close(fd);
+		goto err;
+	}
+	close(fd);
 
 	mflags = mi->flags & (~MS_PROPAGATE);
 	if (!mi->bind || mflags != (mi->bind->flags & (~MS_PROPAGATE)))
@@ -2351,31 +2365,34 @@ do_bind:
 		}
 	}
 out:
-	/*
-	 * shared - the mount is in the same shared group with mi->bind
-	 * mi->shared_id && !shared - create a new shared group
-	 */
-	if (restore_shared_options(mi, private,
-				   mi->shared_id && !shared,
-				   mi->master_id && !master))
-		goto err;
-
 	mi->mounted = true;
 	exit_code = 0;
 err:
-	if (umount_mnt_path) {
+	if (umount_mnt_fd >= 0) {
+		int i;
+
+		snprintf(mnt_fd_path, sizeof(mnt_fd_path),
+				"/proc/self/fd/%d", umount_mnt_fd);
 		/*
 		 * If mnt_path was shared, a new mount may be propagated
 		 * into it.
 		 */
-		if (mount(NULL, mnt_path, NULL, MS_PRIVATE, NULL)) {
+		if (mount(NULL, mnt_fd_path, NULL, MS_PRIVATE | MS_REC, NULL)) {
 			pr_perror("Unable to make %s private", mnt_path);
 			return -1;
 		}
-		if (umount2(mnt_path, MNT_DETACH)) {
-			pr_perror("Unable to umount %s", mnt_path);
-			return -1;
+		i = 0;
+		while (1) {
+			/* Something may be propagated over mnt_clean_path */
+			if (umount2(mnt_fd_path, MNT_DETACH)) {
+				if (i && errno == EINVAL)
+					break; /* Everything was umounted */
+				pr_perror("Unable to umount %s", mnt_path);
+				return -1;
+			}
+			i++;
 		}
+		close(umount_mnt_fd);
 	}
 	return exit_code;
 }
