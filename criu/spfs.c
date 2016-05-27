@@ -127,9 +127,11 @@ static int create_reg_file(int ns_root_fd, const char *file_path, mode_t mode, s
 		goto free_path;
 
 	fd = openat(ns_root_fd, file_path, O_CREAT | O_EXCL | O_WRONLY, 0777);
-	if ((fd < 0) && (errno != EEXIST)) {
-		pr_perror("failed to create regular file %s", file_path);
-		err = -errno;
+	if (fd < 0) {
+		if (errno != EEXIST) {
+			pr_perror("failed to create regular file %s", file_path);
+			err = -errno;
+		}
 		goto free_path;
 	}
 
