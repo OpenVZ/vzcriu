@@ -22,3 +22,4 @@ COPY . /criu
 WORKDIR /criu
 
 RUN make clean && make -j $(nproc)
+RUN make test/compel/handle_binary && ./test/compel/handle_binary
