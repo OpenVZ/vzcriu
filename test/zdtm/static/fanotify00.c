@@ -36,6 +36,8 @@ const char *test_author	= "Cyrill Gorcunov <gorcunov@openvz.org>";
 
 const char fanotify_path[] = "fanotify-del-after-cr";
 
+static int criu_immutable_devs = 0;
+
 #define BUFF_SIZE (8192)
 
 struct fanotify_mark_inode {
@@ -127,6 +129,8 @@ static int cmp_fanotify_obj(struct fanotify_obj *old, struct fanotify_obj *new)
 	    (old->glob.evflags != new->glob.evflags)			||
 	    (old->inode.i_ino != new->inode.i_ino)			||
 	    (old->inode.mflags != new->inode.mflags)			||
+	    (criu_immutable_devs &&
+	     (old->inode.s_dev != new->inode.s_dev))			||
 	    (old->inode.mask != new->inode.mask)			||
 	    (old->inode.ignored_mask != new->inode.ignored_mask))
 		return -1;
@@ -208,6 +212,7 @@ parse_err:
 
 int main (int argc, char *argv[])
 {
+	char *env_immutable_devs = getenv("CRIU_IMMUTABLE_DEVS");
 	struct fanotify_obj old = { }, new = { };
 	int fa_fd, fd, del_after;
 	char buf[BUFF_SIZE];
@@ -215,6 +220,9 @@ int main (int argc, char *argv[])
 	int ns = getenv("ZDTM_NEWNS") != NULL;
 
 	test_init(argc, argv);
+
+	if (env_immutable_devs && !strcmp(env_immutable_devs, "yes"))
+		criu_immutable_devs = 1;
 
 	if (ns) {
 		if (mkdir("/tmp", 666) && errno != EEXIST) {
