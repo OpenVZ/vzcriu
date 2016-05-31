@@ -18,6 +18,8 @@ const char *test_author	= "Qiang Huang <h.huangqiang@huawei.com>";
 char *filename;
 TEST_OPTION(filename, string, "file name", 1);
 
+static int criu_immutable_devs = 0;
+
 char file0[PATH_MAX];
 char file1[PATH_MAX];
 char file2[PATH_MAX];
@@ -118,7 +120,7 @@ static int check_file_locks()
 			if (MKKDEV(major(maj), minor(min)) != dev)
 				continue;
 		} else {
-			if (makedev(maj, min) != dev)
+			if (criu_immutable_devs && (makedev(maj, min) != dev))
 				continue;
 		}
 
@@ -150,9 +152,13 @@ static int check_file_locks()
 
 int main(int argc, char **argv)
 {
+	char *env_immutable_devs = getenv("CRIU_IMMUTABLE_DEVS");
 	int fd_0, fd_1, fd_2;
 
 	test_init(argc, argv);
+
+	if (env_immutable_devs && !strcmp(env_immutable_devs, "yes"))
+		criu_immutable_devs = 1;
 
 	m = get_cwd_mnt_info();
 	if (!m) {
