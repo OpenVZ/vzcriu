@@ -338,7 +338,7 @@ static int get_page(struct lazy_pages_info *lpi, unsigned long addr, void *dest)
 	if (ret <= 0)
 		return ret;
 
-	ret = seek_pagemap_page(&pr, addr, true);
+	ret = pr.seek_page(&pr, addr, true);
 	pr_debug("seek_pagemap_page ret 0x%x\n", ret);
 	if (ret <= 0)
 		return ret;
