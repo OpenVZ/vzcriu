@@ -1022,10 +1022,12 @@ def cmp_ns(ns1, match, ns2, msg):
 def check_joinns_state(t):
 	cmp_ns("/proc/%s/ns/net" % t.getpid(), "!=", join_ns_file, "join-ns")
 
+
 def check_unshare_state(t):
 	cmp_ns("/proc/%s/ns/pid" % t.getpid(), '==', "/proc/self/ns/pid", "unshare pid")
 	cmp_ns("/proc/%s/ns/mnt" % t.getpid(), '==', "/proc/self/ns/mnt", "unshare mnt")
 	cmp_ns("/proc/%s/ns/net" % t.getpid(), '!=', "/proc/self/ns/net", "unshare net")
+
 
 def do_run_test(tname, tdesc, flavs, opts):
 	tcname = tname.split('/')[0]
