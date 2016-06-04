@@ -286,5 +286,7 @@ void print_data(unsigned long addr, unsigned char *data, size_t size);
 int setup_tcp_server(char *type);
 int run_tcp_server(bool daemon_mode, int *ask, int cfd, int sk);
 int setup_tcp_client(char *addr);
+int cr_set_root(int fd, int *old_root);
+int cr_restore_root(int fd);
 
 #endif /* __CR_UTIL_H__ */
