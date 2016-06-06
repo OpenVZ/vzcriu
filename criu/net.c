@@ -108,6 +108,7 @@ static char *devconfs4[] = {
 	"ignore_routes_with_linkdown",
 	"drop_gratuitous_arp",
 	"drop_unicast_in_l2_multicast",
+	"accept_redirects",
 };
 
 char *devconfs6[] = {
@@ -153,6 +154,7 @@ char *devconfs6[] = {
 	"use_oif_addrs_only",
 	"use_optimistic",
 	"use_tempaddr",
+	"accept_redirects",
 };
 
 #define CONF_OPT_PATH "net/%s/conf/%s/%s"
@@ -1327,18 +1329,18 @@ static int restore_netns_conf(int pid, NetnsEntry **netns)
 	}
 
 	if ((*netns)->def_conf4) {
-		ret = ipv4_conf_op("default", (*netns)->def_conf4, (*netns)->n_def_conf4, CTL_WRITE, NULL);
+		ret = ipv4_conf_op("all", (*netns)->all_conf4, (*netns)->n_all_conf4, CTL_WRITE, NULL);
 		if (ret)
 			goto out;
-		ret = ipv4_conf_op("all", (*netns)->all_conf4, (*netns)->n_all_conf4, CTL_WRITE, NULL);
+		ret = ipv4_conf_op("default", (*netns)->def_conf4, (*netns)->n_def_conf4, CTL_WRITE, NULL);
 		if (ret)
 			goto out;
 	} else if ((*netns)->def_conf) {
 		/* Backward compatibility */
-		ret = ipv4_conf_op_old("default", (*netns)->def_conf, (*netns)->n_def_conf, CTL_WRITE, NULL);
+		ret = ipv4_conf_op_old("all", (*netns)->all_conf, (*netns)->n_all_conf, CTL_WRITE, NULL);
 		if (ret)
 			goto out;
-		ret = ipv4_conf_op_old("all", (*netns)->all_conf, (*netns)->n_all_conf, CTL_WRITE, NULL);
+		ret = ipv4_conf_op_old("default", (*netns)->def_conf, (*netns)->n_def_conf, CTL_WRITE, NULL);
 		if (ret)
 			goto out;
 	}
