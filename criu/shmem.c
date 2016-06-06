@@ -581,7 +581,7 @@ static int dump_one_shmem(struct shmem_info *si)
 		if (!(map[pfn] & PAGE_RSS))
 			continue;
 again:
-		ret = page_pipe_add_page(pp, (unsigned long)addr + pfn * PAGE_SIZE);
+		ret = page_pipe_add_page(pp, (unsigned long)addr + pfn * PAGE_SIZE, 0);
 		if (ret == -EAGAIN) {
 			ret = dump_pages(pp, &xfer, addr);
 			if (ret)
