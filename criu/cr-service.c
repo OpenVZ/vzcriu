@@ -454,6 +454,9 @@ static int setup_opts_from_req(int sk, CriuOpts *req)
 		opts.manage_cgroups = mode;
 	}
 
+	if (req->freeze_cgroup)
+		opts.freeze_cgroup = req->freeze_cgroup;
+
 	if (req->has_auto_ext_mnt)
 		opts.autodetect_ext_mounts = req->auto_ext_mnt;
 
