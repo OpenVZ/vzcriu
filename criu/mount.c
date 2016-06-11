@@ -2950,7 +2950,7 @@ static int rst_collect_local_mntns(enum ns_type typ)
 	if (!mntinfo)
 		return -1;
 
-	futex_set(&nsid->ns_populated, 1);
+	nsid->ns_populated = true;
 	return 0;
 }
 
@@ -3206,9 +3206,6 @@ static int do_restore_task_mnt_ns(struct ns_id *nsid, struct pstree_item *curren
 	}
 	close(fd);
 
-	if (nsid->ns_pid == current->pid.virt)
-		futex_set_and_wake(&nsid->ns_populated, 1);
-
 	return 0;
 }
 
@@ -3255,9 +3252,10 @@ void fini_restore_mntns(void)
 	for (nsid = ns_ids; nsid != NULL; nsid = nsid->next) {
 		if (nsid->nd != &mnt_ns_desc)
 			continue;
-		close(nsid->mnt.ns_fd);
+		close_safe(&nsid->mnt.ns_fd);
 		if (nsid->type != NS_ROOT)
-			close(nsid->mnt.root_fd);
+			close_safe(&nsid->mnt.root_fd);
+		nsid->ns_populated = true;
 	}
 }
 
@@ -3525,7 +3523,7 @@ ns_created:
 			if (nsid->mnt.ns_fd < 0)
 				goto err;
 			/* we set ns_populated so we don't need to open root_fd */
-			futex_set(&nsid->ns_populated, 1);
+			nsid->ns_populated = true;
 			continue;
 		}
 
@@ -3658,7 +3656,7 @@ int mntns_get_root_fd(struct ns_id *mntns) {
 	 * root from the root task.
 	 */
 
-	if (!futex_get(&mntns->ns_populated)) {
+	if (!mntns->ns_populated) {
 		int fd;
 
 		fd = open_proc(root_item->pid.virt, "fd/%d", mntns->mnt.root_fd);
