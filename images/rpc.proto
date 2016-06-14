@@ -99,6 +99,7 @@ message criu_opts {
 	repeated join_namespace		join_ns		= 39;
 
 	optional string			freeze_cgroup		= 44;
+	optional uint32			timeout			= 45;
 }
 
 message criu_dump_resp {
