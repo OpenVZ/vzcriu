@@ -1512,7 +1512,7 @@ int open_path(struct file_desc *d,
 	}
 
 	mntns_root = mntns_get_root_by_mnt_id(rfi->rfe->mnt_id);
-ext:
+
 	if (rfi->rfe->unreachable) {
 		if (spfs_create_file(mntns_root, rfi) < 0) {
 			pr_err("Failed to create SPFS path\n");
@@ -1520,6 +1520,7 @@ ext:
 		}
 	}
 
+ext:
 	tmp = open_cb(mntns_root, rfi, arg);
 	if (tmp < 0) {
 		pr_perror("Can't open file %s", rfi->path);
