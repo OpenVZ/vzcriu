@@ -345,7 +345,7 @@ static int spfs_request_mount(int sock, struct mount_info *mi, const char *sourc
 	}
 
 	mount = xsprintf("mount;id=%d;mode=restore;mountpoint=%s;"
-			 "ns_pid=%d;ns_list=user,net,mnt;root=%s", mi->mnt_id,
+			 "ns_pid=%d;root=%s", mi->mnt_id,
 			 mountpoint, root_item->pid.real, opts.root);
 	if (!mount) {
 		pr_err("failed to allocate mount request\n");
