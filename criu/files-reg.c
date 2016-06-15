@@ -36,6 +36,7 @@
 #include "fault-injection.h"
 #include "external.h"
 #include "spfs.h"
+#include "filesystems.h"
 
 #include "protobuf.h"
 #include "util.h"
@@ -1590,6 +1591,7 @@ int open_path(struct file_desc *d,
 	struct reg_file_info *rfi;
 	char *orig_path = NULL;
 	char path[PATH_MAX];
+	struct mount_info *mi;
 
 	if (inherited_fd(d, &tmp))
 		return tmp;
@@ -1654,7 +1656,8 @@ int open_path(struct file_desc *d,
 
 	mntns_root = mntns_get_root_by_mnt_id(rfi->rfe->mnt_id);
 
-	if (rfi->rfe->unreachable) {
+	mi = lookup_mnt_id(rfi->rfe->mnt_id);
+	if (mi && mi->fstype->mount == spfs_mount) {
 		if (spfs_create_file(mntns_root, rfi) < 0) {
 			pr_err("Failed to create SPFS path\n");
 			return -1;
