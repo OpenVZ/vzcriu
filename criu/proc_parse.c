@@ -10,6 +10,7 @@
 #include <ctype.h>
 #include <linux/fs.h>
 #include <sys/sysmacros.h>
+#include <sys/vfs.h>
 
 #include "types.h"
 #include "common/list.h"
@@ -39,6 +40,7 @@
 #include "cgroup-props.h"
 #include "timerfd.h"
 #include "path.h"
+#include "fs-magic.h"
 
 #include "protobuf.h"
 #include "images/fdinfo.pb-c.h"
@@ -1612,6 +1614,55 @@ nodata:
 
 static int parse_file_lock_buf(char *buf, struct file_lock *fl,
 				bool is_blocked);
+
+static bool unsupported_nfs_lock(pid_t pid, int remote_fd, int mnt_id,
+				 int fl_kind)
+{
+	struct statfs buf;
+	int fd;
+	char path[PATH_MAX];
+	struct mount_info *mi;
+	char local_lock[32], *ptr;
+
+	sprintf(path, "/proc/%d/fd/%d", pid, remote_fd);
+	fd = open(path, O_RDONLY);
+	if (fd < 0) {
+		pr_perror("failed to open %s", path);
+		return false;
+	}
+
+	if (fstatfs(fd, &buf)) {
+		pr_perror("failed to statfs /proc/self/fd/%d", fd);
+		close(fd);
+		return false;
+	}
+	close(fd);
+
+	if (buf.f_type != NFS_SUPER_MAGIC)
+		return false;
+
+	mi = lookup_mnt_id(mnt_id);
+	if (!mi)
+		return false;
+
+	ptr = strstr(mi->options, "local_lock=");
+	if (!ptr)
+		return false;
+
+	if (sscanf(ptr, "local_lock=%[^,],%*s", local_lock) != 1)
+		return false;
+
+	if (!strcmp(local_lock, "all"))
+		return false;
+	if ((fl_kind == FL_POSIX) && !strcmp(local_lock, "posix"))
+		return false;
+	if ((fl_kind == FL_FLOCK) && !strcmp(local_lock, "flock"))
+		return false;
+
+	pr_err("remote %s on NFS are not supported yet: /proc/%d/fd/%d\n", (fl_kind == FL_FLOCK) ? "flocks" : "posix locks", pid, remote_fd);
+	return true;
+}
+
 static int parse_fdinfo_pid_s(int pid, int fd, int type,
 		int (*cb)(union fdinfo_entries *e, void *arg), void *arg)
 {
@@ -1685,6 +1736,12 @@ static int parse_fdinfo_pid_s(int pid, int fd, int type,
 
 			if (fl->fl_kind == FL_UNKNOWN) {
 				pr_err("Unknown file lock!\n");
+				xfree(fl);
+				goto out;
+			}
+
+			if (unsupported_nfs_lock(pid, fd, fdinfo->mnt_id,
+						 fl->fl_kind)) {
 				xfree(fl);
 				goto out;
 			}
