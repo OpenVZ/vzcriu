@@ -508,7 +508,7 @@ dump:
 	 */
 	if (sk->rqlen != 0 && !(sk->type == SOCK_STREAM &&
 				sk->state == TCP_LISTEN))
-		if (dump_sk_queue(lfd, id))
+		if (dump_sk_queue(lfd, id, false))
 			goto err;
 
 	pr_info("Dumping unix socket at %d\n", p->fd);
