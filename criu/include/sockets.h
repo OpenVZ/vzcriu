@@ -84,4 +84,12 @@ static inline int sk_decode_shutdown(int val)
 #define NETLINK_SOCK_DIAG NETLINK_INET_DIAG
 #endif
 
+#ifndef NETLINK_REPAIR
+#define NETLINK_REPAIR                  11
+#endif
+
+#ifndef SOL_NETLINK
+#define SOL_NETLINK			270
+#endif
+
 #endif /* __CR_SOCKETS_H__ */
