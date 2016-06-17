@@ -29,6 +29,7 @@ struct kerndat_s {
 	bool has_dirty_track;
 	bool has_memfd;
 	bool has_fdinfo_lock;
+	bool has_nl_repair;
 	unsigned long task_size;
 	bool ipv6;
 	bool has_loginuid;
@@ -57,5 +58,6 @@ enum {
 extern int kerndat_fs_virtualized(unsigned int which, u32 kdev);
 
 extern int kerndat_tcp_repair();
+extern int kerndat_nl_repair();
 
 #endif /* __CR_KERNDAT_H__ */
