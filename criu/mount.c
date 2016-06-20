@@ -708,6 +708,11 @@ skip_fstype:
 			pr_err("%d:%s is overmounted\n", m->mnt_id, m->mountpoint);
 			return -1;
 		}
+
+		if (!strcmp(m->fstype->name, "nfs") && !list_empty(&m->children)) {
+			pr_err("overmounted NFS (%s) is not supported yet\n", m->mountpoint);
+			return -1;
+		}
 	}
 
 	return 0;
