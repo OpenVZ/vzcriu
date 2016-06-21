@@ -550,6 +550,18 @@ int read_fd_link(int lfd, char *buf, size_t size)
 	return ret;
 }
 
+char *__read_fd_link(int fd)
+{
+	static char buf[PATH_MAX];
+	int ret;
+
+	ret = read_fd_link(fd, buf, sizeof(buf));
+	if (ret < 0)
+		buf[0] = '\0';
+
+	return buf;
+}
+
 int is_anon_link_type(char *link, char *type)
 {
 	char aux[32];

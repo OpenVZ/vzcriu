@@ -194,6 +194,7 @@ extern int is_empty_dir(int dirfd);
 #define PSFDS	(sizeof("/proc/self/fd/2147483647"))
 
 extern int read_fd_link(int lfd, char *buf, size_t size);
+extern char *__read_fd_link(int fd);
 
 #define USEC_PER_SEC	1000000L
 #define NSEC_PER_SEC    1000000000L
