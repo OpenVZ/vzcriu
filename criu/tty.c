@@ -275,13 +275,14 @@ struct tty_driver *get_tty_driver(dev_t rdev, dev_t dev)
 			return &ctty_driver;
 		break;
 	case TTY_MAJOR:
-		if (minor > MIN_NR_CONSOLES && minor < MAX_NR_CONSOLES)
+		if (minor >= MIN_NR_CONSOLES && minor <= MAX_NR_CONSOLES)
 			/*
 			 * Minors [MIN_NR_CONSOLES; MAX_NR_CONSOLES] stand
 			 * for consoles (virtual terminals, VT in terms
 			 * of kernel).
 			 */
 			return &vt_driver;
+		break;
 	case UNIX98_PTY_MASTER_MAJOR ... (UNIX98_PTY_MASTER_MAJOR + UNIX98_PTY_MAJOR_COUNT - 1):
 		return &ptm_driver;
 	case UNIX98_PTY_SLAVE_MAJOR:
@@ -1748,6 +1749,11 @@ static int dump_one_tty(int lfd, u32 id, const struct fd_parms *p)
 	pr_info("Dumping tty %d with id %#x\n", lfd, id);
 
 	driver = get_tty_driver(p->stat.st_rdev, p->stat.st_dev);
+	if (!driver) {
+		pr_err("Can't find driver for tty id %#x\n", id);
+		return -1;
+	}
+
 	if (driver->fd_get_index)
 		index = driver->fd_get_index(lfd, p);
 	else
