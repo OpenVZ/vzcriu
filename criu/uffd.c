@@ -21,7 +21,7 @@
 #include "asm/page.h"
 #include "log.h"
 #include "criu-plugin.h"
-#include "page-read.h"
+#include "pagemap.h"
 #include "files-reg.h"
 #include "kerndat.h"
 #include "mem.h"
