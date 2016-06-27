@@ -46,6 +46,8 @@ struct lazy_pages_info {
 
 	struct list_head pages;
 
+	struct page_read pr;
+
 	unsigned long total_pages;
 	unsigned long copied_pages;
 
@@ -76,6 +78,8 @@ static void lpi_fini(struct lazy_pages_info *lpi)
 {
 	if (lpi->uffd)
 		close(lpi->uffd);
+	if (lpi->pr.close)
+		lpi->pr.close(&lpi->pr);
 	free(lpi);
 }
 
@@ -326,33 +330,22 @@ out:
 
 static int get_page(struct lazy_pages_info *lpi, unsigned long addr, void *dest)
 {
-	struct iovec iov;
 	int ret;
 	unsigned char buf[PAGE_SIZE];
-	struct page_read pr;
 
-	ret = open_page_read(lpi->pid, &pr, PR_TASK | PR_MOD);
-	pr_debug("get_page ret %d\n", ret);
+	lpi->pr.reset(&lpi->pr);
 
-	ret = pr.get_pagemap(&pr, &iov);
-	pr_debug("get_pagemap ret %d\n", ret);
-	if (ret <= 0)
-		return ret;
-
-	ret = pr.seek_page(&pr, addr, true);
+	ret = lpi->pr.seek_page(&lpi->pr, addr, true);
 	pr_debug("seek_pagemap_page ret 0x%x\n", ret);
 	if (ret <= 0)
 		return ret;
 
-	ret = pr.read_pages(&pr, addr, 1, buf);
+	ret = lpi->pr.read_pages(&lpi->pr, addr, 1, buf);
 	pr_debug("read_pages ret %d\n", ret);
 	if (ret <= 0)
 		return ret;
 
 	memcpy(dest, buf, PAGE_SIZE);
-
-	if (pr.close)
-		pr.close(&pr);
 
 	return 1;
 }
@@ -560,7 +553,6 @@ static int find_vmas(struct lazy_pages_info *lpi)
 	struct vm_area_list vmas;
 	int vn = 0;
 	struct rst_info *ri;
-	struct page_read pr;
 	struct uffd_pages_struct *uffd_pages;
 	struct pstree_item *item = pstree_item_by_virt(lpi->pid);
 
@@ -606,7 +598,7 @@ static int find_vmas(struct lazy_pages_info *lpi)
 		pr_info("vma 0x%"PRIx64" 0x%"PRIx64"\n", vma->e->start, vma->e->end);
 	}
 
-	ret = open_page_read(lpi->pid, &pr, PR_TASK);
+	ret = open_page_read(lpi->pid, &lpi->pr, PR_TASK);
 	if (ret <= 0) {
 		ret = -1;
 		goto out;
@@ -618,14 +610,11 @@ static int find_vmas(struct lazy_pages_info *lpi)
 	 * pushed into the process using userfaultfd.
 	 */
 	do {
-		ret = collect_uffd_pages(&pr, lpi);
+		ret = collect_uffd_pages(&lpi->pr, lpi);
 		if (ret == -1) {
 			goto out;
 		}
 	} while (ret);
-
-	if (pr.close)
-		pr.close(&pr);
 
 	/* Count detected pages */
 	list_for_each_entry(uffd_pages, &lpi->pages, list)
