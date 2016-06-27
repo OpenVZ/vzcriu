@@ -318,6 +318,19 @@ static void close_page_read(struct page_read *pr)
 		free_pagemaps(pr);
 }
 
+static void reset_pagemap(struct page_read *pr)
+{
+	pr->cvaddr = 0;
+	pr->pi_off = 0;
+	pr->curr_pme = 0;
+	pr->pe = NULL;
+
+	/* FIXME: take care of bunch */
+
+	if (pr->parent)
+		reset_pagemap(pr->parent);
+}
+
 static int try_open_parent(int dfd, int pid, struct page_read *pr, int pr_flags)
 {
 	int pfd, ret;
@@ -468,6 +481,7 @@ int open_page_read_at(int dfd, int pid, struct page_read *pr, int pr_flags)
 	pr->close = close_page_read;
 	pr->skip_pages = skip_pagemap_pages;
 	pr->seek_page = seek_pagemap_page;
+	pr->reset = reset_pagemap;
 	pr->id = ids++;
 
 	pr_debug("Opened page read %u (parent %u)\n",
