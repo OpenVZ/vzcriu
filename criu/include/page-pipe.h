@@ -98,6 +98,12 @@ struct page_pipe {
 	bool compat_iov;	/* Use compatible iovs (struct compat_iovec) */
 };
 
+/* XXX: move to arch-depended file, when non-x86 add support for compat mode */
+struct iovec_compat {
+	u32	iov_base;
+	u32	iov_len;
+};
+
 extern struct page_pipe *create_page_pipe(unsigned int nr, struct iovec *,
 					bool chunk_mode, bool compat_iov);
 extern void destroy_page_pipe(struct page_pipe *p);
