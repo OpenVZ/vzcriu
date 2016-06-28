@@ -238,6 +238,7 @@ int get_task_regs(pid_t pid, user_regs_struct_t regs, CoreEntry *core)
 		assign_reg(gpregs, regs.compat, ss);
 		gpregs->gpregs_case = USER_X86_REGS_CASE_T__COMPAT;
 	}
+	gpregs->has_gpregs_case = true;
 
 #ifndef PTRACE_GETREGSET
 # define PTRACE_GETREGSET 0x4204
