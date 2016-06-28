@@ -512,7 +512,7 @@ static int parasite_init_daemon(struct parasite_ctl *ctl, struct ns_id *net)
 
 	args = parasite_args(ctl, struct parasite_init_args);
 
-	args->sigframe = ctl->rsigframe;
+	args->sigframe = (uintptr_t)ctl->rsigframe;
 	args->log_level = log_get_loglevel();
 
 	if (prepare_tsock(ctl, pid, args, net))

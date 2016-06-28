@@ -116,7 +116,7 @@ struct ucontext_ia32 {
 
 struct rt_sigframe_ia32 {
 	u32			pretcode;
-	int			sig;
+	s32			sig;
 	u32			pinfo;
 	u32			puc;
 #ifdef CONFIG_X86_64
