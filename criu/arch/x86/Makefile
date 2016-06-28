@@ -4,3 +4,5 @@ ccflags-y		+= -iquote $(obj) -iquote $(SRC_DIR) -iquote $(obj)/include -iquote $
 
 obj-y			+= cpu.o
 obj-y			+= crtools.o
+obj-y			+= sigaction_compat.o
+obj-y			+= call32.o

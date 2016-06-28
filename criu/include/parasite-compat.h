@@ -7,12 +7,9 @@
 
 #include "images/core.pb-c.h"
 
-typedef struct {
-	u32	rt_sa_handler;
-	u32	rt_sa_flags;
-	u32	rt_sa_restorer;
-	k_rtsigset_t	rt_sa_mask;
-} rt_sigaction_t_compat;
+#if !defined(CONFIG_X86_64) && !defined(CONFIG_X86_32)
+#define rt_sigaction_t_compat rt_sigaction_t
+#endif
 
 struct parasite_dump_sa_args_compat {
 	rt_sigaction_t_compat sas[SIGMAX];
