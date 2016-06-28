@@ -95,10 +95,11 @@ struct page_pipe {
 
 	bool chunk_mode;	/* Restrict the maximum buffer size of pipes
 				   and dump memory for a few iterations */
+	bool compat_iov;	/* Use compatible iovs (struct compat_iovec) */
 };
 
-extern struct page_pipe *create_page_pipe(unsigned int nr,
-					  struct iovec *, bool chunk_mode);
+extern struct page_pipe *create_page_pipe(unsigned int nr, struct iovec *,
+					bool chunk_mode, bool compat_iov);
 extern void destroy_page_pipe(struct page_pipe *p);
 extern int page_pipe_add_page(struct page_pipe *p, unsigned long addr,
 			      unsigned int flags);

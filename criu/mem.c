@@ -292,8 +292,8 @@ static int __parasite_dump_pages_seized(struct parasite_ctl *ctl,
 		return -1;
 
 	ret = -1;
-	pp = create_page_pipe(vma_area_list->priv_size,
-			      pargs_iovs(args), pp_ret == NULL);
+	pp = create_page_pipe(vma_area_list->priv_size, pargs_iovs(args),
+				pp_ret == NULL, !seized_native(ctl));
 	if (!pp)
 		goto out;
 

@@ -569,7 +569,7 @@ static int dump_one_shmem(struct shmem_info *si)
 	if (!iovs)
 		goto err_unmap;
 
-	pp = create_page_pipe((nrpages + 1) / 2, iovs, true);
+	pp = create_page_pipe((nrpages + 1) / 2, iovs, true, false);
 	if (!pp)
 		goto err_iovs;
 
