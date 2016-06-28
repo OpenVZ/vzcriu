@@ -334,7 +334,10 @@ int restore_nonsigframe_gpregs(UserX86RegsEntry *r);
 int sigreturn_prep_fpu_frame(struct rt_sigframe *sigframe,
 		struct rt_sigframe *rsigframe);
 
-static inline void restore_tls(tls_t *ptls) { (void)ptls; }
+static inline void restore_tls(tls_t *ptls)
+{
+	(void)ptls;
+}
 
 int ptrace_set_breakpoint(pid_t pid, void *addr);
 int ptrace_flush_breakpoints(pid_t pid);
