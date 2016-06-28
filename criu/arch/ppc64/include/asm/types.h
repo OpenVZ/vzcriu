@@ -77,6 +77,7 @@ typedef UserPpc64RegsEntry UserRegsEntry;
 #define REG_SYSCALL_NR(regs)    ((u64)(regs).gpr[0])
 
 #define user_regs_native(pregs)			true
+#define core_is_compat(core)			false
 
 #define CORE_THREAD_ARCH_INFO(core) core->ti_ppc64
 

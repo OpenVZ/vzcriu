@@ -59,6 +59,7 @@ typedef struct user_pt_regs user_regs_struct_t;
 #define REG_SYSCALL_NR(regs)	((u64)(regs).regs[8])
 
 #define user_regs_native(pregs)			true
+#define core_is_compat(core)			false
 
 /*
  * Range for task size calculated from the following Linux kernel files:
