@@ -602,7 +602,7 @@ static int __parasite_daemon_wait_msg(struct ctl_msg *m)
 
 static noinline void fini_sigreturn(unsigned long new_sp)
 {
-	ARCH_RT_SIGRETURN(new_sp);
+	ARCH_RT_SIGRETURN(new_sp, sigframe);
 }
 
 static int fini()
