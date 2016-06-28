@@ -139,7 +139,19 @@ static inline bool user_regs_native(user_regs_struct_t *pregs)
 		((pregs)->native.name) : ((pregs)->compat.name))
 #define set_user_reg(pregs, name, val) ((user_regs_native(pregs)) ?	\
 		((pregs)->native.name = (val)) : ((pregs)->compat.name = (val)))
-#else
+static inline int core_is_compat(CoreEntry *c)
+{
+	switch (c->thread_info->gpregs->gpregs_case)
+	{
+		case USER_X86_REGS_CASE_T__NATIVE:
+			return 0;
+		case USER_X86_REGS_CASE_T__COMPAT:
+			return 1;
+		default:
+			return -1;
+	}
+}
+#else /* !CONFIG_X86_64 */
 typedef struct {
 	union {
 		user_regs_struct32 native;
@@ -148,7 +160,8 @@ typedef struct {
 #define user_regs_native(pregs)		true
 #define get_user_reg(pregs, name)	((pregs)->native.name)
 #define set_user_reg(pregs, name, val)	((pregs)->native.name = val)
-#endif
+static inline int core_is_compat(CoreEntry *c) { return 0; }
+#endif /* !CONFIG_X86_64 */
 
 typedef struct {
 	unsigned short	cwd;

@@ -6,6 +6,7 @@
 
 #include "images/core.pb-c.h"
 
+#ifndef setup_sas
 static inline void setup_sas(struct rt_sigframe* sigframe, ThreadSasEntry *sas)
 {
 	if (sas) {
@@ -17,16 +18,27 @@ static inline void setup_sas(struct rt_sigframe* sigframe, ThreadSasEntry *sas)
 #undef UC
 	}
 }
+#endif
 
+#ifndef RT_SIGFRAME_UC_SIGMASK
 #define RT_SIGFRAME_UC_SIGMASK(sigframe)				\
 	(k_rtsigset_t*)&RT_SIGFRAME_UC(sigframe)->uc_sigmask
+#endif
 
 int construct_sigframe(struct rt_sigframe *sigframe,
 				     struct rt_sigframe *rsigframe,
 				     CoreEntry *core)
 {
-	k_rtsigset_t *blk_sigset = RT_SIGFRAME_UC_SIGMASK(sigframe);
+	k_rtsigset_t *blk_sigset;
 
+	/*
+	 * Copy basic register set in the first place: this will set
+	 * rt_sigframe type: native/compat.
+	 */
+	if (restore_gpregs(sigframe, CORE_THREAD_ARCH_INFO(core)->gpregs))
+		return -1;
+
+	blk_sigset = RT_SIGFRAME_UC_SIGMASK(sigframe);
 	if (core->tc)
 		memcpy(blk_sigset, &core->tc->blk_sigset, sizeof(k_rtsigset_t));
 	else if (core->thread_core->has_blk_sigset) {
@@ -41,9 +53,6 @@ int construct_sigframe(struct rt_sigframe *sigframe,
 	if (RT_SIGFRAME_HAS_FPU(sigframe))
 		if (sigreturn_prep_fpu_frame(sigframe, rsigframe))
 			return -1;
-
-	if (restore_gpregs(sigframe, CORE_THREAD_ARCH_INFO(core)->gpregs))
-		return -1;
 
 	setup_sas(sigframe, core->thread_core->sas);
 
