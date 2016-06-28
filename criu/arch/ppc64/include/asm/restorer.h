@@ -105,6 +105,7 @@ struct rt_sigframe {
 #define RT_SIGFRAME_REGIP(rt_sigframe) ((long unsigned int)(rt_sigframe)->uc.uc_mcontext.gp_regs[PT_NIP])
 #define RT_SIGFRAME_HAS_FPU(rt_sigframe) (1)
 #define RT_SIGFRAME_FPU(rt_sigframe) (&(rt_sigframe)->uc.uc_mcontext)
+#define kdat_compat_sigreturn_test()			0
 
 int restore_gpregs(struct rt_sigframe *f, UserPpc64RegsEntry *r);
 int restore_nonsigframe_gpregs(UserPpc64RegsEntry *r);

@@ -131,6 +131,7 @@ struct rt_sigframe {
 #define RT_SIGFRAME_FPU(rt_sigframe)					\
 	(&RT_SIGFRAME_AUX_SIGFRAME(rt_sigframe)->vfp)
 #define RT_SIGFRAME_OFFSET(rt_sigframe) 0
+#define kdat_compat_sigreturn_test()			0
 
 
 int restore_gpregs(struct rt_sigframe *f, UserArmRegsEntry *r);

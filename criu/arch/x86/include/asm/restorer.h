@@ -250,6 +250,12 @@ do {									\
 		     :						\
 		     : "r"(ret)					\
 		     : "memory")
+
+#ifndef ARCH_MAP_VDSO_32
+# define ARCH_MAP_VDSO_32		0x2002
+#endif
+
+extern int kdat_compat_sigreturn_test(void);
 #else /* !CONFIG_X86_64 */
 
 #define ARCH_RT_SIGRETURN(new_sp, rt_sigframe)				\
@@ -286,6 +292,7 @@ do {									\
 	(unsigned long)(rt_sigframe)->uc.uc_mcontext.ip
 #define RT_SIGFRAME_FPU(rt_sigframe) (&(rt_sigframe)->fpu_state)
 #define RT_SIGFRAME_HAS_FPU(rt_sigframe) (RT_SIGFRAME_FPU(rt_sigframe)->has_fpu)
+#define kdat_compat_sigreturn_test()			0
 #endif /* !CONFIG_X86_64 */
 
 static inline void
