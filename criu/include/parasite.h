@@ -21,6 +21,11 @@
 
 #define __head __used __section(.head.text)
 
+/*
+ * NOTE: each command's args should be arch-independed sized.
+ * If you want to use one of the standard types, declare
+ * alternative type for compatible tasks in parasite-compat.h
+ */
 enum {
 	PARASITE_CMD_IDLE		= 0,
 	PARASITE_CMD_ACK,
@@ -52,9 +57,9 @@ enum {
 };
 
 struct ctl_msg {
-	unsigned int	cmd;			/* command itself */
-	unsigned int	ack;			/* ack on command */
-	int		err;			/* error code on reply */
+	u32	cmd;			/* command itself */
+	u32	ack;			/* ack on command */
+	s32	err;			/* error code on reply */
 };
 
 #define ctl_msg_cmd(_cmd)		\
@@ -64,44 +69,44 @@ struct ctl_msg {
 	(struct ctl_msg){.cmd = _cmd, .ack = _cmd, .err = _err, }
 
 struct parasite_init_args {
-	int			h_addr_len;
-	struct sockaddr_un	h_addr;
+	s32				h_addr_len;
+	struct sockaddr_un		h_addr;
 
-	int			log_level;
+	s32				log_level;
 
-	struct rt_sigframe	*sigframe;
+	struct rt_sigframe		*sigframe;
 
-	void			*sigreturn_addr;
+	u64				sigreturn_addr;
 };
 
 struct parasite_unmap_args {
-	void			*parasite_start;
-	unsigned long		parasite_len;
+	u64		parasite_start;
+	u64		parasite_len;
 };
 
 struct parasite_vma_entry
 {
-	unsigned long	start;
-	unsigned long	len;
-	int		prot;
+	u64		start;
+	u64		len;
+	s32		prot;
 };
 
 struct parasite_vdso_vma_entry {
-	unsigned long	start;
-	unsigned long	len;
-	unsigned long	proxy_vdso_addr;
-	unsigned long	proxy_vvar_addr;
-	int		is_marked;
-	bool		try_fill_symtable;
-	bool		is_vdso;
+	u64	start;
+	u64	len;
+	u64	proxy_vdso_addr;
+	u64	proxy_vvar_addr;
+	s32		is_marked;
+	u8		try_fill_symtable;
+	u8		is_vdso;
 };
 
 struct parasite_dump_pages_args {
-	unsigned int	nr_vmas;
-	unsigned int	add_prot;
-	unsigned int	off;
-	unsigned int	nr_segs;
-	unsigned int	nr_pages;
+	u32	nr_vmas;
+	u32	add_prot;
+	u32	off;
+	u32	nr_segs;
+	u32	nr_pages;
 };
 
 static inline struct parasite_vma_entry *pargs_vmas(struct parasite_dump_pages_args *a)
@@ -136,12 +141,12 @@ struct parasite_dump_posix_timers_args {
 };
 
 struct parasite_aio {
-	unsigned long ctx;
-	unsigned int size;
+	u64 ctx;
+	u64 size;
 };
 
 struct parasite_check_aios_args {
-	unsigned nr_rings;
+	u32 nr_rings;
 	struct parasite_aio ring[0];
 };
 
@@ -156,14 +161,14 @@ static inline int posix_timers_dump_size(int timer_n)
  */
 
 struct parasite_dump_misc {
-	unsigned long		brk;
+	u64 brk;
 
 	u32 pid;
 	u32 sid;
 	u32 pgid;
 	u32 umask;
 
-	int dumpable;
+	s32 dumpable;
 };
 
 /*
@@ -175,17 +180,17 @@ struct parasite_dump_misc {
 	 offsetof(struct parasite_dump_creds, groups)) / sizeof(unsigned int)) /* groups */
 
 struct parasite_dump_creds {
-	unsigned int		cap_last_cap;
+	u32			cap_last_cap;
 
 	u32			cap_inh[CR_CAP_SIZE];
 	u32			cap_prm[CR_CAP_SIZE];
 	u32			cap_eff[CR_CAP_SIZE];
 	u32			cap_bnd[CR_CAP_SIZE];
 
-	int			uids[4];
-	int			gids[4];
-	unsigned int		secbits;
-	unsigned int		ngroups;
+	s32			uids[4];
+	s32			gids[4];
+	u32			secbits;
+	u32			ngroups;
 	/*
 	 * FIXME -- this structure is passed to parasite code
 	 * through parasite args area so in parasite_dump_creds()
@@ -199,7 +204,7 @@ struct parasite_dump_creds {
 	 * of memory in use doesn't exceed the PAGE_SIZE and the
 	 * args area is at least one page (PARASITE_ARG_SIZE_MIN).
 	 */
-	unsigned int		groups[0];
+	u32			groups[0];
 };
 
 struct parasite_dump_thread {
@@ -229,8 +234,8 @@ static inline void copy_sas(ThreadSasEntry *dst, const stack_t *src)
 #define PARASITE_MAX_FDS	CR_SCM_MAX_FD * 3
 
 struct parasite_drain_fd {
-	int	nr_fds;
-	int	fds[0];
+	s32	nr_fds;
+	s32	fds[0];
 };
 
 static inline int drain_fds_size(struct parasite_drain_fd *dfds)
@@ -243,16 +248,17 @@ static inline int drain_fds_size(struct parasite_drain_fd *dfds)
 }
 
 struct parasite_tty_args {
-	int	fd;
-	int	type;
+	s32	fd;
+	s32	type;
 
-	int	sid;
-	int	pgrp;
-	bool	hangup;
+	s32	sid;
+	s32	pgrp;
 
-	int	st_pckt;
-	int	st_lock;
-	int	st_excl;
+	s32	st_pckt;
+	s32	st_lock;
+	s32	st_excl;
+
+	u8	hangup;
 };
 
 struct parasite_dump_cgroup_args {
@@ -271,5 +277,7 @@ struct parasite_dump_cgroup_args {
 	((void *)(pblob) + __pblob_offset(ptype, symbol))
 
 #endif /* !__ASSEMBLY__ */
+
+#include "parasite-compat.h"
 
 #endif /* __CR_PARASITE_H__ */

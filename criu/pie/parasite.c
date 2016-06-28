@@ -50,10 +50,12 @@ static int mprotect_vmas(struct parasite_dump_pages_args *args)
 	vmas = pargs_vmas(args);
 	for (i = 0; i < args->nr_vmas; i++) {
 		vma = vmas + i;
-		ret = sys_mprotect((void *)vma->start, vma->len, vma->prot | args->add_prot);
+		ret = sys_mprotect((void *)(uintptr_t)vma->start, vma->len,
+				vma->prot | args->add_prot);
 		if (ret) {
 			pr_err("mprotect(%08lx, %lu) failed with code %d\n",
-						vma->start, vma->len, ret);
+					(unsigned long)vma->start,
+					(unsigned long)vma->len, ret);
 			break;
 		}
 	}
@@ -387,7 +389,7 @@ static inline int tty_ioctl(int fd, int cmd, int *arg)
 
 static int sane_ring(struct parasite_aio *aio)
 {
-	struct aio_ring *ring = (struct aio_ring *)aio->ctx;
+	struct aio_ring *ring = (struct aio_ring *)(uintptr_t)aio->ctx;
 	unsigned nr;
 
 	nr = (aio->size - sizeof(struct aio_ring)) / sizeof(struct io_event);
@@ -406,7 +408,7 @@ static int parasite_check_aios(struct parasite_check_aios_args *args)
 	for (i = 0; i < args->nr_rings; i++) {
 		struct aio_ring *ring;
 
-		ring = (struct aio_ring *)args->ring[i].ctx;
+		ring = (struct aio_ring *)(uintptr_t)args->ring[i].ctx;
 		if (!sane_ring(&args->ring[i])) {
 			pr_err("Not valid ring #%d\n", i);
 			pr_info(" `- magic %x\n", ring->magic);
@@ -485,7 +487,7 @@ err_io:
 #ifdef CONFIG_VDSO
 static int parasite_check_vdso_mark(struct parasite_vdso_vma_entry *args)
 {
-	struct vdso_mark *m = (void *)args->start;
+	struct vdso_mark *m = (void *)(uintptr_t)args->start;
 
 	if (is_vdso_mark(m)) {
 		/*
@@ -717,7 +719,7 @@ static noinline int unmap_itself(void *data)
 {
 	struct parasite_unmap_args *args = data;
 
-	sys_munmap(args->parasite_start, args->parasite_len);
+	sys_munmap((void*)(uintptr_t)args->parasite_start, args->parasite_len);
 	/*
 	 * This call to sys_munmap must never return. Instead, the controlling
 	 * process must trap us on the exit from munmap.
@@ -732,7 +734,7 @@ static noinline __used int parasite_init_daemon(void *data)
 	struct parasite_init_args *args = data;
 	int ret;
 
-	args->sigreturn_addr = fini_sigreturn;
+	args->sigreturn_addr = (u64)(uintptr_t)fini_sigreturn;
 	sigframe = args->sigframe;
 
 	tsock = sys_socket(PF_UNIX, SOCK_SEQPACKET, 0);
