@@ -79,6 +79,7 @@
 #include "sk-queue.h"
 #include "syscall-types.h"
 #include "parasite-syscall.h"
+#include "syscall-codes.h"
 
 #include "protobuf.h"
 #include "images/sa.pb-c.h"
@@ -91,6 +92,7 @@
 #include "asm/restore.h"
 #include "asm/atomic.h"
 #include "asm/bitops.h"
+#include "asm/parasite-syscall.h"
 
 #include "cr-errno.h"
 
@@ -1823,7 +1825,7 @@ static int restore_root_task(struct pstree_item *init)
 
 	if (ret == 0)
 		ret = parasite_stop_on_syscall(task_entries->nr_threads,
-						__NR_rt_sigreturn, flag);
+			__NR(rt_sigreturn, 0), __NR(rt_sigreturn, 1), flag);
 
 	if (clear_breakpoints())
 		pr_err("Unable to flush breakpoints\n");
