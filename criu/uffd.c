@@ -76,7 +76,7 @@ static struct lazy_pages_info *lpi_init(void)
 
 static void lpi_fini(struct lazy_pages_info *lpi)
 {
-	if (lpi->uffd)
+	if (lpi->uffd > 0)
 		close(lpi->uffd);
 	if (lpi->pr.close)
 		lpi->pr.close(&lpi->pr);
@@ -323,7 +323,7 @@ static struct lazy_pages_info *ud_open(int listen, struct sockaddr_un *saddr)
 	return lpi;
 
 out:
-	free(lpi);
+	lpi_fini(lpi);
 	close_safe(&client);
 	return NULL;
 }
