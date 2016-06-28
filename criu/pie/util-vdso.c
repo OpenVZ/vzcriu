@@ -64,7 +64,7 @@ static unsigned long elf_hash(const unsigned char *name)
 	return h;
 }
 
-static int has_elf_identity(Ehdr_t *ehdr)
+static int has_elf_identity(Ehdr_t *ehdr, bool suppress_not_elf_err)
 {
 	/*
 	 * See Elf specification for this magic values.
@@ -84,7 +84,8 @@ static int has_elf_identity(Ehdr_t *ehdr)
 	BUILD_BUG_ON(sizeof(elf_ident) != sizeof(ehdr->e_ident));
 
 	if (builtin_memcmp(ehdr->e_ident, elf_ident, sizeof(elf_ident))) {
-		pr_err("Elf header magic mismatch\n");
+		if (!suppress_not_elf_err)
+			pr_err("Elf header magic mismatch\n");
 		return false;
 	}
 
@@ -92,7 +93,7 @@ static int has_elf_identity(Ehdr_t *ehdr)
 }
 
 static int parse_elf_phdr(uintptr_t mem, size_t size,
-		Phdr_t **dynamic, Phdr_t **load)
+		Phdr_t **dynamic, Phdr_t **load, bool suppress_not_elf_err)
 {
 	Ehdr_t *ehdr = (void *)mem;
 	uintptr_t addr;
@@ -104,7 +105,7 @@ static int parse_elf_phdr(uintptr_t mem, size_t size,
 	/*
 	 * Make sure it's a file we support.
 	 */
-	if (!has_elf_identity(ehdr))
+	if (!has_elf_identity(ehdr, suppress_not_elf_err))
 		return -EINVAL;
 
 	addr = mem + ehdr->e_phoff;
@@ -253,7 +254,8 @@ static void parse_elf_symbols(uintptr_t mem, size_t size, Phdr_t *load,
 	}
 }
 
-int vdso_fill_symtable(uintptr_t mem, size_t size, struct vdso_symtable *t)
+int vdso_fill_symtable(uintptr_t mem, size_t size,
+		struct vdso_symtable *t, bool suppress_not_elf_err)
 {
 	Phdr_t *dynamic = NULL, *load = NULL;
 	Dyn_t *dyn_strtab = NULL;
@@ -270,7 +272,7 @@ int vdso_fill_symtable(uintptr_t mem, size_t size, struct vdso_symtable *t)
 	/*
 	 * We need PT_LOAD and PT_DYNAMIC here. Each once.
 	 */
-	ret = parse_elf_phdr(mem, size, &dynamic, &load);
+	ret = parse_elf_phdr(mem, size, &dynamic, &load, suppress_not_elf_err);
 	if (ret < 0)
 		return ret;
 	if (!load || !dynamic) {
