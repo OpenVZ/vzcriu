@@ -160,10 +160,12 @@ struct page_pipe *create_page_pipe(unsigned int nr_segs, struct iovec *iovs,
 	pp->pages.nr_iovs = nr_segs;
 	pp->pages.iovs = iovs;
 	pp->pages.free_iov = 0;
+	pp->pages.busy_iov = 0;
 
 	pp->holes.nr_iovs = 0;
 	pp->holes.free_iov = 0;
 	pp->holes.iovs = NULL;
+	pp->holes.busy_iov = 0;
 
 	pp->chunk_mode = chunk_mode;
 	pp->compat_iov = compat_iov;
