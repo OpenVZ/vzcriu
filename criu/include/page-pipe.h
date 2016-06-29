@@ -80,18 +80,22 @@ struct page_pipe_buf {
 	struct list_head l;	/* links into page_pipe->bufs */
 };
 
+struct page_pipe_iovs {
+	unsigned int nr_iovs;	/* number of iovs */
+	unsigned int free_iov;	/* number of iovs in use */
+	struct iovec *iovs;	/* iovs */
+};
+
 struct page_pipe {
 	unsigned int nr_pipes;	/* how many page_pipe_bufs in there */
 	struct list_head bufs;	/* list of bufs */
 	struct list_head free_bufs;	/* list of bufs */
-	unsigned int nr_iovs;	/* number of iovs */
-	unsigned int free_iov;	/* first free iov */
-	struct iovec *iovs;	/* iovs. They are provided into create_page_pipe
-				   and all bufs have their iov-s in there */
 
-	unsigned int nr_holes;	/* number of holes allocated */
-	unsigned int free_hole;	/* number of holes in use */
-	struct iovec *holes;	/* holes */
+	struct page_pipe_iovs pages;	/* iovs for pages. They are provided
+					   into create_page_pipe and all bufs
+					   have their iov-s in there */
+
+	struct page_pipe_iovs holes;	/* iovs for holes */
 
 	bool chunk_mode;	/* Restrict the maximum buffer size of pipes
 				   and dump memory for a few iterations */
