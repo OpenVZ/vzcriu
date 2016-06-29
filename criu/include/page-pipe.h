@@ -96,6 +96,7 @@ struct page_pipe {
 	bool chunk_mode;	/* Restrict the maximum buffer size of pipes
 				   and dump memory for a few iterations */
 	bool compat_iov;	/* Use compatible iovs (struct compat_iovec) */
+	bool own_iovs;		/* create_page_pipe allocated IOVs memory */
 };
 
 /* XXX: move to arch-depended file, when non-x86 add support for compat mode */
