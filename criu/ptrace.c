@@ -22,6 +22,7 @@
 #include "proc_parse.h"
 #include "seccomp.h"
 #include "cr_options.h"
+#include "criu-log.h"
 
 int unseize_task(pid_t pid, int orig_st, int st)
 {
