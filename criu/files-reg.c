@@ -108,9 +108,11 @@ struct link_remap_rlb {
 	struct list_head list;
 	struct ns_id *mnt_ns;
 	char *path;
+	char *orig;
+	u32 id;
 };
 
-static int note_link_remap(char *path, struct ns_id *nsid)
+static int note_link_remap(char *path, char *orig, struct ns_id *nsid, u32 id)
 {
 	struct link_remap_rlb *rlb;
 
@@ -122,16 +124,39 @@ static int note_link_remap(char *path, struct ns_id *nsid)
 	if (!rlb->path)
 		goto err2;
 
+	rlb->orig = strdup(orig);
+	if (!rlb->orig)
+		goto err3;
+
 	rlb->mnt_ns = nsid;
+	rlb->id = id;
 	list_add(&rlb->list, &remaps);
 
 	return 0;
 
+err3:
+	xfree(rlb->path);
 err2:
 	xfree(rlb);
 err:
 	pr_err("Can't note link remap for %s\n", path);
 	return -1;
+}
+
+static int find_link_remap(char *path, struct ns_id *nsid, u32 *id)
+{
+	struct link_remap_rlb *rlb;
+
+	list_for_each_entry(rlb, &remaps, list) {
+		if (rlb->mnt_ns != nsid)
+			continue;
+		if (strcmp(rlb->orig, path))
+			continue;
+
+		*id = rlb->id;
+		return 0;
+	}
+	return -ENOENT;
 }
 
 /* Trim "a/b/c/d" to "a/b/d" */
@@ -997,6 +1022,7 @@ static void __rollback_link_remaps(bool do_unlink)
 		}
 
 		list_del(&rlb->list);
+		xfree(rlb->orig);
 		xfree(rlb->path);
 		xfree(rlb);
 	}
@@ -1091,7 +1117,7 @@ again:
 		return -1;
 	}
 
-	if (note_link_remap(link_name, nsid))
+	if (note_link_remap(link_name, path, nsid, *idp))
 		return -1;
 
 	fe.type = FD_TYPES__REG;
@@ -1104,10 +1130,12 @@ again:
 static int dump_linked_remap(char *path, int len, const struct fd_parms *parms, int lfd, u32 id, struct ns_id *nsid,
 			     bool *fallback)
 {
-	u32 lid;
 	RemapFilePathEntry rpe = REMAP_FILE_PATH_ENTRY__INIT;
+	u32 lid;
 
-	if (create_link_remap(path, len, lfd, &lid, nsid, parms, fallback))
+	if (!find_link_remap(path, nsid, &lid)) {
+		pr_debug("Link remap for %s already exists with id %x\n", path, lid);
+	} else if (create_link_remap(path, len, lfd, &lid, nsid, parms, fallback))
 		return -1;
 
 	rpe.orig_id = id;
