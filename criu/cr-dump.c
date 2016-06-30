@@ -1107,6 +1107,41 @@ err:
 	return ret;
 }
 
+/*
+ * NOTE: Don't run simultaneously, it uses local static buffer!
+ * The only purpose of the helper is to print out task command
+ * for debug purpose when error happens early before task
+ * statistics gathered.
+ */
+static char *task_comm_info(pid_t pid)
+{
+	static char comm[PROC_TASK_COMM_LEN];
+	int ret = 0;
+
+	if (!pr_quelled(LOG_INFO)) {
+		char path[64];
+		int fd;
+
+		snprintf(path, sizeof(path), "/proc/%d/comm", pid);
+		fd = open(path, O_RDONLY);
+		if (fd >= 0) {
+			ssize_t n = read(fd, comm, sizeof(comm));
+			if (n > 0)
+				comm[n-1] = '\0';
+			else
+				ret = -1;
+			close(fd);
+		} else {
+			pr_perror("Can't open %s\n", path);
+			ret = -1;
+		}
+	}
+
+	if (ret && comm[0])
+		comm[0] = '\0';
+	return comm;
+}
+
 static int pre_dump_one_task(struct pstree_item *item, struct list_head *ctls)
 {
 	pid_t pid = item->pid.real;
@@ -1119,7 +1154,7 @@ static int pre_dump_one_task(struct pstree_item *item, struct list_head *ctls)
 	vmas.nr = 0;
 
 	pr_info("========================================\n");
-	pr_info("Pre-dumping task (pid: %d)\n", pid);
+	pr_info("Pre-dumping task (pid: %d comm: %s)\n", pid, task_comm_info(pid));
 	pr_info("========================================\n");
 
 	if (item->pid.state == TASK_STOPPED) {
@@ -1196,7 +1231,7 @@ static int dump_one_task(struct pstree_item *item)
 	vmas.nr = 0;
 
 	pr_info("========================================\n");
-	pr_info("Dumping task (pid: %d)\n", pid);
+	pr_info("Dumping task (pid: %d comm: %s)\n", pid, task_comm_info(pid));
 	pr_info("========================================\n");
 
 	if (item->pid.state == TASK_DEAD)
@@ -1637,7 +1672,7 @@ int cr_dump_tasks(pid_t pid)
 	int ret = -1;
 
 	pr_info("========================================\n");
-	pr_info("Dumping processes (pid: %d)\n", pid);
+	pr_info("Dumping processes (pid: %d comm: %s)\n", pid, task_comm_info(pid));
 	pr_info("========================================\n");
 
 	root_item = alloc_pstree_item();
