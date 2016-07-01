@@ -16,7 +16,6 @@
 #include "util.h"
 #include "cr_options.h"
 #include "namespaces.h"
-#include "files-reg.h"
 #include "pstree.h"
 #include "spfs.h"
 
@@ -199,28 +198,22 @@ free_path:
 	return err;
 }
 
-int spfs_create_file(int ns_root_fd, const struct reg_file_info *rfi)
+int spfs_create_file(int ns_root_fd, const char *path, unsigned mode, size_t size)
 {
-	const char *path = rfi->path;
-	int mode;
 	int err;
-	size_t size = 0;
 
-	pr_debug("%s: full path: %s\n", __func__, path);
+	pr_debug("%s: creating SPFS file %s (mode: 0%o, size: %ld)\n",
+			__func__, path, mode, size);
 
-	if (!rfi->rfe->has_mode) {
-		pr_err("Image doesn't have mode value\n");
+	if (!mode) {
+		pr_err("zero mode provided for %s\n", path);
 		return -1;
 	}
-	mode = rfi->rfe->mode;
 
 	if (!faccessat(ns_root_fd, path, F_OK, AT_SYMLINK_NOFOLLOW)) {
 		pr_info("path %s already exists\n", path);
 		return 0;
 	}
-
-	if (rfi->rfe->has_size)
-		size = rfi->rfe->size;
 
 	switch (mode & S_IFMT) {
 		case S_IFDIR:
