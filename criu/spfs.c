@@ -10,6 +10,7 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <sys/stat.h>
+#include <sys/xattr.h>
 
 #include "mount.h"
 #include "log.h"
@@ -18,6 +19,7 @@
 #include "namespaces.h"
 #include "pstree.h"
 #include "spfs.h"
+#include "proc_parse.h"
 
 #define SPFS_MANAGER_WORK_DIR		"/run/spfs-manager/%d"
 #define SPFS_MANAGER_SOCK_FILE		"control.sock"
@@ -243,6 +245,17 @@ int spfs_create_file(int mnt_id, const char *path, unsigned mode, size_t size)
 	}
 	return err;
 }
+
+int spfs_remap_path(const char *path, const char *link_remap)
+{
+	if (setxattr(path, "security.spfs.link_remap", link_remap, strlen(link_remap) + 1,  XATTR_CREATE)) {
+		pr_perror("failed to set xattr security.spfs.link_remap with value %s for file %s", link_remap, path);
+		return -1;
+	}
+	pr_debug("set xattr security.spfs.link_remap with value %s for file %s\n", link_remap, path);
+	return 0;
+}
+
 
 static char *spfs_manager_work_dir(void)
 {
