@@ -197,17 +197,17 @@ free_path:
 	return err;
 }
 
-int spfs_create_file(int ns_root_fd, const char *path, unsigned mode, size_t size)
+int spfs_create_file(int mnt_id, const char *path, unsigned mode, size_t size)
 {
 	int err;
+	int ns_root_fd;
 
 	pr_debug("%s: creating SPFS file %s (mode: 0%o, size: %ld)\n",
 			__func__, path, mode, size);
 
-	if (!mode) {
-		pr_err("zero mode provided for %s\n", path);
-		return -1;
-	}
+	ns_root_fd = mntns_get_root_by_mnt_id(mnt_id);
+	if (ns_root_fd < 0)
+		return ns_root_fd;
 
 	if (!faccessat(ns_root_fd, path, F_OK, AT_SYMLINK_NOFOLLOW)) {
 		pr_info("path %s already exists\n", path);
