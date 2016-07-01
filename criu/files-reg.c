@@ -1152,8 +1152,6 @@ static int check_path_remap(struct fd_link *link, const struct fd_parms *parms,
 	}
 
 	if (nfs_silly_rename(rpath, parms)) {
-		pr_err("unlinked files on NFS are not supported yet: %s (/proc/%d/fd/%d)\n", rpath, parms->pid, parms->fd);
-		return -ENOTSUP;
 		/*
 		 * If this is NFS silly-rename file the path we have at hands
 		 * will be accessible by fstat(), but once we kill the dumping
