@@ -731,6 +731,46 @@ static int open_remap_spfs(struct reg_file_info *rfi, RemapFilePathEntry *rfe)
 	return spfs_create_file(rfi->rfe->mnt_id, rfi->path, rfi->rfe->mode, rfi->rfe->size);
 }
 
+static int open_remap_spfs_linked(struct reg_file_info *rfi, RemapFilePathEntry *rfe)
+{
+	int err;
+	struct mount_info *mi;
+	struct file_desc *rdesc;
+	struct reg_file_info *rrfi;
+
+	rdesc = find_file_desc_raw(FD_TYPES__REG, rfe->remap_id);
+	if (!rdesc) {
+		pr_err("Can't find target file %x\n", rfe->remap_id);
+		return -1;
+	}
+
+	rrfi = container_of(rdesc, struct reg_file_info, d);
+
+	err = spfs_create_file(rfi->rfe->mnt_id, rfi->path, rfi->rfe->mode, rfi->rfe->size);
+	if (err) {
+		pr_err("failed to create SPFS file %s\n", rfi->path);
+		return -errno;
+	}
+
+	err = spfs_create_file(rfi->rfe->mnt_id, rrfi->path, rfi->rfe->mode, rfi->rfe->size);
+	if (err) {
+		pr_err("failed to create SPFS file %s\n", rrfi->path);
+		return -errno;
+	}
+
+	mi = lookup_mnt_id(rfi->rfe->mnt_id);
+
+	err = spfs_remap_path(rfi->path, rrfi->path + strlen(mi->ns_mountpoint) - 1);
+	if (err) {
+		pr_err("failed to remap SPFS %s to %s\n", rfi->path, rrfi->path);
+		return -errno;
+	}
+
+	pr_info("Remapped %s -> %s\n", rfi->path, rrfi->path);
+
+	return 0;
+}
+
 static int prepare_one_remap(struct remap_info *ri)
 {
 	int ret = -1;
@@ -752,6 +792,9 @@ static int prepare_one_remap(struct remap_info *ri)
 		break;
 	case REMAP_TYPE__SPFS:
 		ret = open_remap_spfs(rfi, rpe);
+		break;
+	case REMAP_TYPE__SPFS_LINKED:
+		ret = open_remap_spfs_linked(rfi, rpe);
 		break;
 	default:
 		pr_err("unknown remap type %u\n", rpe->remap_type);
@@ -1135,21 +1178,36 @@ again:
 	return pb_write_one(img_from_set(glob_imgset, CR_FD_FILES), &fe, PB_FILE);
 }
 
+static inline bool spfs_file(const struct fd_parms *parms)
+{
+	return parms->fs_type == NFS_SUPER_MAGIC;
+}
+
 static int dump_linked_remap(char *path, int len, const struct fd_parms *parms, int lfd, u32 id, struct ns_id *nsid,
 			     bool *fallback)
 {
 	RemapFilePathEntry rpe = REMAP_FILE_PATH_ENTRY__INIT;
+	RemapType remap_type = REMAP_TYPE__LINKED;
 	u32 lid;
+
+	if (spfs_file(parms))
+		remap_type = REMAP_TYPE__SPFS_LINKED;
 
 	if (!find_link_remap(path, nsid, &lid)) {
 		pr_debug("Link remap for %s already exists with id %x\n", path, lid);
+		/*
+		 * Link-remap files in case of SPFS are created by criu on
+		 * restore. Dump it only once to avoid collision.
+		 */
+		if (remap_type == REMAP_TYPE__SPFS_LINKED)
+			return 0;
 	} else if (create_link_remap(path, len, lfd, &lid, nsid, parms, fallback))
 		return -1;
 
 	rpe.orig_id = id;
 	rpe.remap_id = lid;
 	rpe.has_remap_type = true;
-	rpe.remap_type = REMAP_TYPE__LINKED;
+	rpe.remap_type = remap_type;
 
 	return pb_write_one(img_from_set(glob_imgset, CR_FD_REMAP_FPATH), &rpe, PB_REMAP_FPATH);
 }
@@ -1259,11 +1317,6 @@ static bool is_sillyrename_name(char *name)
 	return true;
 }
 
-static inline bool spfs_file(const struct fd_parms *parms)
-{
-	return parms->fs_type == NFS_SUPER_MAGIC;
-}
-
 static inline bool nfs_silly_rename(char *rpath, const struct fd_parms *parms)
 {
 	return (parms->fs_type == NFS_SUPER_MAGIC) && is_sillyrename_name(rpath);
@@ -1369,7 +1422,7 @@ static int check_path_remap(struct fd_link *link, const struct fd_parms *parms, 
 		 * linked-remap file (NFS will allow us to create more hard
 		 * links on it) to have some persistent name at hands.
 		 */
-		pr_debug("Dump silly-rename linked remap for %x\n", id);
+		pr_debug("Dump silly-rename linked remap for %x [%s]\n", id, rpath + 1);
 		return dump_linked_remap(rpath + 1, plen - 1, parms, lfd, id, nsid, NULL);
 	}
 
