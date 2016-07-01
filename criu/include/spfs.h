@@ -7,7 +7,6 @@ struct mount_info;
 int spfs_mount(struct mount_info *mi, const char *source,
 	      const char *filesystemtype, unsigned long mountflags);
 
-struct reg_file_info;
-int spfs_create_file(int ns_root_id, const struct reg_file_info *rfi);
+int spfs_create_file(int ns_root_fd, const char *path, unsigned mode, size_t size);
 
 #endif
