@@ -2322,7 +2322,7 @@ int open_path(struct file_desc *d, int (*open_cb)(int mntns_root, struct reg_fil
 
 	mi = lookup_mnt_id(rfi->rfe->mnt_id);
 	if (mi && mi->fstype->mount == spfs_mount) {
-		if (spfs_create_file(mntns_root, rfi->path, rfi->rfe->mode, rfi->rfe->size) < 0) {
+		if (spfs_create_file(rfi->rfe->mnt_id, rfi->path, rfi->rfe->mode, rfi->rfe->size) < 0) {
 			pr_err("Failed to create SPFS path\n");
 			return -1;
 		}
