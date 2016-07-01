@@ -723,7 +723,7 @@ static int restore_priv_vma_content(struct pstree_item *t)
 			 * on demand.
 			 */
 			if (opts.lazy_pages && vma_entry_can_be_lazy(vma->e)) {
-				pr_debug("Lazy restore skips 0x%016"PRIx64"\n", vma->e->start);
+				pr_debug("Lazy restore skips %#016"PRIx64"\n", vma->e->start);
 				pr.skip_pages(&pr, PAGE_SIZE);
 				nr_lazy++;
 				continue;
