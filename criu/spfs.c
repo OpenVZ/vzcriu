@@ -19,6 +19,7 @@
 #include "pstree.h"
 #include "spfs.h"
 #include "proc_parse.h"
+#include "cgroup.h"
 
 #define SPFS_MANAGER_WORK_DIR		"/run/spfs-manager/%d"
 #define SPFS_MANAGER_SOCK_FILE		"control.sock"
@@ -322,10 +323,21 @@ static int get_spfs_mngr_sock(void *arg, int fd, pid_t pid)
 static int spfs_request_mount(int sock, struct mount_info *mi, const char *source,
 			      const char *type, unsigned long mountflags)
 {
-	int err = -ENOMEM;
+	int err;
 	char *mountpoint, *freeze_cgroup, *mount, *replace, *bindmounts = NULL;
 	struct mount_info *bm;
 	int len;
+	char *freezer_root;
+
+	if (opts.new_global_cg_root)
+		freezer_root = opts.new_global_cg_root;
+	else {
+		err = new_cg_root_get("freezer", &freezer_root);
+		if (err) {
+			pr_err("failed to get freezer root: %d\n", err);
+			return err;
+		}
+	}
 
 	list_for_each_entry(bm, &mi->mnt_bind, mnt_bind) {
 		bindmounts = xstrcat(bindmounts, "%s,", bm->ns_mountpoint);
@@ -337,13 +349,15 @@ static int spfs_request_mount(int sock, struct mount_info *mi, const char *sourc
 	/* Trim last comma */
 	bindmounts[strlen(bindmounts)] = '\0';
 
+	err = -ENOMEM;
+
 	mountpoint = xsprintf("%s", mi->ns_mountpoint);
 	if (!mountpoint) {
 		pr_err("failed to allocate\n");
 		goto free_bindmounts;
 	}
 
-	freeze_cgroup = xsprintf("/sys/fs/cgroup/freezer/%s", opts.new_global_cg_root);
+	freeze_cgroup = xsprintf("/sys/fs/cgroup/freezer%s", freezer_root);
 	if (!freeze_cgroup) {
 		pr_err("failed to construct freeze_cgroup\n");
 		goto free_mountpoint;
