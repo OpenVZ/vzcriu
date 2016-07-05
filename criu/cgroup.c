@@ -1755,4 +1755,20 @@ int new_cg_root_add(char *controller, char *newroot)
 	return 0;
 }
 
+int new_cg_root_get(const char *controller, char **root)
+{
+	struct cg_root_opt *o;
+
+	if (!controller)
+		return -EINVAL;
+
+	list_for_each_entry(o, &opts.new_cgroup_roots, node) {
+		if (!strcmp(o->controller, controller)) {
+			*root = o->newroot;
+			return 0;
+		}
+	}
+	return -ENOENT;
+}
+
 struct ns_desc cgroup_ns_desc = NS_DESC_ENTRY(CLONE_NEWCGROUP, "cgroup");
