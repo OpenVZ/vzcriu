@@ -458,7 +458,7 @@ int page_pipe_split(struct page_pipe *pp, unsigned long addr,
 	 * the part after addr + requested pages to a separate iov
 	 */
 	len = min((unsigned long)iov->iov_base + iov->iov_len - addr,
-		  *nr_pages * PAGE_SIZE);
+		  (unsigned long)(*nr_pages) * PAGE_SIZE);
 	ret = page_pipe_split_iov(pp, ppb, iov, addr + len, true);
 	if (ret)
 		return -1;

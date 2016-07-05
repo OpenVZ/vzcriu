@@ -278,7 +278,7 @@ static struct lazy_pages_info *ud_open(int listen, struct sockaddr_un *saddr)
 
 	/* accept new client request */
 	len = sizeof(struct sockaddr_un);
-	if ((client = accept(listen, saddr, &len)) < 0) {
+	if ((client = accept(listen, (struct sockaddr *) saddr, &len)) < 0) {
 		pr_perror("server_accept error: %d", client);
 		close(listen);
 		return NULL;
