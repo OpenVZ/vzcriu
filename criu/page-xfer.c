@@ -370,7 +370,7 @@ int page_xfer_dump_pages(struct page_xfer *xfer, struct page_pipe *pp,
 				struct iovec hole = get_iov(pp->holes, cur_hole,
 						pp->compat_iov);
 
-				if (hole.iov_base < iov.iov_base)
+				if (hole.iov_base >= iov.iov_base)
 					break;
 				ret = page_xfer_dump_hole(xfer, &hole, off);
 				if (ret)
