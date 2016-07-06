@@ -200,13 +200,14 @@ free_path:
 	return err;
 }
 
-int spfs_create_file(int mnt_id, const char *path, unsigned mode, size_t size)
+int spfs_create_file(int mnt_id, const char *path, unsigned mode, size_t size,
+		     dev_t rdev)
 {
 	int err;
 	int ns_root_fd;
 
-	pr_debug("%s: creating SPFS file %s (mode: 0%o, size: %ld)\n",
-			__func__, path, mode, size);
+	pr_debug("%s: creating SPFS file %s (mode: 0%o, size: %ld, rdev: %ld)\n",
+			__func__, path, mode, size, rdev);
 
 	ns_root_fd = mntns_get_root_by_mnt_id(mnt_id);
 	if (ns_root_fd < 0)
@@ -231,11 +232,9 @@ int spfs_create_file(int mnt_id, const char *path, unsigned mode, size_t size)
 			pr_err("links not supported yet\n");
 			return -EINVAL;
 		case S_IFBLK:
-			pr_err("block devices not supported yet\n");
-			return -EINVAL;
 		case S_IFCHR:
-			pr_err("character devices not supported yet\n");
-			return -EINVAL;
+			err = mknodat(ns_root_fd, path, 0777, rdev);
+			break;
 		case S_IFIFO:
 			err = create_fifo(ns_root_fd, path, 0777, size);
 			break;

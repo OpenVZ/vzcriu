@@ -449,7 +449,8 @@ static int open_remap_spfs(struct reg_file_info *rfi,
 		RemapFilePathEntry *rfe)
 {
 	return spfs_create_file(rfi->rfe->mnt_id, rfi->path,
-				rfi->rfe->mode, rfi->rfe->size);
+				rfi->rfe->mode, rfi->rfe->size,
+				rfi->rfe->rdev);
 }
 
 static int open_remap_spfs_linked(struct reg_file_info *rfi,
@@ -469,14 +470,16 @@ static int open_remap_spfs_linked(struct reg_file_info *rfi,
 	rrfi = container_of(rdesc, struct reg_file_info, d);
 
 	err = spfs_create_file(rfi->rfe->mnt_id, rfi->path,
-			       rfi->rfe->mode, rfi->rfe->size);
+			       rfi->rfe->mode, rfi->rfe->size,
+			       rfi->rfe->rdev);
 	if (err) {
 		pr_err("failed to create SPFS file %s\n", rfi->path);
 		return -errno;
 	}
 
 	err = spfs_create_file(rfi->rfe->mnt_id, rrfi->path,
-			       rfi->rfe->mode, rfi->rfe->size);
+			       rfi->rfe->mode, rfi->rfe->size,
+			       rfi->rfe->rdev);
 	if (err) {
 		pr_err("failed to create SPFS file %s\n", rrfi->path);
 		return -errno;
@@ -870,7 +873,10 @@ static int create_link_remap(char *path, int len, int lfd,
 	return pb_write_one(img_from_set(glob_imgset, CR_FD_REG_FILES), &rfe, PB_REG_FILE);
 }
 
-static int dump_linked_remap_type(char *path, int len, int lfd, u32 id, struct ns_id *nsid, RemapType remap_type, bool unique)
+static int dump_linked_remap_type(char *path, int len, int lfd, u32 id,
+				  struct ns_id *nsid, RemapType remap_type,
+				  const struct stat *ost,
+				  bool unique)
 {
 	u32 lid;
 	RemapFilePathEntry rpe = REMAP_FILE_PATH_ENTRY__INIT;
@@ -895,7 +901,8 @@ static int dump_linked_remap_type(char *path, int len, int lfd, u32 id, struct n
 static int dump_linked_remap(char *path, int len, const struct stat *ost,
 				int lfd, u32 id, struct ns_id *nsid)
 {
-	return dump_linked_remap_type(path, len, lfd, id, nsid, REMAP_TYPE__LINKED, false);
+	return dump_linked_remap_type(path, len, lfd, id, nsid,
+				      REMAP_TYPE__LINKED, ost, false);
 }
 
 static int dump_spfs_remap(char *path, int lfd, u32 id, const struct stat *ost)
@@ -914,7 +921,8 @@ static int dump_spfs_remap(char *path, int lfd, u32 id, const struct stat *ost)
 static int dump_spfs_linked_remap(char *path, int len, const struct stat *ost,
 				int lfd, u32 id, struct ns_id *nsid)
 {
-	return dump_linked_remap_type(path, len, lfd, id, nsid, REMAP_TYPE__SPFS_LINKED, true);
+	return dump_linked_remap_type(path, len, lfd, id, nsid,
+				      REMAP_TYPE__SPFS_LINKED, ost, true);
 }
 
 static pid_t *dead_pids;
@@ -1654,7 +1662,7 @@ int do_open_reg_noseek_flags(int ns_root_fd, struct reg_file_info *rfi, void *ar
 
 	fd = openat(ns_root_fd, rfi->path, flags);
 	if (fd < 0) {
-		pr_perror("Can't open file %s on restore", rfi->path);
+		pr_perror("Can't open file %s on restore(flags: 0%o)", rfi->path, flags);
 		return fd;
 	}
 
