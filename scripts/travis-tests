@@ -8,7 +8,8 @@ apt-get install -qq protobuf-c-compiler libprotobuf-c0-dev libaio-dev	\
 	libprotobuf-dev protobuf-compiler python-ipaddr libcap-dev	\
 	libnl-3-dev gcc-multilib libc6-dev-i386
 chmod a+x $HOME
-make GCOV=1
+export GCOV=1
+make
 make -C test/zdtm
 python test/zdtm.py run -a -x 'cgroup*'
 
