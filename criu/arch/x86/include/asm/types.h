@@ -153,11 +153,10 @@ static inline bool user_regs_native(user_regs_struct_t *pregs)
 		((pregs)->native.name = (val)) : ((pregs)->compat.name = (val)))
 static inline int core_is_compat(CoreEntry *c)
 {
-	switch (c->thread_info->gpregs->gpregs_case)
-	{
-		case USER_X86_REGS_CASE_T__NATIVE:
+	switch (c->thread_info->gpregs->mode) {
+		case USER_X86_REGS_MODE__NATIVE:
 			return 0;
-		case USER_X86_REGS_CASE_T__COMPAT:
+		case USER_X86_REGS_MODE__COMPAT:
 			return 1;
 		default:
 			return -1;

@@ -252,7 +252,7 @@ int get_task_regs(pid_t pid, user_regs_struct_t regs, CoreEntry *core)
 		assign_reg(gpregs, regs.native, es);
 		assign_reg(gpregs, regs.native, fs);
 		assign_reg(gpregs, regs.native, gs);
-		gpregs->gpregs_case = USER_X86_REGS_CASE_T__NATIVE;
+		gpregs->mode = USER_X86_REGS_MODE__NATIVE;
 	} else {
 		assign_reg(gpregs, regs.compat, bx);
 		assign_reg(gpregs, regs.compat, cx);
@@ -271,9 +271,9 @@ int get_task_regs(pid_t pid, user_regs_struct_t regs, CoreEntry *core)
 		assign_reg(gpregs, regs.compat, flags);
 		assign_reg(gpregs, regs.compat, sp);
 		assign_reg(gpregs, regs.compat, ss);
-		gpregs->gpregs_case = USER_X86_REGS_CASE_T__COMPAT;
+		gpregs->mode = USER_X86_REGS_MODE__COMPAT;
 	}
-	gpregs->has_gpregs_case = true;
+	gpregs->has_mode = true;
 
 #ifndef PTRACE_GETREGSET
 # define PTRACE_GETREGSET 0x4204
@@ -687,15 +687,15 @@ static void restore_native_gpregs(struct rt_sigframe *f, UserX86RegsEntry *r)
 
 int restore_gpregs(struct rt_sigframe *f, UserX86RegsEntry *r)
 {
-	switch (r->gpregs_case) {
-		case USER_X86_REGS_CASE_T__NATIVE:
+	switch (r->mode) {
+		case USER_X86_REGS_MODE__NATIVE:
 			restore_native_gpregs(f, r);
 			break;
-		case USER_X86_REGS_CASE_T__COMPAT:
+		case USER_X86_REGS_MODE__COMPAT:
 			restore_compat_gpregs(f, r);
 			break;
 		default:
-			pr_err("Can't prepare rt_sigframe: regs_case corrupt\n");
+			pr_err("Can't prepare rt_sigframe: registers mode corrupted (%d)\n", r->mode);
 			return -1;
 	}
 	return 0;
