@@ -1295,6 +1295,11 @@ ext:
 	rfe.has_mode = true;
 	rfe.mode = p->stat.st_mode;
 
+	if (S_ISCHR(p->stat.st_mode) || S_ISBLK(p->stat.st_mode)) {
+		rfe.has_rdev = true;
+		rfe.rdev = p->stat.st_rdev;
+	}
+
 	rimg = img_from_set(glob_imgset, CR_FD_REG_FILES);
 	return pb_write_one(rimg, &rfe, PB_REG_FILE);
 }
