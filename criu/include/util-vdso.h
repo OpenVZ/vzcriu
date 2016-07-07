@@ -92,7 +92,6 @@ static inline unsigned long vvar_vma_size(struct vdso_symtable *t)
 # define vdso_fill_symtable vdso_fill_symtable_compat
 #endif
 
-extern int vdso_fill_symtable(uintptr_t mem, size_t size,
-		struct vdso_symtable *t, bool suppress_not_elf_err);
+extern int vdso_fill_symtable(uintptr_t mem, size_t size, struct vdso_symtable *t);
 
 #endif /* __CR_UTIL_VDSO_H__ */

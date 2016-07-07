@@ -264,7 +264,7 @@ static int vdso_fill_self_symtable(struct vdso_symtable *s)
 			s->vma_start = start;
 			s->vma_end = end;
 
-			ret = vdso_fill_symtable(start, end - start, s, false);
+			ret = vdso_fill_symtable(start, end - start, s);
 			if (ret)
 				goto err;
 		} else {
