@@ -102,9 +102,10 @@ static int vz_cpu_parse_cpuid_override(void)
 			e.has_count = true;
 		else if (sscanf(s, "%x: %x %x %x %x",
 				&e.op, &e.eax, &e.ebx,
-				&e.ecx, &e.edx) == 5)
+				&e.ecx, &e.edx) == 5) {
+			e.count = 0;
 			e.has_count = false;
-		else {
+		} else {
 			pr_warn("Unexpected format in %s (%s)\n", path, s);
 			break;
 		}
