@@ -292,8 +292,9 @@ static int __parasite_dump_pages_seized(struct parasite_ctl *ctl,
 		return -1;
 
 	ret = -1;
-	pp = create_page_pipe(vma_area_list->priv_size, pargs_iovs(args),
-				!delayed_dump, !seized_native(ctl));
+	ctl->mem_pp = pp = create_page_pipe(vma_area_list->priv_size,
+					    pargs_iovs(args),
+					    !delayed_dump, !seized_native(ctl));
 	if (!pp)
 		goto out;
 
