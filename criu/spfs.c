@@ -130,10 +130,8 @@ static int create_reg_file(int ns_root_fd, const char *file_path, mode_t mode, s
 
 	fd = openat(ns_root_fd, file_path, O_CREAT | O_EXCL | O_WRONLY, 0777);
 	if (fd < 0) {
-		if (errno != EEXIST) {
-			pr_perror("failed to create regular file %s", file_path);
-			err = -errno;
-		}
+		pr_perror("failed to create regular file %s", file_path);
+		err = -errno;
 		goto free_path;
 	}
 
@@ -175,7 +173,7 @@ static int create_fifo(int ns_root_fd, const char *file_path, mode_t mode, size_
 	if (err)
 		goto free_path;
 
-	if (mkfifoat(ns_root_fd, file_path, 0777) && (errno != EEXIST)) {
+	if (mkfifoat(ns_root_fd, file_path, 0777)) {
 		pr_perror("failed to create fifo %s", file_path);
 		err = -errno;
 		goto free_path;
