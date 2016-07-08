@@ -116,13 +116,15 @@ static int seize_cgroup_tree(char *root_path, const char *state)
 		if (ret == 0)
 			continue;
 		if (errno != ESRCH) {
-			pr_perror("Unexpected error");
+			pr_perror("Unexpected error for pid %d (comm %s)",
+				  pid, __task_comm_info(pid));
 			fclose(f);
 			return -1;
 		}
 
 		if (!seize_catch_task(pid)) {
-			pr_debug("SEIZE %d: success\n", pid);
+			pr_debug("SEIZE %d (comm %s): success\n",
+				 pid, __task_comm_info(pid));
 			processes_to_wait++;
 		} else if (state == frozen) {
 			char buf[] = "/proc/XXXXXXXXXX/exe";
@@ -134,7 +136,8 @@ static int seize_cgroup_tree(char *root_path, const char *state)
 				continue;
 
 			/* fails when meets a zombie */
-			pr_err("zombie found while seizing\n");
+			pr_err("zombie %d (comm %s) found while seizing\n",
+			       pid, __task_comm_info(pid));
 			fclose(f);
 			return -1;
 		}
