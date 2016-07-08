@@ -72,4 +72,7 @@ extern int ptrace_peek_area(pid_t pid, void *dst, void *addr, long bytes);
 extern int ptrace_poke_area(pid_t pid, void *src, void *addr, long bytes);
 extern int ptrace_swap_area(pid_t pid, void *dst, void *src, long bytes);
 
+extern char *task_comm_info(pid_t pid, char *comm, size_t size);
+extern char *__task_comm_info(pid_t pid);
+
 #endif /* __CR_PTRACE_H__ */
