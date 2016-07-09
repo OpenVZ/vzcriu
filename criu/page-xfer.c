@@ -358,13 +358,14 @@ static int dump_hole(struct page_xfer *xfer, struct page_pipe_iovs *iov,
 	for (cur_hole = iov->busy_iov; cur_hole < iov->free_iov; cur_hole++) {
 		struct iovec hole = get_iov(iov->iovs, cur_hole, compat);
 
-		if (hole.iov_base >= limit)
+		if (limit && hole.iov_base >= limit)
 			break;
 		ret = page_xfer_dump_hole(xfer, &hole, off);
 		if (ret)
 			return ret;
 	}
 
+	iov->busy_iov = cur_hole;
 	return 0;
 }
 
