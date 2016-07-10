@@ -210,6 +210,7 @@ void page_pipe_reinit(struct page_pipe *pp)
 		list_move(&ppb->l, &pp->free_bufs);
 
 	pp->holes.free_iov = 0;
+	pp->holes.busy_iov = 0;
 
 	if (page_pipe_grow(pp, 0))
 		BUG(); /* It can't fail, because ppb is in free_bufs */
