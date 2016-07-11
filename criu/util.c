@@ -34,6 +34,7 @@
 #include <netinet/tcp.h>
 #include <sched.h>
 #include <ctype.h>
+#include <libgen.h>
 
 #include "compiler.h"
 #include "asm/types.h"
@@ -852,6 +853,26 @@ int mkdirpat(int fd, const char *path)
 	}
 
 	return 0;
+}
+
+int mkdirname(const char *path)
+{
+	int err;
+	char *dpath, *dirc;
+
+	dirc = strdup(path);
+	if (!dirc) {
+		pr_err("failed to duplicate string\n");
+		return -ENOMEM;
+	}
+
+	dpath = dirname(dirc);
+
+	err = mkdirpat(AT_FDCWD, dpath);
+
+	free(dirc);
+
+	return err;
 }
 
 bool is_path_prefix(const char *path, const char *prefix)
