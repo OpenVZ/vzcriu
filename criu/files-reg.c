@@ -668,7 +668,8 @@ static struct collect_image_info remap_cinfo = {
 	.collect = collect_one_remap,
 };
 
-static int dump_ghost_file(int _fd, u32 id, const struct stat *st, dev_t phys_dev)
+static int dump_ghost_file(int _fd, u32 id, const struct stat *st,
+			   dev_t phys_dev, bool dump_content)
 {
 	struct cr_img *img;
 	GhostFileEntry gfe = GHOST_FILE_ENTRY__INIT;
@@ -703,7 +704,7 @@ static int dump_ghost_file(int _fd, u32 id, const struct stat *st, dev_t phys_de
 	if (pb_write_one(img, &gfe, PB_GHOST_FILE))
 		return -1;
 
-	if (S_ISREG(st->st_mode)) {
+	if (S_ISREG(st->st_mode) && dump_content) {
 		int fd, ret;
 		char lpath[PSFDS];
 
@@ -743,8 +744,9 @@ struct file_remap *lookup_ghost_remap(u32 dev, u32 ino)
 	return NULL;
 }
 
-static int dump_ghost_remap(char *path, const struct stat *st,
-				int lfd, u32 id, struct ns_id *nsid)
+static int dump_ghost_remap_type(char *path, const struct stat *st,
+				 int lfd, u32 id, struct ns_id *nsid,
+				 RemapType remap_type, bool dump_content)
 {
 	struct ghost_file *gf;
 	RemapFilePathEntry rpe = REMAP_FILE_PATH_ENTRY__INIT;
@@ -772,17 +774,23 @@ static int dump_ghost_remap(char *path, const struct stat *st,
 	gf->id = ghost_file_ids++;
 	list_add_tail(&gf->list, &ghost_files);
 
-	if (dump_ghost_file(lfd, gf->id, st, phys_dev))
+	if (dump_ghost_file(lfd, gf->id, st, phys_dev, dump_content))
 		return -1;
 
 dump_entry:
 	rpe.orig_id = id;
 	rpe.remap_id = gf->id;
 	rpe.has_remap_type = true;
-	rpe.remap_type = REMAP_TYPE__GHOST;
+	rpe.remap_type = remap_type;
 
 	return pb_write_one(img_from_set(glob_imgset, CR_FD_REMAP_FPATH),
 			&rpe, PB_REMAP_FPATH);
+}
+
+static int dump_ghost_remap(char *path, const struct stat *st,
+			    int lfd, u32 id, struct ns_id *nsid)
+{
+	return dump_ghost_remap_type(path, st, lfd, id, nsid, REMAP_TYPE__GHOST, true);
 }
 
 static void __rollback_link_remaps(bool do_unlink)
