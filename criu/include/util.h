@@ -253,6 +253,10 @@ int cut_path_ending(char *path, char *sub_path);
  * mkdir -p
  */
 int mkdirpat(int fd, const char *path, int mode);
+/*
+ * mkdir -p `dirname $path`
+ */
+int mkdirname(const char *path, int mode);
 
 /*
  * Tests whether a path is a prefix of another path. This is different than
