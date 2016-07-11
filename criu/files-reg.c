@@ -198,20 +198,11 @@ err:
 	return ret;
 }
 
-static int create_ghost(struct ghost_file *gf, GhostFileEntry *gfe, struct cr_img *img)
+static int create_ghost_dentry(char *path, GhostFileEntry *gfe, struct cr_img *img)
 {
-	char path[PATH_MAX];
-	int ret, root_len;
 	char *msg;
+	int ret = -1;
 
-	root_len = ret = rst_get_mnt_root(gf->remap.rmnt_id, path, sizeof(path));
-	if (ret < 0) {
-		pr_err("The %d mount is not found for ghost\n", gf->remap.rmnt_id);
-		goto err;
-	}
-
-	snprintf(path + ret, sizeof(path) - ret, "/%s", gf->remap.rpath);
-	ret = -1;
 again:
 	if (S_ISFIFO(gfe->mode)) {
 		if ((ret = mknod(path, gfe->mode, 0)) < 0)
@@ -247,16 +238,34 @@ again:
 		goto err;
 	}
 
-	strcpy(gf->remap.rpath, path + root_len + 1);
-	pr_debug("Remap rpath is %s\n", gf->remap.rpath);
-
-	ret = -1;
 	if (ghost_apply_metadata(path, gfe))
 		goto err;
 
 	ret = 0;
 err:
 	return ret;
+}
+
+static int create_ghost(struct ghost_file *gf, GhostFileEntry *gfe, struct cr_img *img)
+{
+	char path[PATH_MAX];
+	int ret, root_len;
+
+	root_len = ret = rst_get_mnt_root(gf->remap.rmnt_id, path, sizeof(path));
+	if (ret < 0) {
+		pr_err("The %d mount is not found for ghost\n", gf->remap.rmnt_id);
+		return -1;
+	}
+
+	snprintf(path + ret, sizeof(path) - ret, "/%s", gf->remap.rpath);
+
+	ret = create_ghost_dentry(path, gfe, img);
+	if (ret)
+		return -1;
+
+	strcpy(gf->remap.rpath, path + root_len + 1);
+	pr_debug("Remap rpath is %s\n", gf->remap.rpath);
+	return 0;
 }
 
 static inline void ghost_path(char *path, int plen,
