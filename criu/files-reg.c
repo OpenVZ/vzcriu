@@ -148,7 +148,7 @@ static int trim_last_parent(char *path)
 	return 0;
 }
 
-static int mkreg_ghost(char *path, u32 mode, struct ghost_file *gf, struct cr_img *img)
+static int mkreg_ghost(char *path, u32 mode, struct cr_img *img)
 {
 	int gfd, ret;
 
@@ -226,8 +226,8 @@ again:
 			goto err;
 		}
 	} else {
-		if ((ret = mkreg_ghost(path, gfe->mode, gf, img)) < 0)
-			msg = "Can't create ghost regfile";
+		if ((ret = mkreg_ghost(path, gfe->mode, img)) < 0)
+			msg = "Can't create ghost regfile\n";
 	}
 
 	if (ret < 0) {
