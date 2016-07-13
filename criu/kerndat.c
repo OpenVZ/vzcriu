@@ -485,6 +485,8 @@ int kerndat_init(void)
 		ret = kerndat_iptables_has_xtlocks();
 	if (!ret)
 		ret = kerndat_compat_restore();
+	if (!ret)
+		ret = kerndat_tcp_repair_window();
 
 	kerndat_lsm();
 
@@ -516,6 +518,8 @@ int kerndat_init_rst(void)
 		ret = kerndat_iptables_has_xtlocks();
 	if (!ret)
 		ret = kerndat_compat_restore();
+	if (!ret)
+		ret = kerndat_tcp_repair_window();
 
 	kerndat_lsm();
 
