@@ -382,9 +382,9 @@ int page_xfer_dump_pages(struct page_xfer *xfer, struct page_pipe *pp,
 		pr_debug("\tbuf %d/%d\n", ppb->pages_in, ppb->nr_segs);
 
 		for (i = 0; i < ppb->nr_segs; i++) {
-			struct iovec iov = get_iov(ppb->iov, i, pp->compat_iov);
+			struct iovec iov = get_iov(ppb->iov, i, pp->flags & PP_COMPAT);
 
-			if (dump_hole(xfer, &pp->holes, iov.iov_base, off, pp->compat_iov))
+			if (dump_hole(xfer, &pp->holes, iov.iov_base, off, pp->flags & PP_COMPAT))
 				return -1;
 
 			BUG_ON(iov.iov_base < (void *)off);
@@ -399,7 +399,7 @@ int page_xfer_dump_pages(struct page_xfer *xfer, struct page_pipe *pp,
 		}
 	}
 
-	if (dump_hole(xfer, &pp->holes, NULL, off, pp->compat_iov))
+	if (dump_hole(xfer, &pp->holes, NULL, off, pp->flags & PP_COMPAT))
 		return -1;
 
 	return 0;

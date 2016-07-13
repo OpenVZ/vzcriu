@@ -98,11 +98,13 @@ struct page_pipe {
 
 	struct page_pipe_iovs holes;	/* iovs for holes */
 
-	bool chunk_mode;	/* Restrict the maximum buffer size of pipes
-				   and dump memory for a few iterations */
-	bool compat_iov;	/* Use compatible iovs (struct compat_iovec) */
-	bool own_iovs;		/* create_page_pipe allocated IOVs memory */
+	unsigned flags;		/* PP_FOO flags below */
 };
+
+#define PP_CHUNK_MODE	0x1	/* Restrict the maximum buffer size of pipes
+				   +				   and dump memory for a few iterations */
+#define PP_COMPAT	0x2	/* Use compatible iovs (struct compat_iovec) */
+#define PP_OWN_IOVS	0x4	/* create_page_pipe allocated IOVs memory */
 
 /* XXX: move to arch-depended file, when non-x86 add support for compat mode */
 struct iovec_compat {
@@ -110,8 +112,7 @@ struct iovec_compat {
 	u32	iov_len;
 };
 
-extern struct page_pipe *create_page_pipe(unsigned int nr, struct iovec *,
-					bool chunk_mode, bool compat_iov);
+extern struct page_pipe *create_page_pipe(unsigned int nr, struct iovec *, unsigned flags);
 extern void destroy_page_pipe(struct page_pipe *p);
 extern int page_pipe_add_page(struct page_pipe *p, unsigned long addr,
 			      unsigned int flags);

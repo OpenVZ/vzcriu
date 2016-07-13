@@ -273,6 +273,7 @@ static int __parasite_dump_pages_seized(struct parasite_ctl *ctl,
 	struct vma_area *vma_area;
 	struct page_xfer xfer = { .parent = NULL };
 	int ret = -1;
+	unsigned cpp_flags = 0;
 
 	pr_info("\n");
 	pr_info("Dumping pages (type: %d pid: %d)\n", CR_FD_PAGES, ctl->pid.real);
@@ -292,9 +293,12 @@ static int __parasite_dump_pages_seized(struct parasite_ctl *ctl,
 		return -1;
 
 	ret = -1;
+	if (!delayed_dump)
+		cpp_flags |= PP_CHUNK_MODE;
+	if (!seized_native(ctl))
+		cpp_flags |= PP_COMPAT;
 	ctl->mem_pp = pp = create_page_pipe(vma_area_list->priv_size,
-					    pargs_iovs(args),
-					    !delayed_dump, !seized_native(ctl));
+					    pargs_iovs(args), cpp_flags);
 	if (!pp)
 		goto out;
 

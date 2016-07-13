@@ -119,7 +119,7 @@ static int page_pipe_grow(struct page_pipe *pp, unsigned int flags)
 		goto out;
 	}
 
-	if (pp->chunk_mode && pp->nr_pipes == NR_PIPES_PER_CHUNK)
+	if ((pp->flags & PP_CHUNK_MODE) && (pp->nr_pipes == NR_PIPES_PER_CHUNK))
 		return -EAGAIN;
 
 	ppb = ppb_alloc(pp);
@@ -127,7 +127,7 @@ static int page_pipe_grow(struct page_pipe *pp, unsigned int flags)
 		return -1;
 
 out:
-	if (pp->compat_iov)
+	if (pp->flags & PP_COMPAT)
 		free_iov = (void*)&((struct iovec_compat*)pp->pages.iovs)[pp->pages.free_iov];
 	else
 		free_iov = &pp->pages.iovs[pp->pages.free_iov];
@@ -136,8 +136,7 @@ out:
 	return 0;
 }
 
-struct page_pipe *create_page_pipe(unsigned int nr_segs, struct iovec *iovs,
-		bool chunk_mode, bool compat_iov)
+struct page_pipe *create_page_pipe(unsigned int nr_segs, struct iovec *iovs, unsigned flags)
 {
 	struct page_pipe *pp;
 
@@ -147,11 +146,14 @@ struct page_pipe *create_page_pipe(unsigned int nr_segs, struct iovec *iovs,
 	if (!pp)
 		return NULL;
 
+	pp->flags = flags;
+
 	if (!iovs) {
 		iovs = xmalloc(sizeof(*iovs) * nr_segs);
 		if (!iovs)
 			goto err_free_pp;
-		pp->own_iovs = true;
+
+		pp->flags |= PP_OWN_IOVS;
 	}
 
 	pp->nr_pipes = 0;
@@ -167,16 +169,13 @@ struct page_pipe *create_page_pipe(unsigned int nr_segs, struct iovec *iovs,
 	pp->holes.iovs = NULL;
 	pp->holes.busy_iov = 0;
 
-	pp->chunk_mode = chunk_mode;
-	pp->compat_iov = compat_iov;
-
 	if (page_pipe_grow(pp, 0))
 		goto err_free_iovs;
 
 	return pp;
 
 err_free_iovs:
-	if (pp->own_iovs)
+	if (pp->flags & PP_OWN_IOVS)
 		xfree(iovs);
 err_free_pp:
 	xfree(pp);
@@ -193,7 +192,7 @@ void destroy_page_pipe(struct page_pipe *pp)
 	list_for_each_entry_safe(ppb, n, &pp->bufs, l)
 		ppb_destroy(ppb);
 
-	if (pp->own_iovs)
+	if (pp->flags & PP_OWN_IOVS)
 		xfree(pp->pages.iovs);
 	xfree(pp);
 }
@@ -202,7 +201,7 @@ void page_pipe_reinit(struct page_pipe *pp)
 {
 	struct page_pipe_buf *ppb, *n;
 
-	BUG_ON(!pp->chunk_mode);
+	BUG_ON(!(pp->flags & PP_CHUNK_MODE));
 
 	pr_debug("Clean up page pipe\n");
 
@@ -245,7 +244,7 @@ static inline int try_add_page_to(struct page_pipe *pp, struct page_pipe_buf *pp
 
 	pr_debug("Add iov to page pipe (%u iovs, %u/%u total)\n",
 			ppb->nr_segs, pp->pages.free_iov, pp->pages.nr_iovs);
-	if (pp->compat_iov) {
+	if (pp->flags & PP_COMPAT) {
 		struct iovec_compat *iovs = (void *)ppb->iov;
 
 		iov_init_compat(&iovs[ppb->nr_segs++], addr);
@@ -303,7 +302,7 @@ int page_pipe_add_hole(struct page_pipe *pp, unsigned long addr)
 			iov_grow_page(&hole->iovs[hole->free_iov - 1], addr))
 		goto out;
 
-	if (pp->compat_iov) {
+	if (pp->flags & PP_COMPAT) {
 		struct iovec_compat *iovs = (void *)hole->iovs;
 
 		iov_init_compat(&iovs[hole->free_iov++], addr);
@@ -492,7 +491,7 @@ void debug_show_page_pipe(struct page_pipe *pp)
 		pr_debug("\tbuf %u pages, %u iovs, flags: %x :\n",
 			 ppb->pages_in, ppb->nr_segs, ppb->flags);
 		for (i = 0; i < ppb->nr_segs; i++) {
-			if (pp->compat_iov) {
+			if (pp->flags & PP_COMPAT) {
 				iov_c = (void *)ppb->iov;
 				pr_debug("\t\t%x %lu\n", iov_c[i].iov_base,
 						iov_c[i].iov_len / PAGE_SIZE);
@@ -506,7 +505,7 @@ void debug_show_page_pipe(struct page_pipe *pp)
 
 	pr_debug("* %u holes:\n", pp->holes.free_iov);
 	for (i = 0; i < pp->holes.free_iov; i++) {
-		if (pp->compat_iov) {
+		if (pp->flags & PP_COMPAT) {
 			iov_c = (void *)pp->holes.iovs;
 			pr_debug("\t%x %lu\n", iov_c[i].iov_base,
 					iov_c[i].iov_len / PAGE_SIZE);
