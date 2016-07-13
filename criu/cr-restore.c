@@ -750,15 +750,6 @@ static unsigned long task_entries_pos;
 static int wait_on_helpers_zombies(void)
 {
 	struct pstree_item *pi;
-	sigset_t blockmask, oldmask;
-
-	sigemptyset(&blockmask);
-	sigaddset(&blockmask, SIGCHLD);
-
-	if (sigprocmask(SIG_BLOCK, &blockmask, &oldmask) == -1) {
-		pr_perror("Can not set mask of blocked signals");
-		return -1;
-	}
 
 	list_for_each_entry(pi, &current->children, sibling) {
 		pid_t pid = pi->pid.virt;
@@ -778,11 +769,6 @@ static int wait_on_helpers_zombies(void)
 			}
 			break;
 		}
-	}
-
-	if (sigprocmask(SIG_SETMASK, &oldmask, NULL) == -1) {
-		pr_perror("Can not unset mask of blocked signals");
-		BUG();
 	}
 
 	return 0;
@@ -872,6 +858,16 @@ static int restore_one_task(int pid, CoreEntry *core)
 	else if (current->pid.state == TASK_DEAD)
 		ret = restore_one_zombie(core);
 	else if (current->pid.state == TASK_HELPER) {
+		sigset_t blockmask, oldmask;
+
+		sigemptyset(&blockmask);
+		sigaddset(&blockmask, SIGCHLD);
+
+		if (sigprocmask(SIG_BLOCK, &blockmask, &oldmask) == -1) {
+			pr_perror("Can not set mask of blocked signals");
+			return -1;
+		}
+
 		restore_finish_stage(CR_STATE_RESTORE);
 		if (rsti(current)->helper_cb)
 			rsti(current)->helper_cb();
