@@ -162,12 +162,10 @@ struct page_pipe *create_page_pipe(unsigned int nr_segs, struct iovec *iovs, uns
 	pp->pages.nr_iovs = nr_segs;
 	pp->pages.iovs = iovs;
 	pp->pages.free_iov = 0;
-	pp->pages.busy_iov = 0;
 
 	pp->holes.nr_iovs = 0;
 	pp->holes.free_iov = 0;
 	pp->holes.iovs = NULL;
-	pp->holes.busy_iov = 0;
 
 	if (page_pipe_grow(pp, 0))
 		goto err_free_iovs;

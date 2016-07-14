@@ -83,7 +83,6 @@ struct page_pipe_buf {
 struct page_pipe_iovs {
 	unsigned int nr_iovs;	/* number of iovs */
 	unsigned int free_iov;	/* number of iovs in use */
-	unsigned int busy_iov;	/* first iov that not yet dumped */
 	struct iovec *iovs;	/* iovs */
 };
 
