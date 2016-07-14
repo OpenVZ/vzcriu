@@ -37,6 +37,7 @@ static void psi2iovec(struct page_server_iov *ps, struct iovec *iov)
 #define PS_IOV_OPEN	3
 #define PS_IOV_OPEN2	4
 #define PS_IOV_PARENT	5
+#define PS_IOV_ZERO	6
 
 #define PS_IOV_FLUSH		0x1023
 #define PS_IOV_FLUSH_N_CLOSE	0x1024
@@ -104,9 +105,10 @@ static int write_pages_to_server(struct page_xfer *xfer,
 	return 0;
 }
 
-static int write_hole_to_server(struct page_xfer *xfer, struct iovec *iov)
+static int write_hole_to_server(struct page_xfer *xfer, struct iovec *iov,
+				int type)
 {
-	return send_iov(xfer->sk, PS_IOV_HOLE, xfer->dst_id, iov);
+	return send_iov(xfer->sk, type, xfer->dst_id, iov);
 }
 
 static void close_server_xfer(struct page_xfer *xfer)
@@ -223,24 +225,35 @@ static int check_pagehole_in_parent(struct page_read *p, struct iovec *iov)
 	}
 }
 
-static int write_pagehole_loc(struct page_xfer *xfer, struct iovec *iov)
+static int write_hole_loc(struct page_xfer *xfer, struct iovec *iov, int type)
 {
 	PagemapEntry pe = PAGEMAP_ENTRY__INIT;
 
-	if (xfer->parent != NULL) {
-		int ret;
-
-		ret = check_pagehole_in_parent(xfer->parent, iov);
-		if (ret) {
-			pr_err("Hole %p/%zu not found in parent\n",
-					iov->iov_base, iov->iov_len);
-			return -1;
-		}
-	}
-
 	iovec2pagemap(iov, &pe);
-	pe.has_in_parent = true;
-	pe.in_parent = true;
+
+	switch (type) {
+	case PS_IOV_HOLE:
+		if (xfer->parent != NULL) {
+			int ret;
+
+			ret = check_pagehole_in_parent(xfer->parent, iov);
+			if (ret) {
+				pr_err("Hole %p/%zu not found in parent\n",
+				       iov->iov_base, iov->iov_len);
+				return -1;
+			}
+		}
+
+		pe.has_in_parent = true;
+		pe.in_parent = true;
+		break;
+	case PS_IOV_ZERO:
+		pe.has_zero = true;
+		pe.zero = true;
+		break;
+	default:
+		return -1;
+	}
 
 	if (pb_write_one(xfer->pmi, &pe, PB_PAGEMAP) < 0)
 		return -1;
@@ -307,7 +320,7 @@ static int open_page_local_xfer(struct page_xfer *xfer, int fd_type, long id)
 out:
 	xfer->write_pagemap = write_pagemap_loc;
 	xfer->write_pages = write_pages_loc;
-	xfer->write_hole = write_pagehole_loc;
+	xfer->write_hole = write_hole_loc;
 	xfer->close = close_page_xfer;
 	return 0;
 }
@@ -321,14 +334,14 @@ int open_page_xfer(struct page_xfer *xfer, int fd_type, long id)
 }
 
 static int page_xfer_dump_hole(struct page_xfer *xfer,
-		struct iovec *hole, unsigned long off)
+			       struct iovec *hole, unsigned long off, int type)
 {
 	BUG_ON(hole->iov_base < (void *)off);
 	hole->iov_base -= off;
 	pr_debug("\th %p [%u]\n", hole->iov_base,
 			(unsigned int)(hole->iov_len / PAGE_SIZE));
 
-	if (xfer->write_hole(xfer, hole))
+	if (xfer->write_hole(xfer, hole, type))
 		return -1;
 
 	return 0;
@@ -349,6 +362,20 @@ static struct iovec get_iov(struct iovec *iovs, unsigned int n, bool compat)
 	}
 }
 
+static int get_hole_type(struct page_pipe *pp, int n)
+{
+	unsigned int hole_flags = pp->hole_flags[n];
+
+	if (hole_flags == PP_HOLE_PARENT)
+		return PS_IOV_HOLE;
+	if (hole_flags == PP_HOLE_ZERO)
+		return PS_IOV_ZERO;
+	else
+		BUG();
+
+	return -1;
+}
+
 static int dump_holes(struct page_xfer *xfer, struct page_pipe *pp,
 		      unsigned int *cur_hole, void *limit, unsigned long off)
 {
@@ -357,11 +384,12 @@ static int dump_holes(struct page_xfer *xfer, struct page_pipe *pp,
 	for (; *cur_hole < pp->free_hole ; (*cur_hole)++) {
 		struct iovec hole = get_iov(pp->holes, *cur_hole,
 					    pp->flags & PP_COMPAT);
+		int hole_type = get_hole_type(pp, *cur_hole);
 
 		if (limit && hole.iov_base >= limit)
 			break;
 
-		ret = page_xfer_dump_hole(xfer, &hole, off);
+		ret = page_xfer_dump_hole(xfer, &hole, off, hole_type);
 		if (ret)
 			return ret;
 	}
@@ -589,7 +617,7 @@ static int page_server_hole(int sk, struct page_server_iov *pi)
 		return -1;
 
 	psi2iovec(pi, &iov);
-	if (lxfer->write_hole(lxfer, &iov))
+	if (lxfer->write_hole(lxfer, &iov, pi->cmd))
 		return -1;
 
 	return 0;
@@ -645,6 +673,7 @@ static int page_server_serve(int sk)
 			ret = page_server_add(sk, &pi);
 			break;
 		case PS_IOV_HOLE:
+		case PS_IOV_ZERO:
 			ret = page_server_hole(sk, &pi);
 			break;
 		case PS_IOV_FLUSH:
