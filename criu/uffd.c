@@ -34,6 +34,7 @@
 #include "xmalloc.h"
 #include "syscall-codes.h"
 #include "restorer.h"
+#include "page-xfer.h"
 
 #undef  LOG_PREFIX
 #define LOG_PREFIX "lazy-pages: "
@@ -364,7 +365,10 @@ static int uffd_copy_page(struct lazy_pages_info *lpi, __u64 address,
 	struct uffdio_copy uffdio_copy;
 	int rc;
 
-	rc = get_page(lpi, address, dest);
+	if (opts.use_page_server)
+		rc = get_remote_pages(lpi->pid, address, 1, dest);
+	else
+		rc = get_page(lpi, address, dest);
 	if (rc <= 0)
 		return rc;
 
@@ -853,6 +857,9 @@ int cr_lazy_pages()
 		return -1;
 
 	if (prepare_uffds(epollfd))
+		return -1;
+
+	if (connect_to_page_server())
 		return -1;
 
 	ret = handle_requests(epollfd, events);

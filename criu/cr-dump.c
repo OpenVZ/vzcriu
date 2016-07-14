@@ -1169,7 +1169,7 @@ static int pre_dump_one_task(struct pstree_item *item)
 
 	parasite_ctl->pid.virt = item->pid.virt = misc.pid;
 
-	ret = parasite_dump_pages_seized(parasite_ctl, &vmas, true);
+	ret = parasite_dump_pages_seized(parasite_ctl, &vmas, true, false);
 	if (ret)
 		goto err_cure;
 
@@ -1325,7 +1325,8 @@ static int dump_one_task(struct pstree_item *item)
 		}
 	}
 
-	ret = parasite_dump_pages_seized(parasite_ctl, &vmas, false);
+	ret = parasite_dump_pages_seized(parasite_ctl, &vmas, opts.lazy_pages,
+					 opts.lazy_pages);
 	if (ret)
 		goto err_cure;
 
@@ -1365,7 +1366,10 @@ static int dump_one_task(struct pstree_item *item)
 		goto err;
 	}
 
-	ret = parasite_cure_seized(parasite_ctl);
+	if (opts.lazy_pages)
+		ret = parasite_cure_remote(parasite_ctl);
+	else
+		ret = parasite_cure_seized(parasite_ctl);
 	if (ret) {
 		pr_err("Can't cure (pid: %d) from parasite\n", pid);
 		goto err;
@@ -1560,6 +1564,28 @@ err:
 	return cr_pre_dump_finish(ret);
 }
 
+static int cr_lazy_mem_dump(void)
+{
+	struct pstree_item *item;
+	int ret = 0;
+
+	pr_info("Starting lazy pages server\n");
+	ret = cr_page_server(false, -1);
+
+	for_each_pstree_item(item) {
+		struct parasite_ctl *ctl = dmpi(item)->parasite_ctl;
+		destroy_page_pipe(ctl->mem_pp);
+		parasite_cure_local(ctl);
+	}
+
+	if (ret)
+		pr_err("Lazy pages transfer FAILED.\n");
+	else
+		pr_info("Lazy pages transfer finished successfully\n");
+
+	return ret;
+}
+
 static int cr_dump_finish(int ret)
 {
 	int post_dump_ret = 0;
@@ -1618,6 +1644,10 @@ static int cr_dump_finish(int ret)
 		network_unlock();
 		delete_link_remaps();
 	}
+
+	if (opts.lazy_pages)
+		ret = cr_lazy_mem_dump();
+
 	pstree_switch_state(root_item,
 			    (ret || post_dump_ret) ?
 			    TASK_ALIVE : opts.final_state);
