@@ -387,6 +387,30 @@ static int dump_chrdev(struct fd_parms *p, int lfd, struct cr_img *img)
 	return do_dump_gen_file(p, lfd, ops, img);
 }
 
+static int check_blkdev(struct fd_parms *p, int lfd)
+{
+	/*
+	 * @ploop_major is module parameter actually,
+	 * set to PLOOP_DEVICE_MAJOR by default. We may
+	 * need to scan module params or access
+	 * /sys/block/ploopX/dev to fetch major.
+	 *
+	 * For a while simply use predefined @major.
+	 */
+	static const int ploop_major = 182;
+	int maj = major(p->stat.st_rdev);
+
+	/*
+	 * It's been found that systemd-udevd sometimes
+	 * opens-up ploop device from inside of container,
+	 * so allow him to do that.
+	 */
+	if (maj == ploop_major)
+		return 0;
+
+	return -1;
+}
+
 static int dump_one_file(struct parasite_ctl *ctl, int fd, int lfd, struct fd_opts *opts,
 		       struct cr_img *img)
 {
@@ -431,8 +455,14 @@ static int dump_one_file(struct parasite_ctl *ctl, int fd, int lfd, struct fd_op
 		return do_dump_gen_file(&p, lfd, ops, img);
 	}
 
-	if (S_ISREG(p.stat.st_mode) || S_ISDIR(p.stat.st_mode)) {
+	if (S_ISREG(p.stat.st_mode) || S_ISDIR(p.stat.st_mode) ||
+	    S_ISBLK(p.stat.st_mode)) {
 		struct fd_link link;
+
+		if (S_ISBLK(p.stat.st_mode)) {
+			if (check_blkdev(&p, lfd))
+				return -1;
+		}
 
 		if (fill_fdlink(lfd, &p, &link))
 			return -1;
