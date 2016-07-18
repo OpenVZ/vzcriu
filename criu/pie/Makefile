@@ -44,8 +44,9 @@ target			+= $(parasite_target) restorer
 CFLAGS			:= $(filter-out -pg $(CFLAGS-GCOV),$(CFLAGS))
 CFLAGS			:= $(filter-out -DCONFIG_X86_64,$(CFLAGS))
 CFLAGS			+= -iquote $(SRC_DIR)/compel/include
-CFLAGS			+= -iquote arch/$(ARCH)/include -iquote $(SRC_DIR)
+CFLAGS			+= -iquote $(SRC_DIR)/criu/arch/$(ARCH)/include
 CFLAGS			+= -iquote $(SRC_DIR)/criu/include
+CFLAGS			+= -iquote $(SRC_DIR)
 
 ccflags-y		+= -DCR_NOGLIBC
 ifneq ($(filter-out clean mrproper,$(MAKECMDGOALS)),)
@@ -125,7 +126,7 @@ endif # non i386
 endif # non x86 ARCH
 
 # for C files, we need "parasite-native" to be "parasite_native"
-target-name = $(patsubst pie/%_blob.h,%,$(subst -,_,$(1)))
+target-name = $(patsubst criu/pie/%_blob.h,%,$(subst -,_,$(1)))
 
 ifeq ($(piegen-y),y)
 ifeq ($(strip $(V)),)

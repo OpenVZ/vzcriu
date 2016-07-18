@@ -197,9 +197,9 @@ test/compel/%: .FORCE
 # But note that we're already included
 # the nmk so we can reuse it there.
 criu/%: images/built-in.o compel/compel $(VERSION_HEADER) .FORCE
-	$(Q) $(MAKE) -C criu $@
+	$(Q) $(MAKE) $(build)=criu $@
 criu: images/built-in.o compel/compel $(VERSION_HEADER)
-	$(Q) $(MAKE) -C criu all
+	$(Q) $(MAKE) $(build)=criu all
 .PHONY: criu
 
 #
@@ -226,14 +226,14 @@ subclean:
 clean: subclean
 	$(Q) $(MAKE) $(build)=images $@
 	$(Q) $(MAKE) $(build)=compel $@
-	$(Q) $(MAKE) -C criu $@
+	$(Q) $(MAKE) $(build)=criu $@
 .PHONY: clean
 
 # mrproper depends on clean in nmk
 mrproper: subclean
 	$(Q) $(MAKE) $(build)=images $@
 	$(Q) $(MAKE) $(build)=compel $@
-	$(Q) $(MAKE) -C criu $@
+	$(Q) $(MAKE) $(build)=criu $@
 	$(Q) $(RM) $(VERSION_HEADER)
 	$(Q) $(RM) cscope.*
 	$(Q) $(RM) tags TAGS
