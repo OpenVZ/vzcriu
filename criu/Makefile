@@ -114,7 +114,6 @@ mrproper: subclean
 	$(Q) $(MAKE) $(call build-as,Makefile.library,pie) $@
 	$(Q) $(MAKE) $(call build-as,Makefile.crtools,.) $@
 	$(Q) $(MAKE) $(build)=pie $@
-	$(Q) $(RM) $(VERSION_HEADER)
 	$(Q) $(RM) $(CONFIG_HEADER)
 .PHONY: mrproper
 
