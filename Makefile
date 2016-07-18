@@ -212,7 +212,7 @@ lib: criu
 	$(Q) $(MAKE) -C lib all
 .PHONY: lib
 
-all: compel/compel criu lib
+all: criu lib
 .PHONY: all
 
 subclean:
