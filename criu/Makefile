@@ -178,6 +178,7 @@ install: criu
 	$(Q) mkdir -p $(DESTDIR)$(LIBEXECDIR)/criu/scripts
 	$(Q) install -m 755 $(SRC_DIR)/scripts/systemd-autofs-restart.sh $(DESTDIR)$(LIBEXECDIR)/criu/scripts
 	$(Q) install -m 755 $(SRC_DIR)/scripts/spfs-change-mode.sh $(DESTDIR)$(LIBEXECDIR)/criu/scripts
+	$(Q) install -m 755 $(SRC_DIR)/scripts/spfs-release-replace.sh $(DESTDIR)$(LIBEXECDIR)/criu/scripts
 	$(Q) install -m 755 $(SRC_DIR)/scripts/nfs-ports-allow.sh $(DESTDIR)$(LIBEXECDIR)/criu/scripts
 .PHONY: install
 
