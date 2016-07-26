@@ -29,7 +29,6 @@
 #include "namespaces.h"
 #include "pstree.h"
 #include "crtools.h"
-#include "fs-magic.h"
 
 #include "protobuf.h"
 #include "images/sk-unix.pb-c.h"
@@ -259,67 +258,6 @@ err:
 	return -ENOENT;
 }
 
-static bool unreachable_unix_socket(struct unix_sk_desc *sk, const struct fd_parms *p)
-{
-	char sk_path[PATH_MAX];
-	struct statfs buf;
-	struct pstree_item *task;
-	int mntns_root;
-	struct ns_id *ns;
-	int fd;
-
-	if (!sk->namelen)
-		return false;
-
-	if (sk->name[0] == '\0')
-		return false;
-
-	if (sk->rel_name)
-		sprintf(sk_path, "%s/%s", sk->rel_name->dir, sk->name);
-	else
-		sprintf(sk_path, "%s", sk->name);
-
-	for_each_pstree_item(task) {
-		if (task->pid.real == p->pid)
-			break;
-	}
-	if (!task) {
-		pr_err("Can't find task with pid %d\n", p->pid);
-		return false;
-	}
-
-	ns = lookup_ns_by_id(task->ids->mnt_ns_id, &mnt_ns_desc);
-	if (!ns) {
-		pr_err("Can't resolve mount namespace for pid %d\n", p->pid);
-		return false;
-	}
-
-	mntns_root = mntns_get_root_fd(ns);
-	if (mntns_root < 0) {
-		pr_err("Can't resolve fs root for pid %d\n", p->pid);
-		return false;
-	}
-
-	fd = openat(mntns_root, sk_path + 1, O_PATH);
-	if (fd < 0) {
-		pr_perror("failed to open %s against fd %d", sk_path + 1, mntns_root);
-		return false;
-	}
-
-	if (fstatfs(fd, &buf)) {
-		pr_perror("failed to stat %s", sk_path);
-		close(fd);
-		return false;
-	}
-	close(fd);
-
-	if (buf.f_type != NFS_SUPER_MAGIC)
-		return false;
-
-	pr_err("unix sockets on NFS are not supported yet: %s (/proc/%d/fd/%d)\n", sk_path, p->pid, p->fd);
-	return true;
-}
-
 static int dump_one_unix_fd(int lfd, u32 id, const struct fd_parms *p)
 {
 	struct unix_sk_desc *sk, *peer;
@@ -375,9 +313,6 @@ static int dump_one_unix_fd(int lfd, u32 id, const struct fd_parms *p)
 			goto err;
 		ue->name_dir = sk->rel_name->dir;
 	}
-
-	if (unreachable_unix_socket(sk, p))
-		return -ENOTSUP;
 
 	/*
 	 * Check if this socket is connected to criu service.
