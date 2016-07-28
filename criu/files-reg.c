@@ -966,7 +966,9 @@ again:
 	return pb_write_one(img_from_set(glob_imgset, CR_FD_REG_FILES), &rfe, PB_REG_FILE);
 }
 
-static int dump_linked_remap_type(char *path, int len, int lfd, u32 id, struct ns_id *nsid, RemapType remap_type, bool unique)
+static int dump_linked_remap_type(char *path, int len, int lfd, u32 id,
+				  struct ns_id *nsid, RemapType remap_type,
+				  const struct stat *ost)
 {
 	u32 lid;
 	RemapFilePathEntry rpe = REMAP_FILE_PATH_ENTRY__INIT;
@@ -974,7 +976,9 @@ static int dump_linked_remap_type(char *path, int len, int lfd, u32 id, struct n
 	if (!find_link_remap(path, nsid, &lid)) {
 		pr_debug("Link remap for %s already exists with id %x\n",
 				path, lid);
-		if (unique)
+		/* Link-remap files in case of SPFS are created by criu on
+		 * restore. Dump it only once to avoid collision */
+		if (remap_type == REMAP_TYPE__SPFS_LINKED)
 			return 0;
 	} else if (create_link_remap(path, len, lfd, &lid, nsid))
 			return -1;
@@ -1012,21 +1016,22 @@ static inline bool spfs_file(const struct fd_parms *parms, struct ns_id *nsid)
 }
 
 static int dump_linked_remap(char *path, int len, const struct stat *ost,
-				int lfd, u32 id, struct ns_id *nsid)
+				int lfd, u32 id, struct ns_id *nsid,
+				const struct fd_parms *parms)
 {
-	return dump_linked_remap_type(path, len, lfd, id, nsid, REMAP_TYPE__LINKED, false);
+	RemapType remap_type = REMAP_TYPE__LINKED;
+
+	if (spfs_file(parms, nsid))
+		remap_type = REMAP_TYPE__SPFS_LINKED;
+
+	return dump_linked_remap_type(path, len, lfd, id, nsid,
+				      remap_type, ost);
 }
 
 static int dump_spfs_remap(char *path, const struct stat *st,
 				int lfd, u32 id, struct ns_id *nsid)
 {
 	return dump_ghost_remap_type(path, st, lfd, id, nsid, REMAP_TYPE__SPFS, false);
-}
-
-static int dump_spfs_linked_remap(char *path, int len, const struct stat *ost,
-				  int lfd, u32 id, struct ns_id *nsid)
-{
-	return dump_linked_remap_type(path, len, lfd, id, nsid, REMAP_TYPE__SPFS_LINKED, true);
 }
 
 static pid_t *dead_pids;
@@ -1271,7 +1276,7 @@ static int check_path_remap(struct fd_link *link, const struct fd_parms *parms,
 		 * links on it) to have some persistent name at hands.
 		 */
 		pr_debug("Dump silly-rename linked remap for %x [%s]\n", id, rpath + 1);
-		return dump_spfs_linked_remap(rpath + 1, plen - 1, ost, lfd, id, nsid);
+		return dump_linked_remap(rpath + 1, plen - 1, ost, lfd, id, nsid, parms);
 	}
 
 	mntns_root = mntns_get_root_fd(nsid);
@@ -1289,7 +1294,7 @@ static int check_path_remap(struct fd_link *link, const struct fd_parms *parms,
 
 		if (errno == ENOENT)
 			return dump_linked_remap(rpath + 1, plen - 1,
-							ost, lfd, id, nsid);
+							ost, lfd, id, nsid, parms);
 
 		pr_perror("Can't stat path");
 		return -1;
