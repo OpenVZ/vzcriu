@@ -94,18 +94,6 @@ static int open_mountpoint(struct mount_info *pm);
 static struct mount_info *mnt_build_tree(struct mount_info *list, struct mount_info *roots_mp);
 static int validate_mounts(struct mount_info *info, bool for_dump);
 
-/* Asolute paths are used on dump and relative paths are used on restore */
-static inline int is_root(char *p)
-{
-	return (!strcmp(p, "/"));
-}
-
-/* True for the root mount (the topmost one) */
-static inline int is_root_mount(struct mount_info *mi)
-{
-	return is_root(mi->mountpoint + 1);
-}
-
 /*
  * True if the mountpoint target is root on its FS.
  *

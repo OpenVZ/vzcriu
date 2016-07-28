@@ -128,4 +128,16 @@ extern int mntns_maybe_create_roots(void);
 extern int read_mnt_ns_img(void);
 extern void cleanup_mnt_ns(void);
 
+/* Asolute paths are used on dump and relative paths are used on restore */
+static inline int is_root(char *p)
+{
+	return (!strcmp(p, "/"));
+}
+
+/* True for the root mount (the topmost one) */
+static inline int is_root_mount(struct mount_info *mi)
+{
+	return is_root(mi->mountpoint + 1);
+}
+
 #endif /* __CR_MOUNT_H__ */
