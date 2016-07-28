@@ -683,6 +683,7 @@ int main(int argc, char *argv[], char *envp[])
 		return 1;
 
 	pr_debug("Version: %s (gitid %s)\n", CRIU_VERSION, CRIU_GITID);
+
 	if (opts.deprecated_ok)
 		pr_debug("DEPRECATED ON\n");
 
