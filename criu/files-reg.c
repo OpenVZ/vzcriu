@@ -40,6 +40,7 @@
 #include "fs-magic.h"
 #include "namespaces.h"
 #include "proc_parse.h"
+#include "path.h"
 #include "pstree.h"
 #include "string.h"
 #include "fault-injection.h"
@@ -1279,9 +1280,27 @@ again:
 	return pb_write_one(img_from_set(glob_imgset, CR_FD_FILES), &fe, PB_FILE);
 }
 
-static inline bool spfs_file(const struct fd_parms *parms)
+static inline bool spfs_file(const struct fd_parms *parms, struct ns_id *nsid)
 {
-	return parms->fs_type == NFS_SUPER_MAGIC;
+	struct mount_info *mi;
+
+	if (parms->fs_type != NFS_SUPER_MAGIC)
+		return false;
+
+	if (!(root_ns_mask & CLONE_NEWNS))
+		return false;
+
+	mi = lookup_mnt_id(parms->mnt_id);
+	if (!mi)
+		return false;
+
+	if (is_root_mount(mi))
+		return false;
+
+	if (mi->external)
+		return false;
+
+	return true;
 }
 
 static int dump_linked_remap(char *path, int len, const struct fd_parms *parms, int lfd, u32 id, struct ns_id *nsid,
@@ -1291,7 +1310,7 @@ static int dump_linked_remap(char *path, int len, const struct fd_parms *parms, 
 	RemapType remap_type = REMAP_TYPE__LINKED;
 	u32 lid;
 
-	if (spfs_file(parms))
+	if (spfs_file(parms, nsid))
 		remap_type = REMAP_TYPE__SPFS_LINKED;
 
 	if (!find_link_remap(path, nsid, &lid)) {
@@ -1505,7 +1524,7 @@ static int check_path_remap(struct fd_link *link, const struct fd_parms *parms, 
 		return dump_ghost_remap(rpath + 1, ost, lfd, id, nsid);
 	}
 
-	if (spfs_file(parms)) {
+	if (spfs_file(parms, nsid)) {
 		pr_debug("Dump SPFS file remap for %x [%s]\n", id, rpath + 1);
 		if (dump_spfs_remap(rpath + 1, ost, lfd, id, nsid))
 			return -1;
