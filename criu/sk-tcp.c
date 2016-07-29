@@ -22,6 +22,7 @@
 #include "xmalloc.h"
 #include "config.h"
 #include "kerndat.h"
+#include "restorer.h"
 #include "rst-malloc.h"
 
 #include "protobuf.h"
@@ -524,12 +525,9 @@ static int send_tcp_queue(int sk, int queue, u32 len, struct cr_img *img)
 	return __send_tcp_queue(sk, queue, len, img);
 }
 
-static int restore_tcp_queues(int sk, TcpStreamEntry *tse, struct cr_img *img, mutex_t *reuse_lock)
+static int restore_tcp_queues(int sk, TcpStreamEntry *tse, struct cr_img *img)
 {
 	u32 len;
-
-	if (restore_prepare_socket(sk))
-		return -1;
 
 	len = tse->inq_len;
 	if (len && send_tcp_queue(sk, TCP_RECV_QUEUE, len, img))
@@ -551,17 +549,11 @@ static int restore_tcp_queues(int sk, TcpStreamEntry *tse, struct cr_img *img, m
 	 * they can be restored without any tricks.
 	 */
 	len = tse->unsq_len;
-	mutex_lock(reuse_lock);
 	tcp_repair_off(sk);
-	if (len && __send_tcp_queue(sk, TCP_SEND_QUEUE, len, img)) {
-		mutex_unlock(reuse_lock);
+	if (len && __send_tcp_queue(sk, TCP_SEND_QUEUE, len, img))
 		return -1;
-	}
-	if (tcp_repair_on(sk)) {
-		mutex_unlock(reuse_lock);
+	if (tcp_repair_on(sk))
 		return -1;
-	}
-	mutex_unlock(reuse_lock);
 
 	return 0;
 }
@@ -644,7 +636,10 @@ static int restore_tcp_conn_state(int sk, struct inet_sk_info *ii)
 	if (restore_tcp_opts(sk, tse))
 		goto err_c;
 
-	if (restore_tcp_queues(sk, tse, img, inet_get_reuseaddr_lock(ii)))
+	if (restore_prepare_socket(sk))
+		goto err_c;
+
+	if (restore_tcp_queues(sk, tse, img))
 		goto err_c;
 
 	if (tse->has_nodelay && tse->nodelay) {
@@ -670,14 +665,13 @@ err:
 	return -1;
 }
 
-unsigned long rst_tcp_socks_cpos;
-unsigned int rst_tcp_socks_nr = 0;
-
-int rst_tcp_socks_prep(void)
+int prepare_tcp_socks(struct task_restore_args *ta)
 {
 	struct inet_sk_info *ii;
 
-	rst_tcp_socks_cpos = rst_mem_align_cpos(RM_PRIVATE);
+	ta->tcp_socks = (struct rst_tcp_sock *) rst_mem_align_cpos(RM_PRIVATE);
+	ta->tcp_socks_n = 0;
+
 	list_for_each_entry(ii, &rst_tcp_repair_sockets, rlist) {
 		struct rst_tcp_sock *rs;
 
@@ -694,7 +688,7 @@ int rst_tcp_socks_prep(void)
 
 		rs->sk = ii->sk_fd;
 		rs->reuseaddr = ii->ie->opts->reuseaddr;
-		rst_tcp_socks_nr++;
+		ta->tcp_socks_n++;
 	}
 
 	return 0;

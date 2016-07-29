@@ -14,6 +14,7 @@
 #include "namespaces.h"
 #include "sysctl.h"
 #include "ipc_ns.h"
+#include "shmem.h"
 
 #include "protobuf.h"
 #include "images/ipc-var.pb-c.h"
@@ -37,7 +38,7 @@
 
 static void pr_ipc_desc_entry(unsigned int loglevel, const IpcDescEntry *desc)
 {
-	print_on_level(loglevel, "id: %-10d key: 0x%08x uid: %-10d gid: %-10d "
+	print_on_level(loglevel, "id: %-10d key: %#08x uid: %-10d gid: %-10d "
 		       "cuid: %-10d cgid: %-10d mode: %-10o ",
 		       desc->id, desc->key, desc->uid, desc->gid,
 		       desc->cuid, desc->cgid, desc->mode);
@@ -758,6 +759,9 @@ static int prepare_ipc_shm_seg(struct cr_img *img, const IpcShmEntry *shm)
 		{ "kernel/shm_next_id", &shm->desc->id, CTL_U32 },
 	};
 	struct shmid_ds shmid;
+
+	if (collect_sysv_shmem(shm->desc->id, shm->size))
+		return -1;
 
 	ret = sysctl_op(req, ARRAY_SIZE(req), CTL_WRITE, CLONE_NEWIPC);
 	if (ret < 0) {

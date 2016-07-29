@@ -17,7 +17,6 @@
 #include "unix_diag.h"
 #include "files.h"
 #include "file-ids.h"
-#include "image.h"
 #include "log.h"
 #include "util.h"
 #include "util-pie.h"
@@ -35,6 +34,24 @@
 
 #undef	LOG_PREFIX
 #define LOG_PREFIX "sk unix: "
+
+/*
+ * By-default, when dumping a unix socket, we should dump its peer
+ * as well. Which in turn means, we should dump the task(s) that have
+ * this peer opened.
+ *
+ * Sometimes, we can break this rule and dump only one end of the
+ * unix sockets pair, and on restore time connect() this end back to
+ * its peer.
+ *
+ * So, to resolve this situation we mark the peers we don't dump
+ * as "external" and require the --ext-unix-sk option.
+ */
+
+#define USK_EXTERN	(1 << 0)
+#define USK_SERVICE	(1 << 1)
+#define USK_CALLBACK	(1 << 2)
+#define USK_INHERIT	(1 << 3)
 
 typedef struct {
 	char			*dir;
@@ -186,10 +203,7 @@ static int resolve_rel_name(struct unix_sk_desc *sk, const struct fd_parms *p)
 	int mntns_root, i;
 	struct ns_id *ns;
 
-	for_each_pstree_item(task) {
-		if (task->pid.real == p->pid)
-			break;
-	}
+	task = pstree_item_by_real(p->pid);
 	if (!task) {
 		pr_err("Can't find task with pid %d\n", p->pid);
 		return -ENOENT;
@@ -212,9 +226,8 @@ static int resolve_rel_name(struct unix_sk_desc *sk, const struct fd_parms *p)
 
 	for (i = 0; i < ARRAY_SIZE(dirs); i++) {
 		char dir[PATH_MAX], path[PATH_MAX];
-		int ret, root_fd;
 		struct stat st;
-		int errno_save;
+		int ret;
 
 		snprintf(path, sizeof(path), "/proc/%d/%s", p->pid, dirs[i]);
 		ret = readlink(path, dir, sizeof(dir));
@@ -224,18 +237,10 @@ static int resolve_rel_name(struct unix_sk_desc *sk, const struct fd_parms *p)
 		}
 		dir[ret] = 0;
 
-		if (cr_set_root(mntns_root, &root_fd))
-			goto err;
-
 		snprintf(path, sizeof(path), ".%s/%s", dir, sk->name);
-		ret = fstatat(mntns_root, path, &st, 0);
-		errno_save = errno;
-		if (cr_restore_root(root_fd))
-			goto err;
-		if (ret) {
-			if (errno_save == ENOENT)
+		if (fstatat(mntns_root, path, &st, 0)) {
+			if (errno == ENOENT)
 				continue;
-			pr_perror("Unable to stat %s", path);
 			goto err;
 		}
 
@@ -359,11 +364,7 @@ static int dump_one_unix_fd(int lfd, u32 id, const struct fd_parms *p)
 		 * until all sockets the program owns are processed.
 		 */
 		if (!peer->sd.already_dumped) {
-			if (list_empty(&peer->list)) {
-				show_one_unix("Add a peer", peer);
-				list_add_tail(&peer->list, &unix_sockets);
-			}
-
+			show_one_unix("Add a peer", peer);
 			list_add(&sk->peer_node, &peer->peer_list);
 			sk->fd = dup(lfd);
 			if (sk->fd < 0) {
@@ -443,7 +444,7 @@ dump:
 	 */
 	if (sk->rqlen != 0 && !(sk->type == SOCK_STREAM &&
 				sk->state == TCP_LISTEN))
-		if (dump_sk_queue(lfd, id, false))
+		if (dump_sk_queue(lfd, id))
 			goto err;
 
 	pr_info("Dumping unix socket at %d\n", p->fd);
@@ -459,7 +460,6 @@ dump:
 	if (list_empty(&sk->peer_node) && write_unix_entry(sk))
 		return -1;
 
-	list_del_init(&sk->list);
 	sk->sd.already_dumped = 1;
 
 	while (!list_empty(&sk->peer_list)) {
@@ -503,11 +503,11 @@ static int unix_process_name(struct unix_sk_desc *d, const struct unix_diag_msg 
 
 	if (name[0] != '\0') {
 		struct unix_diag_vfs *uv;
-		int mntns_root, root_fd;
 		bool drop_path = false;
 		char rpath[PATH_MAX];
 		struct ns_id *ns;
 		struct stat st;
+		int mntns_root;
 
 		if (!tb[UNIX_DIAG_VFS]) {
 			pr_err("Bound socket w/o inode %#x\n", m->udiag_ino);
@@ -544,19 +544,11 @@ static int unix_process_name(struct unix_sk_desc *d, const struct unix_diag_msg 
 			goto postprone;
 		}
 
-		ret = cr_set_root(mntns_root, &root_fd);
-		if (ret)
-			goto out;
-
 		snprintf(rpath, sizeof(rpath), ".%s", name);
-		ret = fstatat(mntns_root, rpath, &st, 0);
-		if (ret) {
+		if (fstatat(mntns_root, rpath, &st, 0)) {
 			if (errno != ENOENT) {
 				pr_warn("Can't stat socket %#x(%s), skipping: %m (err %d)\n",
 					m->udiag_ino, rpath, errno);
-				ret = cr_restore_root(root_fd);
-				if (ret)
-					goto out;
 				goto skip;
 			}
 
@@ -571,10 +563,6 @@ static int unix_process_name(struct unix_sk_desc *d, const struct unix_diag_msg 
 				(int)uv->udiag_vfs_dev, (int)uv->udiag_vfs_ino);
 			drop_path = true;
 		}
-
-		ret = cr_restore_root(root_fd);
-		if (ret)
-			goto out;
 
 		if (drop_path) {
 			/*
@@ -684,6 +672,7 @@ static int unix_collect_one(const struct unix_diag_msg *m,
 	}
 
 	sk_collect_one(m->udiag_ino, AF_UNIX, &d->sd);
+	list_add_tail(&d->list, &unix_sockets);
 	show_one_unix("Collected", d);
 
 	return 0;
@@ -764,9 +753,10 @@ int fix_external_unix_sockets(void)
 		FownEntry fown = FOWN_ENTRY__INIT;
 		SkOptsEntry skopts = SK_OPTS_ENTRY__INIT;
 
-		show_one_unix("Dumping extern", sk);
+		if (sk->sd.already_dumped)
+			continue;
 
-		BUG_ON(sk->sd.already_dumped);
+		show_one_unix("Dumping extern", sk);
 
 		fd_id_generate_special(NULL, &e.id);
 		e.ino		= sk->sd.ino;
@@ -1176,7 +1166,7 @@ static int open_unixsk_standalone(struct unix_sk_info *ui)
 		 * The below is hack: we use that connect with AF_UNSPEC
 		 * clears socket's peer.
 		 */
-		if (connect(sk, &addr, sizeof(addr.sun_family))) {
+		if (connect(sk, (struct sockaddr *)&addr, sizeof(addr.sun_family))) {
 			pr_perror("Can't clear socket's peer");
 			return -1;
 		}
@@ -1352,10 +1342,29 @@ struct collect_image_info unix_sk_cinfo = {
 	.flags = COLLECT_SHARED,
 };
 
+static void interconnected_pair(struct unix_sk_info *ui, struct unix_sk_info *peer)
+{
+	struct fdinfo_list_entry *fle, *fle_peer;
+	/*
+	 * Select who will restore the pair. Check is identical to
+	 * the one in pipes.c and makes sure tasks wait for each other
+	 * in pids sorting order (ascending).
+	 */
+	fle = file_master(&ui->d);
+	fle_peer = file_master(&peer->d);
+
+	if (fdinfo_rst_prio(fle, fle_peer)) {
+		ui->flags |= USK_PAIR_MASTER;
+		peer->flags |= USK_PAIR_SLAVE;
+	} else {
+		peer->flags |= USK_PAIR_MASTER;
+		ui->flags |= USK_PAIR_SLAVE;
+	}
+}
+
 static int resolve_unix_peers(void *unused)
 {
 	struct unix_sk_info *ui, *peer;
-	struct fdinfo_list_entry *fle, *fle_peer;
 
 	list_for_each_entry(ui, &unix_sockets, list) {
 		if (ui->peer)
@@ -1380,25 +1389,10 @@ static int resolve_unix_peers(void *unused)
 		if (peer->ue->peer != ui->ue->ino)
 			continue;
 
-		/* socketpair or interconnected sockets */
 		peer->peer = ui;
 
-		/*
-		 * Select who will restore the pair. Check is identical to
-		 * the one in pipes.c and makes sure tasks wait for each other
-		 * in pids sorting order (ascending).
-		 */
-
-		fle = file_master(&ui->d);
-		fle_peer = file_master(&peer->d);
-
-		if (fdinfo_rst_prio(fle, fle_peer)) {
-			ui->flags |= USK_PAIR_MASTER;
-			peer->flags |= USK_PAIR_SLAVE;
-		} else {
-			peer->flags |= USK_PAIR_MASTER;
-			ui->flags |= USK_PAIR_SLAVE;
-		}
+		/* socketpair or interconnected sockets */
+		interconnected_pair(ui, peer);
 	}
 
 	pr_info("Unix sockets:\n");

@@ -3,18 +3,21 @@
 #include <stdbool.h>
 #include "vma.h"
 #include "xmalloc.h"
+#include "pstree.h"
+#include "restorer.h"
 #include "aio.h"
+#include "rst_info.h"
+#include "rst-malloc.h"
 #include "parasite.h"
 #include "parasite-syscall.h"
 #include "images/mm.pb-c.h"
+
+#define NR_IOEVENTS_IN_NPAGES(npages) ((PAGE_SIZE * npages - sizeof(struct aio_ring)) / sizeof(struct io_event))
 
 int dump_aio_ring(MmEntry *mme, struct vma_area *vma)
 {
 	int nr = mme->n_aios;
 	AioRingEntry *re;
-
-	pr_info("Dumping AIO ring @%"PRIx64", %u reqs\n",
-			vma->e->start, vma->aio_nr_req);
 
 	mme->aios = xrealloc(mme->aios, (nr + 1) * sizeof(re));
 	if (!mme->aios)
@@ -26,10 +29,16 @@ int dump_aio_ring(MmEntry *mme, struct vma_area *vma)
 
 	aio_ring_entry__init(re);
 	re->id = vma->e->start;
-	re->nr_req = vma->aio_nr_req;
 	re->ring_len = vma->e->end - vma->e->start;
+	re->nr_req = aio_estimate_nr_reqs(re->ring_len);
+	if (!re->nr_req) {
+		xfree(re);
+		return -1;
+	}
 	mme->aios[nr] = re;
 	mme->n_aios = nr + 1;
+	pr_info("Dumping AIO ring @%"PRIx64"-%"PRIx64"\n",
+		vma->e->start, vma->e->end);
 	return 0;
 }
 
@@ -44,8 +53,14 @@ void free_aios(MmEntry *mme)
 	}
 }
 
-static unsigned int aio_estimate_nr_reqs(unsigned int k_max_reqs)
+unsigned int aio_estimate_nr_reqs(unsigned int size)
 {
+	unsigned int k_max_reqs = NR_IOEVENTS_IN_NPAGES(size/PAGE_SIZE);
+
+	if (size & ~PAGE_MASK) {
+		pr_err("Ring size is not aligned\n");
+		return 0;
+	}
 	/*
 	 * Kernel does
 	 *
@@ -75,7 +90,6 @@ int parasite_collect_aios(struct parasite_ctl *ctl, struct vm_area_list *vmas)
 	struct vma_area *vma;
 	struct parasite_check_aios_args *aa;
 	struct parasite_aio *pa;
-	int i;
 
 	if (!vmas->nr_aios)
 		return 0;
@@ -100,8 +114,6 @@ int parasite_collect_aios(struct parasite_ctl *ctl, struct vm_area_list *vmas)
 				(long)(pa - &aa->ring[0]), vma->e->start);
 		pa->ctx = vma->e->start;
 		pa->size = vma->e->end - vma->e->start;
-		pa->max_reqs = 0;
-		pa->vma_nr_reqs = &vma->aio_nr_req;
 		pa++;
 	}
 	aa->nr_rings = vmas->nr_aios;
@@ -109,12 +121,30 @@ int parasite_collect_aios(struct parasite_ctl *ctl, struct vm_area_list *vmas)
 	if (parasite_execute_daemon(PARASITE_CMD_CHECK_AIOS, ctl))
 		return -1;
 
-	pa = &aa->ring[0];
-	for (i = 0; i < vmas->nr_aios; i++) {
-		pa = &aa->ring[i];
-		*pa->vma_nr_reqs = aio_estimate_nr_reqs(pa->max_reqs);
-		pr_debug(" `- Ring #%d has %u reqs, estimated to %u\n", i,
-				pa->max_reqs, *pa->vma_nr_reqs);
+	return 0;
+}
+
+int prepare_aios(struct pstree_item *t, struct task_restore_args *ta)
+{
+	int i;
+	MmEntry *mm = rsti(t)->mm;
+	/*
+	 * Put info about AIO rings, they will get remapped
+	 */
+
+	ta->rings = (struct rst_aio_ring *)rst_mem_align_cpos(RM_PRIVATE);
+	ta->rings_n = mm->n_aios;
+
+	for (i = 0; i < mm->n_aios; i++) {
+		struct rst_aio_ring *raio;
+
+		raio = rst_mem_alloc(sizeof(*raio), RM_PRIVATE);
+		if (!raio)
+			return -1;
+
+		raio->addr = mm->aios[i]->id;
+		raio->nr_req = mm->aios[i]->nr_req;
+		raio->len = mm->aios[i]->ring_len;
 	}
 
 	return 0;

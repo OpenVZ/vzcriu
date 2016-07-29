@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <signal.h>
+#include <string.h>
 
 #include "criu.h"
 #include "rpc.pb-c.h"
@@ -307,6 +308,17 @@ void criu_local_set_tcp_established(criu_opts *opts, bool tcp_established)
 void criu_set_tcp_established(bool tcp_established)
 {
 	criu_local_set_tcp_established(global_opts, tcp_established);
+}
+
+void criu_local_set_tcp_skip_in_flight(criu_opts *opts, bool tcp_skip_in_flight)
+{
+	opts->rpc->has_tcp_skip_in_flight	= true;
+	opts->rpc->tcp_skip_in_flight		= tcp_skip_in_flight;
+}
+
+void criu_set_tcp_skip_in_flight(bool tcp_skip_in_flight)
+{
+	criu_local_set_tcp_skip_in_flight(global_opts, tcp_skip_in_flight);
 }
 
 void criu_local_set_evasive_devices(criu_opts *opts, bool evasive_devices)
@@ -718,6 +730,52 @@ err:
 		free(my_path);
 
 	return -ENOMEM;
+}
+
+int criu_local_add_cg_props(criu_opts *opts, char *stream)
+{
+	char *new;
+
+	new = strdup(stream);
+	if (!new)
+		return -ENOMEM;
+
+	free(opts->rpc->cgroup_props);
+	opts->rpc->cgroup_props = new;
+	return 0;
+}
+
+int criu_local_add_cg_props_file(criu_opts *opts, char *path)
+{
+	char *new;
+
+	new = strdup(path);
+	if (!new)
+		return -ENOMEM;
+
+	free(opts->rpc->cgroup_props_file);
+	opts->rpc->cgroup_props_file = new;
+	return 0;
+}
+
+int criu_local_add_cg_dump_controller(criu_opts *opts, char *name)
+{
+	char **new;
+	size_t nr;
+
+	nr = opts->rpc->n_cgroup_dump_controller + 1;
+	new = realloc(opts->rpc->cgroup_dump_controller, nr * sizeof(char *));
+	if (!new)
+		return -ENOMEM;
+
+	new[opts->rpc->n_cgroup_dump_controller] = strdup(name);
+	if (!new[opts->rpc->n_cgroup_dump_controller])
+		return -ENOMEM;
+
+	opts->rpc->n_cgroup_dump_controller = nr;
+	opts->rpc->cgroup_dump_controller = new;
+
+	return 0;
 }
 
 int criu_add_skip_mnt(char *mnt)

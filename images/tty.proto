@@ -1,3 +1,5 @@
+syntax = "proto2";
+
 import "opts.proto";
 import "fown.proto";
 
@@ -31,6 +33,7 @@ enum TtyType {
 	VT		= 3;
 	CTTY		= 4;
 	EXT_TTY		= 5;
+	SERIAL		= 6;
 }
 
 message tty_data_entry {

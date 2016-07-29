@@ -7,7 +7,6 @@
 
 struct task_entries {
 	int nr_threads, nr_tasks, nr_helpers;
-	atomic_t nr_zombies;
 	futex_t nr_in_progress;
 	futex_t start;
 	atomic_t cr_err;
@@ -39,8 +38,6 @@ struct rst_info {
 
 	void			*munmap_restorer;
 
-	int			nr_zombies;
-
 	int service_fd_id;
 	struct fdt		*fdt;
 
@@ -66,10 +63,7 @@ struct rst_info {
 	 */
 	bool			has_seccomp;
 
-	union {
-		void		*breakpoint;
-		void		(*helper_cb)(void);
-	};
+	void			*breakpoint;
 };
 
 #endif /* __CR_RST_INFO_H__ */

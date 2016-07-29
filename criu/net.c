@@ -108,7 +108,6 @@ static char *devconfs4[] = {
 	"ignore_routes_with_linkdown",
 	"drop_gratuitous_arp",
 	"drop_unicast_in_l2_multicast",
-	"accept_redirects",
 };
 
 char *devconfs6[] = {
@@ -154,7 +153,6 @@ char *devconfs6[] = {
 	"use_oif_addrs_only",
 	"use_optimistic",
 	"use_tempaddr",
-	"accept_redirects",
 };
 
 #define CONF_OPT_PATH "net/%s/conf/%s/%s"
@@ -165,7 +163,7 @@ static int net_conf_op(char *tgt, SysctlEntry **conf, int n, int op, char *proto
 		struct sysctl_req *req, char (*path)[MAX_CONF_OPT_PATH], int size,
 		char **devconfs, SysctlEntry **def_conf)
 {
-	int i, ri;
+	int i, ri, ar = -1;
 	int ret, flags = op == CTL_READ ? CTL_FLAGS_OPTIONAL : 0;
 	SysctlEntry **rconf;
 
@@ -189,6 +187,15 @@ static int net_conf_op(char *tgt, SysctlEntry **conf, int n, int op, char *proto
 		if (def_conf && sysctl_entries_equal(conf[i], def_conf[i])
 				&& strcmp(devconfs[i], "mtu")) {
 			pr_debug("Skip %s/%s, coincides with default\n", tgt, devconfs[i]);
+			continue;
+		}
+
+		/*
+		 * Make "accept_redirects" go last on write(it should
+		 * restore after forwarding to be correct)
+		 */
+		if (op == CTL_WRITE && !strcmp(devconfs[i], "accept_redirects")) {
+			ar = i;
 			continue;
 		}
 
@@ -220,6 +227,18 @@ static int net_conf_op(char *tgt, SysctlEntry **conf, int n, int op, char *proto
 		}
 		req[ri].flags = flags;
 		rconf[ri] = conf[i];
+		ri++;
+	}
+
+	if (ar != -1
+	    && conf[ar]->type == SYSCTL_TYPE__CTL_32
+	    && conf[ar]->has_iarg) {
+		snprintf(path[ar], MAX_CONF_OPT_PATH, CONF_OPT_PATH, proto, tgt, devconfs[ar]);
+		req[ri].name = path[ar];
+		req[ri].type = CTL_32;
+		req[ri].arg = &conf[ar]->iarg;
+		req[ri].flags = flags;
+		rconf[ri] = conf[ar];
 		ri++;
 	}
 
@@ -1371,7 +1390,7 @@ static int mount_ns_sysfs(void)
 		return -1;
 	}
 
-	if (mount(NULL, "/", NULL, MS_SLAVE | MS_REC, NULL)) {
+	if (mount(NULL, "/", NULL, MS_PRIVATE | MS_REC, NULL)) {
 		pr_perror("Can't mark the root mount as private");
 		return -1;
 	}
@@ -1583,9 +1602,7 @@ int network_lock(void)
 	if (run_scripts(ACT_NET_LOCK))
 		return -1;
 
-	if (network_lock_internal())
-		return -1;
-	return run_scripts(ACT_POST_NET_LOCK);
+	return network_lock_internal();
 }
 
 void network_unlock(void)

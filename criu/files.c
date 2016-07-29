@@ -19,7 +19,7 @@
 #include "file-lock.h"
 #include "image.h"
 #include "list.h"
-#include "util.h"
+#include "rst-malloc.h"
 #include "util-pie.h"
 #include "lock.h"
 #include "sockets.h"
@@ -95,6 +95,45 @@ struct file_desc *find_file_desc_raw(int type, u32 id)
 static inline struct file_desc *find_file_desc(FdinfoEntry *fe)
 {
 	return find_file_desc_raw(fe->type, fe->id);
+}
+
+struct fdinfo_list_entry *find_used_fd(struct list_head *head, int fd)
+{
+	struct fdinfo_list_entry *fle;
+
+	list_for_each_entry_reverse(fle, head, used_list) {
+		if (fle->fe->fd == fd)
+			return fle;
+		/* List is ordered, so let's stop */
+		if (fle->fe->fd < fd)
+			break;
+	}
+	return NULL;
+}
+
+unsigned int find_unused_fd(struct list_head *head, int hint_fd)
+{
+	struct fdinfo_list_entry *fle;
+	int fd = 0, prev_fd;
+
+	if ((hint_fd >= 0) && (!find_used_fd(head, hint_fd))) {
+		fd = hint_fd;
+		goto out;
+	}
+
+	prev_fd = service_fd_min_fd() - 1;
+
+	list_for_each_entry_reverse(fle, head, used_list) {
+		fd = fle->fe->fd;
+		if (prev_fd > fd) {
+			fd++;
+			goto out;
+		}
+		prev_fd = fd - 1;
+	}
+	BUG();
+out:
+	return fd;
 }
 
 /*
@@ -239,7 +278,7 @@ int do_dump_gen_file(struct fd_parms *p, int lfd,
 	if (ret < 0)
 		return ret;
 
-	pr_info("fdinfo: type: 0x%2x flags: %#o/%#o pos: 0x%8"PRIx64" fd: %d\n",
+	pr_info("fdinfo: type: %#2x flags: %#o/%#o pos: %#8"PRIx64" fd: %d\n",
 		ops->type, p->flags, (int)p->fd_flags, p->pos, p->fd);
 
 	return pb_write_one(img, &e, PB_FDINFO);
@@ -296,7 +335,7 @@ static int fill_fd_params(struct parasite_ctl *ctl, int fd, int lfd,
 
 	fown_entry__init(&p->fown);
 
-	pr_info("%d fdinfo %d: pos: 0x%16"PRIx64" flags: %16o/%#x\n",
+	pr_info("%d fdinfo %d: pos: %#16"PRIx64" flags: %16o/%#x\n",
 		ctl->pid.real, fd, p->pos, p->flags, (int)p->fd_flags);
 
 	ret = fcntl(lfd, F_GETSIG, 0);
@@ -387,30 +426,6 @@ static int dump_chrdev(struct fd_parms *p, int lfd, struct cr_img *img)
 	return do_dump_gen_file(p, lfd, ops, img);
 }
 
-static int check_blkdev(struct fd_parms *p, int lfd)
-{
-	/*
-	 * @ploop_major is module parameter actually,
-	 * set to PLOOP_DEVICE_MAJOR by default. We may
-	 * need to scan module params or access
-	 * /sys/block/ploopX/dev to fetch major.
-	 *
-	 * For a while simply use predefined @major.
-	 */
-	static const int ploop_major = 182;
-	int maj = major(p->stat.st_rdev);
-
-	/*
-	 * It's been found that systemd-udevd sometimes
-	 * opens-up ploop device from inside of container,
-	 * so allow him to do that.
-	 */
-	if (maj == ploop_major)
-		return 0;
-
-	return -1;
-}
-
 static int dump_one_file(struct parasite_ctl *ctl, int fd, int lfd, struct fd_opts *opts,
 		       struct cr_img *img)
 {
@@ -418,7 +433,7 @@ static int dump_one_file(struct parasite_ctl *ctl, int fd, int lfd, struct fd_op
 	const struct fdtype_ops *ops;
 
 	if (fill_fd_params(ctl, fd, lfd, opts, &p) < 0) {
-		pr_perror("Can't get stat on %d", fd);
+		pr_err("Can't get stat on %d\n", fd);
 		return -1;
 	}
 
@@ -455,14 +470,8 @@ static int dump_one_file(struct parasite_ctl *ctl, int fd, int lfd, struct fd_op
 		return do_dump_gen_file(&p, lfd, ops, img);
 	}
 
-	if (S_ISREG(p.stat.st_mode) || S_ISDIR(p.stat.st_mode) ||
-	    S_ISBLK(p.stat.st_mode)) {
+	if (S_ISREG(p.stat.st_mode) || S_ISDIR(p.stat.st_mode)) {
 		struct fd_link link;
-
-		if (S_ISBLK(p.stat.st_mode)) {
-			if (check_blkdev(&p, lfd))
-				return -1;
-		}
 
 		if (fill_fdlink(lfd, &p, &link))
 			return -1;
@@ -760,21 +769,15 @@ int prepare_fd_pid(struct pstree_item *item)
 	INIT_LIST_HEAD(&rst_info->tty_slaves);
 	INIT_LIST_HEAD(&rst_info->tty_ctty);
 
-	if (!fdinfo_per_id) {
-		img = open_image(CR_FD_FDINFO, O_RSTR, pid);
-		if (!img)
-			return -1;
-	} else {
-		if (item->ids == NULL) /* zombie */
-			return 0;
+	if (item->ids == NULL) /* zombie */
+		return 0;
 
-		if (rsti(item)->fdt && rsti(item)->fdt->pid != item->pid.virt)
-			return 0;
+	if (rsti(item)->fdt && rsti(item)->fdt->pid != item->pid.virt)
+		return 0;
 
-		img = open_image(CR_FD_FDINFO, O_RSTR, item->ids->files_id);
-		if (!img)
-			return -1;
-	}
+	img = open_image(CR_FD_FDINFO, O_RSTR, item->ids->files_id);
+	if (!img)
+		return -1;
 
 	while (1) {
 		FdinfoEntry *e;
@@ -907,7 +910,7 @@ static int open_transport_fd(int pid, struct fdinfo_list_entry *fle)
 		pr_perror("Can't create socket");
 		return -1;
 	}
-	ret = bind(sock, &saddr, sun_len);
+	ret = bind(sock, (struct sockaddr *)&saddr, sun_len);
 	if (ret < 0) {
 		pr_perror("Can't bind unix socket %s", saddr.sun_path + 1);
 		goto err;
@@ -952,7 +955,7 @@ static int send_fd_to_self(int fd, struct fdinfo_list_entry *fle, int *sock)
 		return -1;
 
 	pr_info("\t\t\tGoing to dup %d into %d\n", fd, dfd);
-	if (move_img_fd(sock, dfd))
+	if (move_fd_from(sock, dfd))
 		return -1;
 
 	if (dup2(fd, dfd) != dfd) {
@@ -1215,26 +1218,18 @@ out:
 
 static int fchroot(int fd)
 {
-	char fd_path[PSFDS];
-	int proc;
-
 	/*
 	 * There's no such thing in syscalls. We can emulate
-	 * it using the /proc/self/fd/ :)
-	 *
-	 * But since there might be no /proc mount in our mount
-	 * namespace, we will have to ... workaround it.
+	 * it using fchdir()
 	 */
 
-	proc = get_service_fd(PROC_FD_OFF);
-	if (fchdir(proc) < 0) {
+	if (fchdir(fd) < 0) {
 		pr_perror("Can't chdir to proc");
 		return -1;
 	}
 
-	sprintf(fd_path, "./self/fd/%d", fd);
-	pr_debug("Going to chroot into %s\n", fd_path);
-	return chroot(fd_path);
+	pr_debug("Going to chroot into /proc/self/fd/%d\n", fd);
+	return chroot(".");
 }
 
 int restore_fs(struct pstree_item *me)
@@ -1260,9 +1255,8 @@ int restore_fs(struct pstree_item *me)
 	}
 
 	/*
-	 * Now do chroot/chdir. Chroot goes first as it
-	 * calls chdir into proc service descriptor so
-	 * we'd need to fix chdir after it anyway.
+	 * Now do chroot/chdir. Chroot goes first as it calls chdir into
+	 * dd_root so we'd need to fix chdir after it anyway.
 	 */
 
 	ret = fchroot(dd_root);

@@ -42,31 +42,6 @@ static struct parasite_dump_pages_args *mprotect_args = NULL;
 #define PR_GET_PDEATHSIG  2
 #endif
 
-struct ve_ioc_arg
-{
-	aio_context_t	ctx_id;
-	unsigned	val;
-};
-
-#define VE_AIO_IOC_WAIT_ACTIVE  _IOW('a',  1, struct ve_ioc_arg)
-
-static int aio_wait_pending(void)
-{
-	int fd, ret;
-
-	fd = sys_open("/proc/self/aio", O_RDONLY, 0);
-	if (fd < 0) {
-		pr_err("Can't open /proc/self/aio\n");
-		return fd == -ENOENT ? 0 : -1;
-	}
-
-	ret = sys_ioctl(fd, VE_AIO_IOC_WAIT_ACTIVE, 0);
-	if (ret)
-		pr_err("Waiting of active aios finished with err=%d\n", ret);
-	sys_close(fd);
-	return ret;
-}
-
 static int mprotect_vmas(struct parasite_dump_pages_args *args)
 {
 	struct parasite_vma_entry *vmas, *vma;
@@ -428,9 +403,6 @@ static int parasite_check_aios(struct parasite_check_aios_args *args)
 {
 	int i;
 
-	if (aio_wait_pending() < 0)
-		return -1;
-
 	for (i = 0; i < args->nr_rings; i++) {
 		struct aio_ring *ring;
 
@@ -446,8 +418,6 @@ static int parasite_check_aios(struct parasite_check_aios_args *args)
 		}
 
 		/* XXX: wait aio completion */
-
-		args->ring[i].max_reqs = ring->nr;
 	}
 
 	return 0;
@@ -506,6 +476,7 @@ err:
 err_io:
 
 	/* kernel reports EIO for get ioctls on pair-less ptys */
+	pr_debug("tty: EIO on tty\n");
 	args->hangup = true;
 	return 0;
 #undef __tty_ioctl

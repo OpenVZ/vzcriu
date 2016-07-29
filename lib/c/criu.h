@@ -65,6 +65,7 @@ void criu_set_leave_running(bool leave_running);
 void criu_set_ext_unix_sk(bool ext_unix_sk);
 int criu_add_unix_sk(unsigned int inode);
 void criu_set_tcp_established(bool tcp_established);
+void criu_set_tcp_skip_in_flight(bool tcp_skip_in_flight);
 void criu_set_evasive_devices(bool evasive_devices);
 void criu_set_shell_job(bool shell_job);
 void criu_set_file_locks(bool file_locks);
@@ -169,6 +170,7 @@ void criu_local_set_leave_running(criu_opts *opts, bool leave_running);
 void criu_local_set_ext_unix_sk(criu_opts *opts, bool ext_unix_sk);
 int criu_local_add_unix_sk(criu_opts *opts, unsigned int inode);
 void criu_local_set_tcp_established(criu_opts *opts, bool tcp_established);
+void criu_local_set_tcp_skip_in_flight(criu_opts *opts, bool tcp_skip_in_flight);
 void criu_local_set_evasive_devices(criu_opts *opts, bool evasive_devices);
 void criu_local_set_shell_job(criu_opts *opts, bool shell_job);
 void criu_local_set_file_locks(criu_opts *opts, bool file_locks);
@@ -195,6 +197,9 @@ int criu_local_add_enable_fs(criu_opts *opts, char *fs);
 int criu_local_add_skip_mnt(criu_opts *opts, char *mnt);
 void criu_local_set_ghost_limit(criu_opts *opts, unsigned int limit);
 int criu_local_add_irmap_path(criu_opts *opts, char *path);
+int criu_local_add_cg_props(criu_opts *opts, char *stream);
+int criu_local_add_cg_props_file(criu_opts *opts, char *path);
+int criu_local_add_cg_dump_controller(criu_opts *opts, char *name);
 
 void criu_local_set_notify_cb(criu_opts *opts, int (*cb)(char *action, criu_notify_arg_t na));
 

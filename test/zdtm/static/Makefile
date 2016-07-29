@@ -45,6 +45,7 @@ TST_NOFILE	=				\
 		inotify_system			\
 		inotify_system_nodel		\
 		shm				\
+		shm-mp				\
 		ptrace_sig			\
 		pipe00				\
 		pipe01				\
@@ -118,7 +119,6 @@ TST_NOFILE	=				\
 		sigpending			\
 		sigaltstack			\
 		sk-netlink			\
-		sk-netlink02			\
 		mem-touch			\
 		grow_map			\
 		grow_map02			\
@@ -153,6 +153,7 @@ TST_NOFILE	=				\
 #		jobctl00			\
 
 TST_FILE	=				\
+		maps06				\
 		write_read00			\
 		write_read01			\
 		write_read02			\
@@ -207,6 +208,8 @@ TST_DIR		=				\
 		overmount_fifo			\
 		overmount_sock			\
 		tempfs				\
+		tempfs_overmounted		\
+		tempfs_overmounted01		\
 		tempfs_ro			\
 		tempfs_subns			\
 		mnt_ro_bind			\
@@ -220,25 +223,32 @@ TST_DIR		=				\
 		cgroup01			\
 		cgroup02			\
 		cgroup03			\
+		cgroup04			\
 		cgroup_stray		\
+		unlink_fstat04			\
 		mntns_open			\
 		mntns_link_remap		\
+		mntns_ghost			\
 		mntns_link_ghost		\
 		mntns_shared_bind		\
 		mntns_shared_bind02		\
 		mntns_root_bind			\
 		mntns_root_bind02		\
+		mntns_overmount			\
 		mntns_shared_vs_private		\
 		mnt_ext_auto			\
 		mnt_ext_master			\
+		mnt_ext_dev			\
+		mnt_tracefs			\
 		mntns_deleted			\
-		binfmt_misc			\
 		unlink_regular00		\
+		mnt_enablefs			\
 		autofs				\
 
 TST_DIR_FILE	=				\
 		chroot				\
-		chroot-file
+		chroot-file			\
+		binfmt_misc			\
 
 TST		=				\
 		$(TST_NOFILE)			\
@@ -249,6 +259,7 @@ TST		=				\
 		fifo-rowo-pair			\
 		umask00				\
 		cmdlinenv00			\
+		shm-unaligned			\
 
 TST_STATE	=				\
 		conntracks			\
@@ -288,6 +299,9 @@ $(TST_DIR_FILE:%=%.pid):	%.pid:	%
 
 cmdlinenv00.pid: cmdlinenv00
 	$(<D)/$(<F) --pidfile=$@ --outfile=$<.out --arg1=arg1 --arg2=arg2 --arg3=arg3
+
+shm-unaligned.pid: shm-unaligned
+	$(<D)/$(<F) --pidfile=$@ --outfile=$<.out --shmem_size=5000
 
 env00.pid:	env00
 	$(<D)/$(<F) --pidfile=$@ --outfile=$<.out --envname=ENV_00_TEST
@@ -379,11 +393,11 @@ maps02:		get_smaps_bits.o
 mlock_setuid:		get_smaps_bits.o
 inotify01:		override CFLAGS += -DINOTIFY01
 unlink_fstat01+:	override CFLAGS += -DUNLINK_OVER
+unlink_fstat04:		override CFLAGS += -DUNLINK_FSTAT04
 sk-freebind-false:	override CFLAGS += -DZDTM_FREEBIND_FALSE
 stopped01:	override CFLAGS += -DZDTM_STOPPED_KILL
 stopped02:	override CFLAGS += -DZDTM_STOPPED_TKILL
 stopped12:	override CFLAGS += -DZDTM_STOPPED_KILL -DZDTM_STOPPED_TKILL
-sk-netlink02:	override CFLAGS += -DZDTM_NETLINK_DATA
 
 $(LIB):	force
 	$(Q) $(MAKE) -C $(LIBDIR)

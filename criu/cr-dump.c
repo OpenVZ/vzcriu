@@ -61,6 +61,7 @@
 #include "cpu.h"
 #include "elf.h"
 #include "cgroup.h"
+#include "cgroup-props.h"
 #include "file-lock.h"
 #include "page-xfer.h"
 #include "kerndat.h"
@@ -85,26 +86,11 @@
 
 static char loc_buf[PAGE_SIZE];
 
-static void close_vma_file(struct vma_area *vma)
-{
-	if (vma->vm_file_fd < 0)
-		return;
-	if (vma->e->status & VMA_AREA_SOCKET)
-		return;
-	if (vma->file_borrowed)
-		return;
-	if (vma_area_is(vma, VMA_AREA_AIORING))
-		return;
-
-	close(vma->vm_file_fd);
-}
-
 void free_mappings(struct vm_area_list *vma_area_list)
 {
 	struct vma_area *vma_area, *p;
 
 	list_for_each_entry_safe(vma_area, p, &vma_area_list->h, list) {
-		close_vma_file(vma_area);
 		if (!vma_area->file_borrowed)
 			free(vma_area->vmst);
 		free(vma_area);
@@ -374,24 +360,16 @@ static int dump_pid_misc(pid_t pid, TaskCoreEntry *tc)
 	return 0;
 }
 
-static int dump_filemap(struct vma_area *vma_area)
+static int dump_filemap(struct vma_area *vma_area, int fd)
 {
 	struct fd_parms p = FD_PARMS_INIT;
 	VmaEntry *vma = vma_area->e;
 	int ret = 0;
-	struct statfs fst;
 	u32 id;
 
 	BUG_ON(!vma_area->vmst);
 	p.stat = *vma_area->vmst;
 	p.mnt_id = vma_area->mnt_id;
-
-	if (fstatfs(vma_area->vm_file_fd, &fst)) {
-		pr_perror("Unable to statfs fd %d", vma_area->vm_file_fd);
-		return -1;
-	}
-
-	p.fs_type = fst.f_type;
 
 	/*
 	 * AUFS support to compensate for the kernel bug
@@ -410,10 +388,10 @@ static int dump_filemap(struct vma_area *vma_area)
 		p.link = &aufs_link;
 	}
 
-	/* Flags will be set during restore in get_filemap_fd() */
+	/* Flags will be set during restore in open_filmap() */
 
 	if (fd_id_generate_special(&p, &id))
-		ret = dump_one_reg_file(vma_area->vm_file_fd, id, &p);
+		ret = dump_one_reg_file(fd, id, &p);
 
 	vma->shmid = id;
 	return ret;
@@ -842,6 +820,7 @@ static int dump_task_thread(struct parasite_ctl *parasite_ctl,
 		pr_err("Can't dump thread for pid %d\n", pid);
 		goto err;
 	}
+	pstree_insert_pid(tid->virt, tid);
 
 	img = open_image(CR_FD_CORE, O_DUMP, tid->virt);
 	if (!img)
@@ -1128,7 +1107,7 @@ static int pre_dump_one_task(struct pstree_item *item, struct list_head *ctls)
 	vmas.nr = 0;
 
 	pr_info("========================================\n");
-	pr_info("Pre-dumping task (pid: %d comm: %s)\n", pid, __task_comm_info(pid));
+	pr_info("Pre-dumping task (pid: %d)\n", pid);
 	pr_info("========================================\n");
 
 	if (item->pid.state == TASK_STOPPED) {
@@ -1205,7 +1184,7 @@ static int dump_one_task(struct pstree_item *item)
 	vmas.nr = 0;
 
 	pr_info("========================================\n");
-	pr_info("Dumping task (pid: %d comm: %s)\n", pid, __task_comm_info(pid));
+	pr_info("Dumping task (pid: %d)\n", pid);
 	pr_info("========================================\n");
 
 	if (item->pid.state == TASK_DEAD)
@@ -1298,6 +1277,7 @@ static int dump_one_task(struct pstree_item *item)
 	}
 
 	parasite_ctl->pid.virt = item->pid.virt = misc.pid;
+	pstree_insert_pid(item->pid.virt, &item->pid);
 	item->sid = misc.sid;
 	item->pgid = misc.pgid;
 
@@ -1573,6 +1553,7 @@ static int cr_dump_finish(int ret)
 		ret = -1;
 
 	cr_plugin_fini(CR_PLUGIN_STAGE__DUMP, ret);
+	cgp_fini();
 
 	if (!ret) {
 		/*
@@ -1646,7 +1627,7 @@ int cr_dump_tasks(pid_t pid)
 	int ret = -1;
 
 	pr_info("========================================\n");
-	pr_info("Dumping processes (pid: %d comm: %s)\n", pid, __task_comm_info(pid));
+	pr_info("Dumping processes (pid: %d)\n", pid);
 	pr_info("========================================\n");
 
 	root_item = alloc_pstree_item();
@@ -1675,6 +1656,12 @@ int cr_dump_tasks(pid_t pid)
 		goto err;
 
 	if (vdso_init())
+		goto err;
+
+	if (cgp_init(opts.cgroup_props,
+		     opts.cgroup_props ?
+		     strlen(opts.cgroup_props) : 0,
+		     opts.cgroup_props_file))
 		goto err;
 
 	if (parse_cg_info())

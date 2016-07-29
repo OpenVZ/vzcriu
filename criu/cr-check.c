@@ -879,7 +879,7 @@ static int check_autofs(void)
 
 	dir = mkdtemp(template);
 	if (!dir) {
-		pr_perror("failed to construct temporary name\n");
+		pr_perror("failed to construct temporary name");
 		goto free_options;
 	}
 
@@ -891,7 +891,7 @@ static int check_autofs(void)
 	ret = check_autofs_pipe_ino();
 
 	if (umount(dir))
-		pr_perror("failed to umount %s\n", dir);
+		pr_perror("failed to umount %s", dir);
 
 unlink_dir:
 	if (rmdir(dir))
@@ -911,19 +911,6 @@ static int check_cgroupns(void)
 	ret = access("/proc/self/ns/cgroup", F_OK);
 	if (ret < 0) {
 		pr_err("cgroupns not supported. This is not fatal.\n");
-		return -1;
-	}
-
-	return 0;
-}
-
-static int check_nl_repair(void)
-{
-	if (kerndat_nl_repair() < 0)
-		return -1;
-
-	if (!kdat.has_nl_repair) {
-		pr_warn("NETLINK_REPAIR isn't supported.\n");
 		return -1;
 	}
 
@@ -1034,7 +1021,6 @@ int cr_check(void)
 	 */
 	if (opts.check_experimental_features) {
 		ret |= check_autofs();
-		ret |= check_nl_repair();
 	}
 
 	print_on_level(DEFAULT_LOGLEVEL, "%s\n", ret ? CHECK_MAYBE : CHECK_GOOD);
@@ -1107,7 +1093,6 @@ static struct feature_list feature_list[] = {
 	{ "loginuid", check_loginuid },
 	{ "cgroupns", check_cgroupns },
 	{ "autofs", check_autofs },
-	{ "nl_repair", check_nl_repair },
 	{ NULL, NULL },
 };
 

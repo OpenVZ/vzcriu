@@ -38,7 +38,7 @@ struct cg_root_opt {
  */
 #define DEFAULT_GHOST_LIMIT	(1 << 20)
 
-#define DEFAULT_TIMEOUT		10
+#define DEFAULT_TIMEOUT		5
 
 struct irmap;
 
@@ -71,7 +71,6 @@ struct cr_options {
 	bool			tcp_established_ok;
 	bool			evasive_devices;
 	bool			link_remap_ok;
-	unsigned long		unshare_flags;
 	bool			log_file_per_pid;
 	bool			swrk_restore;
 	char			*output;
@@ -79,7 +78,6 @@ struct cr_options {
 	char			*pidfile;
 	char			*freeze_cgroup;
 	struct list_head	veth_pairs;
-	struct list_head	scripts;
 	struct list_head	ext_mounts;
 	struct list_head	inherit_fds;
 	struct list_head	external;
@@ -97,6 +95,8 @@ struct cr_options {
 	char			**exec_cmd;
 	unsigned int		manage_cgroups;
 	char			*new_global_cg_root;
+	char			*cgroup_props;
+	char			*cgroup_props_file;
 	struct list_head	new_cgroup_roots;
 	bool			autodetect_ext_mounts;
 	bool			enable_external_sharing;
@@ -109,7 +109,8 @@ struct cr_options {
 	char			*lsm_profile;
 	unsigned int		timeout;
 	unsigned int		empty_ns;
-	bool			lazy_pages;
+	bool			tcp_skip_in_flight;
+	char			*work_dir;
 };
 
 extern struct cr_options opts;

@@ -11,7 +11,7 @@
 #include "cr-service.h"
 #include "action-scripts.h"
 #include "pstree.h"
-#include "spfs.h"
+#include "bug.h"
 
 static const char *action_names[ACT_MAX] = {
 	[ ACT_PRE_DUMP ]	= "pre-dump",
@@ -23,71 +23,122 @@ static const char *action_names[ACT_MAX] = {
 	[ ACT_SETUP_NS ]	= "setup-namespaces",
 	[ ACT_POST_SETUP_NS ]	= "post-setup-namespaces",
 	[ ACT_POST_RESUME ]	= "post-resume",
-	[ ACT_POST_NET_LOCK ]	= "post-network-lock",
 };
 
-int run_scripts(enum script_actions act)
+struct script {
+	struct list_head node;
+	char *path;
+};
+
+enum {
+	SCRIPTS_NONE,
+	SCRIPTS_SHELL,
+	SCRIPTS_RPC
+};
+
+static int scripts_mode = SCRIPTS_NONE;
+static int rpc_sk;
+static LIST_HEAD(scripts);
+
+static int run_shell_scripts(const char *action)
 {
-	struct script *script;
 	int ret = 0;
+	struct script *script;
 	char image_dir[PATH_MAX];
-	const char *action = action_names[act];
-	char root_item_pid[16];
+	static unsigned env_set = 0;
 
-	pr_debug("Running %s scripts\n", action);
-
-	if (unlikely(list_empty(&opts.scripts)))
-		return 0;
+#define ENV_IMGDIR	0x1
+#define ENV_ROOTPID	0x2
 
 	if (setenv("CRTOOLS_SCRIPT_ACTION", action, 1)) {
 		pr_perror("Can't set CRTOOLS_SCRIPT_ACTION=%s", action);
 		return -1;
 	}
 
-	sprintf(image_dir, "/proc/%ld/fd/%d", (long) getpid(), get_service_fd(IMG_FD_OFF));
-	if (setenv("CRTOOLS_IMAGE_DIR", image_dir, 1)) {
-		pr_perror("Can't set CRTOOLS_IMAGE_DIR=%s", image_dir);
-		return -1;
-	}
-
-	if (root_item && root_item->pid.real != -1) {
-		snprintf(root_item_pid, sizeof(root_item_pid), "%d", root_item->pid.real);
-		if (setenv("CRTOOLS_INIT_PID", root_item_pid, 1)) {
-			pr_perror("Can't set CRTOOLS_INIT_PID=%s", root_item_pid);
+	if (!(env_set & ENV_IMGDIR)) {
+		sprintf(image_dir, "/proc/%ld/fd/%d", (long) getpid(), get_service_fd(IMG_FD_OFF));
+		if (setenv("CRTOOLS_IMAGE_DIR", image_dir, 1)) {
+			pr_perror("Can't set CRTOOLS_IMAGE_DIR=%s", image_dir);
 			return -1;
 		}
+		env_set |= ENV_IMGDIR;
 	}
 
-	if (spfs_set_env())
-		return -1;
+	if (!(env_set & ENV_ROOTPID) && root_item) {
+		int pid;
+		char root_item_pid[16];
 
-	list_for_each_entry(script, &opts.scripts, node) {
-		if (script->path == SCRIPT_RPC_NOTIFY) {
-			pr_debug("\tRPC\n");
-			ret |= send_criu_rpc_script(act, (char *)action, script->arg);
-		} else {
-			pr_debug("\t[%s]\n", script->path);
-			ret |= system(script->path);
+		pid = root_item->pid.real;
+		if (pid != -1) {
+			snprintf(root_item_pid, sizeof(root_item_pid), "%d", pid);
+			if (setenv("CRTOOLS_INIT_PID", root_item_pid, 1)) {
+				pr_perror("Can't set CRTOOLS_INIT_PID=%s", root_item_pid);
+				return -1;
+			}
+			env_set |= ENV_ROOTPID;
 		}
+	}
+
+	list_for_each_entry(script, &scripts, node) {
+		pr_debug("\t[%s]\n", script->path);
+		ret |= system(script->path);
 	}
 
 	unsetenv("CRTOOLS_SCRIPT_ACTION");
+
+	return ret;
+}
+
+int run_scripts(enum script_actions act)
+{
+	int ret = 0;
+	const char *action = action_names[act];
+
+	pr_debug("Running %s scripts\n", action);
+
+	if (scripts_mode == SCRIPTS_NONE)
+		return 0;
+
+	if (scripts_mode == SCRIPTS_RPC) {
+		pr_debug("\tRPC\n");
+		ret = send_criu_rpc_script(act, (char *)action, rpc_sk);
+		goto out;
+	}
+
+	if (scripts_mode == SCRIPTS_SHELL) {
+		ret = run_shell_scripts(action);
+		goto out;
+	}
+
+	BUG();
+out:
 	if (ret)
 		pr_err("One of more action scripts failed\n");
 	return ret;
 }
 
-int add_script(char *path, int arg)
+int add_script(char *path)
 {
 	struct script *script;
+
+	BUG_ON(scripts_mode == SCRIPTS_RPC);
+	scripts_mode = SCRIPTS_SHELL;
 
 	script = xmalloc(sizeof(struct script));
 	if (script == NULL)
 		return 1;
 
 	script->path = path;
-	script->arg = arg;
-	list_add(&script->node, &opts.scripts);
+	list_add(&script->node, &scripts);
 
+	return 0;
+}
+
+int add_rpc_notify(int sk)
+{
+	BUG_ON(scripts_mode == SCRIPTS_SHELL);
+	scripts_mode = SCRIPTS_RPC;
+
+	rpc_sk = sk;
 	return 0;
 }

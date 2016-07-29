@@ -7,8 +7,6 @@
 #include <sys/mman.h>
 #include <errno.h>
 #include <sys/syscall.h>
-#include <sys/socket.h>
-#include <linux/netlink.h>
 
 #include "log.h"
 #include "bug.h"
@@ -24,7 +22,6 @@
 #include "proc_parse.h"
 #include "config.h"
 #include "syscall-codes.h"
-#include "sockets.h"
 
 struct kerndat_s kdat = {
 };
@@ -295,7 +292,13 @@ no_dt:
 static int init_zero_page_pfn()
 {
 	void *addr;
-	int ret;
+	int ret = 0;
+
+	kdat.zero_page_pfn = -1;
+	if (kdat.pmap != PM_FULL) {
+		pr_info("Zero page detection failed, optimization turns off.\n");
+		return 0;
+	}
 
 	addr = mmap(NULL, PAGE_SIZE, PROT_READ, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 	if (addr == MAP_FAILED) {
@@ -306,11 +309,6 @@ static int init_zero_page_pfn()
 	if (*((int *) addr) != 0) {
 		BUG();
 		return -1;
-	}
-
-	if (kdat.pmap != PM_FULL) {
-		pr_info("Zero page detection failed, optimization turns off.\n");
-		return 0;
 	}
 
 	ret = vaddr_to_pfn((unsigned long)addr, &kdat.zero_page_pfn);
@@ -331,7 +329,6 @@ static int get_last_cap(void)
 	return sysctl_op(req, ARRAY_SIZE(req), CTL_READ, 0);
 }
 
-#ifdef CONFIG_HAS_MEMFD
 static bool kerndat_has_memfd_create(void)
 {
 	int ret;
@@ -349,13 +346,6 @@ static bool kerndat_has_memfd_create(void)
 
 	return 0;
 }
-#else
-static bool kerndat_has_memfd_create(void)
-{
-	kdat.has_memfd = false;
-	return 0;
-}
-#endif
 
 static int get_task_size(void)
 {
@@ -424,7 +414,7 @@ int kerndat_loginuid(bool only_dump)
 	kdat.has_loginuid = false;
 
 	/* No such file: CONFIG_AUDITSYSCALL disabled */
-	saved_loginuid = parse_pid_loginuid(getpid(), &ret, true);
+	saved_loginuid = parse_pid_loginuid(PROC_SELF, &ret, true);
 	if (ret < 0)
 		return 0;
 
@@ -448,26 +438,13 @@ int kerndat_loginuid(bool only_dump)
 	return 0;
 }
 
-int kerndat_nl_repair()
+static int kerndat_iptables_has_xtlocks(void)
 {
-	int sk, val = 1;
+	char *argv[4] = { "sh", "-c", "iptables -w -L", NULL };
 
-	sk = socket(AF_NETLINK, SOCK_DGRAM, 0);
-	if (sk < 0) {
-		pr_perror("Unable to create a netlink socket");
-		return -1;
-	}
-
-	if (setsockopt(sk, SOL_NETLINK, NETLINK_REPAIR, &val, sizeof(val))) {
-		if (errno != ENOPROTOOPT) {
-			pr_perror("Unable to set NETLINK_REPAIR");
-			close(sk);
-			return -1;
-		}
-		kdat.has_nl_repair = false;
-	} else
-		kdat.has_nl_repair = true;
-	close(sk);
+	kdat.has_xtlocks = 1;
+	if (cr_system(-1, -1, -1, "sh", argv, CRS_CAN_FAIL) == -1)
+		kdat.has_xtlocks = 0;
 
 	return 0;
 }
@@ -494,7 +471,7 @@ int kerndat_init(void)
 	if (!ret)
 		ret = kerndat_loginuid(true);
 	if (!ret)
-		ret = kerndat_nl_repair();
+		ret = kerndat_iptables_has_xtlocks();
 
 	kerndat_lsm();
 
@@ -523,7 +500,7 @@ int kerndat_init_rst(void)
 	if (!ret)
 		ret = kerndat_loginuid(false);
 	if (!ret)
-		ret = kerndat_nl_repair();
+		ret = kerndat_iptables_has_xtlocks();
 
 	kerndat_lsm();
 

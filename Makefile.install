@@ -2,6 +2,7 @@
 # Installation paths.
 DESTDIR		?= /
 PREFIX		?= /usr/local
+BINDIR		?= $(PREFIX)/bin
 SBINDIR		?= $(PREFIX)/sbin
 MANDIR		?= $(PREFIX)/share/man
 SYSTEMDUNITDIR	?= $(PREFIX)/lib/systemd/system/
@@ -23,7 +24,7 @@ else
         endif
 endif
 
-export SBINDIR MANDIR SYSTEMDUNITDIR LOGROTATEDIR
+export BINDIR SBINDIR MANDIR SYSTEMDUNITDIR LOGROTATEDIR
 export INCLUDEDIR LIBDIR DESTDIR PREFIX LIBEXECDIR
 
 install-tree:
@@ -48,3 +49,9 @@ install-criu: criu
 install: install-man install-lib install-criu
 	@true
 .PHONY: install
+
+uninstall:
+	$(Q) $(MAKE) -C Documentation $@
+	$(Q) $(MAKE) -C lib $@
+	$(Q) $(MAKE) -C criu $@
+.PHONY: uninstall

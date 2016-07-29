@@ -3,7 +3,6 @@
 
 #include "asm/types.h"
 #include "files.h"
-#include "image.h"
 
 #include "images/regfile.pb-c.h"
 #include "images/ghost-file.pb-c.h"
@@ -23,7 +22,7 @@ struct reg_file_info {
 	struct file_desc	d;
 	RegFileEntry		*rfe;
 	struct file_remap	*remap;
-	bool			size_checked;
+	bool			size_mode_checked;
 	bool			is_dir;
 	char			*path;
 };
@@ -45,6 +44,7 @@ extern void remap_put(struct file_remap *remap);
 
 extern struct file_desc *try_collect_special_file(u32 id, int optional);
 #define collect_special_file(id)	try_collect_special_file(id, 0)
+extern int collect_filemap(struct vma_area *);
 
 extern int collect_remaps_and_regfiles(void);
 

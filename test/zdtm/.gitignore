@@ -1,6 +1,8 @@
 /lib/libzdtmtst.a
+/static/aio01
 /static/apparmor
 /static/arm-neon00
+/static/autofs
 /static/bind-mount
 /static/binfmt_misc
 /static/bridge
@@ -10,6 +12,7 @@
 /static/cgroup01
 /static/cgroup02
 /static/cgroup03
+/static/cgroup04
 /static/cgroupns
 /static/cgroup_stray
 /static/child_opened_proc
@@ -70,16 +73,21 @@
 /static/maps_file_prot
 /static/mem-touch
 /static/mmx00
+/static/mnt_enablefs
 /static/mnt_ext_auto
+/static/mnt_ext_dev
 /static/mnt_ext_master
+/static/mnt_tracefs
 /static/mnt_ro_bind
 /static/mntns_deleted
 /static/mntns_link_ghost
 /static/mntns_link_remap
 /static/mntns_open
+/static/mntns_overmount
 /static/mntns_rw_ro_rw
 /static/mntns_shared_bind
 /static/mntns_shared_bind02
+/static/mntns_shared_vs_private
 /static/mount_paths
 /static/mountpoints
 /static/mprotect00
@@ -130,6 +138,8 @@
 /static/session02
 /static/session03
 /static/shm
+/static/shm-unaligned
+/static/shm-mp
 /static/sigaltstack
 /static/signalfd00
 /static/sigpending
@@ -169,6 +179,8 @@
 /static/stopped
 /static/tempfs
 /static/tempfs_ro
+/static/tempfs_overmounted
+/static/tempfs_overmounted01
 /static/timerfd
 /static/timers
 /static/tty00
@@ -185,6 +197,7 @@
 /static/unlink_fstat01+
 /static/unlink_fstat02
 /static/unlink_fstat03
+/static/unlink_fstat04
 /static/unlink_largefile
 /static/unlink_mmap00
 /static/unlink_mmap01

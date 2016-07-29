@@ -34,7 +34,6 @@
 #include <netinet/tcp.h>
 #include <sched.h>
 #include <ctype.h>
-#include <libgen.h>
 
 #include "compiler.h"
 #include "asm/types.h"
@@ -162,13 +161,12 @@ void pr_vma(unsigned int loglevel, const struct vma_area *vma_area)
 		return;
 
 	vma_opt_str(vma_area, opt);
-	print_on_level(loglevel, "%#"PRIx64"-%#"PRIx64" (%"PRIi64"K) prot %#x flags %#x fdflags %#o st %#x off %#"PRIx64" "
+	print_on_level(loglevel, "%#"PRIx64"-%#"PRIx64" (%"PRIi64"K) prot %#x flags %#x st %#x off %#"PRIx64" "
 			"%s shmid: %#"PRIx64"\n",
 			vma_area->e->start, vma_area->e->end,
 			KBYTES(vma_area_len(vma_area)),
 			vma_area->e->prot,
 			vma_area->e->flags,
-			vma_area->e->fdflags,
 			vma_area->e->status,
 			vma_area->e->pgoff,
 			opt, vma_area->e->shmid);
@@ -220,7 +218,7 @@ int reopen_fd_as_safe(char *file, int line, int new_fd, int old_fd, bool allow_r
 	return 0;
 }
 
-int move_img_fd(int *img_fd, int want_fd)
+int move_fd_from(int *img_fd, int want_fd)
 {
 	if (*img_fd == want_fd) {
 		int tmp;
@@ -411,6 +409,11 @@ static int __get_service_fd(enum sfd_type type, int service_fd_id)
 	return service_fd_rlim_cur - type - SERVICE_FD_MAX * service_fd_id;
 }
 
+int service_fd_min_fd(void)
+{
+	return service_fd_rlim_cur - (SERVICE_FD_MAX - 1) - SERVICE_FD_MAX * service_fd_id;
+}
+
 static DECLARE_BITMAP(sfd_map, SERVICE_FD_MAX);
 
 int reserve_service_fd(enum sfd_type type)
@@ -552,36 +555,12 @@ int read_fd_link(int lfd, char *buf, size_t size)
 	return ret;
 }
 
-char *__read_fd_link(int fd)
-{
-	static char buf[PATH_MAX];
-	int ret;
-
-	ret = read_fd_link(fd, buf, sizeof(buf));
-	if (ret < 0)
-		buf[0] = '\0';
-
-	return buf;
-}
-
 int is_anon_link_type(char *link, char *type)
 {
 	char aux[32];
 
 	snprintf(aux, sizeof(aux), "anon_inode:%s", type);
 	return !strcmp(link, aux);
-}
-
-void *shmalloc(size_t bytes)
-{
-	rst_mem_align(RM_SHARED);
-	return rst_mem_alloc(bytes, RM_SHARED);
-}
-
-/* Only last chunk can be released */
-void shfree_last(void *ptr)
-{
-	rst_mem_free_last(RM_SHARED);
 }
 
 #define DUP_SAFE(fd, out)						\
@@ -633,9 +612,9 @@ int cr_system_userns(int in, int out, int err, char *cmd,
 		}
 
 		if (out < 0)
-			out = log_get_fd();
+			out = DUP_SAFE(log_get_fd(), out_chld);
 		if (err < 0)
-			err = log_get_fd();
+			err = DUP_SAFE(log_get_fd(), out_chld);
 
 		/*
 		 * out, err, in should be a separate fds,
@@ -647,8 +626,8 @@ int cr_system_userns(int in, int out, int err, char *cmd,
 		if (out == in)
 			out = DUP_SAFE(out, out_chld);
 
-		if (move_img_fd(&out, STDIN_FILENO) ||
-		    move_img_fd(&err, STDIN_FILENO))
+		if (move_fd_from(&out, STDIN_FILENO) ||
+		    move_fd_from(&err, STDIN_FILENO))
 			goto out_chld;
 
 		if (in < 0) {
@@ -658,7 +637,7 @@ int cr_system_userns(int in, int out, int err, char *cmd,
 				goto out_chld;
 		}
 
-		if (move_img_fd(&err, STDOUT_FILENO))
+		if (move_fd_from(&err, STDOUT_FILENO))
 			goto out_chld;
 
 		if (reopen_fd_as_nocheck(STDOUT_FILENO, out))
@@ -814,7 +793,6 @@ struct vma_area *alloc_vma_area(void)
 	if (p) {
 		p->e = (VmaEntry *)(p + 1);
 		vma_entry__init(p->e);
-		p->vm_file_fd = -1;
 		p->e->fd = -1;
 	}
 
@@ -853,26 +831,6 @@ int mkdirpat(int fd, const char *path)
 	}
 
 	return 0;
-}
-
-int mkdirname(const char *path)
-{
-	int err;
-	char *dpath, *dirc;
-
-	dirc = strdup(path);
-	if (!dirc) {
-		pr_err("failed to duplicate string\n");
-		return -ENOMEM;
-	}
-
-	dpath = dirname(dirc);
-
-	err = mkdirpat(AT_FDCWD, dpath);
-
-	free(dirc);
-
-	return err;
 }
 
 bool is_path_prefix(const char *path, const char *prefix)
@@ -976,21 +934,6 @@ int fd_has_data(int lfd)
 	}
 
 	return ret;
-}
-
-size_t read_into_buffer(int fd, char *buff, size_t size)
-{
-	size_t n = 0;
-	size_t curr = 0;
-
-	while (1) {
-		n  = read(fd, buff + curr, size - curr);
-		if (n < 1)
-			return n;
-		curr += n;
-		if (curr == size)
-			return size;
-	}
 }
 
 int make_yard(char *path)
@@ -1239,69 +1182,4 @@ int setup_tcp_client(char *addr)
 	}
 
 	return sk;
-}
-
-/*
- * When reading symlinks via /proc/$pid/root/
- * we should make sure the path resolving is done
- * via root as toplevel root, otherwive path
- * may be screwed.
- *
- * IOW, for any path resolving via /proc/$pid/root
- * use this helper, and call cr_restore_root once
- * you're done.
- */
-int cr_set_root(int fd, int *old_root)
-{
-	int errno_save = errno;
-	int cwd = -1, old = -1;
-
-	if (old_root) {
-		old = open("/", O_PATH);
-		if (old < 0) {
-			pr_perror("Unable to open /");
-			return -1;
-		}
-	}
-
-	cwd = open(".", O_PATH);
-	if (cwd < 0)
-		goto err;
-
-	/* implement fchroot() */
-	if (fchdir(fd)) {
-		pr_perror("Unable to chdir");
-		goto err;
-	}
-	if (chroot(".")) {
-		pr_perror("Unable to chroot");
-		goto err;
-	}
-	if (fchdir(cwd)) {
-		pr_perror("Unable to restore cwd\n");
-		goto err;
-	}
-
-	close(cwd);
-
-	if (old_root)
-		*old_root = old;
-
-	errno = errno_save;
-	return 0;
-err:
-	close_safe(&cwd);
-	close_safe(&old);
-	errno = errno_save;
-	return -1;
-}
-
-int cr_restore_root(int root)
-{
-	int ret;
-
-	ret = cr_set_root(root, NULL);
-	close(root);
-
-	return ret;
 }

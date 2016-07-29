@@ -1,50 +1,9 @@
-#
-# HOST part is needed to build helper
-# tools such as piegen.
-HOSTCC			?= gcc
-HOSTLD			?= ld
-HOSTCFLAGS		?= $(CFLAGS)
-CFLAGS			+= $(USERCFLAGS)
-
 # here is a workaround for a bug in libnl-3:
 # 6a8d90f5fec4 "attr: Allow attribute type 0" 
-LDFLAGS			+= -Wl,--wrap=nla_parse,--wrap=nlmsg_parse
+WRAPFLAGS		+= -Wl,--wrap=nla_parse,--wrap=nlmsg_parse
 
-export HOSTCC HOSTLD HOSTCFLAGS
-
-ifeq ($(ARCH),x86)
-        SRCARCH		:= x86
-        LDARCH		:= i386:x86-64
-        VDSO		:= y
-endif
-
-ifeq ($(ARCH),arm)
-        SRCARCH		:= arm
-endif
-
-ifeq ($(ARCH),arm64)
-        ARCH		:= aarch64
-        SRCARCH		:= aarch64
-        VDSO		:= y
-endif
-
-ifeq ($(ARCH),ppc64)
-        SRCARCH		:= ppc64
-        LDARCH		:= powerpc:common64
-        VDSO		:= y
-endif
-
-LDARCH ?= $(SRCARCH)
-
-export SRCARCH LDARCH VDSO
-
-SRCARCH			?= $(ARCH)
-LDARCH			?= $(SRCARCH)
 ARCH_DIR		:= arch/$(SRCARCH)
-
-export SRCARCH LDARCH ARCH_DIR VDSO
-
-$(if $(wildcard $(ARCH_DIR)),,$(error "The architecture $(ARCH) isn't supported"))
+export ARCH_DIR
 
 #
 # General flags.
@@ -68,6 +27,7 @@ REQ-RPM-PKG-NAMES	+= protobuf-compiler
 REQ-RPM-PKG-NAMES	+= protobuf-devel
 REQ-RPM-PKG-NAMES	+= protobuf-python
 REQ-RPM-PKG-NAMES	+= libnl3-devel
+REQ-RPM-PKG-NAMES	+= libcap-devel
 
 REQ-DEB-PKG-NAMES	+= libprotobuf-dev
 REQ-DEB-PKG-NAMES	+= libprotobuf-c0-dev
@@ -75,12 +35,11 @@ REQ-DEB-PKG-NAMES	+= protobuf-c-compiler
 REQ-DEB-PKG-NAMES	+= protobuf-compiler
 REQ-DEB-PKG-NAMES	+= python-protobuf
 REQ-DEB-PKG-NAMES	+= libnl-3-dev
+REQ-DEB-PKG-NAMES	+= libcap-dev
 
 REQ-RPM-PKG-TEST-NAMES  += libaio-devel
-REQ-RPM-PKG-TEST-NAMES  += libcap-devel
 
 REQ-DEB-PKG-TEST-NAMES  += libaio-dev
-REQ-DEV-PKG-TEST-NAMES  += libcap-dev
 
 #
 # Make sure all required libs are installed
@@ -121,10 +80,6 @@ endif
 include $(__nmk_dir)/msg.mk
 
 #
-# Version header file.
-include Makefile.version
-
-#
 # Configure variables.
 include Makefile.config
 config: $(VERSION_HEADER)
@@ -139,17 +94,30 @@ syscalls_lib: config
 #
 # Architecture dependant part.
 ARCH-LIB		:= $(ARCH_DIR)/crtools.built-in.o
-$(ARCH-LIB): syscalls_lib
+arch_lib: syscalls_lib
 	$(Q) $(MAKE) $(call build-as,Makefile,$(ARCH_DIR)) all
+.PHONY: arch_lib
+
+#
+# piegen tool needed for PIE code.
+ifeq ($(piegen-y),y)
+piegen-bin		:= pie/piegen/piegen
+
+pie/piegen/%: config
+	$(Q) CC=$(HOSTCC) LD=$(HOSTLD) CFLAGS="$(ccflags-y) $(HOSTCFLAGS) $(WARNINGS) $(DEFINES)" $(MAKE) $(build)=pie/piegen $@
+$(piegen-bin): pie/piegen/built-in.o
+	$(call msg-link, $@)
+	$(Q) $(HOSTCC) $(HOSTCFLAGS) $^ $(LDFLAGS) -o $@
+endif
 
 #
 # PIE library code.
-pie/lib.a: $(ARCH-LIB)
+pie/lib.a: arch_lib
 	$(Q) $(MAKE) $(call build-as,Makefile.library,pie) all
 
 #
 # PIE code blobs themseves.
-pie: pie/lib.a
+pie: $(piegen-bin) pie/lib.a
 	$(Q) $(MAKE) $(build)=pie all
 .PHONY: pie
 
@@ -158,19 +126,19 @@ pie: pie/lib.a
 PROGRAM-BUILTINS	+= ../images/built-in.o
 PROGRAM-BUILTINS	+= built-in.o
 PROGRAM-BUILTINS	+= pie/lib.a
-PROGRAM-BUILTINS	+= $(ARCH-LIB)
 
 built-in.o: pie
 	$(Q) $(MAKE) $(call build-as,Makefile.crtools,.) all
 
 criu: $(PROGRAM-BUILTINS)
 	$(call msg-link, $@)
-	$(Q) $(CC) $(CFLAGS) $^ $(LIBS) $(LDFLAGS) $(GMONLDOPT) -rdynamic -o $@
+	$(Q) $(CC) $(CFLAGS) $^ $(ARCH-LIB) $(LIBS) $(WRAPFLAGS) $(LDFLAGS) $(GMONLDOPT) -rdynamic -o $@
 
 
 subclean:
 	$(Q) $(RM) ./*.{gcda,gcno,gcov}
 	$(Q) $(RM) ./pie/*.{gcda,gcno,gcov}
+	$(Q) $(RM) ./pie/piegen/*.{gcda,gcno,gcov}
 	$(Q) $(RM) -r ./gcov
 	$(Q) $(RM) criu
 .PHONY: subclean
@@ -182,6 +150,7 @@ clean: subclean
 	$(Q) $(MAKE) $(call build-as,Makefile,$(ARCH_DIR)) $@
 	$(Q) $(MAKE) $(call build-as,Makefile.library,pie) $@
 	$(Q) $(MAKE) $(call build-as,Makefile.crtools,.) $@
+	$(Q) $(MAKE) $(build)=pie/piegen $@
 	$(Q) $(MAKE) $(build)=pie $@
 .PHONY: clean
 
@@ -192,6 +161,7 @@ mrproper: subclean
 	$(Q) $(MAKE) $(call build-as,Makefile,$(ARCH_DIR)) $@
 	$(Q) $(MAKE) $(call build-as,Makefile.library,pie) $@
 	$(Q) $(MAKE) $(call build-as,Makefile.crtools,.) $@
+	$(Q) $(MAKE) $(build)=pie/piegen $@
 	$(Q) $(MAKE) $(build)=pie $@
 	$(Q) $(RM) $(VERSION_HEADER)
 	$(Q) $(RM) $(CONFIG_HEADER)
@@ -207,10 +177,14 @@ install: criu
 	$(Q) install -m 644 $(UAPI_HEADERS) $(DESTDIR)$(INCLUDEDIR)
 	$(Q) mkdir -p $(DESTDIR)$(LIBEXECDIR)/criu/scripts
 	$(Q) install -m 755 $(SRC_DIR)/scripts/systemd-autofs-restart.sh $(DESTDIR)$(LIBEXECDIR)/criu/scripts
-	$(Q) install -m 755 $(SRC_DIR)/scripts/spfs-change-mode.sh $(DESTDIR)$(LIBEXECDIR)/criu/scripts
-	$(Q) install -m 755 $(SRC_DIR)/scripts/spfs-release-replace.sh $(DESTDIR)$(LIBEXECDIR)/criu/scripts
-	$(Q) install -m 755 $(SRC_DIR)/scripts/nfs-ports-allow.sh $(DESTDIR)$(LIBEXECDIR)/criu/scripts
 .PHONY: install
+
+uninstall:
+	$(E) " UNINSTALL" criu
+	$(Q) $(RM) $(addprefix $(DESTDIR)$(SBINDIR)/,criu)
+	$(Q) $(RM) $(addprefix $(DESTDIR)$(INCLUDEDIR)/,$(notdir $(UAPI_HEADERS)))
+	$(Q) $(RM) $(addprefix $(DESTDIR)$(LIBEXECDIR)/criu/scripts/,systemd-autofs-restart.sh)
+.PHONY: uninstall
 
 #
 # Final @all target.

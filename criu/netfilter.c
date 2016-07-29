@@ -2,7 +2,7 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <string.h>
-#include <wait.h>
+#include <sys/wait.h>
 #include <stdlib.h>
 
 #include "asm/types.h"
@@ -12,6 +12,7 @@
 #include "netfilter.h"
 #include "sockets.h"
 #include "sk-inet.h"
+#include "kerndat.h"
 
 static char buf[512];
 
@@ -20,7 +21,7 @@ static char buf[512];
  * ANy brave soul to write it using xtables-devel?
  */
 
-static const char *nf_conn_cmd = "%s -t filter %s %s --protocol tcp "
+static const char *nf_conn_cmd = "%s %s -t filter %s %s --protocol tcp "
 	"--source %s --sport %d --destination %s --dport %d -j DROP";
 
 static char iptable_cmd_ipv4[] = "iptables";
@@ -73,6 +74,7 @@ static int nf_connection_switch_raw(int family, u32 *src_addr, u16 src_port,
 	}
 
 	snprintf(buf, sizeof(buf), nf_conn_cmd, cmd,
+			kdat.has_xtlocks ? "-w" : "",
 			lock ? "-A" : "-D",
 			input ? "INPUT" : "OUTPUT",
 			dip, (int)dst_port, sip, (int)src_port);
@@ -85,7 +87,7 @@ static int nf_connection_switch_raw(int family, u32 *src_addr, u16 src_port,
 	 */
 	ret = cr_system(-1, -1, -1, "sh", argv, 0);
 	if (ret < 0 || !WIFEXITED(ret) || WEXITSTATUS(ret)) {
-		pr_perror("Iptables configuration failed");
+		pr_err("Iptables configuration failed\n");
 		return -1;
 	}
 

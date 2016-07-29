@@ -28,9 +28,8 @@
 #include "kerndat.h"
 #include "fs-magic.h"
 #include "sysfs_parse.h"
-#include "syscall-types.h"
+#include "path.h"
 #include "autofs.h"
-#include "spfs.h"
 
 #include "images/mnt.pb-c.h"
 #include "images/binfmt-misc.pb-c.h"
@@ -93,19 +92,6 @@ static int open_mountpoint(struct mount_info *pm);
 
 static struct mount_info *mnt_build_tree(struct mount_info *list, struct mount_info *roots_mp);
 static int validate_mounts(struct mount_info *info, bool for_dump);
-
-/*
- * True if the mountpoint target is root on its FS.
- *
- * This is used to determine whether we need to postpone
- * mounting. E.g. one can bind mount some subdir from a
- * disk, and in this case we'll have to get the root disk
- * mount first, then bind-mount it. See do_mount_one().
- */
-static inline int fsroot_mounted(struct mount_info *mi)
-{
-	return is_root(mi->root);
-}
 
 static struct mount_info *__lookup_overlayfs(struct mount_info *list, char *rpath,
 						unsigned int st_dev, unsigned int st_ino,
@@ -530,12 +516,12 @@ static struct mount_info *find_widest_shared(struct mount_info *m)
 }
 
 static struct mount_info *find_shared_peer(struct mount_info *m,
-		struct mount_info *ct, char *ct_mountpoint, int m_mpnt_l)
+		struct mount_info *ct, char *ct_mountpoint)
 {
 	struct mount_info *cm;
 
 	list_for_each_entry(cm, &m->children, siblings) {
-		if (strcmp(ct_mountpoint, cm->mountpoint + m_mpnt_l))
+		if (strcmp(ct_mountpoint, cm->mountpoint))
 			continue;
 
 		if (!mounts_equal(cm, ct))
@@ -569,8 +555,7 @@ static inline int path_length(char *path)
 static int validate_shared(struct mount_info *m)
 {
 	struct mount_info *t, *ct;
-	int t_root_l, m_root_l, t_mpnt_l, m_mpnt_l;
-	char *m_root_rpath;
+	char buf[PATH_MAX], *sibling_path;
 	LIST_HEAD(children);
 
 	/*
@@ -594,74 +579,18 @@ static int validate_shared(struct mount_info *m)
 		 */
 		return 0;
 
-	/* A set of childrent which ar visiable for both should be the same */
-
-	t_root_l = path_length(t->root);
-	m_root_l = path_length(m->root);
-	t_mpnt_l = path_length(t->mountpoint);
-	m_mpnt_l = path_length(m->mountpoint);
-
-	/* For example:
-	 * t->root = /		t->mp = ./zdtm/live/static/mntns_root_bind.test
-	 * m->root = /test	m->mp = ./zdtm/live/static/mntns_root_bind.test/test.bind
-	 * t_root_l = 0	t_mpnt_l = 39
-	 * m_root_l = 5	m_mpnt_l = 49
-	 * ct->root = /		ct->mp = ./zdtm/live/static/mntns_root_bind.test/test/sub
-	 * tp = /test/sub	mp = /test len=5
-	 */
-
-	/*
-	 * ct:  | t->root       |	child mount point	|
-	 * cm:  |       m->root         | child mount point	|
-	 * ct:  |		|  /test/sub			|
-	 * cm:  |		  /test	| /sub			|
-	 *                      | A     | B                     |
-	 *			| ct->mountpoint + t_mpnt_l
-	 *			| m->root + strlen(t->root)
-	 */
-
-	m_root_rpath = m->root + t_root_l;	/* path from t->root to m->root */
-
 	/* Search a child, which is visiable in both mounts. */
 	list_for_each_entry(ct, &t->children, siblings) {
-		char *ct_mpnt_rpath;
 		struct mount_info *cm;
 
 		if (ct->is_ns_root)
 			continue;
 
-		ct_mpnt_rpath = ct->mountpoint + t_mpnt_l; /* path from t->mountpoint to ct->mountpoint */
-
-		/*
-		 * if mountpoints of ct and t are equal we can't build
-		 * absolute path in ct_mpnt_rpath, so let's skip the first "/"
-		 * in m_root_rpath
-		 */
-		if (ct_mpnt_rpath[0] == 0)
-			m_root_rpath++;
-
-		/*
-		 * Check whether ct can be is visible at m, i.e. the
-		 * ct's rpath starts (as path) with m's rpath.
-		 */
-
-		if (!issubpath(ct_mpnt_rpath, m_root_rpath))
+		sibling_path = mnt_get_sibling_path(ct, m, buf, sizeof(buf));
+		if (sibling_path == NULL)
 			continue;
 
-		/*
-		 * The ct has peer in m but with the mount path deeper according
-		 * to m's depth relavie to t. Thus -- trim this difference (the
-		 * lenght of m_root_rpath) from ct's mountpoint path.
-		 */
-
-		ct_mpnt_rpath += m_root_l - t_root_l;
-
-		/*
-		 * Find in m the mountpoint that fully matches with ct (with the
-		 * described above path corrections).
-		 */
-
-		cm = find_shared_peer(m, ct, ct_mpnt_rpath, m_mpnt_l);
+		cm = find_shared_peer(m, ct, sibling_path);
 		if (!cm)
 			goto err;
 
@@ -778,33 +707,9 @@ skip_fstype:
 			pr_err("%d:%s is overmounted\n", m->mnt_id, m->mountpoint);
 			return -1;
 		}
-
-		if (!strcmp(m->fstype->name, "nfs") && !list_empty(&m->children)) {
-			pr_err("overmounted NFS (%s) is not supported yet\n", m->mountpoint);
-			return -1;
-		}
 	}
 
 	return 0;
-}
-
-static char *cut_root_for_bind(char *target_root, char *source_root)
-{
-	int tok = 0;
-	/*
-	 * Cut common part of root.
-	 * For non-root binds the source is always "/" (checked)
-	 * so this will result in this slash removal only.
-	 */
-	while (target_root[tok] == source_root[tok]) {
-		tok++;
-		if (source_root[tok] == '\0')
-			break;
-		BUG_ON(target_root[tok] == '\0');
-	}
-
-	return target_root + tok;
-
 }
 
 static struct mount_info *find_best_external_match(struct mount_info *list, struct mount_info *info)
@@ -1134,7 +1039,7 @@ static char *get_clean_mnt(struct mount_info *mi, char *mnt_path_tmp, char *mnt_
 		mnt_path = mkdtemp(mnt_path_root);
 	if (mnt_path == NULL) {
 		pr_perror("Can't create a temporary directory");
-		return NULL;;
+		return NULL;
 	}
 
 	if (mount(mi->mountpoint, mnt_path, NULL, MS_BIND, NULL)) {
@@ -1147,13 +1052,15 @@ static char *get_clean_mnt(struct mount_info *mi, char *mnt_path_tmp, char *mnt_
 	return mnt_path;
 }
 
+#define MNT_UNREACHABLE INT_MIN
 static int open_mountpoint(struct mount_info *pm)
 {
+	struct mount_info *c;
 	int fd = -1, ns_old = -1;
 	char mnt_path_tmp[] = "/tmp/cr-tmpfs.XXXXXX";
 	char mnt_path_root[] = "/cr-tmpfs.XXXXXX";
 	char *mnt_path = mnt_path_tmp;
-	int cwd_fd, mnt_id;
+	int cwd_fd;
 
 	/*
 	 * If a mount doesn't have children, we can open a mount point,
@@ -1163,6 +1070,13 @@ static int open_mountpoint(struct mount_info *pm)
 		return __open_mountpoint(pm, -1);
 
 	pr_info("Something is mounted on top of %s\n", pm->mountpoint);
+
+	list_for_each_entry(c, &pm->children, siblings) {
+		if (!strcmp(c->mountpoint, pm->mountpoint)) {
+			pr_debug("%d:%s is overmounted\n", pm->mnt_id, pm->mountpoint);
+			return MNT_UNREACHABLE;
+		}
+	}
 
 	/*
 	 * To create a "private" copy, the target mount is bind-mounted
@@ -1180,19 +1094,6 @@ static int open_mountpoint(struct mount_info *pm)
 
 	if (switch_ns(pm->nsid->ns_pid, &mnt_ns_desc, &ns_old) < 0)
 		goto out;
-
-	/* check that a correct mountpoint can be opened */
-	fd = open(pm->mountpoint, O_RDONLY);
-	if (fd < 0) {
-		pr_perror("Unable to open %s", pm->mountpoint);
-		goto out;
-	}
-
-	if (get_fd_mntid(fd, &mnt_id) || mnt_id != pm->mnt_id) {
-		pr_err("Unable to open %d(%d):%s\n", pm->mnt_id, mnt_id, pm->mountpoint);
-		goto out;
-	}
-	close_safe(&fd);
 
 	mnt_path = get_clean_mnt(pm, mnt_path_tmp, mnt_path_root);
 	if (mnt_path == NULL)
@@ -1259,13 +1160,13 @@ static int tmpfs_dump(struct mount_info *pm)
 
 	fd = open_mountpoint(pm);
 	if (fd < 0)
-		return 1;
+		return fd;
 
 	/* if fd happens to be 0 here, we need to move it to something
 	 * non-zero, because cr_system_userns closes STDIN_FILENO as we are not
 	 * interested in passing stdin to tar.
 	 */
-	if (move_img_fd(&fd, STDIN_FILENO) < 0)
+	if (move_fd_from(&fd, STDIN_FILENO) < 0)
 		goto out;
 
 	if (fcntl(fd, F_SETFD, fcntl(fd, F_GETFD) & ~FD_CLOEXEC) == -1) {
@@ -1416,7 +1317,7 @@ static int parse_binfmt_misc_entry(struct bfd *f, BinfmtMiscEntry *bme)
 		DUP_EQUAL_AS("mask ", mask)
 #undef DUP_EQUAL_AS
 
-		pr_perror("binfmt_misc: unsupported feature %s\n", str);
+		pr_perror("binfmt_misc: unsupported feature %s", str);
 		return -1;
 	}
 
@@ -1470,7 +1371,7 @@ static int binfmt_misc_dump(struct mount_info *pm)
 
 	fd = open_mountpoint(pm);
 	if (fd < 0)
-		return 1;
+		return fd;
 
 	fdir = fdopendir(fd);
 	if (fdir == NULL) {
@@ -1587,7 +1488,7 @@ static int binfmt_misc_restore(struct mount_info *mi)
 {
 	struct cr_img *img;
 	char *buf;
-	int ret = -1;;
+	int ret = -1;
 
 	buf = xmalloc(BINFMT_MISC_STR);
 	if (!buf)
@@ -1641,7 +1542,7 @@ static int fusectl_dump(struct mount_info *pm)
 
 	fd = open_mountpoint(pm);
 	if (fd < 0)
-		return 1;
+		return fd;
 
 	fdir = fdopendir(fd);
 	if (fdir == NULL) {
@@ -1676,6 +1577,22 @@ out:
 	return ret;
 }
 
+static int debugfs_parse(struct mount_info *pm)
+{
+	/* tracefs is automounted underneath debugfs sometimes, and the
+	 * kernel's overmounting protection prevents us from mounting debugfs
+	 * first without tracefs, so let's always mount debugfs MS_REC.
+	 */
+	pm->flags |= MS_REC;
+
+	return 0;
+}
+
+static int tracefs_parse(struct mount_info *pm)
+{
+	return 1;
+}
+
 static int cgroup_parse(struct mount_info *pm)
 {
 	if (!(root_ns_mask & CLONE_NEWCGROUP))
@@ -1695,10 +1612,10 @@ static int cgroup_parse(struct mount_info *pm)
 static int dump_empty_fs(struct mount_info *pm)
 {
 	int fd, ret = -1;
-	fd = open_mountpoint(pm);
 
+	fd = open_mountpoint(pm);
 	if (fd < 0)
-		return 1;
+		return fd;
 
 	ret = is_empty_dir(fd);
 	close(fd);
@@ -1777,6 +1694,11 @@ static struct fstype fstypes[] = {
 	}, {
 		.name = "debugfs",
 		.code = FSTYPE__DEBUGFS,
+		.parse = debugfs_parse,
+	}, {
+		.name = "tracefs",
+		.code = FSTYPE__TRACEFS,
+		.parse = tracefs_parse,
 	}, {
 		.name = "cgroup",
 		.code = FSTYPE__CGROUP,
@@ -1800,18 +1722,7 @@ static struct fstype fstypes[] = {
 		.parse = autofs_parse,
 		.dump = autofs_dump,
 		.mount = autofs_mount,
-	}, {
-		.name = "rpc_pipefs",
-		.code = FSTYPE__RPC_PIPEFS,
-	}, {
-		.name = "nfs",
-		.code = FSTYPE__NFS,
-		.mount = spfs_mount,
-	}, {
-		.name = "nfs4",
-		.code = FSTYPE__NFS4,
-		.mount = spfs_mount,
-	}
+	},
 };
 
 static char fsauto_all[] = "all";
@@ -1920,6 +1831,7 @@ static int dump_one_fs(struct mount_info *mi)
 	if (mi->is_ns_root || mi->need_plugin || mi->external || !mi->fstype->dump)
 		return 0;
 
+	/* mnt_bind is a cycled list, so list_for_each can't be used here. */
 	for (; &pm->mnt_bind != &mi->mnt_bind || first;
 	     pm = list_entry(pm->mnt_bind.next, typeof(*pm), mnt_bind)) {
 		int ret;
@@ -1930,7 +1842,7 @@ static int dump_one_fs(struct mount_info *mi)
 			continue;
 
 		ret = pm->fstype->dump(pm);
-		if (ret == 1)
+		if (ret == MNT_UNREACHABLE)
 			continue;
 		if (ret < 0)
 			return ret;
@@ -2182,24 +2094,6 @@ static char *resolve_source(struct mount_info *mi)
 	return NULL;
 }
 
-static int __restore_shared_options(char *mountpoint, bool private, bool shared, bool slave)
-{
-	if (private && mount(NULL, mountpoint, NULL, MS_PRIVATE, NULL)) {
-		pr_perror("Unable to make %s private", mountpoint);
-		return -1;
-	}
-	if (slave && mount(NULL, mountpoint, NULL, MS_SLAVE, NULL)) {
-		pr_perror("Unable to make %s slave", mountpoint);
-		return -1;
-	}
-	if (shared && mount(NULL, mountpoint, NULL, MS_SHARED, NULL)) {
-		pr_perror("Unable to make %s shared", mountpoint);
-		return -1;
-	}
-
-	return 0;
-}
-
 static int restore_shared_options(struct mount_info *mi, bool private, bool shared, bool slave)
 {
 	pr_debug("%d:%s private %d shared %d slave %d\n",
@@ -2212,7 +2106,20 @@ static int restore_shared_options(struct mount_info *mi, bool private, bool shar
 			return mount(NULL, mi->mountpoint, NULL, MS_UNBINDABLE, NULL);
 	}
 
-	return __restore_shared_options(mi->mountpoint, private, shared, slave);
+	if (private && mount(NULL, mi->mountpoint, NULL, MS_PRIVATE, NULL)) {
+		pr_perror("Unable to make %s private", mi->mountpoint);
+		return -1;
+	}
+	if (slave && mount(NULL, mi->mountpoint, NULL, MS_SLAVE, NULL)) {
+		pr_perror("Unable to make %s slave", mi->mountpoint);
+		return -1;
+	}
+	if (shared && mount(NULL, mi->mountpoint, NULL, MS_SHARED, NULL)) {
+		pr_perror("Unable to make %s shared", mi->mountpoint);
+		return -1;
+	}
+
+	return 0;
 }
 
 /*
@@ -2222,14 +2129,16 @@ static int restore_shared_options(struct mount_info *mi, bool private, bool shar
 static int umount_from_slaves(struct mount_info *mi)
 {
 	struct mount_info *t;
-	char mpath[PATH_MAX];
+	char *mpath, buf[PATH_MAX];
 
 	list_for_each_entry(t, &mi->parent->mnt_slave_list, mnt_slave) {
 		if (!t->mounted)
 			continue;
 
-		snprintf(mpath, sizeof(mpath), "%s/%s",
-				t->mountpoint, basename(mi->mountpoint));
+		mpath = mnt_get_sibling_path(mi, t, buf, sizeof(buf));
+		if (mpath == NULL)
+			continue;
+
 		pr_debug("\t\tUmount slave %s\n", mpath);
 		if (umount(mpath) == -1) {
 			pr_perror("Can't umount slave %s", mpath);
@@ -2288,9 +2197,15 @@ static int propagate_mount(struct mount_info *mi)
 
 	list_for_each_entry(t, &mi->parent->mnt_share, mnt_share) {
 		struct mount_info *c;
+		char path[PATH_MAX], *mp;
+		bool found = false;
+
+		mp = mnt_get_sibling_path(mi, t, path, sizeof(path));
+		if (mp == NULL)
+			continue;
 
 		list_for_each_entry(c, &t->children, siblings) {
-			if (mounts_equal(mi, c)) {
+			if (mounts_equal(mi, c) && !strcmp(mp, c->mountpoint)) {
 				pr_debug("\t\tPropagate %s\n", c->mountpoint);
 
 				/*
@@ -2303,7 +2218,12 @@ static int propagate_mount(struct mount_info *mi)
 				c->mounted = true;
 				propagate_siblings(c);
 				umount_from_slaves(c);
+				found = true;
 			}
+		}
+		if (!found) {
+			pr_err("Unable to find %s\n", mp);
+			return -1;
 		}
 	}
 
@@ -2333,7 +2253,7 @@ static int fetch_rt_stat(struct mount_info *m, const char *where)
 	struct stat st;
 
 	if (stat(where, &st)) {
-		pr_perror("Can't stat on %s\n", where);
+		pr_perror("Can't stat on %s", where);
 		return -1;
 	}
 
@@ -2376,7 +2296,7 @@ static int do_new_mount(struct mount_info *mi)
 	if (!src)
 		return -1;
 
-	/* Merge superblock and mount flags if it's posiable */
+	/* Merge superblock and mount flags if it's possible */
 	if (!(mflags & ~MS_MNT_KNOWN_FLAGS) && !((sflags ^ mflags) & MS_RDONLY)) {
 		sflags |= mflags;
 		mflags = 0;
@@ -2461,7 +2381,7 @@ static int mount_clean_path()
 static int umount_clean_path()
 {
 	if (umount2(mnt_clean_path, MNT_DETACH)) {
-		pr_perror("Unable to umount %s\n", mnt_clean_path);
+		pr_perror("Unable to umount %s", mnt_clean_path);
 		return -1;
 	}
 
@@ -2474,27 +2394,20 @@ static int umount_clean_path()
 
 static int do_bind_mount(struct mount_info *mi)
 {
-	char mnt_fd_path[] = "/proc/self/fd/1234567890";
+	char mnt_fd_path[PSFDS];
 	char *root, *cut_root, rpath[PATH_MAX];
 	unsigned long mflags;
-	int exit_code = -1;
+	int exit_code = -1, mp_len;
 	bool shared = false;
 	bool master = false;
 	bool private = false;
 	char *mnt_path = NULL;
 	struct stat st;
-	int umount_mnt_fd = -1, fd;
+	bool umount_mnt_path = false;
+	struct mount_info *c;
 
 	if (mi->need_plugin) {
 		if (restore_ext_mount(mi))
-			return -1;
-		/*
-		 * shared - the mount is in the same shared group with mi->bind
-		 * mi->shared_id && !shared - create a new shared group
-		 */
-		if (restore_shared_options(mi, private,
-					   mi->shared_id && !shared,
-					   mi->master_id && !master))
 			return -1;
 		goto out;
 	}
@@ -2524,38 +2437,50 @@ static int do_bind_mount(struct mount_info *mi)
 	mi->private = mi->bind->private;
 
 	mnt_path = mi->bind->mountpoint;
+
+	/* Access a mount by fd if mi->bind->mountpoint is overmounted */
 	if (mi->bind->fd >= 0) {
 		snprintf(mnt_fd_path, sizeof(mnt_fd_path),
 					"/proc/self/fd/%d", mi->bind->fd);
 		mnt_path = mnt_fd_path;
 	}
 
-	/* mi->bind->mountpoint may be overmounted */
-	if (mount(mnt_path, mnt_clean_path, NULL, MS_BIND, NULL)) {
-		pr_perror("Unable to bind-mount %s to %s",
-				mi->bind->mountpoint, mnt_clean_path);
-		return -1;
+	if (cut_root[0] == 0) /* This case is handled by mi->bind->fd */
+		goto skip_overmount_check;
+
+	/*
+	 * The target path may be over-mounted by one of child mounts
+	 * and we need to create a new bind-mount to get access to the path.
+	 */
+	mp_len = strlen(mi->bind->mountpoint);
+	if (mp_len > 1) /* skip a joining / if mi->bind->mountpoint isn't "/" */
+		mp_len++;
+
+	list_for_each_entry(c, &mi->bind->children, siblings) {
+		if (!c->mounted)
+			continue;
+		if (issubpath(cut_root, c->mountpoint + mp_len))
+			break; /* a source path is overmounted */
 	}
-	mnt_path = mnt_clean_path;
-	umount_mnt_fd = open(mnt_clean_path, O_PATH);
-	if (umount_mnt_fd < 0) {
-		pr_perror("Unable to open %s", mnt_clean_path);
-		return -1;
+
+	if (&c->siblings != &mi->bind->children) {
+		/* Get a copy of mi->bind without child mounts */
+		if (mount(mnt_path, mnt_clean_path, NULL, MS_BIND, NULL)) {
+			pr_perror("Unable to bind-mount %s to %s",
+					mi->bind->mountpoint, mnt_clean_path);
+			return -1;
+		}
+		mnt_path = mnt_clean_path;
+		umount_mnt_path = true;
 	}
-	if (__restore_shared_options(mnt_path, private,
-				   mi->shared_id && !shared,
-				   mi->master_id && !master))
-		return -1;
 
 	if (mnt_path == NULL)
 		return -1;
 
-	if (cut_root[0]) {
-		snprintf(rpath, sizeof(rpath), "%s/%s",
-				mnt_path, cut_root);
-		root = rpath;
-	} else
-		root = mnt_path;
+skip_overmount_check:
+	snprintf(rpath, sizeof(rpath), "%s/%s",
+			mnt_path, cut_root);
+	root = rpath;
 do_bind:
 	pr_info("\tBind %s to %s\n", root, mi->mountpoint);
 
@@ -2585,19 +2510,10 @@ do_bind:
 		}
 	}
 
-	fd = open(root, O_PATH); /* autofs hack*/
-	if (fd < 0) {
-		pr_perror("Unable to open %s", root);
-		goto err;
-	}
-	snprintf(mnt_fd_path, sizeof(mnt_fd_path),
-				"/proc/self/fd/%d", fd);
-	if (mount(mnt_fd_path, mi->mountpoint, NULL, MS_BIND | (mi->flags & MS_REC), NULL) < 0) {
+	if (mount(root, mi->mountpoint, NULL, MS_BIND | (mi->flags & MS_REC), NULL) < 0) {
 		pr_perror("Can't mount at %s", mi->mountpoint);
-		close(fd);
 		goto err;
 	}
-	close(fd);
 
 	mflags = mi->flags & (~MS_PROPAGATE);
 	if (!mi->bind || mflags != (mi->bind->flags & (~MS_PROPAGATE)))
@@ -2620,34 +2536,31 @@ do_bind:
 		}
 	}
 out:
+	/*
+	 * shared - the mount is in the same shared group with mi->bind
+	 * mi->shared_id && !shared - create a new shared group
+	 */
+	if (restore_shared_options(mi, private,
+	                           mi->shared_id && !shared,
+	                           mi->master_id && !master))
+		return -1;
+
 	mi->mounted = true;
 	exit_code = 0;
 err:
-	if (umount_mnt_fd >= 0) {
-		int i;
-
-		snprintf(mnt_fd_path, sizeof(mnt_fd_path),
-				"/proc/self/fd/%d", umount_mnt_fd);
+	if (umount_mnt_path) {
 		/*
 		 * If mnt_path was shared, a new mount may be propagated
 		 * into it.
 		 */
-		if (mount(NULL, mnt_fd_path, NULL, MS_PRIVATE | MS_REC, NULL)) {
+		if (mount(NULL, mnt_path, NULL, MS_PRIVATE, NULL)) {
 			pr_perror("Unable to make %s private", mnt_path);
 			return -1;
 		}
-		i = 0;
-		while (1) {
-			/* Something may be propagated over mnt_clean_path */
-			if (umount2(mnt_fd_path, MNT_DETACH)) {
-				if (i && errno == EINVAL)
-					break; /* Everything was umounted */
-				pr_perror("Unable to umount %s", mnt_path);
-				return -1;
-			}
-			i++;
+		if (umount2(mnt_path, MNT_DETACH)) {
+			pr_perror("Unable to umount %s", mnt_path);
+			return -1;
 		}
-		close(umount_mnt_fd);
 	}
 	return exit_code;
 }
@@ -2943,7 +2856,7 @@ static int rst_collect_local_mntns(enum ns_type typ)
 	if (!mntinfo)
 		return -1;
 
-	nsid->ns_populated = true;
+	futex_set(&nsid->ns_populated, 1);
 	return 0;
 }
 
@@ -3199,6 +3112,9 @@ static int do_restore_task_mnt_ns(struct ns_id *nsid, struct pstree_item *curren
 	}
 	close(fd);
 
+	if (nsid->ns_pid == current->pid.virt)
+		futex_set_and_wake(&nsid->ns_populated, 1);
+
 	return 0;
 }
 
@@ -3245,10 +3161,9 @@ void fini_restore_mntns(void)
 	for (nsid = ns_ids; nsid != NULL; nsid = nsid->next) {
 		if (nsid->nd != &mnt_ns_desc)
 			continue;
-		close_safe(&nsid->mnt.ns_fd);
+		close(nsid->mnt.ns_fd);
 		if (nsid->type != NS_ROOT)
-			close_safe(&nsid->mnt.root_fd);
-		nsid->ns_populated = true;
+			close(nsid->mnt.root_fd);
 	}
 }
 
@@ -3390,44 +3305,6 @@ int prepare_mnt_ns(void)
 
 	pr_info("Restoring mount namespace\n");
 
-	if (opts.unshare_flags & CLONE_NEWNS) {
-		if (opts.root) {
-			pr_err("The --root option is incompatible with fake new mntns\n");
-			return -1;
-		}
-
-		/*
-		 * Fake newns preparation -- just copy the existing one
-		 * and go on with the rest.
-		 */
-		if (rst_collect_local_mntns(NS_ROOT))
-			return -1;
-
-		ret = chdir("/");
-		if (ret) {
-			pr_perror("chdir to new root failed");
-			return -1;
-		}
-
-		if (opts.unshare_flags & UNSHARE_MOUNT_PROC) {
-			if (mount(NULL, "/proc", NULL, MS_PRIVATE, NULL)) {
-				pr_perror("Can't make proc private for unshare");
-				return -1;
-			}
-
-			if (mount("proc", "/proc", "proc",
-						MS_MGC_VAL | MS_NOSUID | MS_NOEXEC | MS_NODEV,
-						NULL)) {
-				pr_perror("Can't mount proc\n");
-				return -1;
-			}
-
-			pr_info("Re-mounted new fake proc\n");
-		}
-
-		goto ns_created;
-	}
-
 	old = collect_mntinfo(&ns, false);
 	if (old == NULL)
 		return -1;
@@ -3499,7 +3376,6 @@ int prepare_mnt_ns(void)
 	if (ret)
 		return -1;
 
-ns_created:
 	rst = open_proc(PROC_SELF, "ns/mnt");
 	if (rst < 0)
 		return -1;
@@ -3516,7 +3392,7 @@ ns_created:
 			if (nsid->mnt.ns_fd < 0)
 				goto err;
 			/* we set ns_populated so we don't need to open root_fd */
-			nsid->ns_populated = true;
+			futex_set(&nsid->ns_populated, 1);
 			continue;
 		}
 
@@ -3630,7 +3506,8 @@ set_root:
 	return mntns_set_root_fd(pid, fd);
 }
 
-int mntns_get_root_fd(struct ns_id *mntns) {
+int mntns_get_root_fd(struct ns_id *mntns)
+{
 	/*
 	 * All namespaces are restored from the root task and during the
 	 * CR_STATE_FORKING stage the root task has two file descriptors for
@@ -3649,7 +3526,7 @@ int mntns_get_root_fd(struct ns_id *mntns) {
 	 * root from the root task.
 	 */
 
-	if (!mntns->ns_populated) {
+	if (!futex_get(&mntns->ns_populated)) {
 		int fd;
 
 		fd = open_proc(root_item->pid.virt, "fd/%d", mntns->mnt.root_fd);

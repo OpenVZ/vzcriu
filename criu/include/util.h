@@ -19,8 +19,6 @@
 #include "log.h"
 #include "err.h"
 
-#include "images/vma.pb-c.h"
-
 #define PREF_SHIFT_OP(pref, op, size)	((size) op (pref ##BYTES_SHIFT))
 #define KBYTES_SHIFT	10
 #define MBYTES_SHIFT	20
@@ -50,7 +48,7 @@ extern void pr_vma(unsigned int loglevel, const struct vma_area *vma_area);
 	} while (0)
 #define pr_info_vma_list(head)	pr_vma_list(LOG_INFO, head)
 
-extern int move_img_fd(int *img_fd, int want_fd);
+extern int move_fd_from(int *img_fd, int want_fd);
 extern int close_safe(int *fd);
 
 extern int reopen_fd_as_safe(char *file, int line, int new_fd, int old_fd, bool allow_reuse_fd);
@@ -79,7 +77,7 @@ extern int do_open_proc(pid_t pid, int flags, const char *fmt, ...);
 	({								\
 		int __fd = do_open_proc(pid, flags,			\
 					fmt, ##__VA_ARGS__);		\
-		if (__fd < 0 && (errno != ier))				\
+		if (__fd < 0 && (errno != (ier)))			\
 			pr_perror("Can't open %d/" fmt " on procfs",	\
 					pid, ##__VA_ARGS__);		\
 									\
@@ -129,9 +127,6 @@ extern int do_open_proc(pid_t pid, int flags, const char *fmt, ...);
 		__f;							\
 	 })
 
-#define pr_img_head(type, ...)	pr_msg("\n"#type __VA_ARGS__ "\n----------------\n")
-#define pr_img_tail(type)	pr_msg("----------------\n")
-
 #define DEVZERO		(makedev(1, 5))
 
 #define KDEV_MINORBITS	20
@@ -169,9 +164,6 @@ extern int is_anon_link_type(char *link, char *type);
 	 ((c) >= 'a' && (c) <= 'f')	||	\
 	 ((c) >= 'A' && (c) <= 'F'))
 
-extern void *shmalloc(size_t bytes);
-extern void shfree_last(void *ptr);
-
 #define CRS_CAN_FAIL	0x1 /* cmd can validly exit with non zero code */
 
 extern int cr_system(int in, int out, int err, char *cmd, char *const argv[], unsigned flags);
@@ -194,7 +186,6 @@ extern int is_empty_dir(int dirfd);
 #define PSFDS	(sizeof("/proc/self/fd/2147483647"))
 
 extern int read_fd_link(int lfd, char *buf, size_t size);
-extern char *__read_fd_link(int fd);
 
 #define USEC_PER_SEC	1000000L
 #define NSEC_PER_SEC    1000000000L
@@ -257,10 +248,6 @@ static inline bool issubpath(const char *path, const char *sub_path)
  * mkdir -p
  */
 int mkdirpat(int fd, const char *path);
-/*
- * mkdir -p `dirname $path`
- */
-int mkdirname(const char *path);
 
 /*
  * Tests whether a path is a prefix of another path. This is different than
@@ -272,7 +259,6 @@ FILE *fopenat(int dirfd, char *path, char *cflags);
 void split(char *str, char token, char ***out, int *n);
 
 int fd_has_data(int lfd);
-size_t read_into_buffer(int fd, char *buff, size_t size);
 
 int make_yard(char *path);
 
@@ -291,7 +277,7 @@ void print_data(unsigned long addr, unsigned char *data, size_t size);
 int setup_tcp_server(char *type);
 int run_tcp_server(bool daemon_mode, int *ask, int cfd, int sk);
 int setup_tcp_client(char *addr);
-int cr_set_root(int fd, int *old_root);
-int cr_restore_root(int fd);
+
+#define LAST_PID_PATH		"sys/kernel/ns_last_pid"
 
 #endif /* __CR_UTIL_H__ */

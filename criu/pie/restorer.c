@@ -6,6 +6,7 @@
 #include <linux/aio_abi.h>
 #include <sys/types.h>
 #include <sys/mman.h>
+#include <sys/file.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <sys/time.h>
@@ -27,9 +28,7 @@
 #include "image.h"
 #include "sk-inet.h"
 #include "vma.h"
-#include "uffd.h"
 
-#include "crtools.h"
 #include "lock.h"
 #include "restorer.h"
 #include "aio.h"
@@ -38,6 +37,7 @@
 #include "images/creds.pb-c.h"
 #include "images/mm.pb-c.h"
 
+#include "shmem.h"
 #include "asm/restorer.h"
 
 #ifndef PR_SET_PDEATHSIG
@@ -452,7 +452,7 @@ long __export_restore_thread(struct thread_restore_args *args)
 		goto core_restore_end;
 	}
 
-	rt_sigframe = (void *)args->mem_zone.rt_sigframe;
+	rt_sigframe = (void *)&args->mz->rt_sigframe;
 
 	if (restore_thread_common(args))
 		goto core_restore_end;
@@ -511,9 +511,18 @@ static unsigned long restore_mapping(const VmaEntry *vma_entry)
 	int flags	= vma_entry->flags | MAP_FIXED;
 	unsigned long addr;
 
-	if (vma_entry_is(vma_entry, VMA_AREA_SYSVIPC))
+	if (vma_entry_is(vma_entry, VMA_AREA_SYSVIPC)) {
+		/*
+		 * See comment in open_shmem_sysv() for what SYSV_SHMEM_SKIP_FD
+		 * means and why we check for PROT_EXEC few lines below.
+		 */
+		if (vma_entry->fd == SYSV_SHMEM_SKIP_FD)
+			return vma_entry->start;
+
+		pr_info("Attach SYSV shmem %d at %"PRIx64"\n", (int)vma_entry->fd, vma_entry->start);
 		return sys_shmat(vma_entry->fd, decode_pointer(vma_entry->start),
-				 (vma_entry->prot & PROT_WRITE) ? 0 : SHM_RDONLY);
+				vma_entry->prot & PROT_EXEC ? 0 : SHM_RDONLY);
+	}
 
 	/*
 	 * Restore or shared mappings are tricky, since
@@ -576,8 +585,9 @@ static int restore_aio_ring(struct rst_aio_ring *raio)
 	i = (raio->len - sizeof(struct aio_ring)) / sizeof(struct io_event);
 	if (tail >= ring->nr || head >= ring->nr || ring->nr != i ||
 	    new->nr != ring->nr) {
-		pr_err("wrong aio parametrs: tail=%x head=%x nr=%x len=%lx\n",
-			tail, head, raio->nr_req, raio->len);
+		pr_err("wrong aio: tail=%x head=%x req=%x old_nr=%x new_nr=%x expect=%x\n",
+			tail, head, raio->nr_req, ring->nr, new->nr, i);
+
 		return -1;
 	}
 
@@ -615,7 +625,7 @@ static int restore_aio_ring(struct rst_aio_ring *raio)
 	iocbp = (void *)iocb + sizeof(struct iocb);
 
 	if (IS_ERR(iocb)) {
-		pr_err("Can't mmap aio tmp buffer\n");
+		pr_err("Can't mmap aio tmp buffer: %ld\n", PTR_ERR(iocb));
 		return -1;
 	}
 
@@ -699,50 +709,8 @@ static void rst_tcp_socks_all(struct task_restore_args *ta)
 		rst_tcp_repair_off(&ta->tcp_socks[i]);
 }
 
-
-
-
-static int enable_uffd(int uffd, unsigned long addr, unsigned long len)
+static int vma_remap(unsigned long src, unsigned long dst, unsigned long len)
 {
-	/*
-	 * If uffd == -1, this means that userfaultfd is not enabled
-	 * or it is not available.
-	 */
-	if (uffd == -1)
-		return 0;
-#ifdef CONFIG_HAS_UFFD
-	int rc;
-	struct uffdio_register uffdio_register;
-	unsigned long expected_ioctls;
-
-	uffdio_register.range.start = addr;
-	uffdio_register.range.len = len;
-	uffdio_register.mode = UFFDIO_REGISTER_MODE_MISSING;
-	pr_info("lazy-pages: uffdio_register.range.start 0x%lx\n", (unsigned long) uffdio_register.range.start);
-	pr_info("lazy-pages: uffdio_register.len 0x%llx\n", uffdio_register.range.len);
-	rc = sys_ioctl(uffd, UFFDIO_REGISTER, (unsigned long) &uffdio_register);
-	pr_info("lazy-pages: ioctl UFFDIO_REGISTER rc %d\n", rc);
-	pr_info("lazy-pages: uffdio_register.range.start 0x%lx\n", (unsigned long) uffdio_register.range.start);
-	pr_info("lazy-pages: uffdio_register.len 0x%llx\n", uffdio_register.range.len);
-	if (rc != 0)
-		return -1;
-
-	expected_ioctls = (1 << _UFFDIO_WAKE) | (1 << _UFFDIO_COPY) | (1 << _UFFDIO_ZEROPAGE);
-
-	if ((uffdio_register.ioctls & expected_ioctls) != expected_ioctls) {
-		pr_err("lazy-pages: unexpected missing uffd ioctl for anon memory\n");
-	}
-
-#endif
-	return 0;
-}
-
-
-static int vma_remap(VmaEntry *vma_entry, int uffd)
-{
-	unsigned long src = vma_premmaped_start(vma_entry);
-	unsigned long dst = vma_entry->start;
-	unsigned long len = vma_entry_len(vma_entry);
 	unsigned long guard = 0, tmp;
 
 	pr_info("Remap %lx->%lx len %lx\n", src, dst, len);
@@ -813,18 +781,6 @@ static int vma_remap(VmaEntry *vma_entry, int uffd)
 		pr_err("Unable to remap %lx -> %lx\n", src, dst);
 		return -1;
 	}
-
-	/*
-	 * If running in userfaultfd/lazy-pages mode pages with
-	 * MAP_ANONYMOUS and MAP_PRIVATE are remapped but without the
-	 * real content.
-	 * The function enable_uffd() marks the page(s) as userfaultfd
-	 * pages, so that the processes will hang until the memory is
-	 * injected via userfaultfd.
-	 */
-	if (vma_entry_can_be_lazy(vma_entry))
-		if (enable_uffd(uffd, dst, len) != 0)
-			return -1;
 
 	return 0;
 }
@@ -1023,8 +979,6 @@ static int wait_zombies(struct task_restore_args *task_args)
 {
 	int i;
 
-	atomic_add(task_args->zombies_n, &task_entries->nr_zombies);
-
 	for (i = 0; i < task_args->zombies_n; i++) {
 		if (sys_waitid(P_PID, task_args->zombies[i], NULL, WNOWAIT | WEXITED, NULL) < 0) {
 			pr_err("Wait on %d zombie failed\n", task_args->zombies[i]);
@@ -1032,7 +986,6 @@ static int wait_zombies(struct task_restore_args *task_args)
 		}
 		pr_debug("%ld: Collect a zombie with pid %d\n",
 			sys_getpid(), task_args->zombies[i]);
-		futex_dec_and_wake(&task_entries->nr_in_progress);
 	}
 
 	return 0;
@@ -1084,10 +1037,6 @@ long __export_restore_task(struct task_restore_args *args)
 
 	pr_info("Switched to the restorer %d\n", my_pid);
 
-	if (args->uffd > -1) {
-		pr_debug("lazy-pages: uffd %d\n", args->uffd);
-	}
-
 	if (vdso_do_park(&args->vdso_sym_rt, args->vdso_rt_parked_at, vdso_rt_size))
 		goto core_restore_end;
 
@@ -1108,7 +1057,8 @@ long __export_restore_task(struct task_restore_args *args)
 		if (vma_entry->start > vma_entry->shmid)
 			break;
 
-		if (vma_remap(vma_entry, args->uffd))
+		if (vma_remap(vma_premmaped_start(vma_entry),
+				vma_entry->start, vma_entry_len(vma_entry)))
 			goto core_restore_end;
 	}
 
@@ -1125,18 +1075,9 @@ long __export_restore_task(struct task_restore_args *args)
 		if (vma_entry->start < vma_entry->shmid)
 			break;
 
-		if (vma_remap(vma_entry, args->uffd))
+		if (vma_remap(vma_premmaped_start(vma_entry),
+				vma_entry->start, vma_entry_len(vma_entry)))
 			goto core_restore_end;
-	}
-
-	if (args->uffd > -1) {
-		pr_debug("lazy-pages: closing uffd %d\n", args->uffd);
-		/*
-		 * All userfaultfd configuration has finished at this point.
-		 * Let's close the UFFD file descriptor, so that the restored
-		 * process does not have an opened UFFD FD for ever.
-		 */
-		sys_close(args->uffd);
 	}
 
 	/*
@@ -1293,7 +1234,7 @@ long __export_restore_task(struct task_restore_args *args)
 	 * registers from the frame, set them up and
 	 * finally pass execution to the new IP.
 	 */
-	rt_sigframe = (void *)args->t->mem_zone.rt_sigframe;
+	rt_sigframe = (void *)&args->t->mz->rt_sigframe;
 
 	if (restore_thread_common(args->t))
 		goto core_restore_end;
@@ -1344,7 +1285,7 @@ long __export_restore_task(struct task_restore_args *args)
 			if (thread_args[i].pid == args->t->pid)
 				continue;
 
-			new_sp = restorer_stack(thread_args + i);
+			new_sp = restorer_stack(thread_args[i].mz);
 			last_pid_len = vprint_num(last_pid_buf, sizeof(last_pid_buf), thread_args[i].pid - 1, &s);
 			sys_lseek(fd, 0, SEEK_SET);
 			ret = sys_write(fd, s, last_pid_len);

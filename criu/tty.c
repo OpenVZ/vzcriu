@@ -20,8 +20,7 @@
 #include "cr_options.h"
 #include "imgset.h"
 #include "servicefd.h"
-#include "image.h"
-#include "util.h"
+#include "rst-malloc.h"
 #include "log.h"
 #include "list.h"
 #include "util-pie.h"
@@ -224,6 +223,12 @@ static struct tty_driver ext_driver = {
 	.open			= open_ext_tty,
 };
 
+static struct tty_driver serial_driver = {
+	.type			= TTY_TYPE__SERIAL,
+	.name			= "serial",
+	.open			= open_simple_tty,
+};
+
 static int pts_fd_get_index(int fd, const struct fd_parms *p)
 {
 	int index;
@@ -282,7 +287,11 @@ struct tty_driver *get_tty_driver(dev_t rdev, dev_t dev)
 			 * of kernel).
 			 */
 			return &vt_driver;
+		/* Other minors points to UART serial ports */
 		break;
+	case USB_SERIAL_MAJOR:
+	case LOW_DENSE_SERIAL_MAJOR:
+		return &serial_driver;
 	case UNIX98_PTY_MASTER_MAJOR ... (UNIX98_PTY_MASTER_MAJOR + UNIX98_PTY_MAJOR_COUNT - 1):
 		return &ptm_driver;
 	case UNIX98_PTY_SLAVE_MAJOR:
@@ -507,6 +516,27 @@ static void pty_free_fake_reg(struct reg_file_info **r)
 	}
 }
 
+static int do_open_tty_reg(int ns_root_fd, struct reg_file_info *rfi, void *arg)
+{
+	int fd;
+
+	fd = do_open_reg_noseek_flags(ns_root_fd, rfi, arg);
+	if (fd >= 0) {
+		/*
+		 * Peers might have differend modes set
+		 * after creation before we've dumped
+		 * them. So simply setup mode from image
+		 * the regular file engine will check
+		 * for this, so if we fail here it
+		 * gonna be catched anyway.
+		 */
+		if (rfi->rfe->has_mode)
+			fchmod(fd, rfi->rfe->mode);
+	}
+
+	return fd;
+}
+
 static int open_tty_reg(struct file_desc *reg_d, u32 flags)
 {
 	/*
@@ -514,7 +544,7 @@ static int open_tty_reg(struct file_desc *reg_d, u32 flags)
 	 * ctty magic happens only in tty_set_sid().
 	 */
 	flags |= O_NOCTTY;
-	return open_path(reg_d, do_open_reg_noseek_flags, &flags);
+	return open_path(reg_d, do_open_tty_reg, &flags);
 }
 
 static char *path_from_reg(struct file_desc *d)
@@ -684,6 +714,7 @@ static bool tty_is_master(struct tty_info *info)
 	case TTY_TYPE__CONSOLE:
 	case TTY_TYPE__CTTY:
 		return true;
+	case TTY_TYPE__SERIAL:
 	case TTY_TYPE__VT:
 		if (!opts.shell_job)
 			return true;
@@ -802,7 +833,7 @@ static int restore_tty_params(int fd, struct tty_info *info)
 		winsize_copy(&p.w, info->tie->winsize);
 	}
 
-	return userns_call(do_restore_tty_parms, 0, &p, sizeof(p), fd);
+	return userns_call(do_restore_tty_parms, UNS_ASYNC, &p, sizeof(p), fd);
 }
 
 /*
@@ -1431,6 +1462,7 @@ static int collect_one_tty_info_entry(void *obj, ProtobufCMessage *msg, struct c
 		break;
 	case TTY_TYPE__CTTY:
 	case TTY_TYPE__CONSOLE:
+	case TTY_TYPE__SERIAL:
 	case TTY_TYPE__VT:
 	case TTY_TYPE__EXT_TTY:
 		if (info->tie->pty) {
@@ -1500,7 +1532,7 @@ static int collect_one_tty(void *obj, ProtobufCMessage *msg, struct cr_img *i)
 				       info->tfe->id);
 				return -1;
 			}
-		} if (info->driver->type != TTY_TYPE__EXT_TTY) {
+		} else if (info->driver->type != TTY_TYPE__EXT_TTY) {
 			pr_err("No reg_d descriptor for id %#x\n", info->tfe->id);
 			return -1;
 		}
@@ -1750,11 +1782,6 @@ static int dump_one_tty(int lfd, u32 id, const struct fd_parms *p)
 	pr_info("Dumping tty %d with id %#x\n", lfd, id);
 
 	driver = get_tty_driver(p->stat.st_rdev, p->stat.st_dev);
-	if (!driver) {
-		pr_err("Can't find driver for tty id %#x\n", id);
-		return -1;
-	}
-
 	if (driver->fd_get_index)
 		index = driver->fd_get_index(lfd, p);
 	else

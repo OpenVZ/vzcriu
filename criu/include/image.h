@@ -26,24 +26,6 @@
 #define REMAP_GHOST	(1 << 31)
 
 /*
- * By-default, when dumping a unix socket, we should dump its peer
- * as well. Which in turn means, we should dump the task(s) that have
- * this peer opened.
- *
- * Sometimes, we can break this rule and dump only one end of the
- * unix sockets pair, and on restore time connect() this end back to
- * its peer.
- *
- * So, to resolve this situation we mark the peers we don't dump
- * as "external" and require the --ext-unix-sk option.
- */
-
-#define USK_EXTERN	(1 << 0)
-#define USK_SERVICE	(1 << 1)
-#define USK_CALLBACK	(1 << 2)
-#define USK_INHERIT	(1 << 3)
-
-/*
  * VMA_AREA status:
  *
  *  - none
@@ -112,16 +94,8 @@
 
 #define TASK_COMM_LEN 16
 
-#define TASK_UNDEF		0x0
-#define TASK_ALIVE		0x1
-#define TASK_DEAD		0x2
-#define TASK_STOPPED		0x3
-#define TASK_HELPER		0x4
-#define TASK_THREAD		0x5
-
 #define CR_PARENT_LINK "parent"
 
-extern bool fdinfo_per_id;
 extern bool ns_per_id;
 extern bool img_common_magic;
 
@@ -166,6 +140,8 @@ static inline int img_raw_fd(struct cr_img *img)
 	BUG_ON(bfd_buffered(&img->_x));
 	return img->_x.fd;
 }
+
+extern off_t img_raw_size(struct cr_img *img);
 
 extern int open_image_dir(char *dir);
 extern void close_image_dir(void);

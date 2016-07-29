@@ -6,7 +6,7 @@
 
 #include "proc_parse.h"
 #include "autofs.h"
-#include "util.h"
+#include "rst-malloc.h"
 #include "mount.h"
 #include "pstree.h"
 #include "namespaces.h"
@@ -371,11 +371,12 @@ static int access_autofs_mount(struct mount_info *pm)
 		goto close_old_pid_ns;
 	}
 
-	if (restore_ns(new_pid_ns, &pid_ns_desc)) {
+	err = restore_ns(new_pid_ns, &pid_ns_desc);
+	new_pid_ns = -1;
+	if (err) {
 		pr_err("failed to restore pid namespace\n");
 		goto restore_mnt_ns;
 	}
-	new_pid_ns = -1;
 
 	autofs_mnt = autofs_mnt_open(mnt_path, dev_id);
 	if (autofs_mnt < 0)
@@ -403,13 +404,13 @@ close_autofs_mnt:
 restore_pid_ns:
 	if (restore_ns(old_pid_ns, &pid_ns_desc)) {
 		pr_err("failed to restore pid namespace\n");
-		return -1;
+		err = -1;
 	}
 	old_pid_ns = -1;
 restore_mnt_ns:
 	if (restore_ns(old_mnt_ns, &mnt_ns_desc)) {
 		pr_err("failed to restore mount namespace\n");
-		return -1;
+		err = -1;
 	}
 close_old_pid_ns:
 	if (old_pid_ns >= 0)

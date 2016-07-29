@@ -28,6 +28,7 @@
 #include "net.h"
 #include "mount.h"
 #include "cgroup.h"
+#include "cgroup-props.h"
 #include "action-scripts.h"
 #include "sockets.h"
 #include "irmap.h"
@@ -321,6 +322,9 @@ static int setup_opts_from_req(int sk, CriuOpts *req)
 	if (req->has_tcp_established)
 		opts.tcp_established_ok = req->tcp_established;
 
+	if (req->has_tcp_skip_in_flight)
+		opts.tcp_skip_in_flight = req->tcp_skip_in_flight;
+
 	if (req->has_evasive_devices)
 		opts.evasive_devices = req->evasive_devices;
 
@@ -361,8 +365,7 @@ static int setup_opts_from_req(int sk, CriuOpts *req)
 		}
 	}
 
-	if (req->notify_scripts &&
-			add_script(SCRIPT_RPC_NOTIFY, sk))
+	if (req->notify_scripts && add_rpc_notify(sk))
 		goto err;
 
 	for (i = 0; i < req->n_veths; i++) {
@@ -459,6 +462,17 @@ static int setup_opts_from_req(int sk, CriuOpts *req)
 
 	if (req->has_timeout)
 		opts.timeout = req->timeout;
+
+	if (req->cgroup_props)
+		opts.cgroup_props = req->cgroup_props;
+
+	if (req->cgroup_props_file)
+		opts.cgroup_props_file = req->cgroup_props_file;
+
+	for (i = 0; i < req->n_cgroup_dump_controller; i++) {
+		if (!cgp_add_dump_controller(req->cgroup_dump_controller[i]))
+			goto err;
+	}
 
 	if (req->has_auto_ext_mnt)
 		opts.autodetect_ext_mounts = req->auto_ext_mnt;
@@ -1086,7 +1100,7 @@ int cr_service(bool daemon_mode)
 
 		pr_info("Waiting for connection...\n");
 
-		sk = accept(server_fd, &client_addr, &client_addr_len);
+		sk = accept(server_fd, (struct sockaddr *)&client_addr, &client_addr_len);
 		if (sk == -1) {
 			pr_perror("Can't accept connection");
 			goto err;

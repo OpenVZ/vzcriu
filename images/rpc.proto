@@ -1,3 +1,5 @@
+syntax = "proto2";
+
 message criu_page_server_info {
 	optional string		address	= 1;
 	optional int32		port	= 2;
@@ -98,8 +100,13 @@ message criu_opts {
 	optional uint32			empty_ns	= 38;
 	repeated join_namespace		join_ns		= 39;
 
+	optional string			cgroup_props		= 41;
+	optional string			cgroup_props_file	= 42;
+	repeated string			cgroup_dump_controller	= 43;
+
 	optional string			freeze_cgroup		= 44;
 	optional uint32			timeout			= 45;
+	optional bool			tcp_skip_in_flight	= 46;
 }
 
 message criu_dump_resp {

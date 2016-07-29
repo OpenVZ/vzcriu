@@ -52,6 +52,10 @@ extern void rst_mem_switch_to_private(void);
  */
 extern unsigned long rst_mem_align_cpos(int type);
 extern void *rst_mem_remap_ptr(unsigned long pos, int type);
+#define RST_MEM_FIXUP_PPTR(ptr) do {				\
+	ptr = rst_mem_remap_ptr((unsigned long)ptr, RM_PRIVATE);\
+} while (0)
+
 /*
  * Allocate and free objects. We don't need to free arbitrary
  * object, thus allocation is simple (linear) and only the
@@ -70,5 +74,8 @@ extern void rst_mem_align(int type);
  */
 extern unsigned long rst_mem_lock(void);
 extern int rst_mem_remap(void *to);
+
+extern void *shmalloc(size_t bytes);
+extern void shfree_last(void *ptr);
 
 #endif /* __CR_RST_MALLOC__H__ */

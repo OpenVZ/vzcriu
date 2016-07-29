@@ -1,7 +1,7 @@
 #ifndef __PIE_RELOCS_H__
 #define __PIE_RELOCS_H__
 
-#include "compel/include/uapi/types.h"
+#include "piegen/uapi/types.h"
 
 #include "compiler.h"
 #include "config.h"

@@ -1,12 +1,13 @@
 #ifndef __CR_FILES_H__
 #define __CR_FILES_H__
 
+#include <sys/stat.h>
+
 #include "compiler.h"
 #include "asm/types.h"
 #include "fcntl.h"
 #include "lock.h"
 #include "list.h"
-#include "image.h"
 #include "pid.h"
 #include "rst_info.h"
 
@@ -126,25 +127,8 @@ static inline void collect_gen_fd(struct fdinfo_list_entry *fle, struct rst_info
 	list_add_tail(&fle->ps_list, &ri->fds);
 }
 
-static inline bool fd_is_used(struct list_head *head, int fd)
-{
-	struct fdinfo_list_entry *fle;
-
-	list_for_each_entry(fle, head, used_list) {
-		if (fle->fe->fd == fd)
-			return true;
-	}
-
-	return false;
-}
-
-static inline unsigned int find_unused_fd(struct list_head *head, int hint_fd)
-{
-	if ((hint_fd >= 0) && (!fd_is_used(head, hint_fd)))
-		return hint_fd;
-	/* Return last used fd +1 */
-	return list_entry(head->prev, typeof(struct fdinfo_list_entry), used_list)->fe->fd + 1;
-}
+unsigned int find_unused_fd(struct list_head *head, int hint_fd);
+struct fdinfo_list_entry *find_used_fd(struct list_head *head, int fd);
 
 struct file_desc {
 	u32			id;		/* File id, unique */
@@ -184,7 +168,6 @@ extern int prepare_fds(struct pstree_item *me);
 extern int prepare_fd_pid(struct pstree_item *me);
 extern int prepare_ctl_tty(int pid, struct rst_info *rst_info, u32 ctl_tty_id);
 extern int prepare_shared_fdinfo(void);
-extern int get_filemap_fd(struct vma_area *);
 extern int restore_fs(struct pstree_item *);
 extern int prepare_fs_pid(struct pstree_item *);
 extern int set_fd_flags(int fd, int flags);

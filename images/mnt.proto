@@ -1,3 +1,5 @@
+syntax = "proto2";
+
 import "opts.proto";
 
 enum fstype {
@@ -21,9 +23,11 @@ enum fstype {
 	OVERLAYFS		= 17;
 	AUTOFS			= 18;
 	TRACEFS			= 19;
-	RPC_PIPEFS		= 20;
-	NFS			= 21;
-	NFS4			= 22;
+
+	/* These three are reserved for NFS support */
+	// RPC_PIPEFS		= 20;
+	// NFS			= 21;
+	// NFS4			= 22;
 };
 
 message mnt_entry {

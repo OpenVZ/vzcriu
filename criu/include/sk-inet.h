@@ -9,7 +9,7 @@
 #include "protobuf.h"
 #include "images/sk-inet.pb-c.h"
 
-#define INET_ADDR_LEN		40
+#define INET_ADDR_LEN		48 /* max of INET_ADDRSTRLEN and INET6_ADDRSTRLEN */
 #ifndef TCP_REPAIR
 #define TCP_REPAIR		19      /* TCP sock is under repair right now */
 #define TCP_REPAIR_QUEUE	20
@@ -72,13 +72,12 @@ extern int dump_one_tcp(int sk, struct inet_sk_desc *sd);
 extern int restore_one_tcp(int sk, struct inet_sk_info *si);
 
 #define SK_EST_PARAM	"tcp-established"
+#define SK_INFLIGHT_PARAM "skip-in-flight"
 
 extern int check_tcp(void);
-extern mutex_t *inet_get_reuseaddr_lock(struct inet_sk_info *ii);
 
-int rst_tcp_socks_prep(void);
-extern unsigned long rst_tcp_socks_cpos;
-extern unsigned int rst_tcp_socks_nr;
+struct task_restore_args;
+int prepare_tcp_socks(struct task_restore_args *);
 
 struct rst_tcp_sock {
 	int	sk;

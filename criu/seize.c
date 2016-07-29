@@ -3,6 +3,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <sys/time.h>
 #include <sys/resource.h>
 #include <sys/wait.h>
@@ -116,15 +117,13 @@ static int seize_cgroup_tree(char *root_path, const char *state)
 		if (ret == 0)
 			continue;
 		if (errno != ESRCH) {
-			pr_perror("Unexpected error for pid %d (comm %s)",
-				  pid, __task_comm_info(pid));
+			pr_perror("Unexpected error");
 			fclose(f);
 			return -1;
 		}
 
 		if (!seize_catch_task(pid)) {
-			pr_debug("SEIZE %d (comm %s): success\n",
-				 pid, __task_comm_info(pid));
+			pr_debug("SEIZE %d: success\n", pid);
 			processes_to_wait++;
 		} else if (state == frozen) {
 			char buf[] = "/proc/XXXXXXXXXX/exe";
@@ -136,8 +135,7 @@ static int seize_cgroup_tree(char *root_path, const char *state)
 				continue;
 
 			/* fails when meets a zombie */
-			pr_err("zombie %d (comm %s) found while seizing\n",
-			       pid, __task_comm_info(pid));
+			pr_err("zombie found while seizing\n");
 			fclose(f);
 			return -1;
 		}
@@ -247,29 +245,9 @@ static int freezer_detach(void)
 
 static int freeze_processes(void)
 {
-	int fd, exit_code = -1;
+	int i, fd, exit_code = -1;
 	char path[PATH_MAX];
 	const char *state = thawed;
-
-	static const unsigned long step_ms = 100;
-	unsigned long nr_attempts = (opts.timeout * 1000000) / step_ms;
-	unsigned long i;
-
-	const struct timespec req = {
-		.tv_nsec	= step_ms * 1000000,
-		.tv_sec		= 0,
-	};
-
-	if (unlikely(!nr_attempts)) {
-		/*
-		 * If timeout is turned off, lets
-		 * wait for at least 10 seconds.
-		 */
-		nr_attempts = (10 * 1000000) / step_ms;
-	}
-
-	pr_debug("freezing processes: %lu attempst with %lu ms steps\n",
-		 nr_attempts, step_ms);
 
 	snprintf(path, sizeof(path), "%s/freezer.state", opts.freeze_cgroup);
 	fd = open(path, O_RDWR);
@@ -291,38 +269,51 @@ static int freeze_processes(void)
 			close(fd);
 			return -1;
 		}
-
-		/*
-		 * Wait the freezer to complete before
-		 * processing tasks. They might be exiting
-		 * before freezing complete so we should
-		 * not read @tasks pids while freezer in
-		 * transition stage.
-		 */
-		for (i = 0; i <= nr_attempts; i++) {
-			state = get_freezer_state(fd);
-			if (!state) {
-				close(fd);
-				return -1;
-			}
-
-			if (state == frozen)
-				break;
-			if (alarm_timeouted())
-				goto err;
-			nanosleep(&req, NULL);
-		}
-
-		if (i > nr_attempts) {
-			pr_err("Unable to freeze cgroup %s\n", opts.freeze_cgroup);
-			goto err;
-		}
-
-		pr_debug("freezing processes: %lu attempts done\n", i);
 	}
 
-	exit_code = seize_cgroup_tree(opts.freeze_cgroup, state);
+	/*
+	 * There is not way to wait a specified state, so we need to poll the
+	 * freezer.state.
+	 * Here is one extra attempt to check that everything are frozen.
+	 */
+	for (i = 0; i <= NR_ATTEMPTS; i++) {
+		struct timespec req = {};
+		u64 timeout;
 
+		if (seize_cgroup_tree(opts.freeze_cgroup, state) < 0)
+			goto err;
+
+		if (state == frozen)
+			break;
+
+		state = get_freezer_state(fd);
+		if (!state)
+			goto err;
+
+		if (state == frozen) {
+			/*
+			 * Enumerate all tasks one more time to collect all new
+			 * tasks, which can be born while the cgroup is being frozen.
+			 */
+
+			continue;
+		}
+
+		if (alarm_timeouted())
+			goto err;
+
+		timeout = 100000000 * (i + 1); /* 100 msec */
+		req.tv_nsec = timeout % 1000000000;
+		req.tv_sec = timeout / 1000000000;
+		nanosleep(&req, NULL);
+	}
+
+	if (i > NR_ATTEMPTS) {
+		pr_err("Unable to freeze cgroup %s\n", opts.freeze_cgroup);
+		goto err;
+	}
+
+	exit_code = 0;
 err:
 	if (exit_code == 0 || freezer_thawed) {
 		lseek(fd, 0, SEEK_SET);

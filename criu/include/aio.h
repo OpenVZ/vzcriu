@@ -3,11 +3,14 @@
 
 #include <linux/aio_abi.h>
 #include "images/mm.pb-c.h"
+unsigned int aio_estimate_nr_reqs(unsigned int size);
 int dump_aio_ring(MmEntry *mme, struct vma_area *vma);
 void free_aios(MmEntry *mme);
 struct parasite_ctl;
 int parasite_collect_aios(struct parasite_ctl *, struct vm_area_list *);
 unsigned long aio_rings_args_size(struct vm_area_list *);
+struct task_restore_args;
+int prepare_aios(struct pstree_item *t, struct task_restore_args *ta);
 
 struct aio_ring {
 	unsigned        id;     /* kernel internal index number */

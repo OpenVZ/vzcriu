@@ -330,7 +330,7 @@ static int restore_socket_filter(int sk, SkOptsEntry *soe)
 
 static struct socket_desc *sockets[SK_HASH_SIZE];
 
-struct socket_desc *lookup_socket(int ino, int family, int proto)
+struct socket_desc *lookup_socket(unsigned ino, int family, int proto)
 {
 	struct socket_desc *sd;
 
@@ -350,7 +350,7 @@ struct socket_desc *lookup_socket(int ino, int family, int proto)
 	return NULL;
 }
 
-int sk_collect_one(int ino, int family, struct socket_desc *d)
+int sk_collect_one(unsigned ino, int family, struct socket_desc *d)
 {
 	struct socket_desc **chain;
 
@@ -706,7 +706,7 @@ int collect_sockets(struct ns_id *ns)
 
 	req.r.n.sdiag_family	= AF_NETLINK;
 	req.r.n.sdiag_protocol	= NDIAG_PROTO_ALL;
-	req.r.n.ndiag_show	= NDIAG_SHOW_GROUPS | NDIAG_SHOW_FLAGS;
+	req.r.n.ndiag_show	= NDIAG_SHOW_GROUPS;
 	tmp = do_collect_req(nl, &req, sizeof(req), netlink_receive_one, NULL);
 	if (tmp) {
 		pr_warn("The current kernel doesn't support netlink_diag\n");

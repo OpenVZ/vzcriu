@@ -5,7 +5,7 @@ import sys
 import os
 import subprocess
 
-find = subprocess.Popen(['find', 'test/dump/', '-name', '*.img'],
+find = subprocess.Popen(['find', 'test/dump/', '-size', '+0', '-name', '*.img'],
 		stdout = subprocess.PIPE)
 
 test_pass = True
@@ -54,6 +54,8 @@ for imgf in find.stdout.readlines():
 	if imgf_b.startswith('netns-ct-'):
 		continue
 	if imgf_b.startswith('netns-exp-'):
+		continue
+	if imgf_b.startswith('rule-'):
 		continue
 
 	o_img = open(imgf).read()

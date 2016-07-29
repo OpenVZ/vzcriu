@@ -12,7 +12,6 @@
 
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <sys/resource.h>
 
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -39,13 +38,14 @@
 #include "mount.h"
 #include "namespaces.h"
 #include "cgroup.h"
+#include "cgroup-props.h"
 #include "cpu.h"
 #include "action-scripts.h"
 #include "irmap.h"
 #include "fault-injection.h"
 #include "lsm.h"
 #include "proc_parse.h"
-#include "syscall-types.h"
+
 #include "setproctitle.h"
 #include "sysctl.h"
 
@@ -59,7 +59,6 @@ void init_opts(void)
 	opts.final_state = TASK_DEAD;
 	INIT_LIST_HEAD(&opts.ext_unixsk_ids);
 	INIT_LIST_HEAD(&opts.veth_pairs);
-	INIT_LIST_HEAD(&opts.scripts);
 	INIT_LIST_HEAD(&opts.ext_mounts);
 	INIT_LIST_HEAD(&opts.inherit_fds);
 	INIT_LIST_HEAD(&opts.external);
@@ -73,49 +72,6 @@ void init_opts(void)
 	opts.ghost_limit = DEFAULT_GHOST_LIMIT;
 	opts.timeout = DEFAULT_TIMEOUT;
 	opts.empty_ns = 0;
-}
-
-static int parse_unshare_arg(char *opt)
-{
-	while (1) {
-		char *aux;
-
-		aux = strchr(opt, ',');
-		if (aux)
-			*aux = '\0';
-
-		if (!strcmp(opt, "uts"))
-			opts.unshare_flags |= CLONE_NEWUTS;
-		else if (!strcmp(opt, "ipc"))
-			opts.unshare_flags |= CLONE_NEWIPC;
-		else if (!strcmp(opt, "mnt"))
-			opts.unshare_flags |= CLONE_NEWNS;
-		else if (!strcmp(opt, "pid"))
-			opts.unshare_flags |= CLONE_NEWPID;
-		else if (!strcmp(opt, "net"))
-			opts.unshare_flags |= CLONE_NEWNET;
-		else if (!strcmp(opt, "user"))
-			opts.unshare_flags |= CLONE_NEWUSER;
-		else if (!strcmp(opt, "proc"))
-			opts.unshare_flags |= UNSHARE_MOUNT_PROC; /* mount new proc */
-		else {
-			pr_msg("Error: unknown unshare flag %s\n", opt);
-			return -1;
-		}
-
-		if (!aux)
-			break;
-
-		opt = aux + 1;
-	}
-
-	/* Only pid, mnt and user for now */
-	if (opts.unshare_flags & ~(CLONE_NEWNS | CLONE_NEWPID | UNSHARE_MOUNT_PROC)) {
-		pr_err("Unsharing this namespace(s) is not supported yet\n");
-		return -1;
-	}
-
-	return 0;
 }
 
 static int parse_join_ns(const char *ptr)
@@ -250,19 +206,6 @@ int add_external(char *key)
 	return 0;
 }
 
-/* FIXME: This is temp solution for huge number of VMAs with files carried */
-static void init_self_rlimits(void)
-{
-	struct rlimit r;
-
-	if (getrlimit(RLIMIT_NOFILE, &r) == 0) {
-		r.rlim_cur = 100000;
-		r.rlim_max = 100000;
-
-		setrlimit(RLIMIT_NOFILE, &r);
-	}
-}
-
 int main(int argc, char *argv[], char *envp[])
 {
 	pid_t pid = 0, tree_id = 0;
@@ -272,8 +215,7 @@ int main(int argc, char *argv[], char *envp[])
 	int opt, idx;
 	int log_level = LOG_UNSET;
 	char *imgs_dir = ".";
-	char *work_dir = NULL;
-	static const char short_opts[] = "dSsRf:F:t:p:hcD:o:n:v::x::Vr:jJ:lW:L:M:";
+	static const char short_opts[] = "dSsRf:F:t:p:hcD:o:v::x::Vr:jJ:lW:L:M:";
 	static struct option long_opts[] = {
 		{ "tree",			required_argument,	0, 't'	},
 		{ "pid",			required_argument,	0, 'p'	},
@@ -288,7 +230,6 @@ int main(int argc, char *argv[], char *envp[])
 		{ "images-dir",			required_argument,	0, 'D'	},
 		{ "work-dir",			required_argument,	0, 'W'	},
 		{ "log-file",			required_argument,	0, 'o'	},
-		{ "namespaces",			required_argument,	0, 'n'	},
 		{ "join-ns",			required_argument,	0, 'J'	},
 		{ "root",			required_argument,	0, 'r'	},
 		{ USK_EXT_PARAM,		optional_argument,	0, 'x'	},
@@ -331,13 +272,13 @@ int main(int argc, char *argv[], char *envp[])
 		{ "timeout",			required_argument,	0, 1072 },
 		{ "external",			required_argument,	0, 1073	},
 		{ "empty-ns",			required_argument,	0, 1074	},
-		{ "unshare",			required_argument,	0, 1075 },
-#ifdef CONFIG_HAS_UFFD
-		{ "lazy-pages",			no_argument,		0, 1076 },
-#endif
 		{ "extra",			no_argument,		0, 1077	},
 		{ "experimental",		no_argument,		0, 1078	},
 		{ "all",			no_argument,		0, 1079	},
+		{ "cgroup-props",		required_argument,	0, 1080	},
+		{ "cgroup-props-file",		required_argument,	0, 1081	},
+		{ "cgroup-dump-controller",	required_argument,	0, 1082	},
+		{ SK_INFLIGHT_PARAM,		no_argument,		0, 1083	},
 		{ },
 	};
 
@@ -355,8 +296,7 @@ int main(int argc, char *argv[], char *envp[])
 		goto usage;
 
 	init_opts();
-	init_self_rlimits();
-	
+
 	if (init_service_fd())
 		return 1;
 
@@ -423,13 +363,10 @@ int main(int argc, char *argv[], char *envp[])
 			imgs_dir = optarg;
 			break;
 		case 'W':
-			work_dir = optarg;
+			opts.work_dir = optarg;
 			break;
 		case 'o':
 			opts.output = optarg;
-			break;
-		case 'n':
-			pr_warn("The -n|--namespaces option has no effect and will soon be removed.\n");
 			break;
 		case 'J':
 			if (parse_join_ns(optarg))
@@ -486,7 +423,7 @@ int main(int argc, char *argv[], char *envp[])
 			}
 			break;
 		case 1049:
-			if (add_script(optarg, 0))
+			if (add_script(optarg))
 				return 1;
 
 			break;
@@ -596,15 +533,6 @@ int main(int argc, char *argv[], char *envp[])
 		case 1072:
 			opts.timeout = atoi(optarg);
 			break;
-		case 1075:
-			if (parse_unshare_arg(optarg))
-				return -1;
-			break;
-#ifdef CONFIG_HAS_UFFD
-		case 1076:
-			opts.lazy_pages = true;
-			break;
-#endif
 		case 'M':
 			{
 				char *aux;
@@ -645,6 +573,20 @@ int main(int argc, char *argv[], char *envp[])
 			opts.check_extra_features = true;
 			opts.check_experimental_features = true;
 			break;
+		case 1080:
+			opts.cgroup_props = optarg;
+			break;
+		case 1081:
+			opts.cgroup_props_file = optarg;
+			break;
+		case 1082:
+			if (!cgp_add_dump_controller(optarg))
+				return 1;
+			break;
+		case 1083:
+			pr_msg("Will skip in-flight TCP connections\n");
+			opts.tcp_skip_in_flight = true;
+			break;
 		case 'V':
 			pr_msg("Version: %s\n", CRIU_VERSION);
 			if (strcmp(CRIU_GITID, "0"))
@@ -673,8 +615,8 @@ int main(int argc, char *argv[], char *envp[])
 		return 1;
 	}
 
-	if (work_dir == NULL)
-		work_dir = imgs_dir;
+	if (opts.work_dir == NULL)
+		opts.work_dir = imgs_dir;
 
 	if (optind >= argc) {
 		pr_msg("Error: command is required\n");
@@ -711,8 +653,8 @@ int main(int argc, char *argv[], char *envp[])
 			return 1;
 	}
 
-	if (chdir(work_dir)) {
-		pr_perror("Can't change directory to %s", work_dir);
+	if (chdir(opts.work_dir)) {
+		pr_perror("Can't change directory to %s", opts.work_dir);
 		return 1;
 	}
 
@@ -720,8 +662,6 @@ int main(int argc, char *argv[], char *envp[])
 
 	if (log_init(opts.output))
 		return 1;
-
-	pr_debug("Version: %s (gitid %s)\n", CRIU_VERSION, CRIU_GITID);
 
 	if (!list_empty(&opts.inherit_fds)) {
 		if (strcmp(argv[optind], "restore")) {
@@ -773,9 +713,6 @@ int main(int argc, char *argv[], char *envp[])
 		return -1;
 	}
 
-	if (!strcmp(argv[optind], "lazy-pages"))
-		return uffd_listen() != 0;
-
 	if (!strcmp(argv[optind], "check"))
 		return cr_check() != 0;
 
@@ -816,9 +753,6 @@ usage:
 "  criu page-server\n"
 "  criu service [<options>]\n"
 "  criu dedup\n"
-#ifdef CONFIG_HAS_UFFD
-"  criu lazy-pages -D DIR [<options>]\n"
-#endif
 "\n"
 "Commands:\n"
 "  dump           checkpoint a process/tree identified by pid\n"
@@ -855,19 +789,16 @@ usage:
 "                        'cpu','fpu','all','ins','none'. To disable capability, prefix it with '^'.\n"
 "     --exec-cmd         execute the command specified after '--' on successful\n"
 "                        restore making it the parent of the restored process\n"
-"  --unshare FLAGS       what namespaces to unshare when restoring\n"
 "  --freeze-cgroup\n"
 "                        use cgroup freezer to collect processes\n"
-#ifdef CONFIG_HAS_UFFD
-"  --lazy-pages          restore pages on demand\n"
-"                        this requires running a second instance of criu\n"
-"                        in lazy-pages mode: 'criu lazy-pages -D DIR'\n"
-"                        --lazy-pages and lazy-pages mode require userfaultfd\n"
-#endif
 "\n"
 "* Special resources support:\n"
 "  -x|--" USK_EXT_PARAM "inode,.." "      allow external unix connections (optionally can be assign socket's inode that allows one-sided dump)\n"
 "     --" SK_EST_PARAM "  checkpoint/restore established TCP connections\n"
+"     --" SK_INFLIGHT_PARAM "   this option skips in-flight TCP connections.\n"
+"                        if TCP connections are found which are not yet completely\n"
+"                        established, criu will ignore these connections in favor\n"
+"                        of erroring out.\n"
 "  -r|--root PATH        change the root filesystem (when run in mount namespace)\n"
 "  --evasive-devices     use any path to a device file if the original one\n"
 "                        is inaccessible\n"
@@ -897,6 +828,16 @@ usage:
 "                        change the root cgroup the controller will be\n"
 "                        installed into. No controller means that root is the\n"
 "                        default for all controllers not specified.\n"
+"  --cgroup-props STRING\n"
+"                        define cgroup controllers and properties\n"
+"                        to be checkpointed, which are described\n"
+"                        via STRING using simplified YAML format.\n"
+"  --cgroup-props-file FILE\n"
+"                        same as --cgroup-props but taking descrition\n"
+"                        from the path specified.\n"
+"  --cgroup-dump-controller NAME\n"
+"                        define cgroup controller to be dumped\n"
+"                        and skip anything else present in system.\n"
 "  --skip-mnt PATH       ignore this mountpoint when dumping the mount namespace.\n"
 "  --enable-fs FSNAMES   a comma separated list of filesystem names or \"all\".\n"
 "                        force criu to (try to) dump/restore these filesystem's\n"
@@ -925,6 +866,8 @@ usage:
 "			    --join-ns net:12345 or --join-ns net:/foo/bar.\n"
 "			Extra_opts is optional, for now only user namespace support:\n"
 "			    --join-ns user:PID,UID,GID to specify uid and gid.\n"
+"			Please NOTE: join-ns with user-namespace is not fully tested.\n"
+"			It may be dangerous to use this feature\n"
 "Check options:\n"
 "  without any arguments, \"criu check\" checks availability of absolutely required\n"
 "  kernel features; if any of these features is missing dump and restore will fail\n"

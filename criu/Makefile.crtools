@@ -5,6 +5,7 @@ obj-y			+= aio.o
 obj-y			+= bfd.o
 obj-y			+= bitmap.o
 obj-y			+= cgroup.o
+obj-y			+= cgroup-props.o
 obj-y			+= cr-check.o
 obj-y			+= cr-dedup.o
 obj-y			+= cr-dump.o
@@ -39,7 +40,7 @@ obj-y			+= netfilter.o
 obj-y			+= net.o
 obj-y			+= pagemap-cache.o
 obj-y			+= page-pipe.o
-obj-y			+= page-read.o
+obj-y			+= pagemap.o
 obj-y			+= page-xfer.o
 obj-y			+= parasite-syscall.o
 obj-y			+= pie/pie-relocs.o
@@ -75,16 +76,12 @@ obj-y			+= tty.o
 obj-y			+= tun.o
 obj-y			+= util.o
 obj-y			+= uts_ns.o
+obj-y			+= path.o
 obj-y			+= autofs.o
-obj-y			+= spfs.o
 
 ifeq ($(VDSO),y)
 obj-y			+= pie-util-vdso.o
 obj-y			+= vdso.o
-endif
-
-ifeq ($(UFFD),1)
-obj-y	+= uffd.o
 endif
 
 PROTOBUF_GEN := $(SRC_DIR)/scripts/protobuf-gen.sh

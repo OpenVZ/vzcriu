@@ -19,7 +19,7 @@
 #include "files.h"
 #include "image.h"
 #include "log.h"
-#include "util.h"
+#include "rst-malloc.h"
 #include "sockets.h"
 #include "sk-inet.h"
 
@@ -72,7 +72,7 @@ static void show_one_inet(const char *act, const struct inet_sk_desc *sk)
 		pr_perror("Failed to translate address");
 	}
 
-	pr_debug("\t%s: ino 0x%8x family %4d type %4d port %8d "
+	pr_debug("\t%s: ino %#8x family %4d type %4d port %8d "
 		"state %2d src_addr %s\n",
 		act, sk->sd.ino, sk->sd.family, sk->type, sk->src_port,
 		sk->state, src_addr);
@@ -144,6 +144,11 @@ static int can_dump_inet_sk(const struct inet_sk_desc *sk)
 	switch (sk->state) {
 	case TCP_LISTEN:
 		if (sk->rqlen != 0) {
+			if (opts.tcp_skip_in_flight) {
+				pr_info("Skipping in-flight connection (l) for %x\n",
+						sk->sd.ino);
+				break;
+			}
 			/*
 			 * Currently the ICONS nla reports the conn
 			 * requests for listen sockets. Need to pick
@@ -151,6 +156,8 @@ static int can_dump_inet_sk(const struct inet_sk_desc *sk)
 			 */
 			pr_err("In-flight connection (l) for %x\n",
 					sk->sd.ino);
+			pr_err("In-flight connections can be ignored with the "
+					"--%s option.\n", SK_INFLIGHT_PARAM);
 			return 0;
 		}
 		break;
@@ -589,8 +596,12 @@ static int open_inet_sk(struct file_desc *d)
 			goto err;
 		}
 
-		if (restore_one_tcp(sk, ii))
+		mutex_lock(&ii->port->reuseaddr_lock);
+		if (restore_one_tcp(sk, ii)) {
+			mutex_unlock(&ii->port->reuseaddr_lock);
 			goto err;
+		}
+		mutex_unlock(&ii->port->reuseaddr_lock);
 
 		goto done;
 	}
@@ -750,9 +761,4 @@ int inet_connect(int sk, struct inet_sk_info *ii)
 	}
 
 	return 0;
-}
-
-mutex_t *inet_get_reuseaddr_lock(struct inet_sk_info *ii)
-{
-	return &ii->port->reuseaddr_lock;
 }

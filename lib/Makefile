@@ -5,6 +5,10 @@ CRIU_SO			:= libcriu.so
 UAPI_HEADERS		:= c/criu.h ../images/rpc.proto
 
 #
+# File to keep track of files installed by setup.py
+CRIT_SETUP_FILES	:= .crit-setup.files
+
+#
 # C language bindings.
 c/%: ../Makefile.versions
 	$(call msg-gen, $@)
@@ -52,5 +56,17 @@ install: lib-c lib-py ../crit/crit c/criu.pc.in
 	$(Q) sed -e 's,@version@,$(CRIU_VERSION),' -e 's,@libdir@,$(LIBDIR),' -e 's,@includedir@,$(dir $(INCLUDEDIR)),' c/criu.pc.in > c/criu.pc
 	$(Q) install -m 644 c/criu.pc $(DESTDIR)$(LIBDIR)/pkgconfig
 	$(E) "  INSTALL " crit
-	$(Q) python ../scripts/crit-setup.py install --root=$(DESTDIR) --prefix=$(PREFIX)
+	$(Q) python ../scripts/crit-setup.py install --root=$(DESTDIR) --prefix=$(PREFIX) --record $(CRIT_SETUP_FILES)
 .PHONY: install
+
+uninstall:
+	$(E) " UNINSTALL" $(CRIU_SO)
+	$(Q) $(RM) $(addprefix $(DESTDIR)$(LIBDIR)/,$(CRIU_SO).$(CRIU_SO_VERSION_MAJOR))
+	$(Q) $(RM) $(addprefix $(DESTDIR)$(LIBDIR)/,$(CRIU_SO))
+	$(Q) $(RM) $(addprefix $(DESTDIR)$(LIBDIR)/,$(CRIU_SO).$(CRIU_SO_VERSION_MAJOR).$(CRIU_SO_VERSION_MINOR))
+	$(Q) $(RM) $(addprefix $(DESTDIR)$(INCLUDEDIR)/,$(notdir $(UAPI_HEADERS)))
+	$(E) " UNINSTALL" pkgconfig/criu.pc
+	$(Q) $(RM) $(addprefix $(DESTDIR)$(LIBDIR)/pkgconfig/,criu.pc)
+	$(E) " UNINSTALL" crit
+	$(Q) while read -r file; do $(RM) "$(DESTDIR)$$file"; done < $(CRIT_SETUP_FILES)
+.PHONY: uninstall

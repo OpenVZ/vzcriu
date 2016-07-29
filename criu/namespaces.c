@@ -14,8 +14,8 @@
 #include <limits.h>
 #include <errno.h>
 
+#include "rst-malloc.h"
 #include "cr_options.h"
-#include "util.h"
 #include "imgset.h"
 #include "uts_ns.h"
 #include "ipc_ns.h"
@@ -44,14 +44,13 @@ static unsigned int join_ns_flags;
 int check_namespace_opts(void)
 {
 	errno = 22;
-	if (join_ns_flags & opts.unshare_flags) {
-		pr_perror("Conflict flags: -join-ns and -unshare");
-		return -1;
-	}
 	if (join_ns_flags & opts.empty_ns) {
 		pr_perror("Conflict flags: -join-ns and -empty-ns");
 		return -1;
 	}
+	if (join_ns_flags & CLONE_NEWUSER)
+		pr_warn("join-ns with user-namespace is not fully tested and dangerous");
+
 	errno = 0;
 	return 0;
 }
@@ -171,7 +170,7 @@ int join_ns_add(const char *type, char *ns_file, char *extra_opts)
 		jn->nd = &mnt_ns_desc;
 		join_ns_flags |= CLONE_NEWNS;
 	} else {
-		pr_perror("invalid namespace type %s\n", type);
+		pr_err("invalid namespace type %s\n", type);
 		goto err;
 	}
 
@@ -294,7 +293,7 @@ struct ns_id *rst_new_ns_id(unsigned int id, pid_t pid,
 	if (nsid) {
 		nsid->type = type;
 		nsid_add(nsid, nd, id, pid);
-		nsid->ns_populated = false;
+		futex_set(&nsid->ns_populated, 0);
 	}
 
 	return nsid;
@@ -413,7 +412,7 @@ static unsigned int generate_ns_id(int pid, unsigned int kid, struct ns_desc *nd
 
 	nsid->type = type;
 	nsid->kid = kid;
-	nsid->ns_populated = true;
+	futex_set(&nsid->ns_populated, 1);
 	nsid_add(nsid, nd, ns_next_id++, pid);
 
 found:
@@ -837,7 +836,7 @@ static int check_user_ns(int pid)
 		}
 
 		if (setgroups(0, NULL) < 0) {
-			pr_perror("Unable to drop supplementary groups\n");
+			pr_perror("Unable to drop supplementary groups");
 			return -1;
 		}
 

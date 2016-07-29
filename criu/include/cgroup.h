@@ -67,7 +67,6 @@ struct cg_controller *new_controller(const char *name);
 /* parse all global cgroup information into structures */
 int parse_cg_info(void);
 int new_cg_root_add(char *controller, char *newroot);
-int new_cg_root_get(const char *controller, char **root);
 
 extern struct ns_desc cgroup_ns_desc;
 #endif /* __CR_CGROUP_H__ */
