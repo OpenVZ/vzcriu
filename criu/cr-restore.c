@@ -271,6 +271,10 @@ static int root_prepare_shared(void)
 	if (ret)
 		goto err;
 
+	ret = open_transport_socket();
+	if (ret)
+		goto err;
+
 	show_saved_files();
 err:
 	return ret;
@@ -710,6 +714,8 @@ static int restore_one_alive_task(int pid, CoreEntry *core)
 
 	if (prepare_vmas(current, ta))
 		return -1;
+
+	close_service_fd(TRANSPORT_FD_OFF);
 
 	if (setup_uffd(pid, ta))
 		return -1;
