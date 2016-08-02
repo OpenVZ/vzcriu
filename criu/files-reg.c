@@ -425,9 +425,6 @@ again:
 		goto err;
 	}
 
-	if (ghost_apply_metadata(path, gfe))
-		goto err;
-
 	ret = 0;
 err:
 	return ret;
@@ -461,6 +458,9 @@ static int create_ghost(struct ghost_file *gf, GhostFileEntry *gfe, struct cr_im
 
 	ret = create_ghost_dentry(path, gfe, img);
 	if (ret)
+		return -1;
+
+	if (ghost_apply_metadata(path, gfe))
 		return -1;
 
 	strcpy(gf->remap.rpath, path + root_len);
@@ -739,6 +739,10 @@ static int create_spfs(int mnt_id, const char *rpath, size_t size, GhostFileEntr
 		pr_perror("failed to truncate %s", path);
 		return -1;
 	}
+
+	if (ghost_apply_metadata(path, gfe))
+		return -1;
+
 	return 0;
 }
 
