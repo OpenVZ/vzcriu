@@ -74,6 +74,7 @@
 #include "seccomp.h"
 #include "fault-injection.h"
 #include "sk-queue.h"
+#include "spfs.h"
 
 #include "parasite-syscall.h"
 #include "files-reg.h"
@@ -1635,6 +1636,8 @@ static int restore_root_task(struct pstree_item *init)
 	int ret, fd, mnt_ns_fd = -1;
 	int clean_remaps = 1, root_seized = 0;
 	struct pstree_item *item;
+	bool spfs_is_running = false;
+	int spfs_sock = -1;
 
 	ret = run_scripts(ACT_PRE_RESTORE);
 	if (ret != 0) {
@@ -1772,6 +1775,16 @@ static int restore_root_task(struct pstree_item *init)
 	clean_remaps = 0;
 	close_safe(&mnt_ns_fd);
 
+	ret = spfs_mngr_status(&spfs_is_running);
+	if (ret < 0)
+		goto out_kill;
+
+	if (spfs_is_running) {
+		spfs_sock = spfs_mngr_sock();
+		if (spfs_sock < 0)
+			goto out_kill;
+	}
+
 	ret = stop_usernsd();
 	if (ret < 0)
 		goto out_kill;
@@ -1783,6 +1796,12 @@ static int restore_root_task(struct pstree_item *init)
 	ret = prepare_cgroup_properties();
 	if (ret < 0)
 		goto out_kill;
+
+	if (spfs_is_running) {
+		ret = spfs_set_mode(spfs_sock, SPFS_MODE_STUB);
+		if (ret < 0)
+			goto out_kill;
+	}
 
 	ret = run_scripts(ACT_POST_RESTORE);
 	if (ret != 0) {
@@ -1843,6 +1862,14 @@ static int restore_root_task(struct pstree_item *init)
 	ret = run_scripts(ACT_POST_RESUME);
 	if (ret != 0)
 		pr_err("Post-resume script ret code %d\n", ret);
+
+	if (spfs_is_running) {
+		ret = spfs_release_replace(spfs_sock);
+		if (ret < 0)
+			goto out_kill;
+	}
+
+	close_safe(&spfs_sock);
 
 	if (!opts.restore_detach && !opts.exec_cmd)
 		wait(NULL);
