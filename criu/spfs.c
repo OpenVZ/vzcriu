@@ -297,3 +297,78 @@ int spfs_set_env(void)
 
 	return 0;
 }
+
+static int spfs_service_fd(void *arg, int fd, pid_t pid)
+{
+	return get_service_fd(SPFS_MNGR_SK);
+}
+
+static int spfs_service_is_active(void *arg, int fd, pid_t pid)
+{
+	if (spfs_service_fd(arg, fd, pid) < 0)
+		return 0;
+	return 1;
+}
+
+int spfs_mngr_status(bool *active)
+{
+	int ret;
+
+	ret = userns_call(spfs_service_is_active, 0, NULL, 0, -1);
+	if (ret < 0) {
+		pr_perror("couldn't get spfs service status");
+		return -1;
+	}
+
+	*active = ret ? true : false;
+	return 0;
+}
+
+int spfs_mngr_sock(void)
+{
+	int ns_fd, fd;
+
+	ns_fd = open_proc(PROC_SELF, "ns");
+	if (ns_fd < 0)
+		return ns_fd;
+
+	fd = userns_call(spfs_service_fd, UNS_FDOUT, NULL, 0, ns_fd);
+
+	close(ns_fd);
+	return fd;
+}
+
+int spfs_set_mode(int sock, const char *mode)
+{
+	int ret;
+	char *req;
+
+	req = xsprintf("mode;all;mode=%s", mode);
+	if (!req) {
+		pr_err("failed to allocate mode request\n");
+		return -ENOMEM;
+	}
+
+	ret = spfs_send_request(sock, req, strlen(req) + 1);
+	if (ret)
+		pr_err("set mode to %s request failed: %d\n", mode, ret);
+	else
+		pr_debug("Set mode to %s request succeeded\n", mode);
+
+	free(req);
+	return 0;
+}
+
+int spfs_release_replace(int sock)
+{
+	int ret;
+	char *req = "replace;all;mode=release";
+
+	ret = spfs_send_request(sock, req, strlen(req) + 1);
+	if (ret)
+		pr_err("release replace request failed: %d\n", ret);
+	else
+		pr_debug("Release replace request succeeded\n");
+
+	return 0;
+}
