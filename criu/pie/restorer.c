@@ -949,7 +949,7 @@ static void restore_posix_timers(struct task_restore_args *args)
 }
 
 /*
- * sys_munmap must not return here. The controll process must
+ * sys_munmap must not return here. The control process must
  * trap us on the exit from sys_munmap.
  */
 #ifdef CONFIG_VDSO
