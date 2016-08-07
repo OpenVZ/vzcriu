@@ -118,14 +118,14 @@ static inline bool page_is_zero(u64 pme)
 	return (pme & PME_PFRAME_MASK) == kdat.zero_page_pfn;
 }
 
-static inline bool page_in_parent(u64 pme)
+bool page_in_parent(bool dirty)
 {
 	/*
 	 * If we do memory tracking, but w/o parent images,
 	 * then we have to dump all memory
 	 */
 
-	return opts.track_mem && opts.img_parent && !(pme & PME_SOFT_DIRTY);
+	return opts.track_mem && opts.img_parent && !dirty;
 }
 
 /*
@@ -168,7 +168,8 @@ static int generate_iovs(struct vma_area *vma, struct page_pipe *pp, u64 *map, u
 		if (page_is_zero(at[pfn])) {
 			ret = page_pipe_add_hole(pp, vaddr, PP_HOLE_ZERO);
 			pages[0]++;
-		} else if (has_parent && page_in_parent(at[pfn])) {
+		} else if (has_parent &&
+			page_in_parent(at[pfn] & PME_SOFT_DIRTY)) {
 			ret = page_pipe_add_hole(pp, vaddr, PP_HOLE_PARENT);
 			pages[1]++;
 		} else {
