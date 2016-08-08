@@ -84,7 +84,6 @@ typedef struct {
 	compat_sigset_word	sig[_COMPAT_NSIG_WORDS];
 } compat_sigset_t;
 
-#ifdef CONFIG_X86_64
 typedef struct compat_siginfo {
 	int	si_signo;
 	int	si_errno;
@@ -92,6 +91,7 @@ typedef struct compat_siginfo {
 	int	_pad[128/sizeof(int) - 3];
 } compat_siginfo_t;
 
+#ifdef CONFIG_COMPAT
 static inline void __always_unused __check_compat_sigset_t(void)
 {
 	BUILD_BUG_ON(sizeof(compat_sigset_t) != sizeof(k_rtsigset_t));
@@ -100,15 +100,20 @@ static inline void __always_unused __check_compat_sigset_t(void)
 extern void *alloc_compat_syscall_stack(void);
 extern void free_compat_syscall_stack(void *mem);
 extern unsigned long call32_from_64(void *stack, void *func);
+extern void restore_tls(tls_t *ptls);
 
 extern int arch_compat_rt_sigaction(void *stack32, int sig,
 		rt_sigaction_t_compat *act);
 #else
-#define rt_sigframe_ia32		rt_sigframe
 static inline void *alloc_compat_syscall_stack(void) { return NULL; }
 static inline void free_compat_syscall_stack(void *stack32) { }
+static inline void restore_tls(tls_t *ptls) { }
 static inline int
 arch_compat_rt_sigaction(void *stack, int sig, void *act) { return -1; }
+#endif
+
+#ifdef CONFIG_X86_32
+# define rt_sigframe_ia32	rt_sigframe
 #endif
 
 typedef struct compat_sigaltstack {
@@ -344,8 +349,6 @@ int restore_nonsigframe_gpregs(UserX86RegsEntry *r);
 
 int sigreturn_prep_fpu_frame(struct rt_sigframe *sigframe,
 		struct rt_sigframe *rsigframe);
-
-void restore_tls(tls_t *ptls);
 
 int ptrace_set_breakpoint(pid_t pid, void *addr);
 int ptrace_flush_breakpoints(pid_t pid);
