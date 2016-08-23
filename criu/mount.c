@@ -1373,7 +1373,7 @@ err:
 
 static int binfmt_misc_dump(struct mount_info *pm)
 {
-	struct cr_img *img;
+	struct cr_img *img = NULL;
 	struct dirent *de;
 	DIR *fdir = NULL;
 	int fd, ret;
@@ -1393,10 +1393,6 @@ static int binfmt_misc_dump(struct mount_info *pm)
 	}
 
 	ret = -1;
-	img = open_image(CR_FD_BINFMT_MISC_OLD, O_DUMP, pm->s_dev);
-	if (!img)
-		goto out;
-
 	while ((de = readdir(fdir))) {
 		if (dir_dots(de))
 			continue;
@@ -1404,6 +1400,13 @@ static int binfmt_misc_dump(struct mount_info *pm)
 			continue;
 		if (!strcmp(de->d_name, "status"))
 			continue;
+
+		if (!img) {
+			/* Create image only if an extry exists, i.e. here */
+			img = open_image(CR_FD_BINFMT_MISC, O_DUMP);
+			if (!img)
+				goto out;
+		}
 
 		if (dump_binfmt_misc_entry(fd, de->d_name, img))
 			goto out;
@@ -1532,8 +1535,24 @@ static int binfmt_misc_restore(struct mount_info *mi)
 	if (!buf)
 		return -1;
 
+	if (!list_empty(&binfmt_misc_list)) {
+		struct binfmt_misc_info *bmi;
+
+		list_for_each_entry(bmi, &binfmt_misc_list, list) {
+			ret = binfmt_misc_restore_bme(mi, bmi->bme, buf);
+			if (ret)
+				break;
+		}
+		goto free_buf;
+	}
+
 	img = open_image(CR_FD_BINFMT_MISC_OLD, O_RSTR, mi->s_dev);
 	if (!img) {
+		pr_err("Can't open binfmt_misc_old image\n");
+		goto free_buf;
+	} else if (empty_image(img)) {
+		close_image(img);
+		ret = 0;
 		goto free_buf;
 	}
 
