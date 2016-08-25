@@ -833,7 +833,7 @@ static int restore_tty_params(int fd, struct tty_info *info)
 		winsize_copy(&p.w, info->tie->winsize);
 	}
 
-	return userns_call(do_restore_tty_parms, UNS_ASYNC, &p, sizeof(p), fd);
+	return userns_call(do_restore_tty_parms, 0, &p, sizeof(p), fd);
 }
 
 /*
