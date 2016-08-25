@@ -15,6 +15,7 @@
 
 #include "image.h"
 #include "util-pie.h"
+#include "lock.h"
 
 #include "images/vma.pb-c.h"
 #include "images/tty.pb-c.h"
@@ -72,6 +73,7 @@ struct parasite_init_args {
 	struct rt_sigframe	*sigframe;
 
 	void			*sigreturn_addr;
+	futex_t			daemon_connected;
 };
 
 struct parasite_unmap_args {
@@ -219,11 +221,11 @@ static inline void copy_sas(ThreadSasEntry *dst, const stack_t *src)
 }
 
 /*
- * How many descriptrs can be transfered from parasite:
+ * How many descriptors can be transferred from parasite:
  *
  * 1) struct parasite_drain_fd + all descriptors should fit into one page
  * 2) The value should be a multiple of CR_SCM_MAX_FD, because descriptors
- *    are transfered with help of send_fds and recv_fds.
+ *    are transferred with help of send_fds and recv_fds.
  * 3) criu should work with a defaul value of the file limit (1024)
  */
 #define PARASITE_MAX_FDS	CR_SCM_MAX_FD * 3

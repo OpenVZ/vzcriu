@@ -33,6 +33,17 @@
 #define SIOCOUTQNSD     0x894B
 #endif
 
+#ifndef CONFIG_HAS_TCP_REPAIR_WINDOW
+struct tcp_repair_window {
+	u32   snd_wl1;
+	u32   snd_wnd;
+	u32   max_window;
+
+	u32   rcv_wnd;
+	u32   rcv_wup;
+};
+#endif
+
 #ifndef CONFIG_HAS_TCP_REPAIR
 /*
  * It's been reported that both tcp_repair_opt
@@ -56,6 +67,10 @@ enum {
 
 #ifndef TCP_TIMESTAMP
 #define TCP_TIMESTAMP	24
+#endif
+
+#ifndef TCP_REPAIR_WINDOW
+#define TCP_REPAIR_WINDOW       29
 #endif
 
 #ifndef TCPOPT_SACK_PERM
@@ -304,6 +319,34 @@ err_sopt:
 	return -1;
 }
 
+static int tcp_get_window(int sk, TcpStreamEntry *tse)
+{
+	struct tcp_repair_window opt;
+	socklen_t optlen = sizeof(opt);
+
+	if (!kdat.has_tcp_window)
+		return 0;
+
+	if (getsockopt(sk, SOL_TCP,
+			TCP_REPAIR_WINDOW, &opt, &optlen)) {
+		pr_perror("Unable to get window properties");
+		return -1;
+	}
+
+	tse->has_snd_wl1	= true;
+	tse->has_snd_wnd	= true;
+	tse->has_max_window	= true;
+	tse->has_rcv_wnd	= true;
+	tse->has_rcv_wup	= true;
+	tse->snd_wl1		= opt.snd_wl1;
+	tse->snd_wnd		= opt.snd_wnd;
+	tse->max_window		= opt.max_window;
+	tse->rcv_wnd		= opt.rcv_wnd;
+	tse->rcv_wup		= opt.rcv_wup;
+
+	return 0;
+}
+
 static int dump_tcp_conn_state(struct inet_sk_desc *sk)
 {
 	int ret, aux;
@@ -347,6 +390,9 @@ static int dump_tcp_conn_state(struct inet_sk_desc *sk)
 	pr_info("Reading options for socket\n");
 	ret = tcp_stream_get_options(sk->rfd, &ti, &tse);
 	if (ret < 0)
+		goto err_opt;
+
+	if (tcp_get_window(sk->rfd, &tse))
 		goto err_opt;
 
 	/*
@@ -609,6 +655,29 @@ static int restore_tcp_opts(int sk, TcpStreamEntry *tse)
 	return 0;
 }
 
+static int restore_tcp_window(int sk, TcpStreamEntry *tse)
+{
+	struct tcp_repair_window opt = {
+		.snd_wl1 = tse->snd_wl1,
+		.snd_wnd = tse->snd_wnd,
+		.max_window = tse->max_window,
+		.rcv_wnd = tse->rcv_wnd,
+		.rcv_wup = tse->rcv_wup,
+	};
+
+	if (!kdat.has_tcp_window || !tse->has_snd_wnd) {
+		pr_warn_once("Window parameters are not restored\n");
+		return 0;
+	}
+
+	if (setsockopt(sk, SOL_TCP, TCP_REPAIR_WINDOW, &opt, sizeof(opt))) {
+		pr_perror("Unable to set window parameters");
+		return -1;
+	}
+
+	return 0;
+}
+
 static int restore_tcp_conn_state(int sk, struct inet_sk_info *ii)
 {
 	int aux;
@@ -640,6 +709,9 @@ static int restore_tcp_conn_state(int sk, struct inet_sk_info *ii)
 		goto err_c;
 
 	if (restore_tcp_queues(sk, tse, img))
+		goto err_c;
+
+	if (restore_tcp_window(sk, tse))
 		goto err_c;
 
 	if (tse->has_nodelay && tse->nodelay) {
@@ -751,3 +823,42 @@ out:
 
 	return ret;
 }
+
+int kerndat_tcp_repair_window()
+{
+	struct tcp_repair_window opt;
+	socklen_t optlen = sizeof(opt);
+	int sk, val = 1;
+
+	sk = socket(AF_INET, SOCK_STREAM, 0);
+	if (sk < 0) {
+		pr_perror("Unable to create a netlink socket");
+		return -1;
+	}
+
+	if (setsockopt(sk, SOL_TCP, TCP_REPAIR, &val, sizeof(val))) {
+		if (errno == EPERM) {
+			kdat.has_tcp_window = false;
+			pr_warn("TCP_REPAIR isn't available to unprivileged users\n");
+			close(sk);
+			return 0;
+		}
+		pr_perror("Unable to set TCP_REPAIR");
+		close(sk);
+		return -1;
+	}
+
+	if (getsockopt(sk, SOL_TCP, TCP_REPAIR_WINDOW, &opt, &optlen)) {
+		if (errno != ENOPROTOOPT) {
+			pr_perror("Unable to set TCP_REPAIR_WINDOW");
+			close(sk);
+			return -1;
+		}
+		kdat.has_tcp_window = false;
+	} else
+		kdat.has_tcp_window = true;
+	close(sk);
+
+	return 0;
+}
+

@@ -96,8 +96,6 @@ static bool is_vma_range_fmt(char *line)
 static int parse_vmflags(char *buf, struct vma_area *vma_area)
 {
 	char *tok;
-	bool shared = false;
-	bool maywrite = false;
 
 	if (!buf[0])
 		return 0;
@@ -109,12 +107,6 @@ static int parse_vmflags(char *buf, struct vma_area *vma_area)
 #define _vmflag_match(_t, _s) (_t[0] == _s[0] && _t[1] == _s[1])
 
 	do {
-		/* open() block */
-		if (_vmflag_match(tok, "sh"))
-			shared = true;
-		else if (_vmflag_match(tok, "mw"))
-			maywrite = true;
-
 		/* mmap() block */
 		if (_vmflag_match(tok, "gd"))
 			vma_area->e->flags |= MAP_GROWSDOWN;
@@ -158,12 +150,6 @@ static int parse_vmflags(char *buf, struct vma_area *vma_area)
 
 #undef _vmflag_match
 
-	if (shared && maywrite)
-		vma_area->e->fdflags = O_RDWR;
-	else
-		vma_area->e->fdflags = O_RDONLY;
-	vma_area->e->has_fdflags = true;
-
 	if (vma_area->e->madv)
 		vma_area->e->has_madv = true;
 
@@ -189,6 +175,34 @@ static inline int vfi_equal(struct vma_file_info *a, struct vma_file_info *b)
 			(a->dev_min ^ b->dev_min)) == 0;
 }
 
+static int vma_get_mapfile_flags(struct vma_area *vma, DIR *mfd, char *path)
+{
+	struct stat stat;
+
+	if (fstatat(dirfd(mfd), path, &stat, AT_SYMLINK_NOFOLLOW) < 0) {
+		if (errno == ENOENT) {
+			/* Just mapping w/o map_files link */
+			return 0;
+		}
+		pr_perror("Failed fstatat on map %"PRIx64"", vma->e->start);
+		return -1;
+	}
+
+	switch(stat.st_mode & 0600) {
+		case 0200:
+			vma->e->fdflags = O_WRONLY;
+			break;
+		case 0400:
+			vma->e->fdflags = O_RDONLY;
+			break;
+		case 0600:
+			vma->e->fdflags = O_RDWR;
+			break;
+	}
+	vma->e->has_fdflags = true;
+	return 0;
+}
+
 static int vma_get_mapfile(char *fname, struct vma_area *vma, DIR *mfd,
 			   struct vma_file_info *vfi,
 			   struct vma_file_info *prev_vfi,
@@ -196,6 +210,12 @@ static int vma_get_mapfile(char *fname, struct vma_area *vma, DIR *mfd,
 {
 	char path[32];
 	int flags;
+
+	/* Figure out if it's file mapping */
+	snprintf(path, sizeof(path), "%"PRIx64"-%"PRIx64, vma->e->start, vma->e->end);
+
+	if (vma_get_mapfile_flags(vma, mfd, path))
+		return -1;
 
 	if (prev_vfi->vma && vfi_equal(vfi, prev_vfi)) {
 		struct vma_area *prev = prev_vfi->vma;
@@ -224,9 +244,6 @@ static int vma_get_mapfile(char *fname, struct vma_area *vma, DIR *mfd,
 		return 0;
 	}
 	close_safe(vm_file_fd);
-
-	/* Figure out if it's file mapping */
-	snprintf(path, sizeof(path), "%"PRIx64"-%"PRIx64, vma->e->start, vma->e->end);
 
 	/*
 	 * Note that we "open" it in dumper process space
@@ -290,7 +307,7 @@ static int vma_get_mapfile(char *fname, struct vma_area *vma, DIR *mfd,
 				/*
 				 * Another bad thing is that kernel first checks
 				 * for permission access to ANY map_files link,
-				 * then checks for its existance. So we have to
+				 * then checks for its existence. So we have to
 				 * check for file path being empty to "emulate"
 				 * the ENOENT case.
 				 */
@@ -419,7 +436,7 @@ int parse_self_maps_lite(struct vm_area_list *vms)
 			/*
 			 * This list is needed for one thing only -- to
 			 * get the idea of what parts of current address
-			 * space are busy. So merge them alltogether.
+			 * space are busy. So merge them altogether.
 			 */
 			prev->e->end = e;
 		else {
@@ -615,7 +632,7 @@ static int vma_list_add(struct vma_area *vma_area,
 
 		pages = vma_area_len(vma_area) / PAGE_SIZE;
 		vma_area_list->priv_size += pages;
-		vma_area_list->longest = max(vma_area_list->longest, pages);
+		vma_area_list->priv_longest = max(vma_area_list->priv_longest, pages);
 	}
 
 	*prev_vfi = *vfi;
@@ -639,7 +656,7 @@ int parse_smaps(pid_t pid, struct vm_area_list *vma_area_list,
 
 	vma_area_list->nr = 0;
 	vma_area_list->nr_aios = 0;
-	vma_area_list->longest = 0;
+	vma_area_list->priv_longest = 0;
 	vma_area_list->priv_size = 0;
 	INIT_LIST_HEAD(&vma_area_list->h);
 
@@ -1268,7 +1285,6 @@ static int parse_mountinfo_ent(char *str, struct mount_info *new, char **fsname)
 	new->mountpoint = xmalloc(PATH_MAX);
 	if (new->mountpoint == NULL)
 		goto err;
-	new->ns_mountpoint = new->mountpoint;
 
 	new->mountpoint[0] = '.';
 	ret = sscanf(str, "%i %i %u:%u %ms %s %ms %n",
@@ -1291,6 +1307,7 @@ static int parse_mountinfo_ent(char *str, struct mount_info *new, char **fsname)
 	new->mountpoint = xrealloc(new->mountpoint, strlen(new->mountpoint) + 1);
 	if (!new->mountpoint)
 		goto err;
+	new->ns_mountpoint = new->mountpoint;
 
 	new->s_dev = new->s_dev_rt = MKKDEV(kmaj, kmin);
 	new->flags = 0;
@@ -2488,11 +2505,11 @@ bool proc_status_creds_dumpable(struct proc_status_creds *parent,
 			offsetof(struct proc_status_creds, cap_inh);
 
 	/*
-	 * The comparision rules are the following
+	 * The comparison rules are the following
 	 *
 	 *  - CAPs can be different
 	 *  - seccomp filters should be passed via
-	 *    semantic comparision (FIXME) but for
+	 *    semantic comparison (FIXME) but for
 	 *    now we require them to be exactly
 	 *    identical
 	 *  - the rest of members must match

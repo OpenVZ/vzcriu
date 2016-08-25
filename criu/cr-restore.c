@@ -78,6 +78,7 @@
 #include "sk-queue.h"
 
 #include "parasite-syscall.h"
+#include "files-reg.h"
 
 #include "protobuf.h"
 #include "images/sa.pb-c.h"
@@ -266,6 +267,10 @@ static int root_prepare_shared(void)
 	if (ret)
 		goto err;
 
+	ret = open_transport_socket();
+	if (ret)
+		goto err;
+
 	show_saved_files();
 err:
 	return ret;
@@ -379,12 +384,11 @@ static int prepare_sigactions(void)
 	return ret;
 }
 
-static int collect_child_pids(int state, unsigned int *n)
+static int __collect_child_pids(struct pstree_item *p, int state, unsigned int *n)
 {
 	struct pstree_item *pi;
 
-	*n = 0;
-	list_for_each_entry(pi, &current->children, sibling) {
+	list_for_each_entry(pi, &p->children, sibling) {
 		pid_t *child;
 
 		if (pi->pid.state != state)
@@ -399,6 +403,30 @@ static int collect_child_pids(int state, unsigned int *n)
 	}
 
 	return 0;
+}
+
+static int collect_child_pids(int state, unsigned int *n)
+{
+	struct pstree_item *pi;
+
+	*n = 0;
+
+	/*
+	 * All children of helpers and zombies will be reparented to the init
+	 * process and they have to be collected too.
+	 */
+
+	if (current == root_item) {
+		for_each_pstree_item(pi) {
+			if (pi->pid.state != TASK_HELPER &&
+			    pi->pid.state != TASK_DEAD)
+				continue;
+			if (__collect_child_pids(pi, state, n))
+				return -1;
+		}
+	}
+
+	return __collect_child_pids(current, state, n);
 }
 
 static int collect_helper_pids(struct task_restore_args *ta)
@@ -579,6 +607,8 @@ static int restore_one_alive_task(int pid, CoreEntry *core)
 	if (prepare_vmas(current, ta))
 		return -1;
 
+	close_service_fd(TRANSPORT_FD_OFF);
+
 	return sigreturn_restore(pid, ta, args_len, core);
 }
 
@@ -638,15 +668,6 @@ static unsigned long task_entries_pos;
 static int wait_on_helpers_zombies(void)
 {
 	struct pstree_item *pi;
-	sigset_t blockmask, oldmask;
-
-	sigemptyset(&blockmask);
-	sigaddset(&blockmask, SIGCHLD);
-
-	if (sigprocmask(SIG_BLOCK, &blockmask, &oldmask) == -1) {
-		pr_perror("Can not set mask of blocked signals");
-		return -1;
-	}
 
 	list_for_each_entry(pi, &current->children, sibling) {
 		pid_t pid = pi->pid.virt;
@@ -666,11 +687,6 @@ static int wait_on_helpers_zombies(void)
 			}
 			break;
 		}
-	}
-
-	if (sigprocmask(SIG_SETMASK, &oldmask, NULL) == -1) {
-		pr_perror("Can not unset mask of blocked signals");
-		BUG();
 	}
 
 	return 0;
@@ -760,6 +776,16 @@ static int restore_one_task(int pid, CoreEntry *core)
 	else if (current->pid.state == TASK_DEAD)
 		ret = restore_one_zombie(core);
 	else if (current->pid.state == TASK_HELPER) {
+		sigset_t blockmask, oldmask;
+
+		sigemptyset(&blockmask);
+		sigaddset(&blockmask, SIGCHLD);
+
+		if (sigprocmask(SIG_BLOCK, &blockmask, &oldmask) == -1) {
+			pr_perror("Can not set mask of blocked signals");
+			return -1;
+		}
+
 		restore_finish_stage(CR_STATE_RESTORE);
 		if (wait_on_helpers_zombies()) {
 			pr_err("failed to wait on helpers and zombies\n");
@@ -1315,15 +1341,18 @@ static int restore_task_with_children(void *_arg)
 
 	restore_pgid();
 
-	if (restore_finish_stage(CR_STATE_FORKING) < 0)
-		goto err;
-
 	if (current->parent == NULL) {
-		if (depopulate_roots_yard())
-			goto err;
+		/*
+		 * Wait when all tasks passed the CR_STATE_FORKING stage.
+		 * It means that all tasks entered into their namespaces.
+		 */
+		futex_wait_while_gt(&task_entries->nr_in_progress, 1);
 
 		fini_restore_mntns();
 	}
+
+	if (restore_finish_stage(CR_STATE_FORKING) < 0)
+		goto err;
 
 	if (restore_one_task(current->pid.virt, ca->core))
 		goto err;
@@ -1391,7 +1420,6 @@ static int attach_to_tasks(bool root_seized)
 	struct pstree_item *item;
 
 	for_each_pstree_item(item) {
-		pid_t pid = item->pid.real;
 		int status, i;
 
 		if (!task_alive(item))
@@ -1401,7 +1429,7 @@ static int attach_to_tasks(bool root_seized)
 			return -1;
 
 		for (i = 0; i < item->nr_threads; i++) {
-			pid = item->threads[i].real;
+			pid_t pid = item->threads[i].real;
 
 			if (item != root_item || !root_seized || i != 0) {
 				if (ptrace(PTRACE_SEIZE, pid, 0, 0)) {
@@ -1445,7 +1473,6 @@ static int catch_tasks(bool root_seized, enum trace_flags *flag)
 	struct pstree_item *item;
 
 	for_each_pstree_item(item) {
-		pid_t pid = item->pid.real;
 		int status, i, ret;
 
 		if (!task_alive(item))
@@ -1455,7 +1482,7 @@ static int catch_tasks(bool root_seized, enum trace_flags *flag)
 			return -1;
 
 		for (i = 0; i < item->nr_threads; i++) {
-			pid = item->threads[i].real;
+			pid_t pid = item->threads[i].real;
 
 			if (ptrace(PTRACE_INTERRUPT, pid, 0, 0)) {
 				pr_perror("Can't interrupt the %d task", pid);
@@ -1743,9 +1770,11 @@ static int restore_root_task(struct pstree_item *init)
 	 * There is no need to call try_clean_remaps() after this point,
 	 * as restore went OK and all ghosts were removed by the openers.
 	 */
+	if (depopulate_roots_yard(mnt_ns_fd, false))
+		goto out_kill;
+
 	clean_remaps = 0;
 	close_safe(&mnt_ns_fd);
-	cleanup_mnt_ns();
 
 	ret = stop_usernsd();
 	if (ret < 0)
@@ -1850,8 +1879,7 @@ out_kill:
 out:
 	fini_cgroup();
 	if (clean_remaps)
-		try_clean_remaps(mnt_ns_fd);
-	cleanup_mnt_ns();
+		depopulate_roots_yard(mnt_ns_fd, true);
 	stop_usernsd();
 	__restore_switch_stage(CR_STATE_FAIL);
 	pr_err("Restoring FAILED.\n");
@@ -2582,7 +2610,7 @@ rst_prep_creds_args(CredsEntry *ce, unsigned long *prev_pos)
 	}
 
 	/*
-	 * Zap fields which we cant use.
+	 * Zap fields which we can't use.
 	 */
 	args->creds.cap_inh = NULL;
 	args->creds.cap_eff = NULL;
@@ -2729,7 +2757,7 @@ static int sigreturn_restore(pid_t pid, struct task_restore_args *task_args, uns
 
 	/*
 	 * We're about to search for free VM area and inject the restorer blob
-	 * into it. No irrelevent mmaps/mremaps beyond this point, otherwise
+	 * into it. No irrelevant mmaps/mremaps beyond this point, otherwise
 	 * this unwanted mapping might get overlapped by the restorer.
 	 */
 
@@ -2773,7 +2801,7 @@ static int sigreturn_restore(pid_t pid, struct task_restore_args *task_args, uns
 		goto err;
 	}
 
-	pr_info("Found bootstrap VMA hint at: 0x%p (needs ~%ldK)\n",
+	pr_info("Found bootstrap VMA hint at: %p (needs ~%ldK)\n",
 			mem, KBYTES(task_args->bootstrap_len));
 
 	ret = remap_restorer_blob(mem);
@@ -2915,20 +2943,18 @@ static int sigreturn_restore(pid_t pid, struct task_restore_args *task_args, uns
 
 		rst_reloc_creds(&thread_args[i], &creds_pos_next);
 
-		if (tcore->thread_core) {
-			thread_args[i].has_futex	= true;
-			thread_args[i].futex_rla	= tcore->thread_core->futex_rla;
-			thread_args[i].futex_rla_len	= tcore->thread_core->futex_rla_len;
-			thread_args[i].pdeath_sig	= tcore->thread_core->pdeath_sig;
-			if (tcore->thread_core->pdeath_sig > _KNSIG) {
-				pr_err("Pdeath signal is too big\n");
-				goto err;
-			}
-
-			ret = prep_sched_info(&thread_args[i].sp, tcore->thread_core);
-			if (ret)
-				goto err;
+		thread_args[i].has_futex	= true;
+		thread_args[i].futex_rla	= tcore->thread_core->futex_rla;
+		thread_args[i].futex_rla_len	= tcore->thread_core->futex_rla_len;
+		thread_args[i].pdeath_sig	= tcore->thread_core->pdeath_sig;
+		if (tcore->thread_core->pdeath_sig > _KNSIG) {
+			pr_err("Pdeath signal is too big\n");
+			goto err;
 		}
+
+		ret = prep_sched_info(&thread_args[i].sp, tcore->thread_core);
+		if (ret)
+			goto err;
 
 		thread_args[i].mz = mz + i;
 		sigframe = (struct rt_sigframe *)&mz[i].rt_sigframe;

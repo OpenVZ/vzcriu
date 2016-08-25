@@ -505,13 +505,14 @@ static long restore_self_exe_late(struct task_restore_args *args)
 	return ret;
 }
 
-static unsigned long restore_mapping(const VmaEntry *vma_entry)
+static unsigned long restore_mapping(VmaEntry *vma_entry)
 {
 	int prot	= vma_entry->prot;
 	int flags	= vma_entry->flags | MAP_FIXED;
 	unsigned long addr;
 
 	if (vma_entry_is(vma_entry, VMA_AREA_SYSVIPC)) {
+		int att_flags;
 		/*
 		 * See comment in open_shmem_sysv() for what SYSV_SHMEM_SKIP_FD
 		 * means and why we check for PROT_EXEC few lines below.
@@ -519,9 +520,14 @@ static unsigned long restore_mapping(const VmaEntry *vma_entry)
 		if (vma_entry->fd == SYSV_SHMEM_SKIP_FD)
 			return vma_entry->start;
 
+		if (vma_entry->prot & PROT_EXEC) {
+			att_flags = 0;
+			vma_entry->prot &= ~PROT_EXEC;
+		} else
+			att_flags = SHM_RDONLY;
+
 		pr_info("Attach SYSV shmem %d at %"PRIx64"\n", (int)vma_entry->fd, vma_entry->start);
-		return sys_shmat(vma_entry->fd, decode_pointer(vma_entry->start),
-				vma_entry->prot & PROT_EXEC ? 0 : SHM_RDONLY);
+		return sys_shmat(vma_entry->fd, decode_pointer(vma_entry->start), att_flags);
 	}
 
 	/*
@@ -880,7 +886,7 @@ static void *bootstrap_start;
 static unsigned int bootstrap_len;
 
 /*
- * sys_munmap must not return here. The controll process must
+ * sys_munmap must not return here. The control process must
  * trap us on the exit from sys_munmap.
  */
 #ifdef CONFIG_VDSO
@@ -980,8 +986,23 @@ static int wait_zombies(struct task_restore_args *task_args)
 	int i;
 
 	for (i = 0; i < task_args->zombies_n; i++) {
-		if (sys_waitid(P_PID, task_args->zombies[i], NULL, WNOWAIT | WEXITED, NULL) < 0) {
-			pr_err("Wait on %d zombie failed\n", task_args->zombies[i]);
+		int ret, nr_in_progress;
+
+		nr_in_progress = futex_get(&task_entries->nr_in_progress);
+
+		ret = sys_waitid(P_PID, task_args->zombies[i], NULL, WNOWAIT | WEXITED, NULL);
+		if (ret == -ECHILD) {
+			/* A process isn't reparented to this task yet.
+			 * Let's wait when someone complete this stage
+			 * and try again.
+			 */
+			futex_wait_while_eq(&task_entries->nr_in_progress,
+								nr_in_progress);
+			i--;
+			continue;
+		}
+		if (ret < 0) {
+			pr_err("Wait on %d zombie failed: %d\n", task_args->zombies[i], ret);
 			return -1;
 		}
 		pr_debug("%ld: Collect a zombie with pid %d\n",
@@ -1333,10 +1354,9 @@ long __export_restore_task(struct task_restore_args *args)
 
 	restore_finish_stage(CR_STATE_RESTORE);
 
-	if (wait_zombies(args) < 0)
-		goto core_restore_end;
-
 	if (wait_helpers(args) < 0)
+		goto core_restore_end;
+	if (wait_zombies(args) < 0)
 		goto core_restore_end;
 
 	ksigfillset(&to_block);

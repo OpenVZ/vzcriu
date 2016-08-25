@@ -293,7 +293,7 @@ struct ns_id *rst_new_ns_id(unsigned int id, pid_t pid,
 	if (nsid) {
 		nsid->type = type;
 		nsid_add(nsid, nd, id, pid);
-		futex_set(&nsid->ns_populated, 0);
+		nsid->ns_populated = false;
 	}
 
 	return nsid;
@@ -412,7 +412,7 @@ static unsigned int generate_ns_id(int pid, unsigned int kid, struct ns_desc *nd
 
 	nsid->type = type;
 	nsid->kid = kid;
-	futex_set(&nsid->ns_populated, 1);
+	nsid->ns_populated = true;
 	nsid_add(nsid, nd, ns_next_id++, pid);
 
 found:
@@ -423,28 +423,27 @@ found:
 
 static unsigned int __get_ns_id(int pid, struct ns_desc *nd, protobuf_c_boolean *supported, struct ns_id **ns)
 {
-	int proc_dir, ret;
+	int proc_dir;
 	unsigned int kid;
-	char ns_path[10], ns_id[32];
+	char ns_path[10];
+	struct stat st;
 
 	proc_dir = open_pid_proc(pid);
 	if (proc_dir < 0)
 		return 0;
 
 	sprintf(ns_path, "ns/%s", nd->str);
-	ret = readlinkat(proc_dir, ns_path, ns_id, sizeof(ns_id) - 1);
-	if (ret < 0) {
+
+	if (fstatat(proc_dir, ns_path, &st, 0)) {
 		if (errno == ENOENT) {
 			/* The namespace is unsupported */
 			kid = 0;
 			goto out;
 		}
-		pr_perror("Can't readlink ns link");
-		return 0;
+		pr_perror("Unable to stat %s", ns_path);
+		return -1;
 	}
-	ns_id[ret] = '\0';
-
-	kid = parse_ns_link(ns_id, ret, nd);
+	kid = st.st_ino;
 	BUG_ON(!kid);
 
 out:
@@ -976,11 +975,6 @@ static int do_dump_namespaces(struct ns_id *ns)
 				ns->id, ns->ns_pid);
 		ret = dump_net_ns(ns->id);
 		break;
-	case CLONE_NEWCGROUP:
-		pr_info("Dump CGROUP namespace info %d via %d\n",
-				ns->id, ns->ns_pid);
-		/* handled separately in cgroup dumping code */
-		break;
 	default:
 		pr_err("Unknown namespace flag %x\n", ns->nd->cflag);
 		break;
@@ -1027,6 +1021,8 @@ int dump_namespaces(struct pstree_item *item, unsigned int ns_flags)
 			case CLONE_NEWNS:
 			/* Userns is dumped before dumping tasks */
 			case CLONE_NEWUSER:
+			/* handled separately in cgroup dumping code */
+			case CLONE_NEWCGROUP:
 				continue;
 		}
 
@@ -1099,7 +1095,7 @@ struct unsc_msg {
 	/*
 	 * 0th is the call address
 	 * 1st is the flags
-	 * 2nd is the optional (NULL in responce) arguments
+	 * 2nd is the optional (NULL in response) arguments
 	 */
 	struct iovec iov[3];
 	char c[CMSG_SPACE(sizeof(struct ucred)) + CMSG_SPACE(sizeof(int))];
@@ -1279,10 +1275,10 @@ int __userns_call(const char *func_name, uns_call_t call, int flags,
 		/*
 		 * Why don't we lock for async requests? Because
 		 * they just put the request in the daemon's
-		 * queue and do not wait for the responce. Thus
-		 * when daemon responce there's only one client
+		 * queue and do not wait for the response. Thus
+		 * when daemon response there's only one client
 		 * waiting for it in recvmsg below, so he
-		 * responces to proper caller.
+		 * responses to proper caller.
 		 */
 		mutex_lock(&task_entries->userns_sync_lock);
 	else
@@ -1348,7 +1344,7 @@ static int start_usernsd(void)
 	 * b) Make callers note the damon death by seeing the
 	 *    disconnected socket. In case of dgram socket
 	 *    callers would just get stuck in receiving the
-	 *    responce.
+	 *    response.
 	 */
 
 	if (socketpair(PF_UNIX, SOCK_SEQPACKET, 0, sk)) {

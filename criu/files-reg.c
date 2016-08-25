@@ -27,6 +27,7 @@
 #include "namespaces.h"
 #include "proc_parse.h"
 #include "pstree.h"
+#include "fault-injection.h"
 
 #include "protobuf.h"
 #include "images/regfile.pb-c.h"
@@ -446,7 +447,7 @@ out:
 	return ret;
 }
 
-/* We separate the prepartion of PROCFS remaps because they allocate pstree
+/* We separate the preparation of PROCFS remaps because they allocate pstree
  * items, which need to be seen by the root task. We can't do all remaps here,
  * because the files haven't been loaded yet.
  */
@@ -541,60 +542,17 @@ static int clean_one_remap(struct file_remap *remap)
 	return 0;
 }
 
-void try_clean_remaps(int ns_fd)
+void try_clean_remaps()
 {
 	struct remap_info *ri;
-	int old_ns = -1;
-	int cwd_fd = -1;
 
 	if (list_empty(&remaps))
-		goto out;
-
-	if (ns_fd >= 0) {
-		pr_info("Switching to new ns to clean ghosts\n");
-
-		old_ns = open_proc(PROC_SELF, "ns/mnt");
-		if (old_ns < 0) {
-			pr_perror("`- Can't keep old ns");
-			return;
-		}
-
-		cwd_fd = open(".", O_DIRECTORY);
-		if (cwd_fd < 0) {
-			pr_perror("Unable to open cwd");
-			return;
-		}
-
-		if (setns(ns_fd, CLONE_NEWNS) < 0) {
-			close(old_ns);
-			close(cwd_fd);
-			pr_perror("`- Can't switch");
-			return;
-		}
-	}
+		return;
 
 	list_for_each_entry(ri, &remaps, list)
 		if (ri->rfe->remap_type == REMAP_TYPE__GHOST)
 			try_clean_ghost(ri);
 
-	if (old_ns >= 0) {
-		if (setns(old_ns, CLONE_NEWNS) < 0)
-			pr_perror("Fail to switch back!");
-		close(old_ns);
-	}
-
-	if (cwd_fd >= 0) {
-		if (fchdir(cwd_fd)) {
-			pr_perror("Unable to restore cwd");
-			close(cwd_fd);
-			return;
-		}
-		close(cwd_fd);
-	}
-
-out:
-	if (ns_fd >= 0)
-		close(ns_fd);
 }
 
 static struct collect_image_info remap_cinfo = {
@@ -760,6 +718,7 @@ static int create_link_remap(char *path, int len, int lfd,
 	RegFileEntry rfe = REG_FILE_ENTRY__INIT;
 	FownEntry fwn = FOWN_ENTRY__INIT;
 	int mntns_root;
+	int ret;
 
 	if (!opts.link_remap_ok) {
 		pr_err("Can't create link remap for %s. "
@@ -796,7 +755,16 @@ static int create_link_remap(char *path, int len, int lfd,
 
 	mntns_root = mntns_get_root_fd(nsid);
 
-	if (linkat(lfd, "", mntns_root, link_name, AT_EMPTY_PATH) < 0) {
+again:
+	ret = linkat(lfd, "", mntns_root, link_name, AT_EMPTY_PATH);
+	if (ret < 0 && errno == ENOENT) {
+		/* Use grand parent, if parent directory does not exist. */
+		if (trim_last_parent(link_name) < 0) {
+			pr_err("trim failed: @%s@\n", link_name);
+			return -1;
+		}
+		goto again;
+	} else if (ret < 0) {
 		pr_perror("Can't link remap to %s", path);
 		return -1;
 	}
@@ -1439,6 +1407,11 @@ int open_path(struct file_desc *d,
 	}
 
 	if (rfi->remap) {
+		if (fault_injected(FI_RESTORE_OPEN_LINK_REMAP)) {
+			pr_info("fault: Open link-remap failure!\n");
+			BUG();
+		}
+
 		mutex_lock(ghost_file_mutex);
 		if (rfi->remap->is_dir) {
 			/*

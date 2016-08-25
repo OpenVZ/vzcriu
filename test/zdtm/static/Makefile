@@ -2,6 +2,7 @@ include ../Makefile.inc
 
 LIBDIR	= ../lib
 LIB	= $(LIBDIR)/libzdtmtst.a
+LDLIBS	+= $(LIBDIR)/libzdtmtst.a
 override CPPFLAGS += -I$(LIBDIR)
 CFLAGS	= -g -O2 -Wall -Werror -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0
 CFLAGS	+= $(USERCFLAGS)
@@ -150,6 +151,7 @@ TST_NOFILE	=				\
 		oom_score_adj			\
 		loginuid			\
 		cgroupns			\
+		helper_zombie_child		\
 #		jobctl00			\
 
 TST_FILE	=				\
@@ -244,6 +246,7 @@ TST_DIR		=				\
 		unlink_regular00		\
 		mnt_enablefs			\
 		autofs				\
+		del_standalone_un		\
 
 TST_DIR_FILE	=				\
 		chroot				\
@@ -274,9 +277,9 @@ OUT	= $(TST:%=%.out)
 STATE	= $(TST_STATE:%=%.state)
 STATE_OUT	= $(TST_STATE:%=%.out)
 
-DEPEND.c = $(COMPILE.c) -MM -MP
-%.d:	%.c
-	$(DEPEND.c) $(OUTPUT_OPTION) $<
+%: %.c
+	$(Q)echo $@ >> .gitignore
+	$(CC) $(CFLAGS) $(CPPFLAGS) $(LDFLAGS) $(LOADLIBES) $^ $(LDLIBS) -o $@
 
 all:	$(TST) criu-rtc.so
 install: all
@@ -402,7 +405,10 @@ stopped12:	override CFLAGS += -DZDTM_STOPPED_KILL -DZDTM_STOPPED_TKILL
 $(LIB):	force
 	$(Q) $(MAKE) -C $(LIBDIR)
 
-clean:
+gitignore-clean:
+	$(RM) -f .gitignore
+
+clean:	gitignore-clean
 	$(RM) -f $(OBJ) $(TST) *~ criu-rtc.so criu-rtc.pb-c.c criu-rtc.pb-c.h get_smaps_bits.o
 
 cleandep:	clean
@@ -419,13 +425,11 @@ realclean:	cleandep cleanout
 rtc.c: criu-rtc.so
 
 criu-rtc.pb-c.c: criu-rtc.proto
+	$(Q)echo $@ >> .gitignore
+	$(Q)echo $(@:%.c=%.h) >> .gitignore
 	protoc-c --proto_path=. --c_out=. criu-rtc.proto
 
 criu-rtc.so: criu-rtc.c criu-rtc.pb-c.c
 	$(CC) -g -Wall -shared -nostartfiles criu-rtc.c criu-rtc.pb-c.c -o criu-rtc.so -iquote ../../../criu/include -fPIC $(USERCFLAGS)
 
 .PHONY:	force clean cleandep cleanout realclean start check_start stop wait_stop
-
-ifeq ($(filter-out no-deps-targets, $(MAKECMDGOALS)),)
--include $(DEP)
-endif

@@ -320,64 +320,78 @@ int open_page_xfer(struct page_xfer *xfer, int fd_type, long id)
 		return open_page_local_xfer(xfer, fd_type, id);
 }
 
+static int page_xfer_dump_hole(struct page_xfer *xfer,
+		struct iovec *hole, unsigned long off)
+{
+	BUG_ON(hole->iov_base < (void *)off);
+	hole->iov_base -= off;
+	pr_debug("\th %p [%u]\n", hole->iov_base,
+			(unsigned int)(hole->iov_len / PAGE_SIZE));
+
+	if (xfer->write_hole(xfer, hole))
+		return -1;
+
+	return 0;
+}
+
+static struct iovec get_iov(struct iovec *iovs, unsigned int n)
+{
+	return iovs[n];
+}
+
+static int dump_holes(struct page_xfer *xfer, struct page_pipe *pp,
+		      unsigned int *cur_hole, void *limit, unsigned long off)
+{
+	int ret;
+
+	for (; *cur_hole < pp->free_hole ; (*cur_hole)++) {
+		struct iovec hole = get_iov(pp->holes, *cur_hole);
+
+		if (limit && hole.iov_base >= limit)
+			break;
+
+		ret = page_xfer_dump_hole(xfer, &hole, off);
+		if (ret)
+			return ret;
+	}
+
+	return 0;
+}
+
 int page_xfer_dump_pages(struct page_xfer *xfer, struct page_pipe *pp,
 		unsigned long off)
 {
 	struct page_pipe_buf *ppb;
-	struct iovec *hole = NULL;
+	unsigned int cur_hole = 0;
+	int ret;
 
-	pr_debug("Transfering pages:\n");
-
-	if (pp->free_hole)
-		hole = &pp->holes[0];
+	pr_debug("Transferring pages:\n");
 
 	list_for_each_entry(ppb, &pp->bufs, l) {
-		int i;
+		unsigned int i;
 
 		pr_debug("\tbuf %d/%d\n", ppb->pages_in, ppb->nr_segs);
 
 		for (i = 0; i < ppb->nr_segs; i++) {
-			struct iovec *iov = &ppb->iov[i];
+			struct iovec iov = get_iov(ppb->iov, i);
 
-			while (hole && (hole->iov_base < iov->iov_base)) {
-				BUG_ON(hole->iov_base < (void *)off);
-				hole->iov_base -= off;
-				pr_debug("\th %p [%u]\n", hole->iov_base,
-						(unsigned int)(hole->iov_len / PAGE_SIZE));
-				if (xfer->write_hole(xfer, hole))
-					return -1;
+			ret = dump_holes(xfer, pp, &cur_hole, iov.iov_base, off);
+			if (ret)
+				return ret;
 
-				hole++;
-				if (hole >= &pp->holes[pp->free_hole])
-					hole = NULL;
-			}
+			BUG_ON(iov.iov_base < (void *)off);
+			iov.iov_base -= off;
+			pr_debug("\tp %p [%u]\n", iov.iov_base,
+					(unsigned int)(iov.iov_len / PAGE_SIZE));
 
-			BUG_ON(iov->iov_base < (void *)off);
-			iov->iov_base -= off;
-			pr_debug("\tp %p [%u]\n", iov->iov_base,
-					(unsigned int)(iov->iov_len / PAGE_SIZE));
-
-			if (xfer->write_pagemap(xfer, iov))
+			if (xfer->write_pagemap(xfer, &iov))
 				return -1;
-			if (xfer->write_pages(xfer, ppb->p[0], iov->iov_len))
+			if (xfer->write_pages(xfer, ppb->p[0], iov.iov_len))
 				return -1;
 		}
 	}
 
-	while (hole) {
-		BUG_ON(hole->iov_base < (void *)off);
-		hole->iov_base -= off;
-		pr_debug("\th* %p [%u]\n", hole->iov_base,
-				(unsigned int)(hole->iov_len / PAGE_SIZE));
-		if (xfer->write_hole(xfer, hole))
-			return -1;
-
-		hole++;
-		if (hole >= &pp->holes[pp->free_hole])
-			hole = NULL;
-	}
-
-	return 0;
+	return dump_holes(xfer, pp, &cur_hole, NULL, off);
 }
 
 /*
@@ -422,7 +436,7 @@ static int page_server_check_parent(int sk, struct page_server_iov *pi)
 		return -1;
 
 	if (write(sk, &ret, sizeof(ret)) != sizeof(ret)) {
-		pr_perror("Unable to send reponse");
+		pr_perror("Unable to send response");
 		return -1;
 	}
 
@@ -497,7 +511,7 @@ static int page_server_open(int sk, struct page_server_iov *pi)
 		char has_parent = !!cxfer.loc_xfer.parent;
 
 		if (write(sk, &has_parent, 1) != 1) {
-			pr_perror("Unable to send reponse");
+			pr_perror("Unable to send response");
 			close_page_xfer(&cxfer.loc_xfer);
 			return -1;
 		}

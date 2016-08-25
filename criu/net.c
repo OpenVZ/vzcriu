@@ -1018,7 +1018,7 @@ static int restore_links(int pid, NetnsEntry **netns)
 		/*
 		 * optimize restore of devices configuration except lo
 		 * lo is created with namespace and before default is set
-		 * so we cant optimize its restore
+		 * so we can't optimize its restore
 		 */
 		if (nde->type == ND_TYPE__LOOPBACK)
 			def_netns = NULL;
@@ -1390,7 +1390,7 @@ static int mount_ns_sysfs(void)
 		return -1;
 	}
 
-	if (mount(NULL, "/", NULL, MS_PRIVATE | MS_REC, NULL)) {
+	if (mount(NULL, "/", NULL, MS_SLAVE | MS_REC, NULL)) {
 		pr_perror("Can't mark the root mount as private");
 		return -1;
 	}
@@ -1678,7 +1678,7 @@ static int prep_ns_sockets(struct ns_id *ns, bool for_dump)
 	} else
 		ns->net.nlsk = -1;
 
-	ret = ns->net.seqsk = socket(PF_UNIX, SOCK_SEQPACKET, 0);
+	ret = ns->net.seqsk = socket(PF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK, 0);
 	if (ret < 0) {
 		pr_perror("Can't create seqsk for parasite");
 		goto err_sq;

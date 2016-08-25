@@ -472,6 +472,8 @@ int kerndat_init(void)
 		ret = kerndat_loginuid(true);
 	if (!ret)
 		ret = kerndat_iptables_has_xtlocks();
+	if (!ret)
+		ret = kerndat_tcp_repair_window();
 
 	kerndat_lsm();
 
@@ -501,8 +503,19 @@ int kerndat_init_rst(void)
 		ret = kerndat_loginuid(false);
 	if (!ret)
 		ret = kerndat_iptables_has_xtlocks();
+	if (!ret)
+		ret = kerndat_tcp_repair_window();
 
 	kerndat_lsm();
+
+	return ret;
+}
+
+int kerndat_init_cr_exec(void)
+{
+	int ret;
+
+	ret = get_task_size();
 
 	return ret;
 }

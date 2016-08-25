@@ -30,6 +30,7 @@
 #include "sysfs_parse.h"
 #include "path.h"
 #include "autofs.h"
+#include "files-reg.h"
 
 #include "images/mnt.pb-c.h"
 #include "images/binfmt-misc.pb-c.h"
@@ -539,7 +540,7 @@ static inline int path_length(char *path)
 
 	off = strlen(path);
 	/*
-	 * If we're pure / then set lenght to zero so that adding this
+	 * If we're pure / then set length to zero so that adding this
 	 * value as sub-path offset would produce the correct result.
 	 * E.g. the tail path of the "/foo/bar" relative to the "/foo"
 	 * will be the "/foo/bar" + len("/foo") == "/bar", while the
@@ -1454,7 +1455,7 @@ static int make_bfmtm_magic_str(char *buf, BinfmtMiscEntry *bme)
 	/*
 	 * Format is ":name:type(M):offset:magic:mask:interpreter:flags".
 	 * Magic and mask are special fields. Kernel outputs them as
-	 * a sequence of hexidecimal numbers (abc -> 616263), and we
+	 * a sequence of hexadecimal numbers (abc -> 616263), and we
 	 * dump them without changes. But for registering a new entry
 	 * it expects every byte is prepended with \x, i.e. \x61\x62\x63.
 	 */
@@ -2856,7 +2857,7 @@ static int rst_collect_local_mntns(enum ns_type typ)
 	if (!mntinfo)
 		return -1;
 
-	futex_set(&nsid->ns_populated, 1);
+	nsid->ns_populated = true;
 	return 0;
 }
 
@@ -3112,9 +3113,6 @@ static int do_restore_task_mnt_ns(struct ns_id *nsid, struct pstree_item *curren
 	}
 	close(fd);
 
-	if (nsid->ns_pid == current->pid.virt)
-		futex_set_and_wake(&nsid->ns_populated, 1);
-
 	return 0;
 }
 
@@ -3161,9 +3159,10 @@ void fini_restore_mntns(void)
 	for (nsid = ns_ids; nsid != NULL; nsid = nsid->next) {
 		if (nsid->nd != &mnt_ns_desc)
 			continue;
-		close(nsid->mnt.ns_fd);
+		close_safe(&nsid->mnt.ns_fd);
 		if (nsid->type != NS_ROOT)
-			close(nsid->mnt.root_fd);
+			close_safe(&nsid->mnt.root_fd);
+		nsid->ns_populated = true;
 	}
 }
 
@@ -3256,7 +3255,7 @@ static int populate_mnt_ns(void)
 	return ret;
 }
 
-int depopulate_roots_yard(void)
+static int __depopulate_roots_yard(void)
 {
 	int ret = 0;
 
@@ -3268,15 +3267,73 @@ int depopulate_roots_yard(void)
 		ret = 1;
 	}
 	/*
-	 * Don't exit after a first error, becuase this function
+	 * Don't exit after a first error, because this function
 	 * can be used to rollback in a error case.
 	 * Don't worry about MNT_DETACH, because files are restored after this
 	 * and nobody will not be restored from a wrong mount namespace.
 	 */
 	if (umount2(mnt_roots, MNT_DETACH)) {
 		pr_perror("Can't unmount %s", mnt_roots);
-		ret = 1;
+		ret = -1;
 	}
+
+	if (rmdir(mnt_roots)) {
+		pr_perror("Can't remove the directory %s", mnt_roots);
+		ret = -1;
+	}
+
+	return ret;
+}
+
+int depopulate_roots_yard(int mntns_fd, bool clean_remaps)
+{
+	int ret = 0, old_cwd = -1, old_ns = -1;
+
+	if (mntns_fd < 0) {
+		if (clean_remaps)
+			try_clean_remaps();
+		cleanup_mnt_ns();
+		return 0;
+	}
+
+	pr_info("Switching to new ns to clean ghosts\n");
+
+	old_cwd = open(".", O_PATH);
+	if (old_cwd < 0) {
+		pr_perror("Unable to open cwd");
+		return -1;
+	}
+
+	old_ns = open_proc(PROC_SELF, "ns/mnt");
+	if (old_ns < 0) {
+		pr_perror("`- Can't keep old ns");
+		close(old_cwd);
+		return -1;
+	}
+	if (setns(mntns_fd, CLONE_NEWNS) < 0) {
+		close(old_ns);
+		close(old_cwd);
+		pr_perror("`- Can't switch");
+		return -1;
+	}
+
+	if (clean_remaps)
+		try_clean_remaps();
+
+	if (__depopulate_roots_yard())
+		ret = -1;
+
+	if (setns(old_ns, CLONE_NEWNS) < 0) {
+		pr_perror("Fail to switch back!");
+		ret = -1;
+	}
+	close(old_ns);
+
+	if (fchdir(old_cwd)) {
+		pr_perror("Unable to restore cwd");
+		ret = -1;
+	}
+	close(old_cwd);
 
 	return ret;
 }
@@ -3325,6 +3382,8 @@ int prepare_mnt_ns(void)
 			return -1;
 	} else {
 		struct mount_info *mi;
+		char *ret;
+		char path[PATH_MAX];
 
 		/*
 		 * The whole tree of mountpoints is to be moved into one
@@ -3333,8 +3392,14 @@ int prepare_mnt_ns(void)
 		 * with a single umount call later.
 		 */
 
+		ret = realpath(opts.root, path);
+		if (!ret) {
+			pr_err("Unable to find real path for %s\n", opts.root);
+			return -1;
+		}
+
 		/* moving a mount residing under a shared mount is invalid. */
-		mi = mount_resolve_path(ns.mnt.mntinfo_tree, opts.root);
+		mi = mount_resolve_path(ns.mnt.mntinfo_tree, path);
 		if (mi == NULL) {
 			pr_err("Unable to find mount point for %s\n", opts.root);
 			return -1;
@@ -3392,7 +3457,7 @@ int prepare_mnt_ns(void)
 			if (nsid->mnt.ns_fd < 0)
 				goto err;
 			/* we set ns_populated so we don't need to open root_fd */
-			futex_set(&nsid->ns_populated, 1);
+			nsid->ns_populated = true;
 			continue;
 		}
 
@@ -3526,7 +3591,7 @@ int mntns_get_root_fd(struct ns_id *mntns)
 	 * root from the root task.
 	 */
 
-	if (!futex_get(&mntns->ns_populated)) {
+	if (!mntns->ns_populated) {
 		int fd;
 
 		fd = open_proc(root_item->pid.virt, "fd/%d", mntns->mnt.root_fd);

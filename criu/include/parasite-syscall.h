@@ -51,9 +51,8 @@ struct parasite_ctl {
 	unsigned int		*addr_cmd;				/* addr for command */
 	void			*addr_args;				/* address for arguments */
 	unsigned long		args_size;
-	int			tsock;					/* transport socket for transfering fds */
+	int			tsock;					/* transport socket for transferring fds */
 
-	struct list_head	pre_list;
 	struct page_pipe	*mem_pp;
 };
 

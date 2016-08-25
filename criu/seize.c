@@ -243,11 +243,105 @@ static int freezer_detach(void)
 	return 0;
 }
 
+static int log_unfrozen_stacks(char *root)
+{
+	DIR *dir;
+	struct dirent *de;
+	char path[PATH_MAX];
+	FILE *f;
+
+	snprintf(path, sizeof(path), "%s/tasks", root);
+	f = fopen(path, "r");
+	if (f == NULL) {
+		pr_perror("Unable to open %s", path);
+		return -1;
+	}
+	while (fgets(path, sizeof(path), f)) {
+		pid_t pid;
+		int ret, stack;
+		char stackbuf[2048];
+
+		pid = atoi(path);
+
+		stack = open_proc(pid, "stack");
+		if (stack < 0) {
+			pr_perror("couldn't log %d's stack", pid);
+			fclose(f);
+			return -1;
+		}
+
+		ret = read(stack, stackbuf, sizeof(stackbuf) - 1);
+		close(stack);
+		if (ret < 0) {
+			pr_perror("couldn't read %d's stack", pid);
+			fclose(f);
+			return -1;
+		}
+		stackbuf[ret] = '\0';
+
+		pr_debug("Task %d has stack:\n%s", pid, stackbuf);
+
+	}
+	fclose(f);
+
+	dir = opendir(root);
+	if (!dir) {
+		pr_perror("Unable to open %s", root);
+		return -1;
+	}
+
+	while ((de = readdir(dir))) {
+		struct stat st;
+
+		if (dir_dots(de))
+			continue;
+
+		sprintf(path, "%s/%s", root, de->d_name);
+
+		if (fstatat(dirfd(dir), de->d_name, &st, 0) < 0) {
+			pr_perror("stat of %s failed", path);
+			closedir(dir);
+			return -1;
+		}
+
+		if (!S_ISDIR(st.st_mode))
+			continue;
+
+		if (log_unfrozen_stacks(path) < 0) {
+			closedir(dir);
+			return -1;
+		}
+	}
+	closedir(dir);
+
+	return 0;
+}
+
 static int freeze_processes(void)
 {
-	int i, fd, exit_code = -1;
+	int fd, exit_code = -1;
 	char path[PATH_MAX];
 	const char *state = thawed;
+
+	static const unsigned long step_ms = 100;
+	unsigned long nr_attempts = (opts.timeout * 1000000) / step_ms;
+	unsigned long i;
+
+	const struct timespec req = {
+		.tv_nsec	= step_ms * 1000000,
+		.tv_sec		= 0,
+	};
+
+	if (unlikely(!nr_attempts)) {
+		/*
+		 * If timeout is turned off, lets
+		 * wait for at least 10 seconds.
+		 */
+		nr_attempts = (10 * 1000000) / step_ms;
+	}
+
+	pr_debug("freezing processes: %lu attempst with %lu ms steps\n",
+		 nr_attempts, step_ms);
 
 	snprintf(path, sizeof(path), "%s/freezer.state", opts.freeze_cgroup);
 	fd = open(path, O_RDWR);
@@ -269,51 +363,40 @@ static int freeze_processes(void)
 			close(fd);
 			return -1;
 		}
-	}
 
-	/*
-	 * There is not way to wait a specified state, so we need to poll the
-	 * freezer.state.
-	 * Here is one extra attempt to check that everything are frozen.
-	 */
-	for (i = 0; i <= NR_ATTEMPTS; i++) {
-		struct timespec req = {};
-		u64 timeout;
+		/*
+		 * Wait the freezer to complete before
+		 * processing tasks. They might be exiting
+		 * before freezing complete so we should
+		 * not read @tasks pids while freezer in
+		 * transition stage.
+		 */
+		for (i = 0; i <= nr_attempts; i++) {
+			state = get_freezer_state(fd);
+			if (!state) {
+				close(fd);
+				return -1;
+			}
 
-		if (seize_cgroup_tree(opts.freeze_cgroup, state) < 0)
-			goto err;
-
-		if (state == frozen)
-			break;
-
-		state = get_freezer_state(fd);
-		if (!state)
-			goto err;
-
-		if (state == frozen) {
-			/*
-			 * Enumerate all tasks one more time to collect all new
-			 * tasks, which can be born while the cgroup is being frozen.
-			 */
-
-			continue;
+			if (state == frozen)
+				break;
+			if (alarm_timeouted())
+				goto err;
+			nanosleep(&req, NULL);
 		}
 
-		if (alarm_timeouted())
+		if (i > nr_attempts) {
+			pr_err("Unable to freeze cgroup %s\n", opts.freeze_cgroup);
+			if (!pr_quelled(LOG_DEBUG))
+				log_unfrozen_stacks(opts.freeze_cgroup);
 			goto err;
+		}
 
-		timeout = 100000000 * (i + 1); /* 100 msec */
-		req.tv_nsec = timeout % 1000000000;
-		req.tv_sec = timeout / 1000000000;
-		nanosleep(&req, NULL);
+		pr_debug("freezing processes: %lu attempts done\n", i);
 	}
 
-	if (i > NR_ATTEMPTS) {
-		pr_err("Unable to freeze cgroup %s\n", opts.freeze_cgroup);
-		goto err;
-	}
+	exit_code = seize_cgroup_tree(opts.freeze_cgroup, state);
 
-	exit_code = 0;
 err:
 	if (exit_code == 0 || freezer_thawed) {
 		lseek(fd, 0, SEEK_SET);
@@ -522,7 +605,7 @@ static int collect_threads(struct pstree_item *item)
 		goto err;
 	}
 
-	/* The number of threads can't be less than allready frozen */
+	/* The number of threads can't be less than already frozen */
 	item->threads = xrealloc(item->threads, nr_threads * sizeof(struct pid));
 	if (item->threads == NULL)
 		return -1;

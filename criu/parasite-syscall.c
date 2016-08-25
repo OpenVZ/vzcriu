@@ -468,6 +468,10 @@ static int prepare_tsock(struct parasite_ctl *ctl, pid_t pid,
 		}
 	}
 
+	/* Check a case when parasite can't initialize a command socket */
+	if (fault_injected(FI_PARASITE_CONNECT))
+		args->h_addr_len = gen_parasite_saddr(&args->h_addr, getpid() + 1);
+
 	/*
 	 * Set to -1 to prevent any accidental misuse. The
 	 * only valid user of it is accept_tsock().
@@ -509,6 +513,8 @@ static int parasite_init_daemon(struct parasite_ctl *ctl, struct ns_id *net)
 	args->sigframe = ctl->rsigframe;
 	args->log_level = log_get_loglevel();
 
+	futex_set(&args->daemon_connected, 0);
+
 	if (prepare_tsock(ctl, pid, args, net))
 		goto err;
 
@@ -519,6 +525,13 @@ static int parasite_init_daemon(struct parasite_ctl *ctl, struct ns_id *net)
 	regs = ctl->orig.regs;
 	if (parasite_run(pid, PTRACE_CONT, ctl->parasite_ip, ctl->rstack, &regs, &ctl->orig))
 		goto err;
+
+	futex_wait_while_eq(&args->daemon_connected, 0);
+	if (futex_get(&args->daemon_connected) != 1) {
+		errno = -(int)futex_get(&args->daemon_connected);
+		pr_perror("Unable to connect a transport socket");
+		goto err;
+	}
 
 	if (accept_tsock(ctl) < 0)
 		goto err;
@@ -1055,12 +1068,14 @@ int parasite_stop_daemon(struct parasite_ctl *ctl)
 
 int parasite_cure_remote(struct parasite_ctl *ctl)
 {
-	int ret = 0;
-
 	if (parasite_stop_daemon(ctl))
 		return -1;
 
-	if (ctl->remote_map) {
+	if (!ctl->remote_map)
+		return 0;
+
+	/* Unseizing task with parasite -- it does it himself */
+	if (ctl->addr_cmd) {
 		struct parasite_unmap_args *args;
 
 		*ctl->addr_cmd = PARASITE_CMD_UNMAP;
@@ -1069,10 +1084,21 @@ int parasite_cure_remote(struct parasite_ctl *ctl)
 		args->parasite_start = ctl->remote_map;
 		args->parasite_len = ctl->map_length;
 		if (parasite_unmap(ctl, ctl->parasite_ip))
-			ret = -1;
+			return -1;
+	} else {
+		unsigned long ret;
+
+		syscall_seized(ctl, __NR_munmap, &ret,
+				(unsigned long)ctl->remote_map, ctl->map_length,
+				0, 0, 0, 0);
+		if (ret) {
+			pr_err("munmap for remote map %p, %lu returned %lu\n",
+					ctl->remote_map, ctl->map_length, ret);
+			return -1;
+		}
 	}
 
-	return ret;
+	return 0;
 }
 
 int parasite_cure_local(struct parasite_ctl *ctl)
@@ -1402,6 +1428,8 @@ struct parasite_ctl *parasite_infect_seized(pid_t pid, struct pstree_item *item,
 
 	if (parasite_start_daemon(ctl, item))
 		goto err_restore;
+
+	dmpi(item)->parasite_ctl = ctl;
 
 	return ctl;
 

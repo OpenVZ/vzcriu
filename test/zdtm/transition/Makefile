@@ -2,6 +2,7 @@ include ../Makefile.inc
 
 LIBDIR	= ../lib
 LIB	= $(LIBDIR)/libzdtmtst.a
+LDLIBS	+= $(LIBDIR)/libzdtmtst.a
 override CPPFLAGS += -I$(LIBDIR)
 CFLAGS	= -g -O2 -Wall -Werror -fno-strict-aliasing
 CFLAGS	+= $(USERCFLAGS)
@@ -37,9 +38,9 @@ DEP	= $(SRC:%.c=%.d)
 PID	= $(TST:%=%.pid)
 OUT	= $(TST:%=%.out)
 
-DEPEND.c = $(COMPILE.c) -MM -MP
-%.d:	%.c
-	$(DEPEND.c) $(OUTPUT_OPTION) $<
+%: %.c
+	$(Q)echo $@ >> .gitignore
+	$(CC) $(CFLAGS) $(CPPFLAGS) $(LDFLAGS) $(LOADLIBES) $^ $(LDLIBS) -o $@
 
 all:	$(TST)
 install: all
@@ -89,7 +90,10 @@ thread-bomb:	override LDFLAGS += -pthread
 $(LIB):	force
 	$(Q) $(MAKE) -C $(LIBDIR)
 
-clean:
+gitignore-clean:
+	$(RM) -f .gitignore
+
+clean:	gitignore-clean
 	$(RM) -f $(OBJ) $(TST) *~
 
 cleandep:	clean
@@ -104,7 +108,3 @@ cleanout:
 realclean:	cleandep cleanout
 
 .PHONY:	force clean cleandep cleanout realclean start check_start stop wait_stop
-
-ifeq ($(filter-out no-deps-targets, $(MAKECMDGOALS)),)
--include $(DEP)
-endif

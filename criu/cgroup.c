@@ -547,7 +547,7 @@ static int collect_cgroups(struct list_head *ctls)
 
 	list_for_each_entry(cc, ctls, l) {
 		char path[PATH_MAX], mopts[1024];
-		char *name, prefix[] = ".criu.cgmounts.XXXXXX";
+		char prefix[] = ".criu.cgmounts.XXXXXX";
 		struct cg_controller *cg;
 
 		current_controller = NULL;
@@ -578,13 +578,10 @@ static int collect_cgroups(struct list_head *ctls)
 		if (!opts.manage_cgroups)
 			continue;
 
-		if (strstartswith(cc->name, "name=")) {
-			name = cc->name + 5;
+		if (strstartswith(cc->name, "name="))
 			snprintf(mopts, sizeof(mopts), "none,%s", cc->name);
-		} else {
-			name = cc->name;
-			snprintf(mopts, sizeof(mopts), "%s", name);
-		}
+		else
+			snprintf(mopts, sizeof(mopts), "%s", cc->name);
 
 		if (mkdtemp(prefix) == NULL) {
 			pr_perror("can't make dir for cg mounts");
@@ -811,12 +808,21 @@ static int dump_controllers(CgroupEntry *cg)
 	return 0;
 }
 
+static void free_sets(CgroupEntry *cg, unsigned nr)
+{
+	unsigned i;
+
+	for (i = 0; i < nr; i++)
+		xfree(cg->sets[i]->ctls);
+	xfree(cg->sets);
+}
+
 
 static int dump_sets(CgroupEntry *cg)
 {
 	struct cg_set *set;
 	struct cg_ctl *ctl;
-	int s, c;
+	unsigned s, c;
 	void *m;
 	CgSetEntry *se;
 	CgMemberEntry *ce;
@@ -846,8 +852,10 @@ static int dump_sets(CgroupEntry *cg)
 		m = xmalloc(se->n_ctls * (sizeof(CgMemberEntry *) + sizeof(CgMemberEntry)));
 		se->ctls = m;
 		ce = m + se->n_ctls * sizeof(CgMemberEntry *);
-		if (!m)
+		if (!m) {
+			free_sets(cg, s);
 			return -1;
+		}
 
 		c = 0;
 		list_for_each_entry(ctl, &set->ctls, l) {
@@ -871,6 +879,7 @@ static int dump_sets(CgroupEntry *cg)
 int dump_cgroups(void)
 {
 	CgroupEntry cg = CGROUP_ENTRY__INIT;
+	int ret = -1;
 
 	BUG_ON(!criu_cgset || !root_cgset);
 
@@ -889,11 +898,16 @@ int dump_cgroups(void)
 
 	if (dump_sets(&cg))
 		return -1;
-	if (dump_controllers(&cg))
-		return -1;
+	if (dump_controllers(&cg)) {
+		goto err;
+	}
 
 	pr_info("Writing CG image\n");
-	return pb_write_one(img_from_set(glob_imgset, CR_FD_CGROUP), &cg, PB_CGROUP);
+	ret = pb_write_one(img_from_set(glob_imgset, CR_FD_CGROUP), &cg, PB_CGROUP);
+err:
+	free_sets(&cg, cg.n_sets);
+	xfree(cg.controllers);
+	return ret;
 }
 
 static int ctrl_dir_and_opt(CgControllerEntry *ctl, char *dir, int ds,
@@ -934,6 +948,8 @@ static const char *special_props[] = {
 	"cpuset.cpus",
 	"cpuset.mems",
 	"memory.kmem.limit_in_bytes",
+	"memory.swappiness",
+	"memory.use_hierarchy",
 	NULL,
 };
 
@@ -1407,9 +1423,18 @@ static int restore_special_props(char *paux, size_t off, CgroupDirEntry *e)
 		for (j = 0; j < e->n_properties; j++) {
 			CgroupPropEntry *prop = e->properties[j];
 
-			if (strcmp(name, prop->name) == 0)
-				if (restore_cgroup_prop(prop, paux, off) < 0)
+			if (strcmp(name, prop->name) == 0) {
+				/* XXX: we can drop this hack and make
+				 * memory.swappiness a regular property when we
+				 * drop support for kernels < 3.16. See 3dae7fec5.
+				 */
+				if (!strcmp(prop->name, "memory.swappiness") &&
+						!strcmp(prop->value, "60")) {
+					continue;
+				} else if (restore_cgroup_prop(prop, paux, off) < 0) {
 					return -1;
+				}
+			}
 		}
 	}
 
