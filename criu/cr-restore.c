@@ -1348,8 +1348,6 @@ static int restore_task_with_children(void *_arg)
 		 * It means that all tasks entered into their namespaces.
 		 */
 		futex_wait_while_gt(&task_entries->nr_in_progress, 1);
-		if (depopulate_roots_yard())
-			goto err;
 
 		fini_restore_mntns();
 	}
