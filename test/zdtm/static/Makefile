@@ -60,6 +60,7 @@ TST_NOFILE	:=				\
 		sockets02			\
 		sockets_spair			\
 		socket_queues			\
+		socket-raw			\
 		socket-tcp			\
 		socket-tcp6			\
 		socket-tcp-local		\
