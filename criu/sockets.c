@@ -57,9 +57,11 @@ enum socket_cl_bits
 	INET_TCP_CL_BIT,
 	INET_UDP_CL_BIT,
 	INET_UDPLITE_CL_BIT,
+	INET_RAW_CL_BIT,
 	INET6_TCP_CL_BIT,
 	INET6_UDP_CL_BIT,
 	INET6_UDPLITE_CL_BIT,
+	INET6_RAW_CL_BIT,
 	UNIX_CL_BIT,
 	PACKET_CL_BIT,
 	_MAX_CL_BIT,
@@ -85,6 +87,8 @@ enum socket_cl_bits get_collect_bit_nr(unsigned int family, unsigned int proto)
 			return INET_UDP_CL_BIT;
 		if (proto == IPPROTO_UDPLITE)
 			return INET_UDPLITE_CL_BIT;
+		if (proto == IPPROTO_RAW)
+			return INET_RAW_CL_BIT;
 	}
 	if (family == AF_INET6) {
 		if (proto == IPPROTO_TCP)
@@ -93,6 +97,8 @@ enum socket_cl_bits get_collect_bit_nr(unsigned int family, unsigned int proto)
 			return INET6_UDP_CL_BIT;
 		if (proto == IPPROTO_UDPLITE)
 			return INET6_UDPLITE_CL_BIT;
+		if (proto == IPPROTO_RAW)
+			return INET6_RAW_CL_BIT;
 	}
 
 	pr_err("Unknown pair family %d proto %d\n", family, proto);
@@ -593,6 +599,9 @@ static int inet_receive_one(struct nlmsghdr *h, void *arg)
 	case IPPROTO_TCP:
 		type = SOCK_STREAM;
 		break;
+	case IPPROTO_RAW:
+		type = SOCK_RAW;
+		break;
 	case IPPROTO_UDP:
 	case IPPROTO_UDPLITE:
 		type = SOCK_DGRAM;
@@ -614,6 +623,14 @@ static int do_collect_req(int nl, struct sock_diag_req *req, int size,
 
 	if (tmp == 0)
 		set_collect_bit(req->r.n.sdiag_family, req->r.n.sdiag_protocol);
+	else if (tmp == -ENOENT &&
+		 ((req->r.n.sdiag_family == AF_INET ||
+		   req->r.n.sdiag_family == AF_INET6) &&
+		  req->r.n.sdiag_protocol == IPPROTO_RAW)) {
+		pr_warn("No support for DIAG module on family %s with protocol IPPROTO_RAW, may fail later\n",
+			req->r.n.sdiag_family == AF_INET ? "IPv4" : "IPv6");
+		tmp = 0;
+	}
 
 	return tmp;
 }
@@ -668,6 +685,15 @@ int collect_sockets(struct ns_id *ns)
 	if (tmp)
 		err = tmp;
 
+	/* Collect IPv4 RAW sockets */
+	req.r.i.sdiag_family	= AF_INET;
+	req.r.i.sdiag_protocol	= IPPROTO_RAW;
+	req.r.i.idiag_ext	= 0;
+	req.r.i.idiag_states	= -1; /* All */
+	tmp = do_collect_req(nl, &req, sizeof(req), inet_receive_one, &req.r.i);
+	if (tmp)
+		err = tmp;
+
 	/* Collect IPv6 TCP sockets */
 	req.r.i.sdiag_family	= AF_INET6;
 	req.r.i.sdiag_protocol	= IPPROTO_TCP;
@@ -690,6 +716,15 @@ int collect_sockets(struct ns_id *ns)
 	/* Collect IPv6 UDP-lite sockets */
 	req.r.i.sdiag_family	= AF_INET6;
 	req.r.i.sdiag_protocol	= IPPROTO_UDPLITE;
+	req.r.i.idiag_ext	= 0;
+	req.r.i.idiag_states	= -1; /* All */
+	tmp = do_collect_req(nl, &req, sizeof(req), inet_receive_one, &req.r.i);
+	if (tmp)
+		err = tmp;
+
+	/* Collect IPv6 RAW sockets */
+	req.r.i.sdiag_family	= AF_INET6;
+	req.r.i.sdiag_protocol	= IPPROTO_RAW;
 	req.r.i.idiag_ext	= 0;
 	req.r.i.idiag_states	= -1; /* All */
 	tmp = do_collect_req(nl, &req, sizeof(req), inet_receive_one, &req.r.i);
