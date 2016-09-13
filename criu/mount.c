@@ -1465,6 +1465,7 @@ err:
 
 static int binfmt_misc_dump(struct mount_info *pm)
 {
+	static bool dumped = false;
 	struct cr_img *img = NULL;
 	struct dirent *de;
 	DIR *fdir = NULL;
@@ -1473,6 +1474,12 @@ static int binfmt_misc_dump(struct mount_info *pm)
 	ret = binfmt_misc_virtual(pm);
 	if (ret <= 0)
 		return ret;
+
+	if (dumped) {
+		pr_err("Second binfmt_misc superblock\n");
+		return -1;
+	}
+	dumped = true;
 
 	fd = open_mountpoint(pm);
 	if (fd < 0)
