@@ -6,6 +6,7 @@
 #include "list.h"
 #include "pid.h"
 #include "shmem.h"
+#include "mem.h"
 #include "image.h"
 #include "cr_options.h"
 #include "kerndat.h"
@@ -529,8 +530,8 @@ static int dump_one_shmem(struct shmem_info *si)
 {
 	struct page_pipe *pp;
 	struct page_xfer xfer;
-	int err, ret = -1, fd;
-	unsigned char *map = NULL;
+	int err, ret = -1, fd, fd_map;
+	u64 *map = NULL;
 	void *addr = NULL;
 	unsigned long pfn, nrpages;
 
@@ -545,24 +546,40 @@ static int dump_one_shmem(struct shmem_info *si)
 	if (fd < 0)
 		goto err;
 
+	fd_map = open_proc(PROC_SELF, "pagemap");
+	if (fd_map < 0) {
+		close(fd);
+		goto err;
+	}
+
 	addr = mmap(NULL, si->size, PROT_READ, MAP_SHARED, fd, 0);
 	close(fd);
 	if (addr == MAP_FAILED) {
+		close(fd_map);
 		pr_err("Can't map shmem 0x%lx (0x%lx-0x%lx)\n",
 				si->shmid, si->start, si->end);
 		goto err;
 	}
 
 	/*
-	 * We can't use pagemap here, because this vma is
-	 * not mapped to us at all, but mincore reports the
-	 * pagecache status of a file, which is correct in
-	 * this case.
+	 * Make sure PTEs are created in our space
+	 * so pagemap would show us the proper results.
+	 *
+	 * https://jira.sw.ru/browse/PSBM-52138
 	 */
+	for (pfn = 0; pfn < nrpages; pfn++) {
+		volatile char v = *(char *)((unsigned long)addr + pfn * PAGE_SIZE);
+		(void)v;
+	}
 
-	err = mincore(addr, si->size, map);
-	if (err)
-		goto err_unmap;
+	if (pread(fd_map, map, nrpages * sizeof(*map),
+		  PAGE_PFN((unsigned long)addr) * sizeof(u64)) != nrpages * sizeof(*map)) {
+		pr_perror("Can't read shmem 0x%lx (0x%lx-0x%lx) pagemap\n",
+			  si->shmid, si->start, si->end);
+		close(fd_map);
+		goto err;
+	}
+	close(fd_map);
 
 	pp = create_page_pipe((nrpages + 1) / 2, NULL, PP_CHUNK_MODE);
 	if (!pp)
@@ -573,7 +590,9 @@ static int dump_one_shmem(struct shmem_info *si)
 		goto err_pp;
 
 	for (pfn = 0; pfn < nrpages; pfn++) {
-		if (!(map[pfn] & PAGE_RSS))
+		if (!(map[pfn] & PME_SWAP) &&
+		    !((map[pfn] & PME_PRESENT) &&
+		      (map[pfn] & PME_PFRAME_MASK) != kdat.zero_page_pfn))
 			continue;
 again:
 		ret = page_pipe_add_page(pp, (unsigned long)addr + pfn * PAGE_SIZE);
