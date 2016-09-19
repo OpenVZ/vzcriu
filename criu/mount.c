@@ -29,6 +29,7 @@
 #include "clone-noasan.h"
 #include "fdstore.h"
 #include "rst-malloc.h"
+#include "crtools.h"
 
 #include "images/mnt.pb-c.h"
 
@@ -1759,9 +1760,17 @@ static __maybe_unused int mount_cr_time_mount(struct ns_id *ns, unsigned int *s_
 	int mnt_fd, cwd_fd, exit_code = -1;
 	struct stat st;
 
+	if (!opts.ve) {
+		pr_debug("Skipping binfmt_misc as --ve was not specifided\n");
+		return 1;
+	}
+
+	if (join_veX())
+		return -1;
+
 	if (switch_mnt_ns(ns->ns_pid, &mnt_fd, &cwd_fd)) {
 		pr_err("Can't switch mnt_ns\n");
-		return -1;
+		goto out;
 	}
 
 	if (mount(source, target, type, 0, NULL)) {
@@ -1788,6 +1797,9 @@ static __maybe_unused int mount_cr_time_mount(struct ns_id *ns, unsigned int *s_
 	exit_code = 0;
 restore_ns:
 	if (restore_mnt_ns(mnt_fd, &cwd_fd))
+		exit_code = -1;
+out:
+	if (join_ve0())
 		exit_code = -1;
 	return exit_code;
 }
