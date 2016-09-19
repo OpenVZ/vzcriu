@@ -1196,6 +1196,28 @@ static __maybe_unused int mount_cr_time_mount(struct ns_id *ns, unsigned int *s_
 {
 	int mnt_fd, ret, exit_code = 0;
 	struct stat st;
+	int ve0_fd = -1, veX_fd = -1, len = -1;
+	char buf[PATH_MAX];
+
+	snprintf(buf, PATH_MAX, "/sys/fs/cgroup/ve/tasks");
+	ret = ve0_fd = open(buf, O_WRONLY);
+	if (ret < 0) {
+		pr_perror("Can't open %s", buf);
+		goto out;
+	}
+	snprintf(buf, PATH_MAX, "/sys/fs/cgroup/ve/%s/tasks", getenv("VEID"));
+	ret = veX_fd = open(buf, O_WRONLY);
+	if (ret < 0) {
+		pr_perror("Can't open %s", buf);
+		goto out;
+	}
+
+	len = sprintf(buf, "%d", getpid());
+	if (len <= 0 || write(veX_fd, buf, len) != len) {
+		pr_perror("Can't enter VE cgroup (len=%d)", len);
+		len = ret = -1;
+		goto out;
+	}
 
 	ret = switch_ns(ns->ns_pid, &mnt_ns_desc, &mnt_fd);
 	if (ret < 0) {
@@ -1220,6 +1242,12 @@ static __maybe_unused int mount_cr_time_mount(struct ns_id *ns, unsigned int *s_
 restore_ns:
 	ret = restore_ns(mnt_fd, &mnt_ns_desc);
 out:
+	if (len > 0 && write(ve0_fd, buf, len) != len) {
+		pr_perror("Can't restore VE\n");
+		ret = -1;
+	}
+	close(ve0_fd);
+	close(veX_fd);
 	return ret < 0 ? 0 : exit_code;
 }
 
