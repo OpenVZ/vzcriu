@@ -1344,6 +1344,57 @@ static int binfmt_misc_parse(struct mount_info *pm)
 
 }
 
+static char *get_dumpee_veid(void)
+{
+	char *veid = getenv("VEID");
+	static char vebuf[256];
+	static pid_t pid = 0;
+
+	if (veid) {
+		pr_debug("VEID from env %s\n", veid);
+		return veid;
+	} else if (pid == 0 || root_item->pid.real != pid) {
+		FILE *f = fopen_proc(root_item->pid.real, "cgroup");
+		char *name, *path = NULL, *e;
+		char buf[PAGE_SIZE];
+
+		if (!f)
+			return ERR_PTR(-ENOENT);
+		pr_debug("Determinating VEID for pid %d\n", root_item->pid.real);
+		/*
+		 * 16:name=zdtmtst:/
+		 * 14:freezer:/machine.slice/150
+		 * 13:cpuset:/machine.slice/150
+		 * 12:perf_event:/machine.slice/150
+		 * 11:hugetlb:/machine.slice/150
+		 * 10:ve:/150
+		 */
+		while (fgets(buf, sizeof(buf), f)) {
+			name = strchr(buf, ':');
+			if (name)
+				path = strchr(++name, ':');
+			if (!name || !path) {
+				pr_err("Failed parsing cgroup %s\n", buf);
+				return ERR_PTR(-EINVAL);
+			}
+			e = strchr(name, '\n');
+			*path++ = '\0';
+			if (e)
+				*e = '\0';
+			if (!strcmp(name, "ve")) {
+				pid = root_item->pid.real;
+				strncpy(vebuf, path[0] == '/' ? &path[1] : path,
+					sizeof(vebuf) - 1);
+				pr_debug("VEID %s\n", vebuf);
+				break;
+			}
+		}
+		fclose(f);
+	}
+
+	return vebuf;
+}
+
 /* Returns 1 in case of success, -errno in case of mount fail, and 0 on other errors */
 static int mount_cr_time_mount(struct ns_id *ns, unsigned int *s_dev, const char *source,
 			       const char *target, const char *type)
@@ -1352,6 +1403,7 @@ static int mount_cr_time_mount(struct ns_id *ns, unsigned int *s_dev, const char
 	struct stat st;
 	int ve0_fd = -1, veX_fd = -1, len = -1;
 	char buf[PATH_MAX];
+	char *veid;
 
 	snprintf(buf, PATH_MAX, "/sys/fs/cgroup/ve/tasks");
 	ret = ve0_fd = open(buf, O_WRONLY);
@@ -1359,7 +1411,14 @@ static int mount_cr_time_mount(struct ns_id *ns, unsigned int *s_dev, const char
 		pr_perror("Can't open %s", buf);
 		goto out;
 	}
-	snprintf(buf, PATH_MAX, "/sys/fs/cgroup/ve/%s/tasks", getenv("VEID"));
+
+	veid = get_dumpee_veid();
+	if (IS_ERR_OR_NULL(veid)) {
+		pr_err("Can't fetch VEID of a dumpee\n");
+		goto out;
+	}
+
+	snprintf(buf, PATH_MAX, "/sys/fs/cgroup/ve/%s/tasks", veid);
 	ret = veX_fd = open(buf, O_WRONLY);
 	if (ret < 0) {
 		pr_perror("Can't open %s", buf);
