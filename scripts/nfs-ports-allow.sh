@@ -44,6 +44,7 @@ function iptables_allow_nfs_ports {
 	local ports=$2
 
 	for p in $ports; do
+		echo "Unmasking NFS route $s:$p"
 		add_accept_rules $server $p || break
 	done
 }
