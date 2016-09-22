@@ -1349,6 +1349,7 @@ static char *get_dumpee_veid(void)
 	char *veid = getenv("VEID");
 	static char vebuf[256];
 	static pid_t pid = 0;
+	bool found = false;
 
 	if (veid) {
 		pr_debug("VEID from env %s\n", veid);
@@ -1360,7 +1361,10 @@ static char *get_dumpee_veid(void)
 
 		if (!f)
 			return ERR_PTR(-ENOENT);
+
 		pr_debug("Determinating VEID for pid %d\n", root_item->pid.real);
+		found = false;
+
 		/*
 		 * 16:name=zdtmtst:/
 		 * 14:freezer:/machine.slice/150
@@ -1386,13 +1390,15 @@ static char *get_dumpee_veid(void)
 				strncpy(vebuf, path[0] == '/' ? &path[1] : path,
 					sizeof(vebuf) - 1);
 				pr_debug("VEID %s\n", vebuf);
+				found = true;
 				break;
 			}
 		}
 		fclose(f);
-	}
+	} else
+		found = true;
 
-	return vebuf;
+	return found ? vebuf : ERR_PTR(-ENOENT);
 }
 
 /* Returns 1 in case of success, -errno in case of mount fail, and 0 on other errors */
