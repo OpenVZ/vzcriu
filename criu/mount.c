@@ -1341,8 +1341,7 @@ static int devtmpfs_restore(struct mount_info *pm)
 
 static int binfmt_misc_parse(struct mount_info *pm)
 {
-	if (pm->nsid->type == NS_ROOT)
-		opts.has_binfmt_misc = true;
+	opts.has_binfmt_misc = true;
 	return 0;
 
 }
