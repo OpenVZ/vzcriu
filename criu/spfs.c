@@ -23,6 +23,7 @@
 #include "cgroup.h"
 
 #define SPFS_MANAGER_WORK_DIR  "/run/spfs-manager/%d"
+#define SPFS_MANAGER_LOG_DIR   "%s/spfs-manager"
 #define SPFS_MANAGER_SOCK_FILE "control.sock"
 
 static int sock_seqpacket_connect(char *path)
@@ -88,10 +89,7 @@ static char *spfs_manager_work_dir(void)
 {
 	static char work_dir[PATH_MAX] = {};
 
-	if (strlen(work_dir) == 0) {
-		snprintf(work_dir, PATH_MAX, SPFS_MANAGER_WORK_DIR,
-			 root_item->pid->real);
-	}
+	snprintf(work_dir, PATH_MAX, SPFS_MANAGER_WORK_DIR, root_item->pid->real);
 	return work_dir;
 }
 
@@ -107,6 +105,15 @@ char *spfs_manager_socket_path(void)
 	return socket_path;
 }
 
+static char *spfs_manager_log_dir(void)
+{
+	static char log_dir[PATH_MAX] = {};
+
+	if (strlen(log_dir) == 0)
+		snprintf(log_dir, PATH_MAX, SPFS_MANAGER_LOG_DIR, opts.work_dir);
+	return log_dir;
+}
+
 static int start_spfs_manager(void)
 {
 	char *spfs_manager = "spfs-manager";
@@ -117,7 +124,8 @@ static int start_spfs_manager(void)
 
 	err = cr_system(-1, -1, -1, spfs_manager,
 			(char *[]){ "spfs-manager", "-vvvv", "-d", "--socket-path", socket_path, "--work-dir",
-				    spfs_manager_work_dir(), "--exit-with-spfs", NULL },
+				    spfs_manager_work_dir(), "--log-dir", spfs_manager_log_dir(), "--exit-with-spfs",
+				    NULL },
 			0);
 	if (err) {
 		pr_err("failed to start SPFS manager binary: %d\n", err);
