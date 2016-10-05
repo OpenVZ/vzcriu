@@ -188,7 +188,7 @@ endif
 
 #
 # Configure variables.
-export CONFIG_HEADER := $(SRC_DIR)/criu/include/config.h
+export CONFIG_HEADER := criu/include/config.h
 ifeq ($(filter clean mrproper,$(MAKECMDGOALS)),)
 include $(SRC_DIR)/Makefile.config
 endif
@@ -204,9 +204,12 @@ $(eval $(call gen-built-in,images))
 # Next the socket CR library
 #
 SOCCR_A := soccr/libsoccr.a
-soccr/%: $(CONFIG_HEADER) .FORCE
+SOCCR_CONFIG := $(SRC_DIR)/soccr/config.h
+$(SOCCR_CONFIG): $(CONFIG_HEADER)
+	$(Q) ln -s ../$(CONFIG_HEADER) $@
+soccr/%: $(SOCCR_CONFIG) .FORCE
 	$(Q) $(MAKE) $(build)=soccr $@
-soccr/built-in.o: $(CONFIG_HEADER) .FORCE
+soccr/built-in.o: $(SOCCR_CONFIG) .FORCE
 	$(Q) $(MAKE) $(build)=soccr all
 $(SOCCR_A): |soccr/built-in.o
 
@@ -253,6 +256,7 @@ mrproper: subclean
 	$(Q) $(MAKE) $(build)=criu $@
 	$(Q) $(MAKE) $(build)=soccr $@
 	$(Q) $(RM) $(CONFIG_HEADER)
+	$(Q) $(RM) $(SOCCR_CONFIG)
 	$(Q) $(RM) $(VERSION_HEADER)
 	$(Q) $(RM) include/common/asm
 	$(Q) $(RM) cscope.*
