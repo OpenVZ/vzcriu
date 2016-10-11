@@ -146,7 +146,7 @@ static int seize_cgroup_tree(char *root_path, const char *state)
 			pr_err("zombie %d (comm %s) found while seizing\n",
 			       pid, __task_comm_info(pid));
 			fclose(f);
-			return -EPERM;
+			return -EAGAIN;
 		}
 	}
 	fclose(f);
@@ -411,7 +411,7 @@ static int freeze_processes(void)
 	 */
 	for (; i <= nr_attempts; i++) {
 		exit_code = seize_cgroup_tree(opts.freeze_cgroup, state);
-		if (exit_code == -EPERM) {
+		if (exit_code == -EAGAIN) {
 			if (alarm_timeouted())
 				goto err;
 			nanosleep(&req, NULL);
