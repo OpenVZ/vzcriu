@@ -2734,6 +2734,14 @@ static int do_bind_mount(struct mount_info *mi)
 
 	mnt_path = mi->bind->mountpoint;
 
+	if (mi->fstype->code == FSTYPE__AUTOFS && mi->bind->fd < 0) {
+		mi->bind->fd = open(mnt_path, O_PATH); /* autofs hack*/
+		if (mi->bind->fd < 0) {
+			pr_perror("Unable to open %s", mnt_path);
+			goto err;
+		}
+	}
+
 	/* Access a mount by fd if mi->bind->mountpoint is overmounted */
 	if (mi->bind->fd >= 0) {
 		snprintf(mnt_fd_path, sizeof(mnt_fd_path),
