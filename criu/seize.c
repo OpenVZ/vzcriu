@@ -145,6 +145,43 @@ static int seize_cgroup_tree(char *root_path, const char *state)
 			 */
 			pr_err("zombie %d (comm %s) found while seizing\n",
 			       pid, __task_comm_info(pid));
+			if (!pr_quelled(LOG_DEBUG)) {
+				/*
+				 * FIXME: Debug printing in a sake of
+				 * https://jira.sw.ru/browse/PSBM-53929
+				 * Drop before the release.
+				 */
+				char __path[64], __buf[1024];
+				static char ps_cmd[] = "ps";
+				int fd, ret;
+
+				cr_system(-1, -1, -1, ps_cmd,
+					  (char *[]) { ps_cmd, "aufx", NULL}, 0);
+
+				snprintf(__path, sizeof(__path), "/proc/%d/stack", pid);
+				fd = open(__path, O_RDONLY);
+				if (fd >= 0) {
+					ret = read(fd, __buf, sizeof(__buf));
+					if (ret > 0) {
+						__buf[ret] = '\0';
+						pr_debug("/proc/%d/stack:\n%s\n",
+							 pid, __buf);
+					}
+					close(fd);
+				}
+
+				snprintf(__path, sizeof(__path), "/proc/%d/stat", pid);
+				fd = open(__path, O_RDONLY);
+				if (fd >= 0) {
+					ret = read(fd, __buf, sizeof(__buf));
+					if (ret > 0) {
+						__buf[ret] = '\0';
+						pr_debug("/proc/%d/stat:\n%s\n",
+							 pid, __buf);
+					}
+					close(fd);
+				}
+			}
 			fclose(f);
 			return -EAGAIN;
 		}
