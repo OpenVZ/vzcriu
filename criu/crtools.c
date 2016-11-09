@@ -54,6 +54,8 @@
 #include "setproctitle.h"
 #include "sysctl.h"
 
+#include "../soccr/soccr.h"
+
 struct cr_options opts;
 
 void init_opts(void)
@@ -696,6 +698,8 @@ int main(int argc, char *argv[], char *envp[])
 
 	if (log_init(opts.output))
 		return 1;
+
+	libsoccr_set_log(log_level, print_on_level);
 
 	pr_debug("Version: %s (gitid %s)\n", CRIU_VERSION, CRIU_GITID);
 
