@@ -248,7 +248,7 @@ static inline bool issubpath(const char *path, const char *sub_path)
 /*
  * mkdir -p
  */
-int mkdirpat(int fd, const char *path);
+int mkdirpat(int fd, const char *path, int mode);
 /*
  * mkdir -p `dirname $path`
  */
