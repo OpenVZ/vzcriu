@@ -259,6 +259,7 @@ TST_DIR		=				\
 		mnt_enablefs			\
 		autofs				\
 		del_standalone_un		\
+		del_standalone_un_dentry	\
 
 TST_DIR_FILE	=				\
 		chroot				\
