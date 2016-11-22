@@ -285,6 +285,7 @@ TST_DIR		=				\
 		del_standalone_un		\
 		del_standalone_un_dentry	\
 		pty05				\
+		sk-unix01			\
 
 TST_DIR_FILE	=				\
 		chroot				\
