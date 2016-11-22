@@ -9,6 +9,7 @@
 #include <sys/un.h>
 #include <stdlib.h>
 #include <dlfcn.h>
+#include <libgen.h>
 
 #include "asm/types.h"
 #include "libnetlink.h"
@@ -28,6 +29,7 @@
 #include "namespaces.h"
 #include "pstree.h"
 #include "crtools.h"
+#include "rst-malloc.h"
 
 #include "protobuf.h"
 #include "images/sk-unix.pb-c.h"
@@ -102,7 +104,18 @@ struct  unix_sk_exception {
 
 #define SK_HASH_SIZE		32
 
+static mutex_t *deleted_socket_mutex;
+
 static struct unix_sk_listen_icon *unix_listen_icons[SK_HASH_SIZE];
+
+int prepare_shared_unix(void)
+{
+	deleted_socket_mutex = shmalloc(sizeof(*deleted_socket_mutex));
+	if (!deleted_socket_mutex)
+		return -1;
+	mutex_init(deleted_socket_mutex);
+	return 0;
+}
 
 static struct unix_sk_listen_icon *lookup_unix_listen_icons(int peer_ino)
 {
@@ -951,11 +964,74 @@ static int post_open_unix_sk(struct file_desc *d, int fd)
 	return 0;
 }
 
+/*
+ * When path where socket lives is deleted, we need to reconstruct
+ * it back up but allow caller to remove it after.
+ */
+static int try_rebind_on_deleted(int sk, struct sockaddr_un *addr,
+				 struct unix_sk_info *ui,
+				 size_t *keep)
+{
+	char path[PATH_MAX], *pos;
+	int ret, _keep;
+
+	if (ui->ue->name.len >= sizeof(path)) {
+		pr_err("Too long name for socket\n");
+		return -ENOSPC;
+	}
+
+	memcpy(path, ui->name, ui->ue->name.len);
+	path[ui->ue->name.len] = '\0';
+
+	for (pos = strrchr(path, '/'); pos;
+	     pos = strrchr(path, '/')) {
+		*pos = '\0';
+
+		ret = access(path, R_OK | W_OK | X_OK);
+		if (ret == 0)
+			break;
+
+		if (errno != ENOENT) {
+			ret = -errno;
+			pr_perror("Can't access %s\n", path);
+			return ret;
+		}
+	}
+
+	_keep = pos ? pos - path : ui->ue->name.len;
+
+	memcpy(path, ui->name, ui->ue->name.len);
+	path[ui->ue->name.len] = '\0';
+
+	pos = dirname(path);
+	ret = mkdirpat(AT_FDCWD, pos, 0755);
+	if (ret) {
+		pr_err("Can't create %s\n", pos);
+		return ret;
+	}
+
+	ret = bind(sk, (struct sockaddr *)addr,
+		   sizeof(addr->sun_family) + ui->ue->name.len);
+	if (ret < 0) {
+		pr_perror("Can't bind on socket %s", (char *)ui->ue->name.data);
+		goto out;
+	}
+
+	*keep = _keep;
+	return 0;
+
+out:
+	if (rmdirp(pos, _keep))
+		pr_err("Can't cleanup %s\n", pos);
+	return ret;
+}
+
 static int bind_unix_sk(int sk, struct unix_sk_info *ui)
 {
 	struct sockaddr_un addr;
 	int cwd_fd = -1;
 	int ret = -1;
+	size_t keep;
 
 	if ((ui->ue->type == SOCK_STREAM) && (ui->ue->state == TCP_ESTABLISHED)) {
 		/*
@@ -972,6 +1048,7 @@ static int bind_unix_sk(int sk, struct unix_sk_info *ui)
 	memset(&addr, 0, sizeof(addr));
 	addr.sun_family = AF_UNIX;
 	memcpy(&addr.sun_path, ui->name, ui->ue->name.len);
+	keep = ui->ue->name.len;
 
 	if (prep_unix_sk_cwd(ui, &cwd_fd))
 		return -1;
@@ -1018,8 +1095,13 @@ static int bind_unix_sk(int sk, struct unix_sk_info *ui)
 				ui->ue->deleted = false;
 
 			} else {
-				pr_perror("Can't bind socket");
-				goto done;
+				mutex_lock(deleted_socket_mutex);
+				ret = try_rebind_on_deleted(sk, &addr, ui, &keep);
+				mutex_unlock(deleted_socket_mutex);
+				if (ret) {
+					pr_err("Can't bind deleted socket\n");
+					goto done;
+				}
 			}
 		}
 
@@ -1046,9 +1128,15 @@ static int bind_unix_sk(int sk, struct unix_sk_info *ui)
 			}
 		}
 
-		if (ui->ue->deleted && unlink((char *)ui->ue->name.data) < 0) {
-			pr_perror("failed to unlink %s\n", ui->ue->name.data);
-			goto done;
+		if (ui->ue->deleted) {
+			if (unlink((char *)ui->ue->name.data) < 0) {
+				pr_perror("failed to unlink %s\n", ui->ue->name.data);
+				goto done;
+			}
+			if (rmdirp((char *)ui->ue->name.data, keep)) {
+				pr_err("Can't clean up %s\n", ui->ue->name.data);
+				goto done;
+			}
 		}
 	}
 
