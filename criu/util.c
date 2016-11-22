@@ -847,6 +847,46 @@ int mkdirpat(int fd, const char *path, int mode)
 	return 0;
 }
 
+/*
+ * Remove directory @path together with parents,
+ * keeping @keep len of path if provided. Directories
+ * must be empty of course.
+ */
+int rmdirp(const char *path, size_t keep)
+{
+	char made_path[PATH_MAX], *pos;
+	size_t len = strlen(path);
+	int ret;
+
+	if (len >= PATH_MAX) {
+		pr_err("path %s is longer than PATH_MAX\n", path);
+		return -ENOSPC;
+	}
+
+	/* Nothing to do */
+	if (len <= keep)
+		return 0;
+
+	strcpy(made_path, path);
+
+	for (pos = strrchr(made_path, '/');
+	     pos && (pos - made_path) >= keep;
+	     pos = strrchr(made_path, '/')) {
+		ret = rmdir(made_path);
+
+		if (ret < 0 && errno != ENOENT) {
+			ret = -errno;
+			pr_perror("Can't delete %s", made_path);
+			goto out;
+		}
+		*pos = '\0';
+	}
+
+	ret = 0;
+out:
+	return ret;
+}
+
 int mkdirname(const char *path, int mode)
 {
 	int err;
