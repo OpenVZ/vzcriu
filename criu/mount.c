@@ -2075,7 +2075,8 @@ static int propagate_mount(struct mount_info *mi)
 		 * is always shared. If we want to get a private
 		 * mount, we need to convert it.
 		 */
-		restore_shared_options(p, !p->shared_id, 0, 0);
+		if (restore_shared_options(p, !p->shared_id, 0, 0))
+			return -1;
 		p->mounted = true;
 		propagate_siblings(p);
 		umount_from_slaves(p);
