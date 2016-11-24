@@ -49,30 +49,36 @@ static int can_run_syscall(unsigned long ip, unsigned long start,
 	return ip >= start && ip < (end - BUILTIN_SYSCALL_SIZE - pad);
 }
 
-static int syscall_fits_vma_area(struct vma_area *vma_area, unsigned long pad)
+static int syscall_fits_vma_area(unsigned long start, unsigned long end, unsigned long pad)
 {
-	return can_run_syscall((unsigned long)vma_area->e->start,
-			       (unsigned long)vma_area->e->start,
-			       (unsigned long)vma_area->e->end,
-			       pad);
+	return can_run_syscall(start, start, end, pad);
 }
 
-static struct vma_area *get_vma_by_ip(struct list_head *vma_area_list,
-				      unsigned long ip,
-				      unsigned long pad)
+static unsigned long find_syscall_ip(struct list_head *vma_area_list,
+				     unsigned long ip, unsigned long pad)
 {
-	struct vma_area *vma_area;
+	struct vma_area *vma_area, *vma_prev = NULL;
 
 	list_for_each_entry(vma_area, vma_area_list, list) {
+		unsigned long start, end;
+
 		if (vma_area->e->start >= kdat.task_size)
 			continue;
 		if (!(vma_area->e->prot & PROT_EXEC))
 			continue;
-		if (syscall_fits_vma_area(vma_area, pad))
-			return vma_area;
+
+		start = vma_area->e->start;
+		end = vma_area->e->end;
+
+		if (stack_guard_page_start(vma_area, vma_prev, start))
+			start += PAGE_SIZE;
+
+		if (syscall_fits_vma_area(start, end, pad))
+			return start;
+		vma_prev = vma_area;
 	}
 
-	return NULL;
+	return 0;
 }
 
 static inline int ptrace_get_regs(int pid, user_regs_struct_t *regs)
@@ -1154,7 +1160,6 @@ err:
 struct parasite_ctl *parasite_prep_ctl(pid_t pid, struct vm_area_list *vma_area_list)
 {
 	struct parasite_ctl *ctl = NULL;
-	struct vma_area *vma_area;
 
 	if (!arch_can_dump_task(pid))
 		goto err;
@@ -1180,15 +1185,15 @@ struct parasite_ctl *parasite_prep_ctl(pid_t pid, struct vm_area_list *vma_area_
 		return ctl;
 
 	/* Search a place for injecting syscall */
-	vma_area = get_vma_by_ip(&vma_area_list->h, REG_IP(ctl->orig.regs),
-				 MEMFD_FNAME_SZ);
-	if (!vma_area) {
+	ctl->syscall_ip	= find_syscall_ip(&vma_area_list->h,
+					  REG_IP(ctl->orig.regs),
+					  MEMFD_FNAME_SZ);
+	if (!ctl->syscall_ip) {
 		pr_err("No suitable VMA found to run parasite "
 		       "bootstrap code (pid: %d)\n", pid);
 		goto err;
 	}
 
-	ctl->syscall_ip	= vma_area->e->start;
 	pr_debug("Parasite syscall_ip at %p\n", (void *)ctl->syscall_ip);
 
 	return ctl;
