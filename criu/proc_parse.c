@@ -612,7 +612,7 @@ err_bogus_mapfile:
 
 static int vma_list_add(struct vma_area *vma_area,
 			struct vm_area_list *vma_area_list,
-			struct vma_area **prev_vma,
+			unsigned long *prev_end,
 			struct vma_file_info *vfi, struct vma_file_info *prev_vfi)
 {
 	if (vma_area->e->status & VMA_UNSUPP) {
@@ -622,14 +622,10 @@ static int vma_list_add(struct vma_area *vma_area,
 	}
 
 	/* Add a guard page only if here is enough space for it */
-	if (stack_guard_page_start(vma_area, *prev_vma, vma_area->e->start) &&
-	    (*prev_vma && (*prev_vma)->e->end < vma_area->e->start)) {
-		pr_debug("adjusting VMA's start to cope with guard page (%lx -> %lx)-%lx\n",
-			 vma_area->e->start, (vma_area->e->start - PAGE_SIZE),
-			 vma_area->e->end);
-		vma_area->e->start -= PAGE_SIZE;
-	}
-	*prev_vma = vma_area;
+	if ((vma_area->e->flags & MAP_GROWSDOWN) &&
+	    *prev_end < vma_area->e->start)
+		vma_area->e->start -= PAGE_SIZE; /* Guard page */
+	*prev_end = vma_area->e->end;
 
 	list_add_tail(&vma_area->list, &vma_area_list->h);
 	vma_area_list->nr++;
@@ -650,8 +646,8 @@ static int vma_list_add(struct vma_area *vma_area,
 int parse_smaps(pid_t pid, struct vm_area_list *vma_area_list,
 					dump_filemap_t dump_filemap)
 {
-	struct vma_area *vma_area = NULL, *prev_vma = NULL;
-	unsigned long start, end, pgoff;
+	struct vma_area *vma_area = NULL;
+	unsigned long start, end, pgoff, prev_end = 0;
 	char r, w, x, s;
 	int ret = -1, vm_file_fd = -1;
 	struct vma_file_info vfi;
@@ -708,7 +704,7 @@ int parse_smaps(pid_t pid, struct vm_area_list *vma_area_list,
 		}
 
 		if (vma_area && vma_list_add(vma_area, vma_area_list,
-						&prev_vma, &vfi, &prev_vfi))
+						&prev_end, &vfi, &prev_vfi))
 			goto err;
 
 		if (eof)

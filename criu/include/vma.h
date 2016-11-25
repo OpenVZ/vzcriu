@@ -1,8 +1,6 @@
 #ifndef __CR_VMA_H__
 #define __CR_VMA_H__
 
-#include <sys/mman.h>
-
 #include "asm/types.h"
 #include "image.h"
 #include "list.h"
@@ -110,16 +108,6 @@ static inline bool vma_area_is_private(struct vma_area *vma,
 				       unsigned long task_size)
 {
 	return vma_entry_is_private(vma->e, task_size);
-}
-
-static inline int vma_growsdown(struct vma_area *vma, unsigned long addr)
-{
-	return vma && (vma->e->end == addr) && (vma->e->flags & MAP_GROWSDOWN);
-}
-
-static inline int stack_guard_page_start(struct vma_area *vma, struct vma_area *vma_prev, unsigned long addr)
-{
-	return (vma->e->flags & MAP_GROWSDOWN) && (vma->e->start == addr) && !vma_growsdown(vma_prev, addr);
 }
 
 #endif /* __CR_VMA_H__ */
