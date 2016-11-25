@@ -66,7 +66,8 @@ static struct vma_area *get_vma_by_ip(struct list_head *vma_area_list,
 	list_for_each_entry(vma_area, vma_area_list, list) {
 		if (vma_area->e->start >= kdat.task_size)
 			continue;
-		if (!(vma_area->e->prot & PROT_EXEC))
+		if (!(vma_area->e->prot & PROT_EXEC) ||
+		    (vma_area->e->flags & MAP_GROWSDOWN))
 			continue;
 		if (syscall_fits_vma_area(vma_area, pad))
 			return vma_area;
