@@ -54,7 +54,8 @@ unsigned long get_exec_start(struct vm_area_list *vmas)
 
 		if (vma_area->e->start >= kdat.task_size)
 			continue;
-		if (!(vma_area->e->prot & PROT_EXEC))
+		if (!(vma_area->e->prot & PROT_EXEC) ||
+		    (vma_area->e->flags & MAP_GROWSDOWN))
 			continue;
 
 		len = vma_area_len(vma_area);
