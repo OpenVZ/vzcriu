@@ -19,6 +19,7 @@
 #include "util.h"
 #include "fs-magic.h"
 #include "tty.h"
+#include "spfs.h"
 
 #include "images/mnt.pb-c.h"
 #include "images/binfmt-misc.pb-c.h"
@@ -761,9 +762,11 @@ static struct fstype fstypes[] = {
 	}, {
 		.name = "nfs",
 		.code = FSTYPE__NFS,
+		.mount = spfs_mount,
 	}, {
 		.name = "nfs4",
 		.code = FSTYPE__NFS4,
+		.mount = spfs_mount,
 	},
 };
 
