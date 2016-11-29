@@ -781,6 +781,10 @@ static struct fstype fstypes[] = {
 		.dump = autofs_dump,
 		.mount = autofs_mount,
 	},
+	{
+		.name = "rpc_pipefs",
+		.code = FSTYPE__RPC_PIPEFS,
+	},
 };
 
 struct fstype *fstype_auto(void)
