@@ -4,8 +4,8 @@
 #include <stdbool.h>
 #include <signal.h>
 
-#include "asm/page.h"
-#include "asm/bitops.h"
+#include "page.h"
+#include "bitops.h"
 #include "asm/int.h"
 
 #include "images/core.pb-c.h"
@@ -30,13 +30,6 @@ typedef rt_restorefn_t *rt_sigrestore_t;
 typedef struct {
 	unsigned long sig[_KNSIG_WORDS];
 } k_rtsigset_t;
-
-static inline void ksigfillset(k_rtsigset_t *set)
-{
-	int i;
-	for (i = 0; i < _KNSIG_WORDS; i++)
-		set->sig[i] = (unsigned long)-1;
-}
 
 #define SA_RESTORER	0x04000000
 
@@ -90,6 +83,7 @@ typedef struct {
 	unsigned long	gs;
 } user_regs_struct_t;
 
+#if 0
 typedef struct {
 	unsigned short	cwd;
 	unsigned short	swd;
@@ -104,6 +98,9 @@ typedef struct {
 	u32		xmm_space[64];	/* 16*16 bytes for each XMM-reg = 256 bytes */
 	u32		padding[24];
 } user_fpregs_struct_t;
+#endif
+
+typedef struct xsave_struct user_fpregs_struct_t;
 
 #ifdef CONFIG_X86_64
 # define TASK_SIZE	((1UL << 47) - PAGE_SIZE)
@@ -115,7 +112,7 @@ typedef struct {
 # define TASK_SIZE	(0xffffe000)
 #endif
 
-static inline unsigned long task_size() { return TASK_SIZE; }
+static inline unsigned long task_size(void) { return TASK_SIZE; }
 
 typedef u64 auxv_t;
 typedef u32 tls_t;

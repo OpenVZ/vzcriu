@@ -9,6 +9,8 @@
 #include <string.h>
 #include <netinet/in.h>
 
+#include "int.h"
+#include "bitops.h"
 #include "libnetlink.h"
 #include "sockets.h"
 #include "unix_diag.h"
@@ -20,6 +22,7 @@
 #include "sk-packet.h"
 #include "namespaces.h"
 #include "net.h"
+#include "xmalloc.h"
 #include "fs-magic.h"
 
 #ifndef SOCK_DIAG_BY_FAMILY
@@ -54,11 +57,9 @@ enum socket_cl_bits
 	INET_TCP_CL_BIT,
 	INET_UDP_CL_BIT,
 	INET_UDPLITE_CL_BIT,
-	INET_RAW_CL_BIT,
 	INET6_TCP_CL_BIT,
 	INET6_UDP_CL_BIT,
 	INET6_UDPLITE_CL_BIT,
-	INET6_RAW_CL_BIT,
 	UNIX_CL_BIT,
 	PACKET_CL_BIT,
 	_MAX_CL_BIT,
@@ -84,8 +85,6 @@ enum socket_cl_bits get_collect_bit_nr(unsigned int family, unsigned int proto)
 			return INET_UDP_CL_BIT;
 		if (proto == IPPROTO_UDPLITE)
 			return INET_UDPLITE_CL_BIT;
-		if (proto == IPPROTO_RAW)
-			return INET_RAW_CL_BIT;
 	}
 	if (family == AF_INET6) {
 		if (proto == IPPROTO_TCP)
@@ -94,8 +93,6 @@ enum socket_cl_bits get_collect_bit_nr(unsigned int family, unsigned int proto)
 			return INET6_UDP_CL_BIT;
 		if (proto == IPPROTO_UDPLITE)
 			return INET6_UDPLITE_CL_BIT;
-		if (proto == IPPROTO_RAW)
-			return INET6_RAW_CL_BIT;
 	}
 
 	pr_err("Unknown pair family %d proto %d\n", family, proto);
@@ -141,7 +138,7 @@ static inline void probe_diag(int nl, struct sock_diag_req *req, int expected_er
 	do_rtnl_req(nl, req, req->hdr.nlmsg_len, probe_recv_one, probe_err, &expected_err);
 }
 
-void preload_socket_modules()
+void preload_socket_modules(void)
 {
 	int nl;
 	struct sock_diag_req req;
@@ -596,9 +593,6 @@ static int inet_receive_one(struct nlmsghdr *h, void *arg)
 	case IPPROTO_TCP:
 		type = SOCK_STREAM;
 		break;
-	case IPPROTO_RAW:
-		type = SOCK_RAW;
-		break;
 	case IPPROTO_UDP:
 	case IPPROTO_UDPLITE:
 		type = SOCK_DGRAM;
@@ -620,14 +614,6 @@ static int do_collect_req(int nl, struct sock_diag_req *req, int size,
 
 	if (tmp == 0)
 		set_collect_bit(req->r.n.sdiag_family, req->r.n.sdiag_protocol);
-	else if (tmp == -ENOENT &&
-		 ((req->r.n.sdiag_family == AF_INET ||
-		   req->r.n.sdiag_family == AF_INET6) &&
-		  req->r.n.sdiag_protocol == IPPROTO_RAW)) {
-		pr_warn("No support for DIAG module on family %s with protocol IPPROTO_RAW, may fail later\n",
-			req->r.n.sdiag_family == AF_INET ? "IPv4" : "IPv6");
-		tmp = 0;
-	}
 
 	return tmp;
 }
@@ -682,15 +668,6 @@ int collect_sockets(struct ns_id *ns)
 	if (tmp)
 		err = tmp;
 
-	/* Collect IPv4 RAW sockets */
-	req.r.i.sdiag_family	= AF_INET;
-	req.r.i.sdiag_protocol	= IPPROTO_RAW;
-	req.r.i.idiag_ext	= 0;
-	req.r.i.idiag_states	= -1; /* All */
-	tmp = do_collect_req(nl, &req, sizeof(req), inet_receive_one, &req.r.i);
-	if (tmp)
-		err = tmp;
-
 	/* Collect IPv6 TCP sockets */
 	req.r.i.sdiag_family	= AF_INET6;
 	req.r.i.sdiag_protocol	= IPPROTO_TCP;
@@ -719,15 +696,6 @@ int collect_sockets(struct ns_id *ns)
 	if (tmp)
 		err = tmp;
 
-	/* Collect IPv6 RAW sockets */
-	req.r.i.sdiag_family	= AF_INET6;
-	req.r.i.sdiag_protocol	= IPPROTO_RAW;
-	req.r.i.idiag_ext	= 0;
-	req.r.i.idiag_states	= -1; /* All */
-	tmp = do_collect_req(nl, &req, sizeof(req), inet_receive_one, &req.r.i);
-	if (tmp)
-		err = tmp;
-
 	req.r.p.sdiag_family	= AF_PACKET;
 	req.r.p.sdiag_protocol	= 0;
 	req.r.p.pdiag_show	= PACKET_SHOW_INFO | PACKET_SHOW_MCLIST |
@@ -741,7 +709,7 @@ int collect_sockets(struct ns_id *ns)
 
 	req.r.n.sdiag_family	= AF_NETLINK;
 	req.r.n.sdiag_protocol	= NDIAG_PROTO_ALL;
-	req.r.n.ndiag_show	= NDIAG_SHOW_GROUPS | NDIAG_SHOW_FLAGS;
+	req.r.n.ndiag_show	= NDIAG_SHOW_GROUPS;
 	tmp = do_collect_req(nl, &req, sizeof(req), netlink_receive_one, NULL);
 	if (tmp) {
 		pr_warn("The current kernel doesn't support netlink_diag\n");

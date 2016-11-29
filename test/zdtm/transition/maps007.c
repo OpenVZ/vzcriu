@@ -84,7 +84,8 @@ int main(int argc, char **argv)
 				/* shm->delta must be always bigger than MAX_DELTA */
 				futex_wait_while_lt(&shm->delta, MAX_DELTA + 2);
 			else if (count % 100 == 0)
-				test_msg("count %d delta %d\n", count, futex_get(&shm->delta)); /* heartbeat */
+				test_msg("count %llu delta %d\n",
+						count, futex_get(&shm->delta)); /* heartbeat */
 
 			if (futex_get(&shm->stop) && atomic_get(&shm->delta.raw) == MAX_DELTA)
 				break;
@@ -123,7 +124,7 @@ int main(int argc, char **argv)
 			t[0] = lrand48();
 		}
 	}
-	test_msg("count %d\n", count);
+	test_msg("count %llu\n", count);
 
 	if (child == 0) {
 		if (!test_go())
@@ -172,6 +173,6 @@ int main(int argc, char **argv)
 	return 0;
 err:
 	kill(child, SIGSEGV);
-	*((int *) 0) = 0;
+	*((volatile int *) 0) = 0;
 	return 1;
 }

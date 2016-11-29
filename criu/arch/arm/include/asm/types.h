@@ -5,8 +5,8 @@
 #include <signal.h>
 #include "images/core.pb-c.h"
 
-#include "asm/page.h"
-#include "asm/bitops.h"
+#include "page.h"
+#include "bitops.h"
 #include "asm/int.h"
 
 #define SIGMAX			64
@@ -30,13 +30,6 @@ typedef struct {
 	unsigned long sig[_KNSIG_WORDS];
 } k_rtsigset_t;
 
-static inline void ksigfillset(k_rtsigset_t *set)
-{
-	int i;
-	for (i = 0; i < _KNSIG_WORDS; i++)
-		set->sig[i] = (unsigned long)-1;
-}
-
 #define SA_RESTORER	0x04000000
 
 typedef struct {
@@ -55,6 +48,8 @@ typedef struct {
 typedef struct {
         long uregs[18];
 } user_regs_struct_t;
+
+typedef struct user_vfp user_fpregs_struct_t;
 
 #define ARM_cpsr        uregs[16]
 #define ARM_pc          uregs[15]

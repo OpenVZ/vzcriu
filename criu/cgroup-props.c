@@ -8,16 +8,17 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
-#include "compiler.h"
+#include "int.h"
+#include "common/compiler.h"
 #include "cgroup-props.h"
 #include "cr_options.h"
 #include "config.h"
 #include "xmalloc.h"
 #include "string.h"
 #include "util.h"
-#include "list.h"
+#include "common/list.h"
 #include "log.h"
-#include "bug.h"
+#include "common/bug.h"
 
 #undef	LOG_PREFIX
 #define LOG_PREFIX "cg-prop: "
@@ -370,18 +371,18 @@ static int cgp_parse_file(char *path)
 
 	fd = open(path, O_RDONLY);
 	if (fd < 0) {
-		pr_perror("Can't open file %s\n", path);
+		pr_perror("Can't open file %s", path);
 		goto err;
 	}
 
 	if (fstat(fd, &st)) {
-		pr_perror("Can't stat file %s\n", path);
+		pr_perror("Can't stat file %s", path);
 		goto err;
 	}
 
 	mem = mmap(NULL, st.st_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_FILE, fd, 0);
 	if (mem == MAP_FAILED) {
-		pr_perror("Can't mmap file %s\n", path);
+		pr_perror("Can't mmap file %s", path);
 		goto err;
 	}
 
@@ -480,28 +481,13 @@ static int cgp_parse_builtins(void)
 			" - \"properties\": "
 			"[ "
 				"\"pids.max\" "
-			"]\n";
-/*
- * FIXME Due to https://jira.sw.ru/browse/PSBM-50551
- * we need to rework restore devices list with _nested_
- * directories. An easy way to test is to simply do
- *
- * vzctl exec 100 mkdir -p /sys/fs/cgroup/devices/one/two
- *
- * and restore will fail.
- *
- * Note: In vzctl we setup permissions on container startup,
- * so if !ve_capable(CAP_SYS_ADMIN) we're exiting with -EPERM
- * on kernel level.
- */
-#if 0
+			"]\n"
 		"\"devices\":\n"
 			" - \"strategy\": \"replace\"\n"
 			" - \"properties\": "
 			"[ "
 				"\"devices.list\" "
 			"]\n";
-#endif
 
 	return cgp_parse_stream((void *)predefined_stream,
 				strlen(predefined_stream));

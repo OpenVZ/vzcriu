@@ -6,9 +6,9 @@
 #include <limits.h>
 #include <errno.h>
 
-#include "asm/types.h"
-#include "asm/atomic.h"
-#include "bug.h"
+#include "atomic.h"
+#include "log.h"
+#include "common/bug.h"
 
 #ifdef CR_NOGLIBC
 # include "syscall.h"
@@ -53,7 +53,7 @@ static inline void futex_set(futex_t *f, u32 v)
 								\
 		while (1) {					\
 			struct timespec to = {.tv_sec = 120};	\
-			tmp = (u32)atomic_read(&(__f)->raw);	\
+			tmp = futex_get(__f);			\
 			if ((tmp & FUTEX_ABORT_FLAG) ||		\
 			    (tmp __cond (__v)))			\
 				break;				\

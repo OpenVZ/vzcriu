@@ -1,7 +1,6 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <fcntl.h>
 #include <stdlib.h>
 #include <sys/mman.h>
 
@@ -14,8 +13,10 @@
 #include "autofs.h"
 
 #include "protobuf.h"
+#include "util.h"
 #include "images/pipe.pb-c.h"
 #include "images/pipe-data.pb-c.h"
+#include "fcntl.h"
 
 static LIST_HEAD(pipes);
 
@@ -301,11 +302,7 @@ static int open_pipe(struct file_desc *d)
 	if (ret)
 		return -1;
 
-	sock = socket(PF_UNIX, SOCK_DGRAM, 0);
-	if (sock < 0) {
-		pr_perror("Can't create socket");
-		return -1;
-	}
+	sock = get_service_fd(TRANSPORT_FD_OFF);
 
 	list_for_each_entry(p, &pi->pipe_list, pipe_list) {
 		struct fdinfo_list_entry *fle;
@@ -319,8 +316,6 @@ static int open_pipe(struct file_desc *d)
 			return -1;
 		}
 	}
-
-	close(sock);
 
 	close(pfd[!(pi->pe->flags & O_WRONLY)]);
 	tmp = pfd[pi->pe->flags & O_WRONLY];

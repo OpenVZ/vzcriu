@@ -8,7 +8,7 @@
 #include "protobuf.h"
 #include "images/timerfd.pb-c.h"
 
-#include "proc_parse.h"
+#include "fdinfo.h"
 #include "rst-malloc.h"
 #include "cr_options.h"
 #include "restorer.h"
@@ -18,7 +18,7 @@
 #include "imgset.h"
 #include "util.h"
 #include "log.h"
-#include "bug.h"
+#include "common/bug.h"
 
 #undef	LOG_PREFIX
 #define LOG_PREFIX "timerfd: "
@@ -175,17 +175,6 @@ static struct file_desc_ops timerfd_desc_ops = {
 	.open		= timerfd_open,
 	.post_open	= timerfd_post_open,
 };
-
-static int verify_timerfd(TimerfdEntry *tfe)
-{
-	if (tfe->clockid != CLOCK_REALTIME &&
-	    tfe->clockid != CLOCK_MONOTONIC) {
-		pr_err("Unknown clock type %d for %#x\n", tfe->clockid, tfe->id);
-		return -1;
-	}
-
-	return 0;
-}
 
 static int collect_one_timerfd(void *o, ProtobufCMessage *msg, struct cr_img *i)
 {

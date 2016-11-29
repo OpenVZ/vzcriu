@@ -17,8 +17,9 @@
 
 #include "crtools.h"
 #include "cr_options.h"
+#include "external.h"
 #include "util.h"
-#include "log.h"
+#include "criu-log.h"
 #include "cpu.h"
 #include "files.h"
 #include "pstree.h"
@@ -27,6 +28,7 @@
 #include "page-xfer.h"
 #include "net.h"
 #include "mount.h"
+#include "filesystems.h"
 #include "cgroup.h"
 #include "cgroup-props.h"
 #include "action-scripts.h"
@@ -110,6 +112,13 @@ err:
 	return -1;
 }
 
+static void set_resp_err(CriuResp *resp)
+{
+	resp->cr_errno = get_cr_errno();
+	resp->has_cr_errno = resp->cr_errno ? true : false;
+	resp->cr_errmsg = log_first_err();
+}
+
 static void send_criu_err(int sk, char *msg)
 {
 	CriuResp resp = CRIU_RESP__INIT;
@@ -118,10 +127,7 @@ static void send_criu_err(int sk, char *msg)
 
 	resp.type = CRIU_REQ_TYPE__EMPTY;
 	resp.success = false;
-	if (get_cr_errno()) {
-		resp.has_cr_errno = true;
-		resp.cr_errno = get_cr_errno();
-	}
+	set_resp_err(&resp);
 
 	send_criu_msg(sk, &resp);
 }
@@ -133,10 +139,7 @@ int send_criu_dump_resp(int socket_fd, bool success, bool restored)
 
 	msg.type = CRIU_REQ_TYPE__DUMP;
 	msg.success = success;
-	if (get_cr_errno()) {
-		msg.has_cr_errno = true;
-		msg.cr_errno = get_cr_errno();
-	}
+	set_resp_err(&msg);
 	msg.dump = &resp;
 
 	resp.has_restored = true;
@@ -151,10 +154,7 @@ static int send_criu_pre_dump_resp(int socket_fd, bool success)
 
 	msg.type = CRIU_REQ_TYPE__PRE_DUMP;
 	msg.success = success;
-	if (get_cr_errno()) {
-		msg.has_cr_errno = true;
-		msg.cr_errno = get_cr_errno();
-	}
+	set_resp_err(&msg);
 
 	return send_criu_msg(socket_fd, &msg);
 }
@@ -166,10 +166,7 @@ int send_criu_restore_resp(int socket_fd, bool success, int pid)
 
 	msg.type = CRIU_REQ_TYPE__RESTORE;
 	msg.success = success;
-	if (get_cr_errno()) {
-		msg.has_cr_errno = true;
-		msg.cr_errno = get_cr_errno();
-	}
+	set_resp_err(&msg);
 	msg.restore = &resp;
 
 	resp.pid = pid;
@@ -290,6 +287,11 @@ static int setup_opts_from_req(int sk, CriuOpts *req)
 		goto err;
 	}
 
+	if (log_keep_err()) {
+		pr_perror("Can't tune log");
+		goto err;
+	}
+
 	/* checking flags from client */
 	if (req->has_leave_running && req->leave_running)
 		opts.final_state = TASK_ALIVE;
@@ -302,7 +304,7 @@ static int setup_opts_from_req(int sk, CriuOpts *req)
 	if (req->has_ext_unix_sk) {
 		opts.ext_unix_sk = req->ext_unix_sk;
 		for (i = 0; i < req->n_unix_sk_ino; i++) {
-			if (unix_sk_id_add(req->unix_sk_ino[i]->inode) < 0)
+			if (unix_sk_id_add((unsigned int)req->unix_sk_ino[i]->inode) < 0)
 				goto err;
 		}
 	}
@@ -432,7 +434,7 @@ static int setup_opts_from_req(int sk, CriuOpts *req)
 		case CRIU_CG_MODE__IGNORE:
 			mode = CG_MODE_IGNORE;
 			break;
-		case CRIU_CG_MODE__NONE:
+		case CRIU_CG_MODE__CG_NONE:
 			mode = CG_MODE_NONE;
 			break;
 		case CRIU_CG_MODE__PROPS:

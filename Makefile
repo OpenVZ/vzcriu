@@ -3,14 +3,8 @@
 __nmk_dir=$(CURDIR)/scripts/nmk/scripts/
 export __nmk_dir
 
-include $(__nmk_dir)/include.mk
-include $(__nmk_dir)/macro.mk
-
-#
-# To build host helpers.
-HOSTCC		?= gcc
-HOSTLD		?= ld
-export HOSTCC HOSTLD
+include $(__nmk_dir)include.mk
+include $(__nmk_dir)macro.mk
 
 CFLAGS		+= $(USERCFLAGS)
 export CFLAGS
@@ -67,8 +61,6 @@ ifeq ($(ARCH),arm)
         ARMV		:= $(shell echo $(UNAME-M) | sed -nr 's/armv([[:digit:]]).*/\1/p; t; i7')
         DEFINES		:= -DCONFIG_ARMV$(ARMV)
 
-        USERCFLAGS += -Wa,-mimplicit-it=always
-
         ifeq ($(ARMV),6)
                 USERCFLAGS += -march=armv6
         endif
@@ -105,14 +97,13 @@ DEFINES			+= -D_GNU_SOURCE
 
 CFLAGS			+= $(USERCFLAGS)
 
-WARNINGS		:= -Wall
+WARNINGS		:= -Wall -Wformat-security
 
 CFLAGS-GCOV		:= --coverage -fno-exceptions -fno-inline
 export CFLAGS-GCOV
 
-ifeq ($(GCOV),1)
+ifneq ($(GCOV),)
         LDFLAGS         += -lgcov
-        DEBUG           := 1
         CFLAGS          += $(CFLAGS-GCOV)
 endif
 
@@ -133,7 +124,11 @@ ifeq ($(GMON),1)
 export GMON GMONLDOPT
 endif
 
-CFLAGS			+= $(WARNINGS) $(DEFINES)
+CFLAGS			+= $(WARNINGS) $(DEFINES) -iquote include/
+
+# Default target
+all: criu lib
+.PHONY: all
 
 #
 # Version headers.
@@ -175,6 +170,30 @@ endif
 	$(Q) echo "#endif /* __CR_VERSION_H__ */"				>> $@
 
 #
+# Setup proper link for asm headers in common code.
+include/common/asm: include/common/arch/$(ARCH)/asm
+	$(call msg-gen, $@)
+	$(Q) ln -s ./arch/$(ARCH)/asm $@
+$(VERSION_HEADER): include/common/asm
+
+#
+# piegen tool might be disabled by hands. Don't use it until
+# you know what you're doing.
+ifneq ($(filter ia32 x86 ppc64,$(ARCH)),)
+        ifneq ($(PIEGEN),no)
+                piegen-y := y
+                export piegen-y
+        endif
+endif
+
+#
+# Configure variables.
+export CONFIG_HEADER := $(SRC_DIR)/criu/include/config.h
+ifeq ($(filter clean mrproper,$(MAKECMDGOALS)),)
+include $(SRC_DIR)/Makefile.config
+endif
+
+#
 # Protobuf images first, they are not depending
 # on anything else.
 $(eval $(call gen-built-in,images))
@@ -189,9 +208,9 @@ $(eval $(call gen-built-in,images))
 #
 # But note that we're already included
 # the nmk so we can reuse it there.
-criu/%: images/built-in.o $(VERSION_HEADER) .FORCE
+criu/%: images/built-in.o $(VERSION_HEADER) $(CONFIG_HEADER) .FORCE
 	$(Q) $(MAKE) $(build)=criu $@
-criu: images/built-in.o $(VERSION_HEADER)
+criu: images/built-in.o $(VERSION_HEADER) $(CONFIG_HEADER)
 	$(Q) $(MAKE) $(build)=criu all
 .PHONY: criu
 
@@ -204,9 +223,6 @@ lib/%: criu .FORCE
 lib: criu
 	$(Q) $(MAKE) -C lib all
 .PHONY: lib
-
-all: criu lib
-.PHONY: all
 
 subclean:
 	$(call msg-clean, criu)
@@ -224,7 +240,9 @@ clean: subclean
 mrproper: subclean
 	$(Q) $(MAKE) $(build)=images $@
 	$(Q) $(MAKE) $(build)=criu $@
+	$(Q) $(RM) $(CONFIG_HEADER)
 	$(Q) $(RM) $(VERSION_HEADER)
+	$(Q) $(RM) include/common/asm
 	$(Q) $(RM) cscope.*
 	$(Q) $(RM) tags TAGS
 .PHONY: mrproper
@@ -329,6 +347,9 @@ lint:
 include Makefile.install
 
 .DEFAULT_GOAL := all
+
+# Disable implicit rules in _this_ Makefile.
+.SUFFIXES:
 
 #
 # Optional local include.

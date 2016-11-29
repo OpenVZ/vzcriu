@@ -7,7 +7,6 @@
 #include <stdbool.h>
 #include <limits.h>
 #include <signal.h>
-#include <fcntl.h>
 
 #include <sys/ptrace.h>
 #include <sys/types.h>
@@ -15,52 +14,14 @@
 #include <sys/resource.h>
 #include <sys/wait.h>
 
-#include "compiler.h"
-#include "asm/types.h"
+#include "int.h"
+#include "common/compiler.h"
 #include "util.h"
 #include "ptrace.h"
 #include "pid.h"
 #include "proc_parse.h"
 #include "seccomp.h"
 #include "cr_options.h"
-
-char *task_comm_info(pid_t pid, char *comm, size_t size)
-{
-	int ret = 0;
-
-	if (!pr_quelled(LOG_INFO)) {
-		int saved_errno = errno;
-		char path[64];
-		int fd;
-
-		snprintf(path, sizeof(path), "/proc/%d/comm", pid);
-		fd = open(path, O_RDONLY);
-		if (fd >= 0) {
-			ssize_t n = read(fd, comm, size);
-			if (n > 0)
-				comm[n-1] = '\0';
-			else
-				ret = -1;
-			close(fd);
-		} else
-			ret = -1;
-		errno = saved_errno;
-	}
-
-	if (ret || (pr_quelled(LOG_INFO) && comm[0]))
-		comm[0] = '\0';
-
-	return comm;
-}
-
-/*
- * NOTE: Don't run simultaneously, it uses local static buffer!
- */
-char *__task_comm_info(pid_t pid)
-{
-	static char comm[32];
-	return task_comm_info(pid, comm, sizeof(comm));
-}
 
 int unseize_task(pid_t pid, int orig_st, int st)
 {
@@ -118,8 +79,7 @@ int seize_catch_task(pid_t pid)
 		 * attaching to zombie from other errors.
 		 * All errors will be handled in seize_wait_task().
 		 */
-		pr_warn("Unable to interrupt task: %d (comm %s) (%s)\n",
-			pid, __task_comm_info(pid), strerror(errno));
+		pr_warn("Unable to interrupt task: %d (%s)\n", pid, strerror(errno));
 		return ret;
 	}
 
@@ -134,8 +94,7 @@ int seize_catch_task(pid_t pid)
 	 */
 	ret = ptrace(PTRACE_INTERRUPT, pid, NULL, NULL);
 	if (ret < 0) {
-		pr_warn("SEIZE %d (comm %s): can't interrupt task: %s",
-			pid, __task_comm_info(pid), strerror(errno));
+		pr_warn("SEIZE %d: can't interrupt task: %s", pid, strerror(errno));
 		if (ptrace(PTRACE_DETACH, pid, NULL, NULL))
 			pr_perror("Unable to detach from %d", pid);
 	}
@@ -189,17 +148,11 @@ static int skip_sigstop(int pid, int nr_signals)
  * of it so the task would not know if it was saddled
  * up with someone else.
  */
-int seize_wait_task(pid_t pid, pid_t ppid, struct proc_status_creds **creds)
+int seize_wait_task(pid_t pid, pid_t ppid, struct proc_status_creds *creds)
 {
 	siginfo_t si;
 	int status, nr_sigstop;
 	int ret = 0, ret2, wait_errno = 0;
-	struct proc_status_creds cr;
-
-	/*
-	 * For the comparison below, let's zero out any padding.
-	 */
-	memzero(&cr, sizeof(struct proc_status_creds));
 
 	/*
 	 * It's ugly, but the ptrace API doesn't allow to distinguish
@@ -208,7 +161,6 @@ int seize_wait_task(pid_t pid, pid_t ppid, struct proc_status_creds **creds)
 	 * we might need at that early point.
 	 */
 
-	processes_to_wait--;
 try_again:
 
 	ret = wait4(pid, &status, __WALL, NULL);
@@ -218,33 +170,34 @@ try_again:
 		 * if a task is zombie. If we are here from try_again,
 		 * this means that we are tracing this task.
 		 *
-		 * processes_to_wait should be descrimented only once in this
-		 * function if a first wait was success.
+		 * So here we can be only once in this function.
 		 */
-		processes_to_wait++;
 		wait_errno = errno;
 	}
 
-	ret2 = parse_pid_status(pid, &cr);
+	ret2 = parse_pid_status(pid, creds);
 	if (ret2)
 		goto err;
 
 	if (ret < 0 || WIFEXITED(status) || WIFSIGNALED(status)) {
-		if (cr.state != 'Z') {
+		if (creds->state != 'Z') {
 			if (pid == getpid())
 				pr_err("The criu itself is within dumped tree.\n");
 			else
 				pr_err("Unseizable non-zombie %d found, state %c, err %d/%d\n",
-						pid, cr.state, ret, wait_errno);
+						pid, creds->state, ret, wait_errno);
 			return -1;
 		}
 
-		return TASK_DEAD;
+		if (ret < 0)
+			return TASK_ZOMBIE;
+		else
+			return TASK_DEAD;
 	}
 
-	if ((ppid != -1) && (cr.ppid != ppid)) {
+	if ((ppid != -1) && (creds->ppid != ppid)) {
 		pr_err("Task pid reused while suspending (%d: %d -> %d)\n",
-				pid, ppid, cr.ppid);
+				pid, ppid, creds->ppid);
 		goto err;
 	}
 
@@ -276,25 +229,13 @@ try_again:
 		goto try_again;
 	}
 
-	if (*creds == NULL) {
-		*creds = xzalloc(sizeof(struct proc_status_creds));
-		if (!*creds)
-			goto err;
-
-		**creds = cr;
-
-	} else if (!proc_status_creds_dumpable(*creds, &cr)) {
-		pr_err("creds don't match %d %d\n", pid, ppid);
-		goto err;
-	}
-
-	if (cr.seccomp_mode != SECCOMP_MODE_DISABLED && suspend_seccomp(pid) < 0)
+	if (creds->seccomp_mode != SECCOMP_MODE_DISABLED && suspend_seccomp(pid) < 0)
 		goto err;
 
 	nr_sigstop = 0;
-	if (cr.sigpnd & (1 << (SIGSTOP - 1)))
+	if (creds->sigpnd & (1 << (SIGSTOP - 1)))
 		nr_sigstop++;
-	if (cr.shdpnd & (1 << (SIGSTOP - 1)))
+	if (creds->shdpnd & (1 << (SIGSTOP - 1)))
 		nr_sigstop++;
 	if (si.si_signo == SIGSTOP)
 		nr_sigstop++;

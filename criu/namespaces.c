@@ -14,6 +14,7 @@
 #include <limits.h>
 #include <errno.h>
 
+#include "page.h"
 #include "rst-malloc.h"
 #include "cr_options.h"
 #include "imgset.h"
@@ -26,6 +27,7 @@
 #include "cgroup.h"
 
 #include "protobuf.h"
+#include "util.h"
 #include "images/ns.pb-c.h"
 #include "images/userns.pb-c.h"
 
@@ -219,39 +221,45 @@ bool check_ns_proc(struct fd_link *link)
 
 int switch_ns(int pid, struct ns_desc *nd, int *rst)
 {
-	char buf[32];
 	int nsfd;
-	int ret = -1;
+	int ret;
 
 	nsfd = open_proc(pid, "ns/%s", nd->str);
-	if (nsfd < 0) {
-		pr_perror("Can't open ns file");
-		goto err_ns;
-	}
+	if (nsfd < 0)
+		return -1;
+
+	ret = switch_ns_by_fd(nsfd, nd, rst);
+
+	close(nsfd);
+
+	return ret;
+}
+
+int switch_ns_by_fd(int nsfd, struct ns_desc *nd, int *rst)
+{
+	char buf[32];
+	int ret = -1;
 
 	if (rst) {
 		snprintf(buf, sizeof(buf), "/proc/self/ns/%s", nd->str);
 		*rst = open(buf, O_RDONLY);
 		if (*rst < 0) {
 			pr_perror("Can't open ns file");
-			goto err_rst;
+			goto err_ns;
 		}
 	}
 
 	ret = setns(nsfd, nd->cflag);
 	if (ret < 0) {
-		pr_perror("Can't setns %d/%s", pid, nd->str);
+		pr_perror("Can't setns %d/%s", nsfd, nd->str);
 		goto err_set;
 	}
 
-	close(nsfd);
 	return 0;
 
 err_set:
 	if (rst)
 		close(*rst);
-err_rst:
-	close(nsfd);
 err_ns:
 	return -1;
 }
@@ -796,7 +804,7 @@ int collect_user_namespaces(bool for_dump)
 	if (!(root_ns_mask & CLONE_NEWUSER))
 		return 0;
 
-	return walk_namespaces(&net_ns_desc, collect_user_ns, NULL);
+	return walk_namespaces(&user_ns_desc, collect_user_ns, NULL);
 }
 
 static int check_user_ns(int pid)

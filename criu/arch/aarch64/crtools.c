@@ -5,7 +5,7 @@
 
 #include "asm/types.h"
 #include "asm/restorer.h"
-#include "compiler.h"
+#include "common/compiler.h"
 #include "ptrace.h"
 #include "asm/processor-flags.h"
 #include "protobuf.h"
@@ -15,7 +15,6 @@
 #include "log.h"
 #include "util.h"
 #include "cpu.h"
-#include "parasite-syscall.h"
 #include "restorer.h"
 
 
@@ -43,7 +42,7 @@ void parasite_setup_regs(unsigned long new_ip, void *stack, user_regs_struct_t *
 		regs->sp = (unsigned long)stack;
 }
 
-bool arch_can_dump_task(pid_t pid)
+bool arch_can_dump_task(struct parasite_ctl *ctl)
 {
 	/*
 	 * TODO: Add proper check here
@@ -84,7 +83,7 @@ int syscall_seized(struct parasite_ctl *ctl, int nr, unsigned long *ret,
 int get_task_regs(pid_t pid, user_regs_struct_t regs, CoreEntry *core)
 {
 	struct iovec iov;
-	struct user_fpsimd_state fpsimd;
+	user_fpregs_struct_t fpsimd;
 	int i, ret;
 
 	pr_info("Dumping GP/FPU registers for %d\n", pid);
@@ -183,7 +182,7 @@ void arch_free_thread_info(CoreEntry *core)
 int restore_fpu(struct rt_sigframe *sigframe, CoreEntry *core)
 {
 	int i;
-	struct fpsimd_context *fpsimd = &RT_SIGFRAME_FPU(sigframe);
+	struct fpsimd_context *fpsimd = RT_SIGFRAME_FPU(sigframe);
 
 	if (core->ti_aarch64->fpsimd->n_vregs != 64)
 		return 1;

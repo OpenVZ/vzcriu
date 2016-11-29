@@ -214,7 +214,7 @@ define gen-host-rules
         cleanup-y += $(call cleanify,$(addprefix $(obj)/,$($(1)-objs)))
 $(obj)/$(1): $(addprefix $(obj)/,$($(1)-objs)) $(src-makefile)
 	$$(call msg-host-link, $$@)
-	$$(Q) $$(HOSTCC) $$(HOSTCFLAGS) $(addprefix $(obj)/,$($(1)-objs)) $$(HOSTLDFLAGS) $$(HOSTLDFLAGS_$$(@F))-o $$@
+	$$(Q) $$(HOSTCC) $$(HOSTCFLAGS) $(addprefix $(obj)/,$($(1)-objs)) $$(HOSTLDFLAGS) $$(HOSTLDFLAGS_$$(@F)) -o $$@
 all-y += $(obj)/$(1)
 cleanup-y += $(obj)/$(1)
 endef
@@ -284,7 +284,5 @@ mrproper: clean
 
 #
 # Footer.
-$(__nmk_dir)scripts/build.mk:
-	@true
 ____nmk_defined__build = y
 endif

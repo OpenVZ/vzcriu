@@ -4,6 +4,8 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#define INPROGRESS ".inprogress"
+
 #ifndef PAGE_SIZE
 # define PAGE_SIZE (unsigned int)(sysconf(_SC_PAGESIZE))
 #endif
@@ -31,7 +33,8 @@ extern int test_fork_id(int id);
 /* finish setting up the test, write out pid file, and go to background */
 extern void test_daemon(void);
 /* store a message to a static buffer */
-extern void test_msg(const char *format, ...);
+extern void test_msg(const char *format, ...)
+	__attribute__ ((__format__ (__printf__, 1, 2)));
 /* tell if SIGTERM hasn't been received yet */
 extern int test_go(void);
 /* sleep until SIGTERM is delivered */
@@ -71,7 +74,8 @@ extern void __push_opt(struct long_opt *opt);
 	static struct long_opt __long_opt_##name = {				\
 		#name, #type, doc, is_required, parse_opt_##type, &name };	\
 	static void __init_opt_##name(void) __attribute__ ((constructor));	\
-	static void __init_opt_##name(void) { __push_opt(&__long_opt_##name); }
+	static void __init_opt_##name(void) \
+	{ (void)__check_##name; __push_opt(&__long_opt_##name); }
 
 #define __param_check(name, p, type) \
 	static inline type *__check_##name(void) { return(p); }

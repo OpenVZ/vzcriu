@@ -12,11 +12,10 @@
 #include <sys/ioctl.h>
 #include <sys/eventfd.h>
 
-#include "compiler.h"
-#include "asm/types.h"
+#include "common/compiler.h"
 #include "imgset.h"
 #include "eventfd.h"
-#include "proc_parse.h"
+#include "fdinfo.h"
 #include "image.h"
 #include "util.h"
 #include "log.h"

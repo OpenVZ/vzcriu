@@ -4,15 +4,14 @@
 #include <stdlib.h>
 
 #include "cr_options.h"
-#include "list.h"
+#include "common/list.h"
 #include "xmalloc.h"
 #include "log.h"
 #include "servicefd.h"
 #include "cr-service.h"
 #include "action-scripts.h"
 #include "pstree.h"
-#include "bug.h"
-#include "spfs.h"
+#include "common/bug.h"
 
 static const char *action_names[ACT_MAX] = {
 	[ ACT_PRE_DUMP ]	= "pre-dump",
@@ -24,7 +23,6 @@ static const char *action_names[ACT_MAX] = {
 	[ ACT_SETUP_NS ]	= "setup-namespaces",
 	[ ACT_POST_SETUP_NS ]	= "post-setup-namespaces",
 	[ ACT_POST_RESUME ]	= "post-resume",
-	[ ACT_POST_NET_LOCK ]	= "post-network-lock",
 };
 
 struct script {
@@ -65,9 +63,6 @@ static int run_shell_scripts(const char *action)
 		}
 		env_set |= ENV_IMGDIR;
 	}
-
-	if (spfs_set_env())
-		return -1;
 
 	if (!(env_set & ENV_ROOTPID) && root_item) {
 		int pid;

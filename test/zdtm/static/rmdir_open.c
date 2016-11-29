@@ -4,7 +4,6 @@
 #include <sys/stat.h>
 #include <string.h>
 #include <fcntl.h>
-#include <limits.h>
 
 #include "zdtmtst.h"
 
@@ -16,25 +15,23 @@ TEST_OPTION(dirname, string, "directory name", 1);
 
 int main(int argc, char **argv)
 {
-	char subdir[PATH_MAX];
 	int fd;
 	struct stat st;
 
 	test_init(argc, argv);
 
-	sprintf(subdir, "%s/subdir", dirname);
-	if (mkdir(dirname, 0700) || mkdir(subdir, 0700)) {
+	if (mkdir(dirname, 0700)) {
 		pr_perror("Can't make dir");
 		goto out;
 	}
 
-	fd = open(subdir, O_DIRECTORY);
+	fd = open(dirname, O_DIRECTORY);
 	if (fd < 0) {
 		pr_perror("Can't open dir");
 		goto outr;
 	}
 
-	if (rmdir(subdir) || rmdir(dirname)) {
+	if (rmdir(dirname)) {
 		pr_perror("Can't remove dir");
 		goto outr;
 	}

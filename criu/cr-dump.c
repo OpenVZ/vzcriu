@@ -22,6 +22,7 @@
 #include <sched.h>
 #include <sys/resource.h>
 
+#include "types.h"
 #include "protobuf.h"
 #include "images/fdinfo.pb-c.h"
 #include "images/fs.pb-c.h"
@@ -32,12 +33,11 @@
 #include "images/rlimit.pb-c.h"
 #include "images/siginfo.pb-c.h"
 
-#include "asm/types.h"
-#include "list.h"
+#include "common/list.h"
 #include "imgset.h"
 #include "file-ids.h"
 #include "kcmp-ids.h"
-#include "compiler.h"
+#include "common/compiler.h"
 #include "crtools.h"
 #include "cr_options.h"
 #include "servicefd.h"
@@ -81,8 +81,7 @@
 #include "seccomp.h"
 #include "seize.h"
 #include "fault-injection.h"
-
-#include "asm/dump.h"
+#include "dump.h"
 
 static char loc_buf[PAGE_SIZE];
 
@@ -229,7 +228,7 @@ static int fill_fd_params_special(int fd, struct fd_parms *p)
 	return 0;
 }
 
-static int get_fs_type(int lfd)
+static long get_fs_type(int lfd)
 {
 	struct statfs fst;
 
@@ -310,7 +309,7 @@ static int dump_task_fs(pid_t pid, struct parasite_dump_misc *misc, struct cr_im
 	return pb_write_one(img_from_set(imgset, CR_FD_FS), &fe, PB_FS);
 }
 
-static inline u_int64_t encode_rlim(unsigned long val)
+static inline rlim_t encode_rlim(rlim_t val)
 {
 	return val == RLIM_INFINITY ? -1 : val;
 }
@@ -374,19 +373,11 @@ static int dump_filemap(struct vma_area *vma_area, int fd)
 	struct fd_parms p = FD_PARMS_INIT;
 	VmaEntry *vma = vma_area->e;
 	int ret = 0;
-	struct statfs fst;
 	u32 id;
 
 	BUG_ON(!vma_area->vmst);
 	p.stat = *vma_area->vmst;
 	p.mnt_id = vma_area->mnt_id;
-
-	if (fstatfs(fd, &fst)) {
-		pr_perror("Unable to statfs fd %d", fd);
-		return -1;
-	}
-
-	p.fs_type = fst.f_type;
 
 	/*
 	 * AUFS support to compensate for the kernel bug
@@ -478,8 +469,6 @@ static int dump_task_mm(pid_t pid, const struct proc_pid_stat *stat,
 			ret = 0;
 		else if (vma_entry_is(vma, VMA_AREA_SYSVIPC))
 			ret = check_sysvipc_map_dump(pid, vma);
-		else if (vma_entry_is(vma, VMA_ANON_SHARED))
-			ret = add_shmem_area(pid, vma);
 		else if (vma_entry_is(vma, VMA_AREA_SOCKET))
 			ret = dump_socket_map(vma_area);
 		else
@@ -1119,12 +1108,13 @@ static int pre_dump_one_task(struct pstree_item *item)
 	struct parasite_ctl *parasite_ctl;
 	int ret = -1;
 	struct parasite_dump_misc misc;
+	struct mem_dump_ctl mdc;
 
 	INIT_LIST_HEAD(&vmas.h);
 	vmas.nr = 0;
 
 	pr_info("========================================\n");
-	pr_info("Pre-dumping task (pid: %d comm: %s)\n", pid, __task_comm_info(pid));
+	pr_info("Pre-dumping task (pid: %d)\n", pid);
 	pr_info("========================================\n");
 
 	if (item->pid.state == TASK_STOPPED) {
@@ -1166,9 +1156,11 @@ static int pre_dump_one_task(struct pstree_item *item)
 		goto err_cure;
 	}
 
-	parasite_ctl->pid.virt = item->pid.virt = misc.pid;
+	item->pid.virt = misc.pid;
 
-	ret = parasite_dump_pages_seized(parasite_ctl, &vmas, true);
+	mdc.pre_dump = true;
+
+	ret = parasite_dump_pages_seized(item, &vmas, &mdc, parasite_ctl);
 	if (ret)
 		goto err_cure;
 
@@ -1195,12 +1187,13 @@ static int dump_one_task(struct pstree_item *item)
 	struct cr_imgset *cr_imgset = NULL;
 	struct parasite_drain_fd *dfds = NULL;
 	struct proc_posix_timers_stat proc_args;
+	struct mem_dump_ctl mdc;
 
 	INIT_LIST_HEAD(&vmas.h);
 	vmas.nr = 0;
 
 	pr_info("========================================\n");
-	pr_info("Dumping task (pid: %d comm: %s)\n", pid, __task_comm_info(pid));
+	pr_info("Dumping task (pid: %d)\n", pid);
 	pr_info("========================================\n");
 
 	if (item->pid.state == TASK_DEAD)
@@ -1292,7 +1285,7 @@ static int dump_one_task(struct pstree_item *item)
 		goto err_cure_imgset;
 	}
 
-	parasite_ctl->pid.virt = item->pid.virt = misc.pid;
+	item->pid.virt = misc.pid;
 	pstree_insert_pid(item->pid.virt, &item->pid);
 	item->sid = misc.sid;
 	item->pgid = misc.pgid;
@@ -1324,7 +1317,9 @@ static int dump_one_task(struct pstree_item *item)
 		}
 	}
 
-	ret = parasite_dump_pages_seized(parasite_ctl, &vmas, false);
+	mdc.pre_dump = false;
+
+	ret = parasite_dump_pages_seized(item, &vmas, &mdc, parasite_ctl);
 	if (ret)
 		goto err_cure;
 
@@ -1447,18 +1442,20 @@ static int cr_pre_dump_finish(int ret)
 	pr_info("Pre-dumping tasks' memory\n");
 	for_each_pstree_item(item) {
 		struct parasite_ctl *ctl = dmpi(item)->parasite_ctl;
+		struct page_pipe *mem_pp;
 		struct page_xfer xfer;
 
 		if (!ctl)
 			continue;
 
-		pr_info("\tPre-dumping %d\n", ctl->pid.virt);
+		pr_info("\tPre-dumping %d\n", item->pid.virt);
 		timing_start(TIME_MEMWRITE);
-		ret = open_page_xfer(&xfer, CR_FD_PAGEMAP, ctl->pid.virt);
+		ret = open_page_xfer(&xfer, CR_FD_PAGEMAP, item->pid.virt);
 		if (ret < 0)
 			goto err;
 
-		ret = page_xfer_dump_pages(&xfer, ctl->mem_pp, 0);
+		mem_pp = dmpi(item)->mem_pp;
+		ret = page_xfer_dump_pages(&xfer, mem_pp, 0);
 
 		xfer.close(&xfer);
 
@@ -1467,7 +1464,7 @@ static int cr_pre_dump_finish(int ret)
 
 		timing_stop(TIME_MEMWRITE);
 
-		destroy_page_pipe(ctl->mem_pp);
+		destroy_page_pipe(mem_pp);
 		parasite_cure_local(ctl);
 	}
 
@@ -1550,6 +1547,10 @@ int cr_pre_dump_tasks(pid_t pid)
 	for_each_pstree_item(item)
 		if (pre_dump_one_task(item))
 			goto err;
+
+	ret = cr_dump_shmem();
+	if (ret)
+		goto err;
 
 	if (irmap_predump_prep())
 		goto err;
@@ -1647,7 +1648,7 @@ int cr_dump_tasks(pid_t pid)
 	int ret = -1;
 
 	pr_info("========================================\n");
-	pr_info("Dumping processes (pid: %d comm: %s)\n", pid, __task_comm_info(pid));
+	pr_info("Dumping processes (pid: %d)\n", pid);
 	pr_info("========================================\n");
 
 	root_item = alloc_pstree_item();

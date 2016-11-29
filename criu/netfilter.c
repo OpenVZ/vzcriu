@@ -5,9 +5,8 @@
 #include <sys/wait.h>
 #include <stdlib.h>
 
-#include "asm/types.h"
 #include "util.h"
-#include "list.h"
+#include "common/list.h"
 #include "files.h"
 #include "netfilter.h"
 #include "sockets.h"
@@ -21,8 +20,8 @@ static char buf[512];
  * ANy brave soul to write it using xtables-devel?
  */
 
-static const char *nf_conn_cmd = "%s %s -t filter %s %s --protocol tcp "
-	"--source %s --sport %d --destination %s --dport %d -j DROP";
+#define NF_CONN_CMD	"%s %s -t filter %s %s --protocol tcp " \
+	"--source %s --sport %d --destination %s --dport %d -j DROP"
 
 static char iptable_cmd_ipv4[] = "iptables";
 static char iptable_cmd_ipv6[] = "ip6tables";
@@ -73,7 +72,7 @@ static int nf_connection_switch_raw(int family, u32 *src_addr, u16 src_port,
 		return -1;
 	}
 
-	snprintf(buf, sizeof(buf), nf_conn_cmd, cmd,
+	snprintf(buf, sizeof(buf), NF_CONN_CMD, cmd,
 			kdat.has_xtlocks ? "-w" : "",
 			lock ? "-A" : "-D",
 			input ? "INPUT" : "OUTPUT",

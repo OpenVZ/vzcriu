@@ -1,7 +1,8 @@
 #include <stdarg.h>
 
-#include "asm/bitsperlong.h"
-
+#include "int.h"
+#include "types.h"
+#include "common/bitsperlong.h"
 #include "syscall.h"
 #include "log.h"
 

@@ -3,13 +3,12 @@
 
 #include "asm/types.h"
 #include "asm/restorer.h"
-#include "compiler.h"
+#include "common/compiler.h"
 #include "ptrace.h"
 #include "asm/processor-flags.h"
 #include "protobuf.h"
 #include "images/core.pb-c.h"
 #include "images/creds.pb-c.h"
-#include "parasite-syscall.h"
 #include "log.h"
 #include "util.h"
 #include "cpu.h"
@@ -47,7 +46,7 @@ void parasite_setup_regs(unsigned long new_ip, void *stack, user_regs_struct_t *
 	regs->ARM_cpsr &= PSR_f | PSR_s | PSR_x | MODE32_BIT;
 }
 
-bool arch_can_dump_task(pid_t pid)
+bool arch_can_dump_task(struct parasite_ctl *ctl)
 {
 	/*
 	 * TODO: Add proper check here
@@ -85,7 +84,7 @@ int syscall_seized(struct parasite_ctl *ctl, int nr, unsigned long *ret,
 #define PTRACE_GETVFPREGS 27
 int get_task_regs(pid_t pid, user_regs_struct_t regs, CoreEntry *core)
 {
-	struct user_vfp vfp;
+	user_fpregs_struct_t vfp;
 	int ret = -1;
 
 	pr_info("Dumping GP/FPU registers for %d\n", pid);

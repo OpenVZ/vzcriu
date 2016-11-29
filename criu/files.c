@@ -13,12 +13,13 @@
 #include <sys/un.h>
 #include <stdlib.h>
 
+#include "types.h"
 #include "files.h"
 #include "file-ids.h"
 #include "files-reg.h"
 #include "file-lock.h"
 #include "image.h"
-#include "list.h"
+#include "common/list.h"
 #include "rst-malloc.h"
 #include "util-pie.h"
 #include "lock.h"
@@ -37,14 +38,14 @@
 #include "timerfd.h"
 #include "imgset.h"
 #include "fs-magic.h"
-#include "proc_parse.h"
+#include "fdinfo.h"
 #include "cr_options.h"
 #include "autofs.h"
-
 #include "parasite.h"
 #include "parasite-syscall.h"
 
 #include "protobuf.h"
+#include "util.h"
 #include "images/fs.pb-c.h"
 #include "images/ext-file.pb-c.h"
 
@@ -109,6 +110,18 @@ struct fdinfo_list_entry *find_used_fd(struct list_head *head, int fd)
 			break;
 	}
 	return NULL;
+}
+
+void collect_used_fd(struct fdinfo_list_entry *new_fle, struct rst_info *ri)
+{
+	struct fdinfo_list_entry *fle;
+
+	list_for_each_entry(fle, &ri->used, used_list) {
+		if (new_fle->fe->fd < fle->fe->fd)
+			break;
+	}
+
+	list_add_tail(&new_fle->used_list, &fle->used_list);
 }
 
 unsigned int find_unused_fd(struct list_head *head, int hint_fd)
@@ -304,12 +317,12 @@ int fill_fdlink(int lfd, const struct fd_parms *p, struct fd_link *link)
 	return 0;
 }
 
-static int fill_fd_params(struct parasite_ctl *ctl, int fd, int lfd,
+static int fill_fd_params(struct pid *owner_pid, int fd, int lfd,
 				struct fd_opts *opts, struct fd_parms *p)
 {
 	int ret;
 	struct statfs fsbuf;
-	struct fdinfo_common fdinfo = { .mnt_id = -1, .owner = ctl->pid.virt };
+	struct fdinfo_common fdinfo = { .mnt_id = -1, .owner = owner_pid->virt };
 
 	if (fstat(lfd, &p->stat) < 0) {
 		pr_perror("Can't stat fd %d", lfd);
@@ -321,22 +334,21 @@ static int fill_fd_params(struct parasite_ctl *ctl, int fd, int lfd,
 		return -1;
 	}
 
-	if (parse_fdinfo_pid(ctl->pid.real, fd, FD_TYPES__UND, NULL, &fdinfo))
+	if (parse_fdinfo_pid(owner_pid->real, fd, FD_TYPES__UND, NULL, &fdinfo))
 		return -1;
 
 	p->fs_type	= fsbuf.f_type;
-	p->ctl		= ctl;
 	p->fd		= fd;
 	p->pos		= fdinfo.pos;
 	p->flags	= fdinfo.flags;
 	p->mnt_id	= fdinfo.mnt_id;
-	p->pid		= ctl->pid.real;
+	p->pid		= owner_pid->real;
 	p->fd_flags	= opts->flags;
 
 	fown_entry__init(&p->fown);
 
 	pr_info("%d fdinfo %d: pos: %#16"PRIx64" flags: %16o/%#x\n",
-		ctl->pid.real, fd, p->pos, p->flags, (int)p->fd_flags);
+			owner_pid->real, fd, p->pos, p->flags, (int)p->fd_flags);
 
 	ret = fcntl(lfd, F_GETSIG, 0);
 	if (ret < 0) {
@@ -426,44 +438,22 @@ static int dump_chrdev(struct fd_parms *p, int lfd, struct cr_img *img)
 	return do_dump_gen_file(p, lfd, ops, img);
 }
 
-static int check_blkdev(struct fd_parms *p, int lfd)
-{
-	/*
-	 * @ploop_major is module parameter actually,
-	 * set to PLOOP_DEVICE_MAJOR by default. We may
-	 * need to scan module params or access
-	 * /sys/block/ploopX/dev to fetch major.
-	 *
-	 * For a while simply use predefined @major.
-	 */
-	static const int ploop_major = 182;
-	int maj = major(p->stat.st_rdev);
-
-	/*
-	 * It's been found that systemd-udevd sometimes
-	 * opens-up ploop device from inside of container,
-	 * so allow him to do that.
-	 */
-	if (maj == ploop_major)
-		return 0;
-
-	return -1;
-}
-
-static int dump_one_file(struct parasite_ctl *ctl, int fd, int lfd, struct fd_opts *opts,
-		       struct cr_img *img)
+static int dump_one_file(struct pid *pid, int fd, int lfd, struct fd_opts *opts,
+		       struct cr_img *img, struct parasite_ctl *ctl)
 {
 	struct fd_parms p = FD_PARMS_INIT;
 	const struct fdtype_ops *ops;
 	struct fd_link link;
 
-	if (fill_fd_params(ctl, fd, lfd, opts, &p) < 0) {
+	if (fill_fd_params(pid, fd, lfd, opts, &p) < 0) {
 		pr_err("Can't get stat on %d\n", fd);
 		return -1;
 	}
 
-	if (note_file_lock(&ctl->pid, fd, lfd, &p))
+	if (note_file_lock(pid, fd, lfd, &p))
 		return -1;
+
+	p.fd_ctl = ctl; /* Some dump_opts require this to talk to parasite */
 
 	if (S_ISSOCK(p.stat.st_mode))
 		return dump_socket(&p, lfd, img);
@@ -495,15 +485,7 @@ static int dump_one_file(struct parasite_ctl *ctl, int fd, int lfd, struct fd_op
 		return do_dump_gen_file(&p, lfd, ops, img);
 	}
 
-	if (S_ISREG(p.stat.st_mode) || S_ISDIR(p.stat.st_mode) ||
-	    S_ISBLK(p.stat.st_mode)) {
-		struct fd_link link;
-
-		if (S_ISBLK(p.stat.st_mode)) {
-			if (check_blkdev(&p, lfd))
-				return -1;
-		}
-
+	if (S_ISREG(p.stat.st_mode) || S_ISDIR(p.stat.st_mode)) {
 		if (fill_fdlink(lfd, &p, &link))
 			return -1;
 
@@ -547,7 +529,7 @@ int dump_task_files_seized(struct parasite_ctl *ctl, struct pstree_item *item,
 	int off, nr_fds = min((int) PARASITE_MAX_FDS, dfds->nr_fds);
 
 	pr_info("\n");
-	pr_info("Dumping opened files (pid: %d)\n", ctl->pid.real);
+	pr_info("Dumping opened files (pid: %d)\n", item->pid.real);
 	pr_info("----------------------------------------\n");
 
 	lfds = xmalloc(nr_fds * sizeof(int));
@@ -573,8 +555,8 @@ int dump_task_files_seized(struct parasite_ctl *ctl, struct pstree_item *item,
 			goto err;
 
 		for (i = 0; i < nr_fds; i++) {
-			ret = dump_one_file(ctl, dfds->fds[i + off],
-						lfds[i], opts + i, img);
+			ret = dump_one_file(&item->pid, dfds->fds[i + off],
+						lfds[i], opts + i, img, ctl);
 			close(lfds[i]);
 			if (ret)
 				break;
@@ -825,6 +807,12 @@ int prepare_fd_pid(struct pstree_item *item)
 		if (ret <= 0)
 			break;
 
+		if (e->fd >= service_fd_min_fd()) {
+			ret = -1;
+			pr_err("Too big FD number to restore %d\n", e->fd);
+			break;
+		}
+
 		ret = collect_fd(pid, e, rst_info);
 		if (ret < 0) {
 			fdinfo_entry__free_unpacked(e, NULL);
@@ -982,7 +970,7 @@ int send_fd_to_peer(int fd, struct fdinfo_list_entry *fle, int sock)
 	return send_fd(sock, &saddr, len, fd);
 }
 
-static int send_fd_to_self(int fd, struct fdinfo_list_entry *fle, int *sock)
+static int send_fd_to_self(int fd, struct fdinfo_list_entry *fle, int sock)
 {
 	int dfd = fle->fe->fd;
 
@@ -993,10 +981,9 @@ static int send_fd_to_self(int fd, struct fdinfo_list_entry *fle, int *sock)
 	if (inherit_fd_resolve_clash(dfd) < 0)
 		return -1;
 
-	pr_info("\t\t\tGoing to dup %d into %d\n", fd, dfd);
-	if (move_fd_from(sock, dfd))
-		return -1;
+	BUG_ON(dfd == sock);
 
+	pr_info("\t\t\tGoing to dup %d into %d\n", fd, dfd);
 	if (dup2(fd, dfd) != dfd) {
 		pr_perror("Can't dup local fd %d -> %d", fd, dfd);
 		return -1;
@@ -1038,7 +1025,7 @@ static int serve_out_fd(int pid, int fd, struct file_desc *d)
 
 	list_for_each_entry(fle, &d->fd_info_head, desc_list) {
 		if (pid == fle->pid)
-			ret = send_fd_to_self(fd, fle, &sock);
+			ret = send_fd_to_self(fd, fle, sock);
 		else
 			ret = send_fd_to_peer(fd, fle, sock);
 
@@ -1674,30 +1661,6 @@ int inherit_fd_fini()
 		}
 	}
 	return 0;
-}
-
-bool external_lookup_id(char *id)
-{
-	struct external *ext;
-
-	list_for_each_entry(ext, &opts.external, node)
-		if (!strcmp(ext->id, id))
-			return true;
-	return false;
-}
-
-char *external_lookup_by_key(char *key)
-{
-	struct external *ext;
-	int len = strlen(key);
-
-	list_for_each_entry(ext, &opts.external, node) {
-		if (strncmp(ext->id, key, len))
-			continue;
-		if (ext->id[len] == ':')
-			return ext->id + len + 1;
-	}
-	return NULL;
 }
 
 int open_transport_socket()

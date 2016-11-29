@@ -1,5 +1,6 @@
 #include <unistd.h>
 #include <linux/netlink.h>
+#include <linux/rtnetlink.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <sys/eventfd.h>
@@ -23,7 +24,8 @@
 #include <linux/aio_abi.h>
 #include <sys/mount.h>
 
-#include "proc_parse.h"
+#include "types.h"
+#include "fdinfo.h"
 #include "sockets.h"
 #include "crtools.h"
 #include "log.h"
@@ -37,10 +39,13 @@
 #include "ptrace.h"
 #include "kerndat.h"
 #include "timerfd.h"
+#include "util.h"
 #include "tun.h"
 #include "namespaces.h"
 #include "pstree.h"
 #include "cr_options.h"
+#include "libnetlink.h"
+#include "net.h"
 
 static char *feature_name(int (*func)());
 
@@ -833,10 +838,8 @@ static int check_autofs_pipe_ino(void)
 	int ret = -ENOENT;
 
 	f = fopen_proc(PROC_SELF, "mountinfo");
-	if (!f) {
-		pr_perror("Can't open %d mountinfo", getpid());
+	if (!f)
 		return -1;
-	}
 
 	while (fgets(str, sizeof(str), f)) {
 		if (strstr(str, " autofs ")) {
@@ -933,19 +936,6 @@ static int check_tcp_window(void)
 	return 0;
 }
 
-static int check_nl_repair(void)
-{
-	if (kerndat_nl_repair() < 0)
-		return -1;
-
-	if (!kdat.has_nl_repair) {
-		pr_warn("NETLINK_REPAIR isn't supported.\n");
-		return -1;
-	}
-
-	return 0;
-}
-
 static int (*chk_feature)(void);
 
 /*
@@ -973,7 +963,7 @@ static int (*chk_feature)(void);
 			} while (0)
 int cr_check(void)
 {
-	struct ns_id ns = { .type = NS_CRIU, .ns_pid = PROC_SELF, .nd = &mnt_ns_desc };
+	struct ns_id *ns;
 	int ret = 0;
 
 	if (!is_root_user())
@@ -988,9 +978,11 @@ int cr_check(void)
 	if (collect_pstree_ids())
 		return -1;
 
-	ns.id = root_item->ids->mnt_ns_id;
+	ns = lookup_ns_by_id(root_item->ids->mnt_ns_id, &mnt_ns_desc);
+	if (ns == NULL)
+		return -1;
 
-	mntinfo = collect_mntinfo(&ns, false);
+	mntinfo = collect_mntinfo(ns, false);
 	if (mntinfo == NULL)
 		return -1;
 
@@ -1051,7 +1043,6 @@ int cr_check(void)
 	 */
 	if (opts.check_experimental_features) {
 		ret |= check_autofs();
-		ret |= check_nl_repair();
 	}
 
 	print_on_level(DEFAULT_LOGLEVEL, "%s\n", ret ? CHECK_MAYBE : CHECK_GOOD);
@@ -1124,20 +1115,36 @@ static struct feature_list feature_list[] = {
 	{ "loginuid", check_loginuid },
 	{ "cgroupns", check_cgroupns },
 	{ "autofs", check_autofs },
-	{ "nl_repair", check_nl_repair },
 	{ NULL, NULL },
 };
+
+void pr_check_features(const char *offset, const char *sep, int width)
+{
+	struct feature_list *fl;
+	int pos = width + 1;
+	int sep_len = strlen(sep);
+	int offset_len = strlen(offset);
+
+	for (fl = feature_list; fl->name; fl++) {
+		int len = strlen(fl->name);
+
+		if (pos + len + sep_len > width) {
+			pr_msg("\n%s", offset);
+			pos = offset_len;
+		}
+		pr_msg("%s", fl->name);
+		pos += len;
+		if ((fl + 1)->name) { // not the last item
+			pr_msg("%s", sep);
+			pos += sep_len;
+		}
+	}
+	pr_msg("\n");
+}
 
 int check_add_feature(char *feat)
 {
 	struct feature_list *fl;
-
-	if (!strcmp(feat, "list")) {
-		for (fl = feature_list; fl->name; fl++)
-			pr_msg("%s ", fl->name);
-		pr_msg("\n");
-		return 1;
-	}
 
 	for (fl = feature_list; fl->name; fl++) {
 		if (!strcmp(feat, fl->name)) {

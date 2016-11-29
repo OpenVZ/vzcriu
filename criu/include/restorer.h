@@ -5,13 +5,13 @@
 #include <limits.h>
 #include <sys/resource.h>
 
-#include "compiler.h"
-#include "asm/types.h"
+#include "int.h"
+#include "types.h"
+#include "common/compiler.h"
 #include "asm/fpu.h"
 #include "lock.h"
 #include "util.h"
 #include "asm/restorer.h"
-#include "rst_info.h"
 #include "config.h"
 
 #include "posix-timer.h"
@@ -211,10 +211,10 @@ enum {
 	CR_STATE_COMPLETE
 };
 
-#define restore_finish_stage(__stage) ({				\
-		futex_dec_and_wake(&task_entries->nr_in_progress);	\
-		futex_wait_while(&task_entries->start, __stage);	\
-		(s32) futex_get(&task_entries->start);			\
+#define restore_finish_stage(__v, __stage) ({			\
+		futex_dec_and_wake(&(__v)->nr_in_progress);	\
+		futex_wait_while(&(__v)->start, __stage);	\
+		(s32) futex_get(&(__v)->start);			\
 	})
 
 

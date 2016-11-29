@@ -9,10 +9,12 @@
 #include <sys/wait.h>
 #include <time.h>
 
-#include "compiler.h"
+#include "int.h"
+#include "common/compiler.h"
 #include "cr_options.h"
 #include "cr-errno.h"
 #include "pstree.h"
+#include "criu-log.h"
 #include "ptrace.h"
 #include "seize.h"
 #include "stats.h"
@@ -89,6 +91,10 @@ static int freezer_restore_state(void)
 	return 0;
 }
 
+/* A number of tasks in a freezer cgroup which are not going to be dumped */
+static int processes_to_wait;
+static pid_t *processes_to_wait_pids;
+
 static int seize_cgroup_tree(char *root_path, const char *state)
 {
 	DIR *dir;
@@ -117,15 +123,13 @@ static int seize_cgroup_tree(char *root_path, const char *state)
 		if (ret == 0)
 			continue;
 		if (errno != ESRCH) {
-			pr_perror("Unexpected error for pid %d (comm %s)",
-				  pid, __task_comm_info(pid));
+			pr_perror("Unexpected error");
 			fclose(f);
 			return -1;
 		}
 
 		if (!seize_catch_task(pid)) {
-			pr_debug("SEIZE %d (comm %s): success\n",
-				 pid, __task_comm_info(pid));
+			pr_debug("SEIZE %d: success\n", pid);
 			processes_to_wait++;
 		} else if (state == frozen) {
 			char buf[] = "/proc/XXXXXXXXXX/exe";
@@ -135,7 +139,6 @@ static int seize_cgroup_tree(char *root_path, const char *state)
 			snprintf(buf, sizeof(buf), "/proc/%d/exe", pid);
 			if (stat(buf, &st) == -1 && errno == ENOENT)
 				continue;
-
 			/*
 			 * fails when meets a zombie, or eixting process:
 			 * there is a small race in a kernel -- the process
@@ -143,45 +146,7 @@ static int seize_cgroup_tree(char *root_path, const char *state)
 			 * before it compete exit procedure. The caller simply
 			 * should wait a bit and try freezing again.
 			 */
-			pr_err("zombie %d (comm %s) found while seizing\n",
-			       pid, __task_comm_info(pid));
-			if (!pr_quelled(LOG_DEBUG)) {
-				/*
-				 * FIXME: Debug printing in a sake of
-				 * https://jira.sw.ru/browse/PSBM-53929
-				 * Drop before the release.
-				 */
-				char __path[64], __buf[1024];
-				static char ps_cmd[] = "ps";
-				int fd, ret;
-
-				cr_system(-1, -1, -1, ps_cmd,
-					  (char *[]) { ps_cmd, "aufx", NULL}, 0);
-
-				snprintf(__path, sizeof(__path), "/proc/%d/stack", pid);
-				fd = open(__path, O_RDONLY);
-				if (fd >= 0) {
-					ret = read(fd, __buf, sizeof(__buf));
-					if (ret > 0) {
-						__buf[ret] = '\0';
-						pr_debug("/proc/%d/stack:\n%s\n",
-							 pid, __buf);
-					}
-					close(fd);
-				}
-
-				snprintf(__path, sizeof(__path), "/proc/%d/stat", pid);
-				fd = open(__path, O_RDONLY);
-				if (fd >= 0) {
-					ret = read(fd, __buf, sizeof(__buf));
-					if (ret > 0) {
-						__buf[ret] = '\0';
-						pr_debug("/proc/%d/stat:\n%s\n",
-							 pid, __buf);
-					}
-					close(fd);
-				}
-			}
+			pr_err("zombie found while seizing\n");
 			fclose(f);
 			return -EAGAIN;
 		}
@@ -211,7 +176,6 @@ static int seize_cgroup_tree(char *root_path, const char *state)
 
 		if (!S_ISDIR(st.st_mode))
 			continue;
-
 		ret = seize_cgroup_tree(path, state);
 		if (ret < 0) {
 			closedir(dir);
@@ -222,10 +186,6 @@ static int seize_cgroup_tree(char *root_path, const char *state)
 
 	return 0;
 }
-
-/* A number of tasks in a freezer cgroup which are not going to be dumped */
-int processes_to_wait;
-static pid_t *processes_to_wait_pids;
 
 /*
  * A freezer cgroup can contain tasks which will not be dumped
@@ -313,7 +273,7 @@ static int log_unfrozen_stacks(char *root)
 
 		stack = open_proc(pid, "stack");
 		if (stack < 0) {
-			pr_perror("couldn't log %d's stack", pid);
+			pr_err("`- couldn't log %d's stack\n", pid);
 			fclose(f);
 			return -1;
 		}
@@ -496,6 +456,7 @@ static int collect_children(struct pstree_item *item)
 	nr_inprogress = 0;
 	for (i = 0; i < nr_children; i++) {
 		struct pstree_item *c;
+		struct proc_status_creds *creds;
 		pid_t pid = ch[i];
 
 		/* Is it already frozen? */
@@ -521,7 +482,13 @@ static int collect_children(struct pstree_item *item)
 			/* fails when meets a zombie */
 			seize_catch_task(pid);
 
-		ret = seize_wait_task(pid, item->pid.real, &dmpi(c)->pi_creds);
+		creds = xzalloc(sizeof(*creds));
+		if (!creds) {
+			ret = -1;
+			goto free;
+		}
+
+		ret = seize_wait_task(pid, item->pid.real, creds);
 		if (ret < 0) {
 			/*
 			 * Here is a race window between parse_children() and seize(),
@@ -532,9 +499,16 @@ static int collect_children(struct pstree_item *item)
 			 */
 			ret = 0;
 			xfree(c);
+			xfree(creds);
 			continue;
 		}
 
+		if (ret == TASK_ZOMBIE)
+			ret = TASK_DEAD;
+		else
+			processes_to_wait--;
+
+		dmpi(c)->pi_creds = creds;
 		c->pid.real = pid;
 		c->parent = item;
 		c->pid.state = ret;
@@ -650,6 +624,55 @@ static inline bool thread_collected(struct pstree_item *i, pid_t tid)
 	return false;
 }
 
+static bool creds_dumpable(struct proc_status_creds *parent,
+				struct proc_status_creds *child)
+{
+	const size_t size = sizeof(struct proc_status_creds) -
+			offsetof(struct proc_status_creds, cap_inh);
+
+	/*
+	 * The comparison rules are the following
+	 *
+	 *  - CAPs can be different
+	 *  - seccomp filters should be passed via
+	 *    semantic comparison (FIXME) but for
+	 *    now we require them to be exactly
+	 *    identical
+	 *  - the rest of members must match
+	 */
+
+	if (memcmp(parent, child, size)) {
+		if (!pr_quelled(LOG_DEBUG)) {
+			pr_debug("Creds undumpable (parent:child)\n"
+				 "  uids:               %d:%d %d:%d %d:%d %d:%d\n"
+				 "  gids:               %d:%d %d:%d %d:%d %d:%d\n"
+				 "  state:              %d:%d"
+				 "  ppid:               %d:%d\n"
+				 "  sigpnd:             %llu:%llu\n"
+				 "  shdpnd:             %llu:%llu\n"
+				 "  seccomp_mode:       %d:%d\n"
+				 "  last_filter:        %u:%u\n",
+				 parent->uids[0], child->uids[0],
+				 parent->uids[1], child->uids[1],
+				 parent->uids[2], child->uids[2],
+				 parent->uids[3], child->uids[3],
+				 parent->gids[0], child->gids[0],
+				 parent->gids[1], child->gids[1],
+				 parent->gids[2], child->gids[2],
+				 parent->gids[3], child->gids[3],
+				 parent->state, child->state,
+				 parent->ppid, child->ppid,
+				 parent->sigpnd, child->sigpnd,
+				 parent->shdpnd, child->shdpnd,
+				 parent->seccomp_mode, child->seccomp_mode,
+				 parent->last_filter, child->last_filter);
+		}
+		return false;
+	}
+
+	return true;
+}
+
 static int collect_threads(struct pstree_item *item)
 {
 	struct pid *threads = NULL;
@@ -677,6 +700,7 @@ static int collect_threads(struct pstree_item *item)
 	nr_inprogress = 0;
 	for (i = 0; i < nr_threads; i++) {
 		pid_t pid = threads[i].real;
+		struct proc_status_creds t_creds = {};
 
 		if (thread_collected(item, pid))
 			continue;
@@ -689,7 +713,7 @@ static int collect_threads(struct pstree_item *item)
 		if (!opts.freeze_cgroup && seize_catch_task(pid))
 			continue;
 
-		ret = seize_wait_task(pid, item_ppid(item), &dmpi(item)->pi_creds);
+		ret = seize_wait_task(pid, item_ppid(item), &t_creds);
 		if (ret < 0) {
 			/*
 			 * Here is a race window between parse_threads() and seize(),
@@ -701,6 +725,11 @@ static int collect_threads(struct pstree_item *item)
 			continue;
 		}
 
+		if (ret == TASK_ZOMBIE)
+			ret = TASK_DEAD;
+		else
+			processes_to_wait--;
+
 		BUG_ON(item->nr_threads + 1 > nr_threads);
 		item->threads[item->nr_threads].real = pid;
 		item->nr_threads++;
@@ -709,6 +738,9 @@ static int collect_threads(struct pstree_item *item)
 			pr_err("Zombie thread not supported\n");
 			goto err;
 		}
+
+		if (!creds_dumpable(dmpi(item)->pi_creds, &t_creds))
+			goto err;
 
 		if (ret == TASK_STOPPED) {
 			nr_stopped++;
@@ -796,6 +828,7 @@ int collect_pstree(void)
 {
 	pid_t pid = root_item->pid.real;
 	int ret = -1;
+	struct proc_status_creds *creds;
 
 	timing_start(TIME_FREEZING);
 
@@ -814,11 +847,22 @@ int collect_pstree(void)
 		goto err;
 	}
 
-	ret = seize_wait_task(pid, -1, &dmpi(root_item)->pi_creds);
+	creds = xzalloc(sizeof(*creds));
+	if (!creds)
+		goto err;
+
+	ret = seize_wait_task(pid, -1, creds);
 	if (ret < 0)
 		goto err;
+
+	if (ret == TASK_ZOMBIE)
+		ret = TASK_DEAD;
+	else
+		processes_to_wait--;
+
 	pr_info("Seized task %d, state %d\n", pid, ret);
 	root_item->pid.state = ret;
+	dmpi(root_item)->pi_creds = creds;
 
 	ret = collect_task(root_item);
 	if (ret < 0)

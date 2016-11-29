@@ -2,11 +2,11 @@
 #include <sys/mman.h>
 #include <stdlib.h>
 #include <fcntl.h>
+#include <stdbool.h>
 
-#include "list.h"
+#include "common/list.h"
 #include "pid.h"
 #include "shmem.h"
-#include "mem.h"
 #include "image.h"
 #include "cr_options.h"
 #include "kerndat.h"
@@ -14,11 +14,20 @@
 #include "page-xfer.h"
 #include "rst-malloc.h"
 #include "vma.h"
+#include "mem.h"
 #include "config.h"
 #include "syscall-codes.h"
-
+#include "bitops.h"
+#include "log.h"
+#include "page.h"
+#include "util.h"
 #include "protobuf.h"
 #include "images/pagemap.pb-c.h"
+
+#ifndef SEEK_DATA
+#define SEEK_DATA	3
+#define SEEK_HOLE	4
+#endif
 
 /*
  * Hash table and routines for keeping shmid -> shmem_xinfo mappings 
@@ -81,6 +90,7 @@ struct shmem_info {
 		struct { /* For dump */
 			unsigned long	start;
 			unsigned long	end;
+			unsigned long	*pstate_map;
 		};
 	};
 };
@@ -120,6 +130,97 @@ static struct shmem_info *shmem_find(unsigned long shmid)
 	return NULL;
 }
 
+#define PST_DONT_DUMP 0
+#define PST_DUMP 1
+#define PST_ZERO 2
+#define PST_DIRTY 3
+
+#define PST_BITS 2
+#define PST_BIT0_IX(pfn) ((pfn) * PST_BITS)
+#define PST_BIT1_IX(pfn) (PST_BIT0_IX(pfn) + 1)
+
+/*
+ * Disable pagemap based shmem changes tracking by default
+ * because it has bugs in implementation -
+ * process can map shmem page, change it and unmap it.
+ * We won't observe any changes in such pagemaps during dump.
+ */
+static bool is_shmem_tracking_en(void)
+{
+	static bool is_inited = false;
+	static bool is_enabled = false;
+
+	if (!is_inited) {
+		is_enabled = (bool)getenv("CRIU_TRACK_SHMEM");
+		is_inited = true;
+		if (is_enabled)
+			pr_msg("Turn anon shmem tracking on via env\n");
+	}
+	return is_enabled;
+}
+
+static unsigned int get_pstate(unsigned long *pstate_map, unsigned long pfn)
+{
+	unsigned int bit0 = test_bit(PST_BIT0_IX(pfn), pstate_map) ? 1 : 0;
+	unsigned int bit1 = test_bit(PST_BIT1_IX(pfn), pstate_map) ? 1 : 0;
+	return (bit1 << 1) | bit0;
+}
+
+static void set_pstate(unsigned long *pstate_map, unsigned long pfn,
+		unsigned int pstate)
+{
+	if (pstate & 1)
+		set_bit(PST_BIT0_IX(pfn), pstate_map);
+	if (pstate & 2)
+		set_bit(PST_BIT1_IX(pfn), pstate_map);
+}
+
+static int expand_shmem(struct shmem_info *si, unsigned long new_size)
+{
+	unsigned long nr_pages, nr_map_items, map_size,
+				nr_new_map_items, new_map_size, old_size;
+
+	old_size = si->size;
+	si->size = new_size;
+	if (!is_shmem_tracking_en())
+		return 0;
+
+	nr_pages = DIV_ROUND_UP(old_size, PAGE_SIZE);
+	nr_map_items = BITS_TO_LONGS(nr_pages * PST_BITS);
+	map_size = nr_map_items * sizeof(*si->pstate_map);
+
+	nr_pages = DIV_ROUND_UP(new_size, PAGE_SIZE);
+	nr_new_map_items = BITS_TO_LONGS(nr_pages * PST_BITS);
+	new_map_size = nr_new_map_items * sizeof(*si->pstate_map);
+
+	BUG_ON(new_map_size < map_size);
+
+	si->pstate_map = xrealloc(si->pstate_map, new_map_size);
+	if (!si->pstate_map)
+		return -1;
+	memzero(si->pstate_map + nr_map_items, new_map_size - map_size);
+	return 0;
+}
+
+static void update_shmem_pmaps(struct shmem_info *si, u64 *map, VmaEntry *vma)
+{
+	unsigned long shmem_pfn, vma_pfn, vma_pgcnt;
+
+	if (!is_shmem_tracking_en())
+		return;
+
+	vma_pgcnt = DIV_ROUND_UP(si->size - vma->pgoff, PAGE_SIZE);
+	for (vma_pfn = 0; vma_pfn < vma_pgcnt; ++vma_pfn) {
+		if (!should_dump_page(vma, map[vma_pfn]))
+			continue;
+
+		shmem_pfn = vma_pfn + DIV_ROUND_UP(vma->pgoff, PAGE_SIZE);
+		if (map[vma_pfn] & PME_SOFT_DIRTY)
+			set_pstate(si->pstate_map, shmem_pfn, PST_DIRTY);
+		else
+			set_pstate(si->pstate_map, shmem_pfn, PST_DUMP);
+	}
+}
 
 int collect_sysv_shmem(unsigned long shmid, unsigned long size)
 {
@@ -347,9 +448,6 @@ static int shmem_wait_and_open(int pid, struct shmem_info *si, VmaEntry *vi)
 
 	pr_info("Opening shmem [%s] \n", path);
 	ret = open_proc_rw(si->pid, "fd/%d", si->fd);
-	if (ret < 0)
-		pr_perror("     %d: Can't stat shmem at %s",
-				si->pid, path);
 	futex_inc_and_wake(&si->lock);
 	if (ret < 0)
 		return -1;
@@ -485,28 +583,35 @@ err:
 	return -1;
 }
 
-int add_shmem_area(pid_t pid, VmaEntry *vma)
+int add_shmem_area(pid_t pid, VmaEntry *vma, u64 *map)
 {
 	struct shmem_info *si;
 	unsigned long size = vma->pgoff + (vma->end - vma->start);
 
 	si = shmem_find(vma->shmid);
 	if (si) {
-		if (si->size < size)
-			si->size = size;
+		if (si->size < size) {
+			if (expand_shmem(si, size))
+				return -1;
+		}
+		update_shmem_pmaps(si, map, vma);
+
 		return 0;
 	}
 
-	si = xmalloc(sizeof(*si));
+	si = xzalloc(sizeof(*si));
 	if (!si)
 		return -1;
 
-	si->size = size;
 	si->pid = pid;
 	si->start = vma->start;
 	si->end = vma->end;
 	si->shmid = vma->shmid;
 	shmem_hash_add(si);
+
+	if (expand_shmem(si, size))
+		return -1;
+	update_shmem_pmaps(si, map, vma);
 
 	return 0;
 }
@@ -526,60 +631,55 @@ static int dump_pages(struct page_pipe *pp, struct page_xfer *xfer, void *addr)
 	return page_xfer_dump_pages(xfer, pp, (unsigned long)addr);
 }
 
+static int next_data_segment(int fd, unsigned long pfn,
+			unsigned long *next_data_pfn, unsigned long *next_hole_pfn)
+{
+	off_t off;
+
+	off = lseek(fd, pfn * PAGE_SIZE, SEEK_DATA);
+	if (off == (off_t) -1) {
+		if (errno == ENXIO) {
+			*next_data_pfn = ~0UL;
+			*next_hole_pfn = ~0UL;
+			return 0;
+		}
+		pr_perror("Unable to lseek(SEEK_DATA)");
+		return -1;
+	}
+	*next_data_pfn = off / PAGE_SIZE;
+
+	off = lseek(fd, off, SEEK_HOLE);
+	if (off == (off_t) -1) {
+		pr_perror("Unable to lseek(SEEK_HOLE)");
+		return -1;
+	}
+	*next_hole_pfn = off / PAGE_SIZE;
+
+	return 0;
+}
+
 static int dump_one_shmem(struct shmem_info *si)
 {
 	struct page_pipe *pp;
 	struct page_xfer xfer;
-	int err, ret = -1, fd, fd_map;
-	u64 *map = NULL;
+	int err, ret = -1, fd;
 	void *addr = NULL;
-	unsigned long pfn, nrpages;
+	unsigned long pfn, nrpages, next_data_pnf = 0, next_hole_pfn = 0;
 
 	pr_info("Dumping shared memory %ld\n", si->shmid);
-
-	nrpages = (si->size + PAGE_SIZE - 1) / PAGE_SIZE;
-	map = xmalloc(nrpages * sizeof(*map));
-	if (!map)
-		goto err;
 
 	fd = open_proc(si->pid, "map_files/%lx-%lx", si->start, si->end);
 	if (fd < 0)
 		goto err;
 
-	fd_map = open_proc(PROC_SELF, "pagemap");
-	if (fd_map < 0) {
-		close(fd);
-		goto err;
-	}
-
 	addr = mmap(NULL, si->size, PROT_READ, MAP_SHARED, fd, 0);
-	close(fd);
 	if (addr == MAP_FAILED) {
-		close(fd_map);
 		pr_err("Can't map shmem 0x%lx (0x%lx-0x%lx)\n",
 				si->shmid, si->start, si->end);
 		goto err;
 	}
 
-	/*
-	 * Make sure PTEs are created in our space
-	 * so pagemap would show us the proper results.
-	 *
-	 * https://jira.sw.ru/browse/PSBM-52138
-	 */
-	for (pfn = 0; pfn < nrpages; pfn++) {
-		volatile char v = *(char *)((unsigned long)addr + pfn * PAGE_SIZE);
-		(void)v;
-	}
-
-	if (pread(fd_map, map, nrpages * sizeof(*map),
-		  PAGE_PFN((unsigned long)addr) * sizeof(u64)) != nrpages * sizeof(*map)) {
-		pr_perror("Can't read shmem 0x%lx (0x%lx-0x%lx) pagemap\n",
-			  si->shmid, si->start, si->end);
-		close(fd_map);
-		goto err;
-	}
-	close(fd_map);
+	nrpages = (si->size + PAGE_SIZE - 1) / PAGE_SIZE;
 
 	pp = create_page_pipe((nrpages + 1) / 2, NULL, PP_CHUNK_MODE);
 	if (!pp)
@@ -590,12 +690,33 @@ static int dump_one_shmem(struct shmem_info *si)
 		goto err_pp;
 
 	for (pfn = 0; pfn < nrpages; pfn++) {
-		if (!(map[pfn] & PME_SWAP) &&
-		    !((map[pfn] & PME_PRESENT) &&
-		      (map[pfn] & PME_PFRAME_MASK) != kdat.zero_page_pfn))
-			continue;
+		unsigned int pgstate = PST_DIRTY;
+		bool use_mc = true;
+		unsigned long pgaddr;
+
+		if (pfn >= next_hole_pfn &&
+		    next_data_segment(fd, pfn, &next_data_pnf, &next_hole_pfn))
+			goto err_xfer;
+
+		if (is_shmem_tracking_en()) {
+			pgstate = get_pstate(si->pstate_map, pfn);
+			use_mc = pgstate == PST_DONT_DUMP;
+		}
+
+		if (use_mc) {
+			if (pfn < next_data_pnf)
+				pgstate = PST_ZERO;
+			else
+				pgstate = PST_DIRTY;
+		}
+
+		pgaddr = (unsigned long)addr + pfn * PAGE_SIZE;
 again:
-		ret = page_pipe_add_page(pp, (unsigned long)addr + pfn * PAGE_SIZE);
+		if (xfer.parent && page_in_parent(pgstate == PST_DIRTY))
+			ret = page_pipe_add_hole(pp, pgaddr);
+		else
+			ret = page_pipe_add_page(pp, pgaddr);
+
 		if (ret == -EAGAIN) {
 			ret = dump_pages(pp, &xfer, addr);
 			if (ret)
@@ -615,7 +736,7 @@ err_pp:
 err_unmap:
 	munmap(addr,  si->size);
 err:
-	xfree(map);
+	close_safe(&fd);
 	return ret;
 }
 

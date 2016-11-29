@@ -5,6 +5,7 @@
 #include <sys/wait.h>
 #include <sys/mman.h>
 
+#include "types.h"
 #include "protobuf.h"
 #include "images/sa.pb-c.h"
 #include "images/timer.pb-c.h"
@@ -14,7 +15,6 @@
 
 #include "imgset.h"
 #include "ptrace.h"
-#include "asm/processor-flags.h"
 #include "parasite-syscall.h"
 #include "parasite-blob.h"
 #include "parasite.h"
@@ -25,55 +25,47 @@
 #include "pstree.h"
 #include "posix-timer.h"
 #include "mem.h"
+#include "criu-log.h"
 #include "vma.h"
 #include "proc_parse.h"
 #include "aio.h"
 #include "fault-injection.h"
 #include "syscall-codes.h"
+#include "signal.h"
 
 #include <string.h>
 #include <stdlib.h>
 #include <elf.h>
 
-#include "asm/parasite-syscall.h"
-#include "asm/dump.h"
-#include "asm/restorer.h"
+#include "dump.h"
+#include "restorer.h"
 #include "pie/pie-relocs.h"
 
 #define MEMFD_FNAME	"CRIUMFD"
 #define MEMFD_FNAME_SZ	sizeof(MEMFD_FNAME)
 
-static int can_run_syscall(unsigned long ip, unsigned long start,
-			   unsigned long end, unsigned long pad)
-{
-	return ip >= start && ip < (end - BUILTIN_SYSCALL_SIZE - pad);
-}
-
-static int syscall_fits_vma_area(struct vma_area *vma_area, unsigned long pad)
-{
-	return can_run_syscall((unsigned long)vma_area->e->start,
-			       (unsigned long)vma_area->e->start,
-			       (unsigned long)vma_area->e->end,
-			       pad);
-}
-
-static struct vma_area *get_vma_by_ip(struct list_head *vma_area_list,
-				      unsigned long ip,
-				      unsigned long pad)
+unsigned long get_exec_start(struct vm_area_list *vmas)
 {
 	struct vma_area *vma_area;
 
-	list_for_each_entry(vma_area, vma_area_list, list) {
+	list_for_each_entry(vma_area, &vmas->h, list) {
+		unsigned long len;
+
 		if (vma_area->e->start >= kdat.task_size)
 			continue;
-		if (!(vma_area->e->prot & PROT_EXEC) ||
-		    (vma_area->e->flags & MAP_GROWSDOWN))
+		if (!(vma_area->e->prot & PROT_EXEC))
 			continue;
-		if (syscall_fits_vma_area(vma_area, pad))
-			return vma_area;
+
+		len = vma_area_len(vma_area);
+		if (len < PARASITE_START_AREA_MIN) {
+			pr_warn("Suspiciously short VMA @%#lx\n", (unsigned long)vma_area->e->start);
+			continue;
+		}
+
+		return vma_area->e->start;
 	}
 
-	return NULL;
+	return 0;
 }
 
 static inline int ptrace_get_regs(int pid, user_regs_struct_t *regs)
@@ -216,7 +208,7 @@ err:
 int __parasite_execute_syscall(struct parasite_ctl *ctl,
 		user_regs_struct_t *regs, const char *code_syscall)
 {
-	pid_t pid = ctl->pid.real;
+	pid_t pid = ctl->rpid;
 	int err;
 	u8 code_orig[BUILTIN_SYSCALL_SIZE];
 
@@ -237,7 +229,7 @@ int __parasite_execute_syscall(struct parasite_ctl *ctl,
 
 	if (ptrace_poke_area(pid, (void *)code_orig,
 			     (void *)ctl->syscall_ip, sizeof(code_orig))) {
-		pr_err("Can't restore syscall blob (pid: %d)\n", ctl->pid.real);
+		pr_err("Can't restore syscall blob (pid: %d)\n", ctl->rpid);
 		err = -1;
 	}
 
@@ -250,11 +242,11 @@ void *parasite_args_s(struct parasite_ctl *ctl, int args_size)
 	return ctl->addr_args;
 }
 
-static int parasite_execute_trap_by_pid(unsigned int cmd,
-					struct parasite_ctl *ctl, pid_t pid,
-					void *stack,
+static int parasite_run_in_thread(pid_t pid, unsigned int cmd,
+					struct parasite_ctl *ctl,
 					struct thread_ctx *octx)
 {
+	void *stack = ctl->r_thread_stack;
 	user_regs_struct_t regs = octx->regs;
 	int ret;
 
@@ -503,7 +495,7 @@ static int accept_tsock(struct parasite_ctl *ctl)
 static int parasite_init_daemon(struct parasite_ctl *ctl, struct ns_id *net)
 {
 	struct parasite_init_args *args;
-	pid_t pid = ctl->pid.real;
+	pid_t pid = ctl->rpid;
 	user_regs_struct_t regs;
 	struct ctl_msg m = { };
 
@@ -641,8 +633,7 @@ int parasite_dump_thread_seized(struct parasite_ctl *ctl, int id,
 	tc->has_blk_sigset = true;
 	memcpy(&tc->blk_sigset, &octx.sigmask, sizeof(k_rtsigset_t));
 
-	ret = parasite_execute_trap_by_pid(PARASITE_CMD_DUMP_THREAD, ctl,
-			pid, ctl->r_thread_stack, &octx);
+	ret = parasite_run_in_thread(pid, PARASITE_CMD_DUMP_THREAD, ctl, &octx);
 	if (ret) {
 		pr_err("Can't init thread in parasite %d\n", pid);
 		return -1;
@@ -885,7 +876,7 @@ static bool task_in_parasite(struct parasite_ctl *ctl, user_regs_struct_t *regs)
 
 static int parasite_fini_seized(struct parasite_ctl *ctl)
 {
-	pid_t pid = ctl->pid.real;
+	pid_t pid = ctl->rpid;
 	user_regs_struct_t regs;
 	int status, ret = 0;
 	enum trace_flags flag;
@@ -1108,7 +1099,7 @@ int parasite_cure_local(struct parasite_ctl *ctl)
 
 	if (ctl->local_map) {
 		if (munmap(ctl->local_map, ctl->map_length)) {
-			pr_err("munmap failed (pid: %d)\n", ctl->pid.real);
+			pr_err("munmap failed (pid: %d)\n", ctl->rpid);
 			ret = -1;
 		}
 	}
@@ -1136,10 +1127,10 @@ int parasite_cure_seized(struct parasite_ctl *ctl)
 int parasite_unmap(struct parasite_ctl *ctl, unsigned long addr)
 {
 	user_regs_struct_t regs = ctl->orig.regs;
-	pid_t pid = ctl->pid.real;
+	pid_t pid = ctl->rpid;
 	int ret = -1;
 
-	ret = parasite_run(pid, PTRACE_SYSCALL, addr, NULL, &regs, &ctl->orig);
+	ret = parasite_run(pid, PTRACE_SYSCALL, addr, ctl->rstack, &regs, &ctl->orig);
 	if (ret)
 		goto err;
 
@@ -1152,13 +1143,9 @@ err:
 }
 
 /* If vma_area_list is NULL, a place for injecting syscall will not be set. */
-struct parasite_ctl *parasite_prep_ctl(pid_t pid, struct vm_area_list *vma_area_list)
+struct parasite_ctl *parasite_prep_ctl(pid_t pid, unsigned long exec_start)
 {
 	struct parasite_ctl *ctl = NULL;
-	struct vma_area *vma_area;
-
-	if (!arch_can_dump_task(pid))
-		goto err;
 
 	/*
 	 * Control block early setup.
@@ -1174,22 +1161,11 @@ struct parasite_ctl *parasite_prep_ctl(pid_t pid, struct vm_area_list *vma_area_
 	if (get_thread_ctx(pid, &ctl->orig))
 		goto err;
 
-	ctl->pid.real	= pid;
-	ctl->pid.virt	= 0;
+	ctl->rpid = pid;
 
-	if (vma_area_list == NULL)
-		return ctl;
+	BUILD_BUG_ON(PARASITE_START_AREA_MIN < BUILTIN_SYSCALL_SIZE + MEMFD_FNAME_SZ);
 
-	/* Search a place for injecting syscall */
-	vma_area = get_vma_by_ip(&vma_area_list->h, REG_IP(ctl->orig.regs),
-				 MEMFD_FNAME_SZ);
-	if (!vma_area) {
-		pr_err("No suitable VMA found to run parasite "
-		       "bootstrap code (pid: %d)\n", pid);
-		goto err;
-	}
-
-	ctl->syscall_ip	= vma_area->e->start;
+	ctl->syscall_ip = exec_start;
 	pr_debug("Parasite syscall_ip at %p\n", (void *)ctl->syscall_ip);
 
 	return ctl;
@@ -1207,13 +1183,13 @@ static int parasite_mmap_exchange(struct parasite_ctl *ctl, unsigned long size)
 				      PROT_READ | PROT_WRITE | PROT_EXEC,
 				      MAP_ANONYMOUS | MAP_SHARED, -1, 0);
 	if (!ctl->remote_map) {
-		pr_err("Can't allocate memory for parasite blob (pid: %d)\n", ctl->pid.real);
+		pr_err("Can't allocate memory for parasite blob (pid: %d)\n", ctl->rpid);
 		return -1;
 	}
 
 	ctl->map_length = round_up(size, page_size());
 
-	fd = open_proc_rw(ctl->pid.real, "map_files/%p-%p",
+	fd = open_proc_rw(ctl->rpid, "map_files/%p-%p",
 		 ctl->remote_map, ctl->remote_map + ctl->map_length);
 	if (fd < 0)
 		return -1;
@@ -1235,7 +1211,7 @@ static int parasite_memfd_exchange(struct parasite_ctl *ctl, unsigned long size)
 {
 	void *where = (void *)ctl->syscall_ip + BUILTIN_SYSCALL_SIZE;
 	u8 orig_code[MEMFD_FNAME_SZ] = MEMFD_FNAME;
-	pid_t pid = ctl->pid.real;
+	pid_t pid = ctl->rpid;
 	unsigned long sret = -ENOSYS;
 	int ret, fd, lfd;
 
@@ -1270,7 +1246,7 @@ static int parasite_memfd_exchange(struct parasite_ctl *ctl, unsigned long size)
 		return fd;
 
 	ctl->map_length = round_up(size, page_size());
-	lfd = open_proc_rw(ctl->pid.real, "fd/%d", fd);
+	lfd = open_proc_rw(ctl->rpid, "fd/%d", fd);
 	if (lfd < 0)
 		goto err_cure;
 
@@ -1345,7 +1321,7 @@ void parasite_ensure_args_size(unsigned long sz)
 
 static int parasite_start_daemon(struct parasite_ctl *ctl, struct pstree_item *item)
 {
-	pid_t pid = ctl->pid.real;
+	pid_t pid = ctl->rpid;
 
 	/*
 	 * Get task registers before going daemon, since the
@@ -1358,7 +1334,7 @@ static int parasite_start_daemon(struct parasite_ctl *ctl, struct pstree_item *i
 		return -1;
 	}
 
-	if (construct_sigframe(ctl->sigframe, ctl->rsigframe, item->core[0]))
+	if (construct_sigframe(ctl->sigframe, ctl->rsigframe, &ctl->orig.sigmask, item->core[0]))
 		return -1;
 
 	if (parasite_init_daemon(ctl, dmpi(item)->netns))
@@ -1376,13 +1352,21 @@ struct parasite_ctl *parasite_infect_seized(pid_t pid, struct pstree_item *item,
 
 	BUG_ON(item->threads[0].real != pid);
 
-	ctl = parasite_prep_ctl(pid, vma_area_list);
+	p = get_exec_start(vma_area_list);
+	if (!p) {
+		pr_err("No suitable VM found\n");
+		return NULL;
+	}
+
+	ctl = parasite_prep_ctl(pid, p);
 	if (!ctl)
 		return NULL;
 
 	parasite_ensure_args_size(dump_pages_args_size(vma_area_list));
 	parasite_ensure_args_size(aio_rings_args_size(vma_area_list));
 
+	if (!arch_can_dump_task(ctl))
+		goto err_restore;
 	/*
 	 * Inject a parasite engine. Ie allocate memory inside alien
 	 * space and copy engine code there. Then re-map the engine

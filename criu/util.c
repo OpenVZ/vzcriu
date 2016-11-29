@@ -34,18 +34,18 @@
 #include <netinet/tcp.h>
 #include <sched.h>
 #include <ctype.h>
-#include <libgen.h>
 
-#include "compiler.h"
-#include "asm/types.h"
-#include "list.h"
+#include "bitops.h"
+#include "page.h"
+#include "common/compiler.h"
+#include "common/list.h"
 #include "util.h"
 #include "rst-malloc.h"
 #include "image.h"
 #include "vma.h"
 #include "mem.h"
 #include "namespaces.h"
-#include "log.h"
+#include "criu-log.h"
 
 #include "cr_options.h"
 #include "servicefd.h"
@@ -557,18 +557,6 @@ int read_fd_link(int lfd, char *buf, size_t size)
 	return ret;
 }
 
-char *__read_fd_link(int fd)
-{
-	static char buf[PATH_MAX];
-	int ret;
-
-	ret = read_fd_link(fd, buf, sizeof(buf));
-	if (ret < 0)
-		buf[0] = '\0';
-
-	return buf;
-}
-
 int is_anon_link_type(char *link, char *type)
 {
 	char aux[32];
@@ -813,14 +801,14 @@ struct vma_area *alloc_vma_area(void)
 	return p;
 }
 
-int mkdirpat(int fd, const char *path, int mode)
+int mkdirpat(int fd, const char *path)
 {
 	size_t i;
 	char made_path[PATH_MAX], *pos;
 
 	if (strlen(path) >= PATH_MAX) {
 		pr_err("path %s is longer than PATH_MAX\n", path);
-		return -ENOSPC;
+		return -1;
 	}
 
 	strcpy(made_path, path);
@@ -833,10 +821,9 @@ int mkdirpat(int fd, const char *path, int mode)
 		pos = strchr(made_path + i, '/');
 		if (pos)
 			*pos = '\0';
-		if (mkdirat(fd, made_path, mode) < 0 && errno != EEXIST) {
-			int ret = -errno;
+		if (mkdirat(fd, made_path, 0755) < 0 && errno != EEXIST) {
 			pr_perror("couldn't mkdirpat directory %s", made_path);
-			return ret;
+			return -1;
 		}
 		if (pos) {
 			*pos = '/';
@@ -846,66 +833,6 @@ int mkdirpat(int fd, const char *path, int mode)
 	}
 
 	return 0;
-}
-
-/*
- * Remove directory @path together with parents,
- * keeping @keep len of path if provided. Directories
- * must be empty of course.
- */
-int rmdirp(const char *path, size_t keep)
-{
-	char made_path[PATH_MAX], *pos;
-	size_t len = strlen(path);
-	int ret;
-
-	if (len >= PATH_MAX) {
-		pr_err("path %s is longer than PATH_MAX\n", path);
-		return -ENOSPC;
-	}
-
-	/* Nothing to do */
-	if (len <= keep)
-		return 0;
-
-	strcpy(made_path, path);
-
-	for (pos = strrchr(made_path, '/');
-	     pos && (pos - made_path) >= keep;
-	     pos = strrchr(made_path, '/')) {
-		ret = rmdir(made_path);
-
-		if (ret < 0 && errno != ENOENT) {
-			ret = -errno;
-			pr_perror("Can't delete %s", made_path);
-			goto out;
-		}
-		*pos = '\0';
-	}
-
-	ret = 0;
-out:
-	return ret;
-}
-
-int mkdirname(const char *path)
-{
-	int err;
-	char *dpath, *dirc;
-
-	dirc = strdup(path);
-	if (!dirc) {
-		pr_err("failed to duplicate string\n");
-		return -ENOMEM;
-	}
-
-	dpath = dirname(dirc);
-
-	err = mkdirpat(AT_FDCWD, dpath, 0755);
-
-	free(dirc);
-
-	return err;
 }
 
 bool is_path_prefix(const char *path, const char *prefix)
@@ -1257,69 +1184,4 @@ int setup_tcp_client(char *addr)
 	}
 
 	return sk;
-}
-
-/*
- * When reading symlinks via /proc/$pid/root/
- * we should make sure the path resolving is done
- * via root as toplevel root, otherwive path
- * may be screwed.
- *
- * IOW, for any path resolving via /proc/$pid/root
- * use this helper, and call cr_restore_root once
- * you're done.
- */
-int cr_set_root(int fd, int *old_root)
-{
-	int errno_save = errno;
-	int cwd = -1, old = -1;
-
-	if (old_root) {
-		old = open("/", O_PATH);
-		if (old < 0) {
-			pr_perror("Unable to open /");
-			return -1;
-		}
-	}
-
-	cwd = open(".", O_PATH);
-	if (cwd < 0)
-		goto err;
-
-	/* implement fchroot() */
-	if (fchdir(fd)) {
-		pr_perror("Unable to chdir");
-		goto err;
-	}
-	if (chroot(".")) {
-		pr_perror("Unable to chroot");
-		goto err;
-	}
-	if (fchdir(cwd)) {
-		pr_perror("Unable to restore cwd\n");
-		goto err;
-	}
-
-	close(cwd);
-
-	if (old_root)
-		*old_root = old;
-
-	errno = errno_save;
-	return 0;
-err:
-	close_safe(&cwd);
-	close_safe(&old);
-	errno = errno_save;
-	return -1;
-}
-
-int cr_restore_root(int root)
-{
-	int ret;
-
-	ret = cr_set_root(root, NULL);
-	close(root);
-
-	return ret;
 }

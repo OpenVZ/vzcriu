@@ -7,24 +7,21 @@
 #include <sys/mman.h>
 #include <errno.h>
 #include <sys/syscall.h>
-#include <sys/socket.h>
-#include <linux/netlink.h>
 
+#include "int.h"
 #include "log.h"
-#include "bug.h"
+#include "restorer.h"
 #include "kerndat.h"
 #include "fs-magic.h"
 #include "mem.h"
-#include "compiler.h"
+#include "common/compiler.h"
 #include "sysctl.h"
-#include "asm/types.h"
 #include "cr_options.h"
 #include "util.h"
 #include "lsm.h"
 #include "proc_parse.h"
 #include "config.h"
 #include "syscall-codes.h"
-#include "sockets.h"
 
 struct kerndat_s kdat = {
 };
@@ -77,10 +74,8 @@ static int parse_self_maps(unsigned long vm_start, dev_t *device)
 	char buf[1024];
 
 	maps = fopen_proc(PROC_SELF, "maps");
-	if (maps == NULL) {
-		pr_perror("Can't open self maps");
+	if (maps == NULL)
 		return -1;
-	}
 
 	while (fgets(buf, sizeof(buf), maps) != NULL) {
 		char *end, *aux;
@@ -443,36 +438,20 @@ int kerndat_loginuid(bool only_dump)
 
 static int kerndat_iptables_has_xtlocks(void)
 {
+	int fd;
 	char *argv[4] = { "sh", "-c", "iptables -w -L", NULL };
 
-	kdat.has_xtlocks = 1;
-	if (cr_system(-1, -1, -1, "sh", argv, CRS_CAN_FAIL) == -1)
-		kdat.has_xtlocks = 0;
-
-	return 0;
-}
-
-int kerndat_nl_repair()
-{
-	int sk, val = 1;
-
-	sk = socket(AF_NETLINK, SOCK_DGRAM, 0);
-	if (sk < 0) {
-		pr_perror("Unable to create a netlink socket");
-		return -1;
+	fd = open("/dev/null", O_RDWR);
+	if (fd < 0) {
+		fd = -1;
+		pr_perror("failed to open /dev/null, using log fd for xtlocks check");
 	}
 
-	if (setsockopt(sk, SOL_NETLINK, NETLINK_REPAIR, &val, sizeof(val))) {
-		if (errno != ENOPROTOOPT) {
-			pr_perror("Unable to set NETLINK_REPAIR");
-			close(sk);
-			return -1;
-		}
-		kdat.has_nl_repair = false;
-	} else
-		kdat.has_nl_repair = true;
-	close(sk);
+	kdat.has_xtlocks = 1;
+	if (cr_system(fd, fd, fd, "sh", argv, CRS_CAN_FAIL) == -1)
+		kdat.has_xtlocks = 0;
 
+	close_safe(&fd);
 	return 0;
 }
 
@@ -501,8 +480,6 @@ int kerndat_init(void)
 		ret = kerndat_iptables_has_xtlocks();
 	if (!ret)
 		ret = kerndat_tcp_repair_window();
-	if (!ret)
-		ret = kerndat_nl_repair();
 
 	kerndat_lsm();
 
@@ -534,8 +511,6 @@ int kerndat_init_rst(void)
 		ret = kerndat_iptables_has_xtlocks();
 	if (!ret)
 		ret = kerndat_tcp_repair_window();
-	if (!ret)
-		ret = kerndat_nl_repair();
 
 	kerndat_lsm();
 

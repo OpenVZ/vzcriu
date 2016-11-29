@@ -7,13 +7,14 @@
 #include <sys/uio.h>
 #include <errno.h>
 
-#include "bug.h"
+#include "int.h"
 #include "log.h"
+#include "common/bug.h"
 #include "bfd.h"
-#include "list.h"
+#include "common/list.h"
 #include "util.h"
 #include "xmalloc.h"
-#include "asm/page.h"
+#include "page.h"
 
 #undef	LOG_PREFIX
 #define LOG_PREFIX "bfd: "

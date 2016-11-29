@@ -2,9 +2,10 @@
 #include <stdbool.h>
 #include <sys/mman.h>
 
+#include "page.h"
 #include "rst-malloc.h"
-#include "bug.h"
-#include "asm/types.h"
+#include "log.h"
+#include "common/bug.h"
 
 struct rst_mem_type_s {
 	bool remapable;

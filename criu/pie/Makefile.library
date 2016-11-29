@@ -22,6 +22,10 @@ ifeq ($(SRCARCH),ppc64)
         lib-y		+= ./$(ARCH_DIR)/misc.o
 endif
 
+ifeq ($(SRCARCH),x86)
+        lib-y		+= ./$(ARCH_DIR)/memcpy.o
+endif
+
 #
 # We can't provide proper mount implementation
 # in parasite code -- it requires run-time rellocation
@@ -30,7 +34,7 @@ endif
 #
 iquotes			:= -iquote $(SRC_DIR)/$(PIE_DIR)/piegen
 iquotes			+= -iquote $(SRC_DIR)/$(ARCH_DIR)/include
-iquotes			+= -iquote $(SRC_DIR) -iquote $(SRC_DIR)/criu/include
+iquotes			+= -iquote $(SRC_DIR) -iquote $(SRC_DIR)/criu/include -iquote $(SRC_DIR)/include
 CFLAGS			:= $(filter-out -pg $(CFLAGS-GCOV),$(CFLAGS)) $(iquotes)
 asflags-y		:= -D__ASSEMBLY__ $(iquotes)
 

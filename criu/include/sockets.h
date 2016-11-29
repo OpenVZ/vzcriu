@@ -4,9 +4,6 @@
 #include <stdbool.h>
 #include <sys/socket.h>
 
-#include "asm/types.h"
-
-#include "protobuf.h"
 #include "images/sk-opts.pb-c.h"
 
 struct fdinfo_list_entry;
@@ -29,7 +26,7 @@ extern int dump_socket_opts(int sk, SkOptsEntry *soe);
 extern int restore_socket_opts(int sk, SkOptsEntry *soe);
 extern void release_skopts(SkOptsEntry *);
 extern int restore_prepare_socket(int sk);
-extern void preload_socket_modules();
+extern void preload_socket_modules(void);
 
 extern bool socket_test_collect_bit(unsigned int family, unsigned int proto);
 
@@ -39,7 +36,6 @@ extern int collect_sockets(struct ns_id *);
 extern int collect_inet_sockets(void);
 extern struct collect_image_info unix_sk_cinfo;
 extern int fix_external_unix_sockets(void);
-extern int prepare_shared_unix(void);
 
 extern struct collect_image_info netlink_sk_cinfo;
 
@@ -55,7 +51,7 @@ extern int inet_collect_one(struct nlmsghdr *h, int family, int type);
 extern int unix_receive_one(struct nlmsghdr *h, void *);
 extern int netlink_receive_one(struct nlmsghdr *hdr, void *arg);
 
-extern int unix_sk_id_add(ino_t ino);
+extern int unix_sk_id_add(unsigned int ino);
 extern int unix_sk_ids_parse(char *optarg);
 
 extern int do_dump_opt(int sk, int level, int name, void *val, int len);
@@ -83,14 +79,6 @@ static inline int sk_decode_shutdown(int val)
 
 #ifndef NETLINK_SOCK_DIAG
 #define NETLINK_SOCK_DIAG NETLINK_INET_DIAG
-#endif
-
-#ifndef NETLINK_REPAIR
-#define NETLINK_REPAIR                  11
-#endif
-
-#ifndef SOL_NETLINK
-#define SOL_NETLINK			270
 #endif
 
 #endif /* __CR_SOCKETS_H__ */

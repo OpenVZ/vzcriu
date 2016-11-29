@@ -6,8 +6,8 @@
 #include <asm/ptrace.h>
 #include "images/core.pb-c.h"
 
-#include "asm/page.h"
-#include "asm/bitops.h"
+#include "page.h"
+#include "bitops.h"
 #include "asm/int.h"
 
 
@@ -29,13 +29,6 @@ typedef struct {
 	unsigned long sig[_KNSIG_WORDS];
 } k_rtsigset_t;
 
-static inline void ksigfillset(k_rtsigset_t *set)
-{
-	int i;
-	for (i = 0; i < _KNSIG_WORDS; i++)
-		set->sig[i] = (unsigned long)-1;
-}
-
 #define SA_RESTORER	0x00000000
 
 typedef struct {
@@ -52,6 +45,7 @@ typedef struct {
  */
 
 typedef struct user_pt_regs user_regs_struct_t;
+typedef struct user_fpsimd_state user_fpregs_struct_t;
 
 
 #define REG_RES(regs)		((u64)(regs).regs[0])
@@ -70,7 +64,7 @@ typedef struct user_pt_regs user_regs_struct_t;
 
 int munmap(void *addr, size_t length);
 
-static inline unsigned long task_size() {
+static inline unsigned long task_size(void) {
 	unsigned long task_size;
 
 	for (task_size = TASK_SIZE_MIN; task_size < TASK_SIZE_MAX; task_size <<= 1)

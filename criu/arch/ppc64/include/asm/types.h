@@ -5,8 +5,8 @@
 #include <signal.h>
 #include "images/core.pb-c.h"
 
-#include "asm/page.h"
-#include "asm/bitops.h"
+#include "page.h"
+#include "bitops.h"
 #include "asm/int.h"
 
 /*
@@ -29,13 +29,6 @@ typedef rt_restorefn_t *rt_sigrestore_t;
 typedef struct {
         uint64_t sig[_KNSIG_WORDS];
 } k_rtsigset_t;
-
-static inline void ksigfillset(k_rtsigset_t *set)
-{
-        int i;
-        for (i = 0; i < _KNSIG_WORDS; i++)
-                set->sig[i] = (unsigned long)-1;
-}
 
 /* Copied from the Linux kernel arch/powerpc/include/uapi/asm/signal.h */
 #define SA_RESTORER     0x04000000U
@@ -67,6 +60,32 @@ typedef struct {
         unsigned long dsisr;            /* on 4xx/Book-E used for ESR */
         unsigned long result;           /* Result of a system call */
 } user_regs_struct_t;
+
+#define NVSXREG	32
+
+#define USER_FPREGS_FL_FP	0x00001
+#define USER_FPREGS_FL_ALTIVEC	0x00002
+#define USER_FPREGS_FL_VSX	0x00004
+#define USER_FPREGS_FL_TM	0x00010
+
+typedef struct {
+	uint64_t fpregs[NFPREG];
+	__vector128 vrregs[NVRREG];
+	uint64_t vsxregs[NVSXREG];
+
+	int flags;
+	struct tm_regs {
+		int flags;
+		struct {
+			uint64_t tfhar, texasr, tfiar;
+		} tm_spr_regs;
+		user_regs_struct_t regs;
+		uint64_t fpregs[NFPREG];
+		__vector128 vrregs[NVRREG];
+		uint64_t vsxregs[NVSXREG];
+	} tm;
+} user_fpregs_struct_t;
+
 
 typedef UserPpc64RegsEntry UserRegsEntry;
 
@@ -102,7 +121,7 @@ typedef uint64_t tls_t;
 #define TASK_SIZE_USER64 (0x0000400000000000UL)
 #define TASK_SIZE TASK_SIZE_USER64
 
-static inline unsigned long task_size() { return TASK_SIZE; }
+static inline unsigned long task_size(void) { return TASK_SIZE; }
 
 static inline void *decode_pointer(uint64_t v) { return (void*)v; }
 static inline uint64_t encode_pointer(void *p) { return (uint64_t)p; }

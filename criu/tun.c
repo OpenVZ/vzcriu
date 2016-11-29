@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <unistd.h>
 #include <sys/socket.h>
 #include <linux/if.h>
@@ -17,6 +18,7 @@
 #include "tun.h"
 #include "net.h"
 #include "namespaces.h"
+#include "xmalloc.h"
 
 #include "images/tun.pb-c.h"
 
@@ -397,7 +399,7 @@ struct collect_image_info tunfile_cinfo = {
 	.collect = collect_one_tunfile,
 };
 
-int dump_tun_link(NetDeviceEntry *nde, struct cr_imgset *fds)
+int dump_tun_link(NetDeviceEntry *nde, struct cr_imgset *fds, struct nlattr **info)
 {
 	TunLinkEntry tle = TUN_LINK_ENTRY__INIT;
 	char spath[64];
@@ -428,7 +430,7 @@ int dump_tun_link(NetDeviceEntry *nde, struct cr_imgset *fds)
 	tle.sndbuf = tl->dmp.sndbuf;
 
 	nde->tun = &tle;
-	return write_netdev_img(nde, fds);
+	return write_netdev_img(nde, fds, info);
 }
 
 int restore_one_tun(NetDeviceEntry *nde, int nlsk)

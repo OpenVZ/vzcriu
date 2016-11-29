@@ -1,4 +1,4 @@
-#define _XOPEN_SOURCE
+#define _XOPEN_SOURCE 500
 #include <stdlib.h>
 #include "zdtmtst.h"
 #include <sys/types.h>
@@ -97,8 +97,10 @@ int main(int argc, char ** argv)
 			fail("The child returned %d", WEXITSTATUS(status));
 			return 1;
 		}
-	} else
+	} else {
 		test_msg("The child has been killed by %d\n", WTERMSIG(status));
+		return 1;
+	}
 
 	pass();
 

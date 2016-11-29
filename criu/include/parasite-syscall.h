@@ -1,10 +1,10 @@
 #ifndef __CR_PARASITE_SYSCALL_H__
 #define __CR_PARASITE_SYSCALL_H__
 
-#include "asm/types.h"
 #include "pid.h"
-#include "list.h"
+#include "common/list.h"
 #include "config.h"
+#include "asm/parasite-syscall.h"
 
 #define BUILTIN_SYSCALL_SIZE	8
 
@@ -28,7 +28,7 @@ struct thread_ctx {
 
 /* parasite control block */
 struct parasite_ctl {
-	struct pid		pid;
+	int			rpid;					/* Real pid of the victim */
 	void			*remote_map;
 	void			*local_map;
 	void			*sigreturn_addr;			/* A place for the breakpoint */
@@ -52,8 +52,6 @@ struct parasite_ctl {
 	void			*addr_args;				/* address for arguments */
 	unsigned long		args_size;
 	int			tsock;					/* transport socket for transferring fds */
-
-	struct page_pipe	*mem_pp;
 };
 
 extern int parasite_dump_sigacts_seized(struct parasite_ctl *ctl, struct cr_imgset *cr_imgset);
@@ -101,8 +99,8 @@ extern struct parasite_ctl *parasite_infect_seized(pid_t pid,
 						   struct pstree_item *item,
 						   struct vm_area_list *vma_area_list);
 extern void parasite_ensure_args_size(unsigned long sz);
-extern struct parasite_ctl *parasite_prep_ctl(pid_t pid,
-					      struct vm_area_list *vma_area_list);
+extern unsigned long get_exec_start(struct vm_area_list *);
+extern struct parasite_ctl *parasite_prep_ctl(pid_t pid, unsigned long exec_start);
 extern int parasite_map_exchange(struct parasite_ctl *ctl, unsigned long size);
 
 extern int parasite_dump_cgroup(struct parasite_ctl *ctl, struct parasite_dump_cgroup_args *cgroup);
@@ -119,7 +117,7 @@ extern int syscall_seized(struct parasite_ctl *ctl, int nr, unsigned long *ret,
 
 extern int __parasite_execute_syscall(struct parasite_ctl *ctl,
 		user_regs_struct_t *regs, const char *code_syscall);
-extern bool arch_can_dump_task(pid_t pid);
+extern bool arch_can_dump_task(struct parasite_ctl *ctl);
 
 /*
  * The PTRACE_SYSCALL will trap task twice -- on

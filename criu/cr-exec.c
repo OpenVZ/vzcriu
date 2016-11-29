@@ -1,8 +1,11 @@
 #include <unistd.h>
 #include <string.h>
 #include <stdlib.h>
+#include "int.h"
+#include "types.h"
 #include "crtools.h"
 #include "ptrace.h"
+#include "pstree.h"
 #include "parasite-syscall.h"
 #include "vma.h"
 #include "log.h"
@@ -119,7 +122,8 @@ int cr_exec(int pid, char **opt)
 	struct parasite_ctl *ctl;
 	struct vm_area_list vmas;
 	int ret, prev_state, exit_code = -1;
-	struct proc_status_creds *creds = NULL;
+	struct proc_status_creds creds;
+	unsigned long p_start;
 
 	if (!sys_name) {
 		pr_err("Syscall name required\n");
@@ -140,18 +144,21 @@ int cr_exec(int pid, char **opt)
 	if (seize_catch_task(pid))
 		goto out;
 
+	/*
+	 * We don't seize a task's threads here, so there is no reason to
+	 * mess with creds in this use case anyway.
+	 */
+
 	prev_state = ret = seize_wait_task(pid, -1, &creds);
 	if (ret < 0) {
 		pr_err("Can't seize task %d\n", pid);
 		goto out;
 	}
 
-	/*
-	 * We don't seize a task's threads here, and there is no reason to
-	 * compare threads' creds in this use case anyway, so let's just free
-	 * the creds.
-	 */
-	free(creds);
+	if (!is_alive_state(prev_state)) {
+		pr_err("Only can exec on running/stopped tasks\n");
+		goto out;
+	}
 
 	ret = collect_mappings(pid, &vmas, NULL);
 	if (ret) {
@@ -159,7 +166,13 @@ int cr_exec(int pid, char **opt)
 		goto out_unseize;
 	}
 
-	ctl = parasite_prep_ctl(pid, &vmas);
+	p_start = get_exec_start(&vmas);
+	if (!p_start) {
+		pr_err("No suitable VM are found\n");
+		goto out_unseize;
+	}
+
+	ctl = parasite_prep_ctl(pid, p_start);
 	if (!ctl) {
 		pr_err("Can't prep ctl %d\n", pid);
 		goto out_unseize;

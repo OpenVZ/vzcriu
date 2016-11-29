@@ -1,13 +1,17 @@
 FROM alpine:3.4
+ARG CC=gcc
 RUN apk update && apk add \
                 build-base \
+                coreutils \
+                git \
                 protobuf-c-dev \
                 protobuf-dev \
                 python \
                 libaio-dev \
                 libcap-dev \
                 libnl3-dev \
-                pkgconfig
+                pkgconfig \
+                $CC
 COPY . /criu
 WORKDIR /criu
-RUN make clean && make -j $(nproc)
+RUN make mrproper && make -j $(nproc) CC=$CC

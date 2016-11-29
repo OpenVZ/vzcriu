@@ -9,15 +9,15 @@
 #include <sys/stat.h>
 #include <sys/mman.h>
 
-#include "asm/string.h"
-#include "asm/types.h"
-
+#include "int.h"
+#include "types.h"
+#include "page.h"
 #include "syscall.h"
 #include "image.h"
 #include "parasite-vdso.h"
 #include "vma.h"
 #include "log.h"
-#include "bug.h"
+#include "common/bug.h"
 
 #ifdef LOG_PREFIX
 # undef LOG_PREFIX

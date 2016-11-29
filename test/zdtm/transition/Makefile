@@ -15,6 +15,7 @@ TST_NOFILE	=	\
 		fork2		\
 		thread-bomb	\
 		maps007		\
+		maps008		\
 		pipe_loop00     \
 		pipe_shared00   \
 		socket_loop00   \
@@ -22,6 +23,7 @@ TST_NOFILE	=	\
 		file_aio        \
 		socket-tcp      \
 		socket-tcp6     \
+		shmem		\
 
 
 TST_FILE	=	\
@@ -100,7 +102,7 @@ cleandep:	clean
 	$(RM) -f $(DEP)
 
 %.cleanout: %
-	$(Q) $(RM) -f -r $<.pid* $<.out* $<.test chew_$<.test*
+	$(Q) $(RM) -f -r $<.pid* $<.out* $<.test* chew_$<.test*
 
 cleanout:
 	$(RM) -f *.pid *.out* *.test chew*

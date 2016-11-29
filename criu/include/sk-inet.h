@@ -5,8 +5,7 @@
 
 #include "sockets.h"
 #include "files.h"
-#include "list.h"
-#include "protobuf.h"
+#include "common/list.h"
 #include "images/sk-inet.pb-c.h"
 
 #define INET_ADDR_LEN		48 /* max of INET_ADDRSTRLEN and INET6_ADDRSTRLEN */
@@ -15,18 +14,6 @@
 #define TCP_REPAIR_QUEUE	20
 #define TCP_QUEUE_SEQ		21
 #define TCP_REPAIR_OPTIONS	22
-#endif
-
-#ifndef IP_HDRINCL
-# define IP_HDRINCL		3
-#endif
-
-#ifndef IP_NODEFRAG
-# define IP_NODEFRAG		22
-#endif
-
-#ifndef IPV6_HDRINCL
-# define IPV6_HDRINCL		36
 #endif
 
 struct inet_sk_desc {

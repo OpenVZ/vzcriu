@@ -63,9 +63,9 @@ const char *inot_dir = "./inotify.nodel";
 
 typedef struct {
 	int inot;
-	uint32_t file;
-	uint32_t link;
-	uint32_t dir;
+	int file;
+	int link;
+	int dir;
 } desc;
 
 void do_wait() {
@@ -296,8 +296,8 @@ next_event:
 int read_set(int inot_fd, char *event_set) {
 	int len;
 	if ((len = read(inot_fd, event_set, EVENT_BUF_LEN)) < 0) {
-		pr_perror("read(%d, buf, %d) Failed, errno=%d : %s",
-			inot_fd, EVENT_BUF_LEN, errno, strerror(errno));
+		pr_perror("read(%d, buf, %lu) Failed, errno=%d",
+			inot_fd, (unsigned long)EVENT_BUF_LEN, errno);
 		return -1;
 	}
 	return len;

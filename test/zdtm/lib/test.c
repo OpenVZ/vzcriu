@@ -41,7 +41,6 @@ int test_fork_id(int id)
 
 static int cwd = -1;
 
-#define INPROGRESS ".inprogress"
 static void test_fini(void)
 {
 	char path[PATH_MAX];
@@ -101,21 +100,39 @@ void test_ext_init(int argc, char **argv)
 
 int write_pidfile(int pid)
 {
-	int fd;
+	int fd = -1;
+	char tmp[] = ".zdtm.pidfile.XXXXXX";
 
-	fd = open(pidfile, O_CREAT | O_EXCL | O_WRONLY, 0666);
+	fd = mkstemp(tmp);
 	if (fd == -1) {
-		fprintf(stderr, "Can't create the file %s: %m\n", pidfile);
+		fprintf(stderr, "Can't create the file %s: %m\n", tmp);
 		return -1;
 	}
+
+	if (fchmod(fd, 0666) < 0) {
+		fprintf(stderr, "Can't fchmod %s: %m\n", tmp);
+		goto err_c;
+	}
+
 	if (dprintf(fd, "%d", pid) == -1) {
-		fprintf(stderr, "Can't write in the file %s: %m\n", pidfile);
-		return -1;
+		fprintf(stderr, "Can't write in the file %s: %m\n", tmp);
+		goto err_c;
 	}
 
 	close(fd);
 
+	if (rename(tmp, pidfile) < 0) {
+		fprintf(stderr, "Can't rename %s to %s: %m\n", tmp, pidfile);
+		goto err_u;
+	}
+
 	return 0;
+
+err_c:
+	close(fd);
+err_u:
+	unlink(tmp);
+	return -1;
 }
 
 void test_init(int argc, char **argv)
@@ -204,7 +221,7 @@ void test_init(int argc, char **argv)
 		if (futex_get(&sig_received) == SIGCHLD) {
 			int ret;
 			if (waitpid(pid, &ret, 0) != pid) {
-				pr_perror("Unable to wait %d, pid");
+				pr_perror("Unable to wait %d", pid);
 				exit(1);
 			}
 

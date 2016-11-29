@@ -10,10 +10,10 @@
 #include "asm/fpu.h"
 
 #include "cr_options.h"
-#include "compiler.h"
+#include "common/compiler.h"
+#include "restorer.h"
 #include "ptrace.h"
 #include "parasite-syscall.h"
-#include "restorer.h"
 #include "log.h"
 #include "util.h"
 #include "cpu.h"
@@ -75,8 +75,10 @@ static int task_in_compat_mode(pid_t pid)
 	return cs != 0x33 || ds == 0x2b;
 }
 
-bool arch_can_dump_task(pid_t pid)
+bool arch_can_dump_task(struct parasite_ctl *ctl)
 {
+	pid_t pid = ctl->rpid;
+
 	if (task_in_compat_mode(pid)) {
 		pr_err("Can't dump task %d running in 32-bit mode\n", pid);
 		return false;
@@ -112,7 +114,7 @@ int syscall_seized(struct parasite_ctl *ctl, int nr, unsigned long *ret,
 
 int get_task_regs(pid_t pid, user_regs_struct_t regs, CoreEntry *core)
 {
-	struct xsave_struct xsave	= {  };
+	user_fpregs_struct_t xsave	= {  };
 
 	struct iovec iov;
 	int ret = -1;
@@ -452,7 +454,7 @@ void *mmap_seized(struct parasite_ctl *ctl,
 	if (IS_ERR_VALUE(map)) {
 		if (map == -EACCES && (prot & PROT_WRITE) && (prot & PROT_EXEC))
 			pr_warn("mmap(PROT_WRITE | PROT_EXEC) failed for %d, "
-				"check selinux execmem policy\n", ctl->pid.real);
+				"check selinux execmem policy\n", ctl->rpid);
 		return NULL;
 	}
 
@@ -499,8 +501,10 @@ int restore_gpregs(struct rt_sigframe *f, UserX86RegsEntry *r)
 	return 0;
 }
 
-int sigreturn_prep_fpu_frame(struct rt_sigframe *sigframe, fpu_state_t *fpu_state)
+int sigreturn_prep_fpu_frame(struct rt_sigframe *sigframe,
+		struct rt_sigframe *rsigframe)
 {
+	fpu_state_t *fpu_state = RT_SIGFRAME_FPU(rsigframe);
 	unsigned long addr = (unsigned long)(void *)&fpu_state->xsave;
 
 	if ((addr % 64ul) == 0ul) {

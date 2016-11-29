@@ -1,9 +1,8 @@
 #ifndef __CR_VMA_H__
 #define __CR_VMA_H__
 
-#include "asm/types.h"
 #include "image.h"
-#include "list.h"
+#include "common/list.h"
 
 #include "images/vma.pb-c.h"
 
@@ -13,6 +12,7 @@ struct vm_area_list {
 	unsigned int		nr_aios;
 	unsigned long		priv_size; /* nr of pages in private VMAs */
 	unsigned long		priv_longest; /* nr of pages in longest private VMA */
+	unsigned long		shared_longest; /* nr of pages in longest shared VMA */
 };
 
 #define VM_AREA_LIST(name)	struct vm_area_list name = { .h = LIST_HEAD_INIT(name.h), .nr = 0, }
@@ -23,6 +23,7 @@ static inline void vm_area_list_init(struct vm_area_list *vml)
 	vml->nr = 0;
 	vml->priv_size = 0;
 	vml->priv_longest = 0;
+	vml->shared_longest = 0;
 }
 
 struct file_desc;
@@ -74,6 +75,9 @@ extern struct vma_area *alloc_vma_area(void);
 extern int collect_mappings(pid_t pid,
 		struct vm_area_list *vma_area_list, dump_filemap_t cb);
 extern void free_mappings(struct vm_area_list *vma_area_list);
+
+extern int parse_smaps(pid_t pid, struct vm_area_list *vma_area_list, dump_filemap_t cb);
+extern int parse_self_maps_lite(struct vm_area_list *vms);
 
 #define vma_area_is(vma_area, s)	vma_entry_is((vma_area)->e, s)
 #define vma_area_len(vma_area)		vma_entry_len((vma_area)->e)

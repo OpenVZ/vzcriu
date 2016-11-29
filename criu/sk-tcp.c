@@ -10,9 +10,8 @@
 
 #include "cr_options.h"
 #include "util.h"
-#include "list.h"
+#include "common/list.h"
 #include "log.h"
-#include "asm/types.h"
 #include "files.h"
 #include "sockets.h"
 #include "sk-inet.h"
@@ -832,7 +831,7 @@ int kerndat_tcp_repair_window()
 
 	sk = socket(AF_INET, SOCK_STREAM, 0);
 	if (sk < 0) {
-		pr_perror("Unable to create a netlink socket");
+		pr_perror("Unable to create inet socket");
 		return -1;
 	}
 

@@ -9,12 +9,12 @@
 #include <string.h>
 #include <ctype.h>
 #include <linux/fs.h>
-#include <sys/vfs.h>
 
-#include "asm/types.h"
-#include "list.h"
+#include "types.h"
+#include "common/list.h"
 #include "util.h"
 #include "mount.h"
+#include "filesystems.h"
 #include "mman.h"
 #include "cpu.h"
 #include "file-lock.h"
@@ -26,6 +26,7 @@
 #include "vma.h"
 #include "bfd.h"
 #include "proc_parse.h"
+#include "fdinfo.h"
 #include "parasite.h"
 #include "cr_options.h"
 #include "sysfs_parse.h"
@@ -35,7 +36,8 @@
 #include "files-reg.h"
 #include "cgroup.h"
 #include "cgroup-props.h"
-#include "fs-magic.h"
+#include "timerfd.h"
+#include "path.h"
 
 #include "protobuf.h"
 #include "images/fdinfo.pb-c.h"
@@ -421,10 +423,8 @@ int parse_self_maps_lite(struct vm_area_list *vms)
 	vm_area_list_init(vms);
 
 	maps = fopen_proc(PROC_SELF, "maps");
-	if (maps == NULL) {
-		pr_perror("Can't open self maps");
+	if (maps == NULL)
 		return -1;
-	}
 
 	while (fgets(buf, BUF_SIZE, maps) != NULL) {
 		struct vma_area *vma;
@@ -635,6 +635,12 @@ static int vma_list_add(struct vma_area *vma_area,
 		pages = vma_area_len(vma_area) / PAGE_SIZE;
 		vma_area_list->priv_size += pages;
 		vma_area_list->priv_longest = max(vma_area_list->priv_longest, pages);
+	} else if (vma_area_is(vma_area, VMA_ANON_SHARED)) {
+		unsigned long pages;
+
+		pages = vma_area_len(vma_area) / PAGE_SIZE;
+		vma_area_list->shared_longest =
+			max(vma_area_list->shared_longest, pages);
 	}
 
 	*prev_vfi = *vfi;
@@ -660,6 +666,7 @@ int parse_smaps(pid_t pid, struct vm_area_list *vma_area_list,
 	vma_area_list->nr_aios = 0;
 	vma_area_list->priv_longest = 0;
 	vma_area_list->priv_size = 0;
+	vma_area_list->shared_longest = 0;
 	INIT_LIST_HEAD(&vma_area_list->h);
 
 	f.fd = open_proc(pid, "smaps");
@@ -979,10 +986,8 @@ int parse_pid_status(pid_t pid, struct proc_status_creds *cr)
 	bool parsed_seccomp = false;
 
 	f.fd = open_proc(pid, "status");
-	if (f.fd < 0) {
-		pr_perror("Can't open proc status");
+	if (f.fd < 0)
 		return -1;
-	}
 
 	cr->sigpnd = 0;
 	cr->shdpnd = 0;
@@ -1189,7 +1194,7 @@ static int parse_mnt_flags(char *opt, unsigned *flags)
 
 	/* Otherwise the kernel assumes RELATIME by default */
 	if ((*flags & (MS_RELATIME | MS_NOATIME)) == 0)
-		*flags = MS_STRICTATIME;
+		*flags |= MS_STRICTATIME;
 
 	return 0;
 }
@@ -1310,6 +1315,7 @@ static int parse_mountinfo_ent(char *str, struct mount_info *new, char **fsname)
 	if (!new->mountpoint)
 		goto err;
 	new->ns_mountpoint = new->mountpoint;
+	new->is_ns_root = is_root(new->ns_mountpoint + 1);
 
 	new->s_dev = new->s_dev_rt = MKKDEV(kmaj, kmin);
 	new->flags = 0;
@@ -1402,15 +1408,12 @@ struct mount_info *parse_mountinfo(pid_t pid, struct ns_id *nsid, bool for_dump)
 {
 	struct mount_info *list = NULL;
 	FILE *f;
-	char str[1024];
 
 	f = fopen_proc(pid, "mountinfo");
-	if (!f) {
-		pr_perror("Can't open %d mountinfo", pid);
+	if (!f)
 		return NULL;
-	}
 
-	while (fgets(str, sizeof(str), f)) {
+	while (fgets(buf, BUF_SIZE, f)) {
 		struct mount_info *new;
 		int ret = -1;
 		char *fsname = NULL;
@@ -1421,9 +1424,9 @@ struct mount_info *parse_mountinfo(pid_t pid, struct ns_id *nsid, bool for_dump)
 
 		new->nsid = nsid;
 
-		ret = parse_mountinfo_ent(str, new, &fsname);
+		ret = parse_mountinfo_ent(buf, new, &fsname);
 		if (ret < 0) {
-			pr_err("Bad format in %d mountinfo: '%s'\n", pid, str);
+			pr_err("Bad format in %d mountinfo: '%s'\n", pid, buf);
 			goto end;
 		}
 
@@ -1565,6 +1568,9 @@ static int parse_timerfd(struct bfd *f, char *str, TimerfdEntry *tfy)
 	if (sscanf(str, "clockid: %d", &tfy->clockid) != 1)
 		goto parse_err;
 
+	if (verify_timerfd(tfy) < 0)
+		goto parse_err;
+
 	str = breadline(f);
 	if (IS_ERR_OR_NULL(str))
 		goto nodata;
@@ -1605,55 +1611,6 @@ nodata:
 
 static int parse_file_lock_buf(char *buf, struct file_lock *fl,
 				bool is_blocked);
-
-static bool unsupported_nfs_lock(pid_t pid, int remote_fd, int mnt_id,
-				 int fl_kind)
-{
-	struct statfs buf;
-	int fd;
-	char path[PATH_MAX];
-	struct mount_info *mi;
-	char local_lock[32], *ptr;
-
-	sprintf(path, "/proc/%d/fd/%d", pid, remote_fd);
-	fd = open(path, O_RDONLY);
-	if (fd < 0) {
-		pr_perror("failed to open %s", path);
-		return false;
-	}
-
-	if (fstatfs(fd, &buf)) {
-		pr_perror("failed to statfs /proc/self/fd/%d", fd);
-		close(fd);
-		return false;
-	}
-	close(fd);
-
-	if (buf.f_type != NFS_SUPER_MAGIC)
-		return false;
-
-	mi = lookup_mnt_id(mnt_id);
-	if (!mi)
-		return false;
-
-	ptr = strstr(mi->options, "local_lock=");
-	if (!ptr)
-		return false;
-
-	if (sscanf(ptr, "local_lock=%[^,],%*s", local_lock) != 1)
-		return false;
-
-	if (!strcmp(local_lock, "all"))
-		return false;
-	if ((fl_kind == FL_POSIX) && !strcmp(local_lock, "posix"))
-		return false;
-	if ((fl_kind == FL_FLOCK) && !strcmp(local_lock, "flock"))
-		return false;
-
-	pr_err("remote %s on NFS are not supported yet: /proc/%d/fd/%d\n", (fl_kind == FL_FLOCK) ? "flocks" : "posix locks", pid, remote_fd);
-	return true;
-}
-
 static int parse_fdinfo_pid_s(int pid, int fd, int type,
 		int (*cb)(union fdinfo_entries *e, void *arg), void *arg)
 {
@@ -1663,10 +1620,8 @@ static int parse_fdinfo_pid_s(int pid, int fd, int type,
 	int ret, exit_code = -1;;
 
 	f.fd = open_proc(pid, "fdinfo/%d", fd);
-	if (f.fd < 0) {
-		pr_perror("Can't open fdinfo/%d to parse", fd);
+	if (f.fd < 0)
 		return -1;
-	}
 
 	if (bfdopenr(&f))
 		return -1;
@@ -1729,12 +1684,6 @@ static int parse_fdinfo_pid_s(int pid, int fd, int type,
 
 			if (fl->fl_kind == FL_UNKNOWN) {
 				pr_err("Unknown file lock!\n");
-				xfree(fl);
-				goto out;
-			}
-
-			if (unsupported_nfs_lock(pid, fd, fdinfo->mnt_id,
-						 fl->fl_kind)) {
 				xfree(fl);
 				goto out;
 			}
@@ -2072,10 +2021,8 @@ int parse_file_locks(void)
 		return 0;
 
 	fl_locks = fopen_proc(PROC_GEN, "locks");
-	if (!fl_locks) {
-		pr_perror("Can't open file locks file!");
+	if (!fl_locks)
 		return -1;
-	}
 
 	while (fgets(buf, BUF_SIZE, fl_locks)) {
 		is_blocked = strstr(buf, "->") != NULL;
@@ -2160,10 +2107,8 @@ int parse_posix_timers(pid_t pid, struct proc_posix_timers_stat *args)
 	args->timer_n = 0;
 
 	f.fd = open_proc(pid, "timers");
-	if (f.fd < 0) {
-		pr_perror("Can't open posix timers file!");
+	if (f.fd < 0)
 		return -1;
-	}
 
 	if (bfdopenr(&f))
 		return -1;
@@ -2292,14 +2237,6 @@ int parse_threads(int pid, struct pid **_t, int *_n)
 
 int parse_cgroup_file(FILE *f, struct list_head *retl, unsigned int *n)
 {
-	/* XXX for https://jira.sw.ru/browse/PSBM-46382 */
-	static const char *predefined[] = {
-		"hugetlb", "perf_event", "net_cls", "freezer",
-		"ve", "devices", "name=systemd", "cpuset", "cpuacct,cpu",
-		"beancounter", "memory", "blkio",
-	};
-	size_t i;
-
 	while (fgets(buf, BUF_SIZE, f)) {
 		struct cg_ctl *ncc, *cc;
 		char *name, *path = NULL, *e;
@@ -2340,17 +2277,6 @@ int parse_cgroup_file(FILE *f, struct list_head *retl, unsigned int *n)
 			continue;
 		}
 
-		/* XXX for https://jira.sw.ru/browse/PSBM-46382 */
-		for (i = 0; i < ARRAY_SIZE(predefined); i++) {
-			if (!strcmp(name, predefined[i]))
-				break;
-		}
-		if (i >= ARRAY_SIZE(predefined)) {
-			pr_debug("cg: Skip controller %s\n", name);
-			xfree(ncc);
-			continue;
-		}
-
 		ncc->name = xstrdup(name);
 		ncc->path = xstrdup(path);
 		ncc->cgns_prefix = 0;
@@ -2385,10 +2311,8 @@ int parse_task_cgroup(int pid, struct parasite_dump_cgroup_args *args, struct li
 	struct cg_ctl *intern, *ext;
 
 	f = fopen_proc(pid, "cgroup");
-	if (!f) {
-		pr_perror("couldn't open task cgroup file");
+	if (!f)
 		return -1;
-	}
 
 	ret = parse_cgroup_file(f, retl, n);
 	fclose(f);
@@ -2404,7 +2328,7 @@ int parse_task_cgroup(int pid, struct parasite_dump_cgroup_args *args, struct li
 
 	f = fmemopen(args->contents, strlen(args->contents), "r");
 	if (!f) {
-		pr_perror("couldn't fmemopen cgroup buffer:\n%s", args->contents);
+		pr_perror("couldn't fmemopen cgroup buffer %s", args->contents);
 		return -1;
 	}
 
@@ -2572,55 +2496,6 @@ int aufs_parse(struct mount_info *new)
 	}
 
 	return ret;
-}
-
-bool proc_status_creds_dumpable(struct proc_status_creds *parent,
-				struct proc_status_creds *child)
-{
-	const size_t size = sizeof(struct proc_status_creds) -
-			offsetof(struct proc_status_creds, cap_inh);
-
-	/*
-	 * The comparison rules are the following
-	 *
-	 *  - CAPs can be different
-	 *  - seccomp filters should be passed via
-	 *    semantic comparison (FIXME) but for
-	 *    now we require them to be exactly
-	 *    identical
-	 *  - the rest of members must match
-	 */
-
-	if (memcmp(parent, child, size)) {
-		if (!pr_quelled(LOG_DEBUG)) {
-			pr_debug("Creds undumpable (parent:child)\n"
-				 "  uids:               %d:%d %d:%d %d:%d %d:%d\n"
-				 "  gids:               %d:%d %d:%d %d:%d %d:%d\n"
-				 "  state:              %d:%d"
-				 "  ppid:               %d:%d\n"
-				 "  sigpnd:             %llu:%llu\n"
-				 "  shdpnd:             %llu:%llu\n"
-				 "  seccomp_mode:       %d:%d\n"
-				 "  last_filter:        %u:%u\n",
-				 parent->uids[0], child->uids[0],
-				 parent->uids[1], child->uids[1],
-				 parent->uids[2], child->uids[2],
-				 parent->uids[3], child->uids[3],
-				 parent->gids[0], child->gids[0],
-				 parent->gids[1], child->gids[1],
-				 parent->gids[2], child->gids[2],
-				 parent->gids[3], child->gids[3],
-				 parent->state, child->state,
-				 parent->ppid, child->ppid,
-				 parent->sigpnd, child->sigpnd,
-				 parent->shdpnd, child->shdpnd,
-				 parent->seccomp_mode, child->seccomp_mode,
-				 parent->last_filter, child->last_filter);
-		}
-		return false;
-	}
-
-	return true;
 }
 
 int parse_children(pid_t pid, pid_t **_c, int *_n)

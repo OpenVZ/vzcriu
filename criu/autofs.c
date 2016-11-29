@@ -4,7 +4,8 @@
 #include <sys/mount.h>
 #include <sys/wait.h>
 
-#include "proc_parse.h"
+#include "int.h"
+#include "fdinfo.h"
 #include "autofs.h"
 #include "rst-malloc.h"
 #include "mount.h"
@@ -13,6 +14,7 @@
 #include "protobuf.h"
 #include "pipes.h"
 #include "crtools.h"
+#include "util.h"
 
 #include "images/autofs.pb-c.h"
 
@@ -288,17 +290,14 @@ static int autofs_revisit_options(struct mount_info *pm)
 	char *str;
 	int ret = -ENOMEM;
 
-	str = malloc(1024);
+	str = xmalloc(1024);
 	if (!str) {
-		pr_err("failed to allocate\n");
 		return -ENOMEM;
 	}
 
 	f = fopen_proc(getpid(), "mountinfo");
-	if (!f) {
-		pr_perror("Can't open %d mountinfo", getpid());
+	if (!f)
 		goto free_str;
-	}
 
 	while (fgets(str, 1024, f)) {
 		int mnt_id = -1;

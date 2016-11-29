@@ -3,11 +3,11 @@
 
 #include <sys/stat.h>
 
-#include "compiler.h"
-#include "asm/types.h"
+#include "int.h"
+#include "common/compiler.h"
 #include "fcntl.h"
 #include "lock.h"
-#include "list.h"
+#include "common/list.h"
 #include "pid.h"
 #include "rst_info.h"
 
@@ -49,7 +49,7 @@ struct fd_parms {
 	long		fs_type;
 	int		mnt_id;
 
-	struct parasite_ctl *ctl;
+	struct parasite_ctl *fd_ctl;
 };
 
 #define FD_PARMS_INIT			\
@@ -110,17 +110,7 @@ struct file_desc_ops {
 	char *			(*name)(struct file_desc *, char *b, size_t s);
 };
 
-static inline void collect_used_fd(struct fdinfo_list_entry *new_fle, struct rst_info *ri)
-{
-	struct fdinfo_list_entry *fle;
-
-	list_for_each_entry(fle, &ri->used, used_list) {
-		if (new_fle->fe->fd < fle->fe->fd)
-			break;
-	}
-
-	list_add_tail(&new_fle->used_list, &fle->used_list);
-}
+extern void collect_used_fd(struct fdinfo_list_entry *new_fle, struct rst_info *ri);
 
 static inline void collect_gen_fd(struct fdinfo_list_entry *fle, struct rst_info *ri)
 {
@@ -191,9 +181,7 @@ extern void inherit_fd_log(void);
 extern int inherit_fd_resolve_clash(int fd);
 extern int inherit_fd_fini(void);
 
-extern bool external_lookup_id(char *id);
 extern int inherit_fd_lookup_id(char *id);
-extern char *external_lookup_by_key(char *id);
 
 extern bool inherited_fd(struct file_desc *, int *fdp);
 

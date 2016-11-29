@@ -3,11 +3,11 @@
 #include <arpa/inet.h>
 #include <linux/falloc.h>
 #include <unistd.h>
-#include <fcntl.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
 
+#include "types.h"
 #include "cr_options.h"
 #include "servicefd.h"
 #include "image.h"
@@ -16,6 +16,7 @@
 #include "util.h"
 #include "protobuf.h"
 #include "images/pagemap.pb-c.h"
+#include "fcntl.h"
 
 static int page_server_sk = -1;
 
@@ -279,9 +280,10 @@ static int open_page_local_xfer(struct page_xfer *xfer, int fd_type, long id)
 	 *    to exist in parent (either pagemap or hole)
 	 */
 	xfer->parent = NULL;
-	if (fd_type == CR_FD_PAGEMAP) {
+	if (fd_type == CR_FD_PAGEMAP || fd_type == CR_FD_SHMEM_PAGEMAP) {
 		int ret;
 		int pfd;
+		int pr_flags = (fd_type == CR_FD_PAGEMAP) ? PR_TASK : PR_SHMEM;
 
 		pfd = openat(get_service_fd(IMG_FD_OFF), CR_PARENT_LINK, O_RDONLY);
 		if (pfd < 0 && errno == ENOENT)
@@ -293,7 +295,7 @@ static int open_page_local_xfer(struct page_xfer *xfer, int fd_type, long id)
 			return -1;
 		}
 
-		ret = open_page_read_at(pfd, id, xfer->parent, PR_TASK);
+		ret = open_page_read_at(pfd, id, xfer->parent, pr_flags);
 		if (ret <= 0) {
 			pr_perror("No parent image found, though parent directory is set");
 			xfree(xfer->parent);

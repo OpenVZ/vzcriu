@@ -1,6 +1,8 @@
+#include <stdio.h>
 #include <unistd.h>
 #include <stdarg.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <sys/stat.h>
 #include "crtools.h"
 #include "cr_options.h"
@@ -11,6 +13,7 @@
 #include "cgroup.h"
 #include "lsm.h"
 #include "protobuf.h"
+#include "xmalloc.h"
 #include "images/inventory.pb-c.h"
 #include "images/pagemap.pb-c.h"
 
@@ -57,7 +60,10 @@ int check_img_inventory(void)
 		root_cg_set = he->root_cg_set;
 	}
 
-	image_lsm = he->lsmtype;
+	if (he->has_lsmtype)
+		image_lsm = he->lsmtype;
+	else
+		image_lsm = LSMTYPE__NO_LSM;
 
 	switch (he->img_version) {
 	case CRTOOLS_IMAGES_V1:
@@ -113,6 +119,7 @@ int prepare_inventory(InventoryEntry *he)
 	he->has_fdinfo_per_id = true;
 	he->ns_per_id = true;
 	he->has_ns_per_id = true;
+	he->has_lsmtype = true;
 	he->lsmtype = host_lsm_type();
 
 	crt.i.pid.state = TASK_ALIVE;
@@ -572,7 +579,7 @@ off_t img_raw_size(struct cr_img *img)
 	struct stat stat;
 
 	if (fstat(img->_x.fd, &stat)) {
-		pr_perror("Failed to get image stats\n");
+		pr_perror("Failed to get image stats");
 		return -1;
 	}
 

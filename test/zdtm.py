@@ -1,6 +1,7 @@
 #!/usr/bin/env python2
 # vim: noet
 import argparse
+import glob
 import os
 import subprocess
 import time
@@ -19,6 +20,7 @@ import fcntl
 import errno
 import datetime
 import yaml
+import criu as crpc
 
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
@@ -48,16 +50,16 @@ tests_root = None
 
 def clean_tests_root():
 	global tests_root
-	if tests_root:
-		os.rmdir(tests_root)
+	if tests_root and tests_root[0] == os.getpid():
+		os.rmdir(tests_root[1])
 
 
 def make_tests_root():
 	global tests_root
 	if not tests_root:
-		tests_root = tempfile.mkdtemp("", "criu-root-", "/tmp")
+		tests_root = (os.getpid(), tempfile.mkdtemp("", "criu-root-", "/tmp"))
 		atexit.register(clean_tests_root)
-	return tests_root
+	return tests_root[1]
 
 # Report generation
 
@@ -101,6 +103,25 @@ def add_to_output(path):
 			break
 		fdo.write(buf)
 
+
+prev_crash_reports = set(glob.glob("/tmp/zdtm-core-*.txt"))
+
+
+def check_core_files():
+	reports = set(glob.glob("/tmp/zdtm-core-*.txt")) - prev_crash_reports
+	if not reports:
+		return False
+
+	while subprocess.Popen("ps axf | grep 'abrt\.sh'", shell = True).wait() == 0:
+		time.sleep(1)
+
+	for i in reports:
+		add_to_report(i, os.path.basename(i))
+		print_sep(i)
+		print open(i).read()
+		print_sep(i)
+
+	return True
 
 # Arch we run on
 arch = os.uname()[4]
@@ -225,8 +246,7 @@ class ns_flavor:
 
 	def fini(self):
 		if self.root_mounted:
-			subprocess.check_call(["mount", "--make-private", self.root])
-			subprocess.check_call(["umount", "-l", self.root])
+			subprocess.check_call(["./umount2", self.root])
 			self.root_mounted = False
 
 	@staticmethod
@@ -278,7 +298,9 @@ def decode_flav(i):
 def tail(path):
 	p = subprocess.Popen(['tail', '-n1', path],
 			stdout = subprocess.PIPE)
-	return p.stdout.readline()
+	out = p.stdout.readline()
+	p.wait()
+	return out
 
 
 def rpidfile(path):
@@ -293,10 +315,12 @@ def wait_pid_die(pid, who, tmo = 30):
 		except:  # Died
 			break
 
-		print "Wait for %s to die for %f" % (who, stime)
+		print "Wait for %s(%d) to die for %f" % (who, pid, stime)
 		time.sleep(stime)
 		stime *= 2
 	else:
+		subprocess.Popen(["ps", "-p", str(pid)]).wait()
+		subprocess.Popen(["ps", "axf", str(pid)]).wait()
 		raise test_fail_exc("%s die" % who)
 
 
@@ -350,6 +374,8 @@ class zdtm_test:
 
 		s = subprocess.Popen(s_args, env = env, cwd = root, close_fds = True,
 				preexec_fn = self.__freezer and self.__freezer.attach or None)
+		if act == "pid":
+			try_run_hook(self, ["--post-start"])
 		s.wait()
 
 		if self.__freezer:
@@ -377,7 +403,7 @@ class zdtm_test:
 			env['ZDTM_THREAD_BOMB'] = "5"
 
 		if not test_flag(self.__desc, 'suid'):
-			# Numbers should match those in criu_cli
+			# Numbers should match those in criu
 			env['ZDTM_UID'] = "18943"
 			env['ZDTM_GID'] = "58467"
 			env['ZDTM_GROUPS'] = "27495 48244"
@@ -415,6 +441,7 @@ class zdtm_test:
 	def kill(self, sig = signal.SIGKILL):
 		self.__freezer.thaw()
 		if self.__pid:
+			print "Send the %d signal to  %s" % (sig, self.__pid)
 			os.kill(int(self.__pid), sig)
 			self.gone(sig == signal.SIGKILL)
 
@@ -427,6 +454,10 @@ class zdtm_test:
 
 		res = tail(self.__name + '.out')
 		if 'PASS' not in res.split():
+			if os.access(self.__name + '.out.inprogress', os.F_OK):
+				print_sep(self.__name + '.out.inprogress')
+				print open(self.__name + '.out.inprogress').read()
+				print_sep(self.__name + '.out.inprogress')
 			raise test_fail_exc("result check")
 
 	def getpid(self):
@@ -480,6 +511,8 @@ class zdtm_test:
 
 	@staticmethod
 	def available():
+		if not os.access("umount2", os.X_OK):
+			subprocess.check_call(["make", "umount2"])
 		if not os.access("zdtm_ct", os.X_OK):
 			subprocess.check_call(["make", "zdtm_ct"])
 		if not os.access("zdtm/lib/libzdtmtst.a", os.F_OK):
@@ -639,6 +672,93 @@ join_ns_file = '/run/netns/zdtm_netns'
 
 
 class criu_cli:
+	@staticmethod
+	def run(action, args, fault = None, strace = [], preexec = None):
+		env = None
+		if fault:
+			print "Forcing %s fault" % fault
+			env = dict(os.environ, CRIU_FAULT = fault)
+		cr = subprocess.Popen(strace + [criu_bin, action] + args, env = env, preexec_fn = preexec)
+		return cr.wait()
+
+
+class criu_rpc:
+	@staticmethod
+	def __set_opts(criu, args, ctx):
+		while len(args) != 0:
+			arg = args.pop(0)
+			if arg == '-v4':
+				criu.opts.log_level = 4
+				continue
+			if arg == '-o':
+				criu.opts.log_file = args.pop(0)
+				continue
+			if arg == '-D':
+				criu.opts.images_dir_fd = os.open(args.pop(0), os.O_DIRECTORY)
+				ctx['imgd'] = criu.opts.images_dir_fd
+				continue
+			if arg == '-t':
+				criu.opts.pid = int(args.pop(0))
+				continue
+			if arg == '--pidfile':
+				ctx['pidf'] = args.pop(0)
+				continue
+			if arg == '--timeout':
+				criu.opts.timeout = int(args.pop(0))
+				continue
+			if arg == '--restore-detached':
+				# Set by service by default
+				ctx['rd'] = True
+				continue
+			if arg == '--root':
+				criu.opts.root = args.pop(0)
+				continue
+			if arg == '--external':
+				criu.opts.external.append(args.pop(0))
+				continue
+
+			raise test_fail_exc('RPC for %s required' % arg)
+
+	@staticmethod
+	def run(action, args, fault = None, strace = [], preexec = None):
+		if fault:
+			raise test_fail_exc('RPC and FAULT not supported')
+		if strace:
+			raise test_fail_exc('RPC and SAT not supported')
+		if preexec:
+			raise test_fail_exc('RPC and PREEXEC not supported')
+
+		ctx = {}  # Object used to keep info untill action is done
+		criu = crpc.criu()
+		criu.use_binary(criu_bin)
+		criu_rpc.__set_opts(criu, args, ctx)
+
+		try:
+			if action == 'dump':
+				criu.dump()
+			elif action == 'restore':
+				if 'rd' not in ctx:
+					raise test_fail_exc('RPC Non-detached restore is impossible')
+
+				res = criu.restore()
+				pidf = ctx.get('pidf')
+				if pidf:
+					open(pidf, 'w').write('%d\n' % res.pid)
+			else:
+				raise test_fail_exc('RPC for %s required' % action)
+		except crpc.CRIUExceptionExternal:
+			print "Fail"
+			ret = -1
+		else:
+			ret = 0
+
+		imgd = ctx.get('imgd')
+		if imgd:
+			os.close(imgd)
+		return ret
+
+
+class criu:
 	def __init__(self, opts):
 		self.__test = None
 		self.__dump_path = None
@@ -651,7 +771,10 @@ class criu_cli:
 		self.__script = opts['script']
 		self.__sat = (opts['sat'] and True or False)
 		self.__dedup = (opts['dedup'] and True or False)
+		self.__mdedup = (opts['noauto_dedup'] and True or False)
 		self.__user = (opts['user'] and True or False)
+		self.__leave_stopped = (opts['stop'] and True or False)
+		self.__criu = (opts['rpc'] and criu_rpc or criu_cli)
 
 	def logs(self):
 		return self.__dump_path
@@ -677,15 +800,6 @@ class criu_cli:
 
 	def __ddir(self):
 		return os.path.join(self.__dump_path, "%d" % self.__iter)
-
-	@staticmethod
-	def __criu(action, args, fault = None, strace = [], preexec = None):
-		env = None
-		if fault:
-			print "Forcing %s fault" % fault
-			env = dict(os.environ, CRIU_FAULT = fault)
-		cr = subprocess.Popen(strace + [criu_bin, action] + args, env = env, preexec_fn = preexec)
-		return cr.wait()
 
 	def set_user_id(self):
 		# Numbers should match those in zdtm_test
@@ -721,7 +835,7 @@ class criu_cli:
 
 		__ddir = self.__ddir()
 
-		ret = self.__criu(action, s_args, self.__fault, strace, preexec)
+		ret = self.__criu.run(action, s_args, self.__fault, strace, preexec)
 		grep_errors(os.path.join(__ddir, log))
 		if ret != 0:
 			if self.__fault and int(self.__fault) < 128:
@@ -736,7 +850,7 @@ class criu_cli:
 					os.rename(os.path.join(__ddir, log), os.path.join(__ddir, log + ".fail"))
 				# try again without faults
 				print "Run criu " + action
-				ret = self.__criu(action, s_args, False, strace, preexec)
+				ret = self.__criu.run(action, s_args, False, strace, preexec)
 				grep_errors(os.path.join(__ddir, log))
 				if ret == 0:
 					return
@@ -774,10 +888,19 @@ class criu_cli:
 
 		criu_dir = os.path.dirname(os.getcwd())
 		if os.getenv("GCOV"):
-			a_opts.append("--ext-mount-map")
-			a_opts.append("%s:zdtm" % criu_dir)
+			a_opts.append('--external')
+			a_opts.append('mnt[%s]:zdtm' % criu_dir)
+
+		if self.__leave_stopped:
+			a_opts += ['--leave-stopped']
 
 		self.__criu_act(action, opts = a_opts + opts)
+		if self.__mdedup and self.__iter > 1:
+			self.__criu_act("dedup", opts = [])
+
+		if self.__leave_stopped:
+			pstree_check_stopped(self.__test.getpid())
+			pstree_signal(self.__test.getpid(), signal.SIGKILL)
 
 		if self.__page_server:
 			wait_pid_die(int(rpidfile(self.__ddir() + "/ps.pid")), "page server")
@@ -795,13 +918,21 @@ class criu_cli:
 		self.__prev_dump_iter = None
 		criu_dir = os.path.dirname(os.getcwd())
 		if os.getenv("GCOV"):
-			r_opts.append("--ext-mount-map")
-			r_opts.append("zdtm:%s" % criu_dir)
+			r_opts.append('--external')
+			r_opts.append('mnt[zdtm]:%s' % criu_dir)
+
+		if self.__leave_stopped:
+			r_opts += ['--leave-stopped']
+
 		self.__criu_act("restore", opts = r_opts + ["--restore-detached"])
+
+		if self.__leave_stopped:
+			pstree_check_stopped(self.__test.getpid())
+			pstree_signal(self.__test.getpid(), signal.SIGCONT)
 
 	@staticmethod
 	def check(feature):
-		return criu_cli.__criu("check", ["-v0", "--feature", feature]) == 0
+		return criu_cli.run("check", ["-v0", "--feature", feature]) == 0
 
 	@staticmethod
 	def available():
@@ -873,6 +1004,7 @@ def cr(cr_api, test, opts):
 			sbs('pre-restore')
 			try_run_hook(test, ["--pre-restore"])
 			cr_api.restore()
+			try_run_hook(test, ["--post-restore"])
 			sbs('post-restore')
 
 		time.sleep(iters[1])
@@ -901,10 +1033,10 @@ def get_visible_state(test):
 
 			m.append(mp.split()[1])
 
-                        f = "/proc/%s/root/proc/%s/map_files/%s" % (test.getpid(), pid, mp.split()[0])
-                        if os.access(f, os.F_OK):
-                                st = os.lstat(f)
-                                m.append(oct(st.st_mode))
+			f = "/proc/%s/root/proc/%s/map_files/%s" % (test.getpid(), pid, mp.split()[0])
+			if os.access(f, os.F_OK):
+				st = os.lstat(f)
+				m.append(oct(st.st_mode))
 
 			if cmaps[last][1] == m[0] and cmaps[last][2] == m[2]:
 				cmaps[last][1] = m[1]
@@ -1038,6 +1170,69 @@ def check_joinns_state(t):
 	cmp_ns("/proc/%s/ns/net" % t.getpid(), "!=", join_ns_file, "join-ns")
 
 
+def pstree_each_pid(root_pid):
+	f_children_path = "/proc/{0}/task/{0}/children".format(root_pid)
+	child_pids = []
+	try:
+		with open(f_children_path, "r") as f_children:
+			pid_line = f_children.readline().strip(" \n")
+			if pid_line:
+				child_pids += pid_line.split(" ")
+	except:
+		return  # process is dead
+
+	yield root_pid
+	for child_pid in child_pids:
+		for pid in pstree_each_pid(child_pid):
+			yield pid
+
+
+def is_proc_stopped(pid):
+	def get_thread_status(thread_dir):
+		try:
+			with open(os.path.join(thread_dir, "status")) as f_status:
+				for line in f_status.readlines():
+					if line.startswith("State:"):
+						return line.split(":", 1)[1].strip().split(" ")[0]
+		except:
+			pass  # process is dead
+		return None
+
+	def is_thread_stopped(status):
+		return (status is None) or (status == "T") or (status == "Z")
+
+	tasks_dir = "/proc/%s/task" % pid
+	thread_dirs = []
+	try:
+		thread_dirs = os.listdir(tasks_dir)
+	except:
+		pass  # process is dead
+
+	for thread_dir in thread_dirs:
+		thread_status = get_thread_status(os.path.join(tasks_dir, thread_dir))
+		if not is_thread_stopped(thread_status):
+			return False
+
+	if not is_thread_stopped(get_thread_status("/proc/%s" % pid)):
+		return False
+
+	return True
+
+
+def pstree_check_stopped(root_pid):
+	for pid in pstree_each_pid(root_pid):
+		if not is_proc_stopped(pid):
+			raise test_fail_exc("CRIU --leave-stopped %s" % pid)
+
+
+def pstree_signal(root_pid, signal):
+	for pid in pstree_each_pid(root_pid):
+		try:
+			os.kill(int(pid), signal)
+		except:
+			pass  # process is dead
+
+
 def do_run_test(tname, tdesc, flavs, opts):
 	tcname = tname.split('/')[0]
 	tclass = test_classes.get(tcname, None)
@@ -1059,7 +1254,7 @@ def do_run_test(tname, tdesc, flavs, opts):
 			continue
 		flav = flavors[f](opts)
 		t = tclass(tname, tdesc, flav, fcg)
-		cr_api = criu_cli(opts)
+		cr_api = criu(opts)
 
 		try:
 			t.start()
@@ -1079,6 +1274,7 @@ def do_run_test(tname, tdesc, flavs, opts):
 			print_sep("Test %s FAIL at %s" % (tname, e.step), '#')
 			t.print_output()
 			t.kill()
+			try_run_hook(t, ["--clean"])
 			if cr_api.logs():
 				add_to_report(cr_api.logs(), tname.replace('/', '_') + "_" + f + "/images")
 			if opts['keep_img'] == 'never':
@@ -1148,9 +1344,9 @@ class launcher:
 		self.__nr += 1
 		self.__show_progress()
 
-		nd = ('nocr', 'norst', 'pre', 'iters', 'page_server', 'sibling',
-				'fault', 'keep_img', 'report', 'snaps', 'sat', 'script',
-				'join_ns', 'dedup', 'sbs', 'freezecg', 'user', 'dry_run')
+		nd = ('nocr', 'norst', 'pre', 'iters', 'page_server', 'sibling', 'stop',
+				'fault', 'keep_img', 'report', 'snaps', 'sat', 'script', 'rpc',
+				'join_ns', 'dedup', 'sbs', 'freezecg', 'user', 'dry_run', 'noauto_dedup')
 		arg = repr((name, desc, flavor, {d: self.__opts[d] for d in nd}))
 
 		if self.__use_log:
@@ -1215,6 +1411,8 @@ class launcher:
 
 	def finish(self):
 		self.__wait_all()
+		if not opts['fault'] and check_core_files():
+			self.__fail = True
 		if self.__file_report:
 			self.__file_report.close()
 		if self.__fail:
@@ -1284,7 +1482,7 @@ def run_tests(opts):
 	features = {}
 
 	if opts['pre'] or opts['snaps']:
-		if not criu_cli.check("mem_dirty_track"):
+		if not criu.check("mem_dirty_track"):
 			print "Tracking memory is not available"
 			return
 
@@ -1354,7 +1552,7 @@ def run_tests(opts):
 			if feat:
 				if feat not in features:
 					print "Checking feature %s" % feat
-					features[feat] = criu_cli.check(feat)
+					features[feat] = criu.check(feat)
 
 				if not features[feat]:
 					l.skip(t, "no %s feature" % feat)
@@ -1383,7 +1581,7 @@ def run_tests(opts):
 				run_flavs = set(test_flavs) & set(opts_flavs)
 			else:
 				run_flavs = set([test_flavs.pop()])
-			if not criu_cli.check("userns"):
+			if not criu.check("userns"):
 				run_flavs -= set(['uns'])
 			if opts['user']:
 				# FIXME -- probably uns will make sense
@@ -1586,14 +1784,17 @@ rp.add_argument("--join-ns", help = "Restore tests and join existing namespace",
 rp.add_argument("--pre", help = "Do some pre-dumps before dump (n[:pause])")
 rp.add_argument("--snaps", help = "Instead of pre-dumps do full dumps", action = 'store_true')
 rp.add_argument("--dedup", help = "Auto-deduplicate images on iterations", action = 'store_true')
+rp.add_argument("--noauto-dedup", help = "Manual deduplicate images on iterations", action = 'store_true')
 rp.add_argument("--nocr", help = "Do not CR anything, just check test works", action = 'store_true')
 rp.add_argument("--norst", help = "Don't restore tasks, leave them running after dump", action = 'store_true')
+rp.add_argument("--stop", help = "Check that --leave-stopped option stops ps tree.", action = 'store_true')
 rp.add_argument("--iters", help = "Do CR cycle several times before check (n[:pause])")
 rp.add_argument("--fault", help = "Test fault injection")
 rp.add_argument("--sat", help = "Generate criu strace-s for sat tool (restore is fake, images are kept)", action = 'store_true')
 rp.add_argument("--sbs", help = "Do step-by-step execution, asking user for keypress to continue", action = 'store_true')
 rp.add_argument("--freezecg", help = "Use freeze cgroup (path:state)")
 rp.add_argument("--user", help = "Run CRIU as regular user", action = 'store_true')
+rp.add_argument("--rpc", help = "Run CRIU via RPC rather than CLI", action = 'store_true')
 
 rp.add_argument("--page-server", help = "Use page server dump", action = 'store_true')
 rp.add_argument("-p", "--parallel", help = "Run test in parallel")
@@ -1625,7 +1826,7 @@ if opts.get('sat', False):
 if opts['debug']:
 	sys.settrace(traceit)
 
-criu_cli.available()
+criu.available()
 for tst in test_classes.values():
 	tst.available()
 

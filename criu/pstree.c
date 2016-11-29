@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <sched.h>
 
+#include "types.h"
 #include "cr_options.h"
 #include "pstree.h"
 #include "rst-malloc.h"
@@ -11,8 +12,8 @@
 #include "files.h"
 #include "tty.h"
 #include "mount.h"
-#include "asm/dump.h"
-
+#include "dump.h"
+#include "util.h"
 #include "protobuf.h"
 #include "images/pstree.pb-c.h"
 

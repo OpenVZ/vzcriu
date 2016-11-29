@@ -9,12 +9,10 @@
 #include <sys/stat.h>
 #include <sys/mman.h>
 
-#include "asm/types.h"
-#include "asm/parasite-syscall.h"
-
+#include "types.h"
 #include "parasite-syscall.h"
 #include "parasite.h"
-#include "compiler.h"
+#include "common/compiler.h"
 #include "kerndat.h"
 #include "vdso.h"
 #include "util.h"
@@ -225,10 +223,8 @@ static int vdso_fill_self_symtable(struct vdso_symtable *s)
 	*s = (struct vdso_symtable)VDSO_SYMTABLE_INIT;
 
 	maps = fopen_proc(PROC_SELF, "maps");
-	if (!maps) {
-		pr_perror("Can't open self-vma");
+	if (!maps)
 		return -1;
-	}
 
 	while (fgets(buf, sizeof(buf), maps)) {
 		unsigned long start, end;

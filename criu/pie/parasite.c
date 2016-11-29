@@ -7,6 +7,8 @@
 #include <stdarg.h>
 #include <sys/ioctl.h>
 
+#include "int.h"
+#include "types.h"
 #include "syscall.h"
 #include "parasite.h"
 #include "config.h"
@@ -14,15 +16,14 @@
 #include "prctl.h"
 #include "lock.h"
 #include "parasite-vdso.h"
-#include "log.h"
+#include "criu-log.h"
 #include "tty.h"
 #include "aio.h"
 
 #include <string.h>
 
-#include "asm/types.h"
 #include "asm/parasite.h"
-#include "asm/restorer.h"
+#include "restorer.h"
 
 static int tsock = -1;
 
@@ -41,31 +42,6 @@ static struct parasite_dump_pages_args *mprotect_args = NULL;
 #ifndef PR_GET_PDEATHSIG
 #define PR_GET_PDEATHSIG  2
 #endif
-
-struct ve_ioc_arg
-{
-	aio_context_t	ctx_id;
-	unsigned	val;
-};
-
-#define VE_AIO_IOC_WAIT_ACTIVE  _IOW('a',  1, struct ve_ioc_arg)
-
-static int aio_wait_pending(void)
-{
-	int fd, ret;
-
-	fd = sys_open("/proc/self/aio", O_RDONLY, 0);
-	if (fd < 0) {
-		pr_err("Can't open /proc/self/aio\n");
-		return fd == -ENOENT ? 0 : -1;
-	}
-
-	ret = sys_ioctl(fd, VE_AIO_IOC_WAIT_ACTIVE, 0);
-	if (ret)
-		pr_err("Waiting of active aios finished with err=%d\n", ret);
-	sys_close(fd);
-	return ret;
-}
 
 static int mprotect_vmas(struct parasite_dump_pages_args *args)
 {
@@ -334,7 +310,7 @@ static int pie_atoi(char *str)
 	return ret;
 }
 
-static int get_proc_fd()
+static int get_proc_fd(void)
 {
 	int ret;
 	char buf[11];
@@ -371,7 +347,7 @@ static int get_proc_fd()
 	return open_detach_mount(proc_mountpoint);
 }
 
-static int parasite_get_proc_fd()
+static int parasite_get_proc_fd(void)
 {
 	int fd, ret;
 
@@ -427,9 +403,6 @@ static int sane_ring(struct parasite_aio *aio)
 static int parasite_check_aios(struct parasite_check_aios_args *args)
 {
 	int i;
-
-	if (aio_wait_pending() < 0)
-		return -1;
 
 	for (i = 0; i < args->nr_rings; i++) {
 		struct aio_ring *ring;
@@ -633,7 +606,7 @@ static noinline void fini_sigreturn(unsigned long new_sp)
 	ARCH_RT_SIGRETURN(new_sp);
 }
 
-static int fini()
+static int fini(void)
 {
 	unsigned long new_sp;
 
@@ -642,7 +615,7 @@ static int fini()
 		mprotect_vmas(mprotect_args);
 	}
 
-	new_sp = (long)sigframe + SIGFRAME_OFFSET;
+	new_sp = (long)sigframe + RT_SIGFRAME_OFFSET(sigframe);
 	pr_debug("%ld: new_sp=%lx ip %lx\n", sys_gettid(),
 		  new_sp, RT_SIGFRAME_REGIP(sigframe));
 
@@ -658,7 +631,7 @@ static int fini()
 
 static noinline __used int noinline parasite_daemon(void *args)
 {
-	struct ctl_msg m = { };
+	struct ctl_msg m;
 	int ret = -1;
 
 	pr_debug("Running daemon thread leader\n");

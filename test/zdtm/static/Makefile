@@ -7,7 +7,7 @@ override CPPFLAGS += -I$(LIBDIR)
 CFLAGS	= -g -O2 -Wall -Werror -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0
 CFLAGS	+= $(USERCFLAGS)
 
-TST_NOFILE	=				\
+TST_NOFILE	:=				\
 		busyloop00			\
 		sleeping00			\
 		pid00				\
@@ -63,7 +63,6 @@ TST_NOFILE	=				\
 		sockets_spair			\
 		socket_queues			\
 		socket_queues02			\
-		socket-raw			\
 		socket-tcp			\
 		socket-tcp6			\
 		socket-tcp-local		\
@@ -82,7 +81,6 @@ TST_NOFILE	=				\
 		sem				\
 		maps01				\
 		maps02				\
-		maps03				\
 		maps04				\
 		maps05				\
 		mlock_setuid			\
@@ -121,7 +119,6 @@ TST_NOFILE	=				\
 		sigpending			\
 		sigaltstack			\
 		sk-netlink			\
-		sk-netlink02			\
 		mem-touch			\
 		grow_map			\
 		grow_map02			\
@@ -154,7 +151,16 @@ TST_NOFILE	=				\
 		loginuid			\
 		cgroupns			\
 		helper_zombie_child		\
+		clone_fs			\
+		macvlan			\
+		cr_veth				\
 #		jobctl00			\
+
+ifneq ($(SRCARCH),arm)
+ifneq ($(COMPAT_TEST),y)
+        TST_NOFILE += maps03
+endif
+endif
 
 TST_FILE	=				\
 		maps06				\
@@ -215,6 +221,7 @@ TST_DIR		=				\
 		tempfs_overmounted		\
 		tempfs_overmounted01		\
 		tempfs_ro			\
+		tempfs_ro02			\
 		tempfs_subns			\
 		mnt_ro_bind			\
 		mount_paths			\
@@ -233,6 +240,7 @@ TST_DIR		=				\
 		mntns_open			\
 		mntns_link_remap		\
 		mntns_ghost			\
+		mntns_ro_root			\
 		mntns_link_ghost		\
 		mntns_shared_bind		\
 		mntns_shared_bind02		\
@@ -240,6 +248,7 @@ TST_DIR		=				\
 		mntns_root_bind02		\
 		mntns_overmount			\
 		mntns_shared_vs_private		\
+		mnt_ext_manual			\
 		mnt_ext_auto			\
 		mnt_ext_master			\
 		mnt_ext_dev			\
@@ -249,7 +258,6 @@ TST_DIR		=				\
 		mnt_enablefs			\
 		autofs				\
 		del_standalone_un		\
-		del_standalone_un_dentry	\
 
 TST_DIR_FILE	=				\
 		chroot				\
@@ -390,6 +398,7 @@ socket-tcp6-local: override CFLAGS += -D ZDTM_TCP_LOCAL -D ZDTM_IPV6
 socket-tcp-local: override CFLAGS += -D ZDTM_TCP_LOCAL
 socket-tcp-nfconntrack: override CFLAGS += -D ZDTM_TCP_LOCAL -DZDTM_CONNTRACK
 socket_listen6: override CFLAGS += -D ZDTM_IPV6
+mnt_ext_manual: override CFLAGS += -D ZDTM_EXTMAP_MANUAL
 sigpending:		override LDLIBS += -lrt
 vdso01:			override LDLIBS += -lrt
 mntns_link_remap:	override CFLAGS += -DZDTM_LINK_REMAP
@@ -404,7 +413,7 @@ sk-freebind-false:	override CFLAGS += -DZDTM_FREEBIND_FALSE
 stopped01:	override CFLAGS += -DZDTM_STOPPED_KILL
 stopped02:	override CFLAGS += -DZDTM_STOPPED_TKILL
 stopped12:	override CFLAGS += -DZDTM_STOPPED_KILL -DZDTM_STOPPED_TKILL
-sk-netlink02:	override CFLAGS += -DZDTM_NETLINK_DATA
+clone_fs:		override LDLIBS += -pthread
 
 $(LIB):	force
 	$(Q) $(MAKE) -C $(LIBDIR)
@@ -422,7 +431,7 @@ cleanout:
 	$(RM) -f -r *.pid *.out* *.test* *.state
 
 %.cleanout: %
-	$(Q) $(RM) -f -r $<.pid* $<.out* *$<.test* $<.*.test $<.state
+	$(Q) $(RM) -f -r $<.pid* $<.out* *$<.test* $<.*.test $<.*.state $<.state
 
 realclean:	cleandep cleanout
 

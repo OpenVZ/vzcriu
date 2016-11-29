@@ -12,12 +12,12 @@
 #include <sys/ioctl.h>
 #include <sys/epoll.h>
 
-#include "compiler.h"
-#include "asm/types.h"
+#include "crtools.h"
+#include "common/compiler.h"
 #include "imgset.h"
 #include "rst_info.h"
 #include "eventpoll.h"
-#include "proc_parse.h"
+#include "fdinfo.h"
 #include "image.h"
 #include "util.h"
 #include "log.h"
@@ -197,6 +197,9 @@ static struct file_desc_ops desc_ops = {
 static int collect_one_epoll_tfd(void *o, ProtobufCMessage *msg, struct cr_img *i)
 {
 	struct eventpoll_tfd_file_info *info = o;
+
+	if (!deprecated_ok("Epoll TFD image"))
+		return -1;
 
 	info->tdefe = pb_msg(msg, EventpollTfdEntry);
 	list_add(&info->list, &eventpoll_tfds);

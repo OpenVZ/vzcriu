@@ -5,7 +5,6 @@
 #include <libnl3/netlink/msg.h>
 #include <unistd.h>
 #include <string.h>
-#include "asm/types.h"
 #include "imgset.h"
 #include "files.h"
 #include "sockets.h"
@@ -16,6 +15,7 @@
 #include <arpa/inet.h>
 
 #include "protobuf.h"
+#include "xmalloc.h"
 #include "images/packet-sock.pb-c.h"
 #include "images/fdinfo.pb-c.h"
 

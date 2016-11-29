@@ -12,9 +12,8 @@
 #include <termios.h>
 #include <linux/major.h>
 
-#include "compiler.h"
-#include "asm/types.h"
-
+#include "types.h"
+#include "common/compiler.h"
 #include "crtools.h"
 #include "files.h"
 #include "cr_options.h"
@@ -22,14 +21,16 @@
 #include "servicefd.h"
 #include "rst-malloc.h"
 #include "log.h"
-#include "list.h"
+#include "common/list.h"
 #include "util-pie.h"
 #include "proc_parse.h"
 #include "file-ids.h"
 #include "files-reg.h"
 #include "namespaces.h"
+#include "external.h"
 
 #include "protobuf.h"
+#include "util.h"
 #include "images/tty.pb-c.h"
 
 #include "parasite-syscall.h"
@@ -119,6 +120,7 @@ struct tty_dump_info {
 	size_t				tty_data_size;
 };
 
+static bool stdin_isatty = false;
 static LIST_HEAD(all_tty_info_entries);
 static LIST_HEAD(all_ttys);
 
@@ -142,6 +144,8 @@ static LIST_HEAD(all_ttys);
 #define CONSOLE_INDEX	1002
 #define VT_INDEX	1004
 #define CTTY_INDEX	1006
+#define ETTY_INDEX	1008
+#define STTY_INDEX	1010
 #define INDEX_ERR	(MAX_TTYS + 1)
 
 static DECLARE_BITMAP(tty_bitmap, (MAX_TTYS << 1));
@@ -220,12 +224,14 @@ static int open_ext_tty(struct tty_info *info);
 static struct tty_driver ext_driver = {
 	.type			= TTY_TYPE__EXT_TTY,
 	.name			= "ext",
+	.index			= ETTY_INDEX,
 	.open			= open_ext_tty,
 };
 
 static struct tty_driver serial_driver = {
 	.type			= TTY_TYPE__SERIAL,
 	.name			= "serial",
+	.index			= STTY_INDEX,
 	.open			= open_simple_tty,
 };
 
@@ -564,7 +570,7 @@ static int pty_open_ptmx_index(struct file_desc *d, int index, int flags)
 	for (i = 0; i < ARRAY_SIZE(fds); i++) {
 		fds[i] = open_tty_reg(d, flags);
 		if (fds[i] < 0) {
-			pr_perror("Can't open %s", path_from_reg(d));
+			pr_err("Can't open %s\n", path_from_reg(d));
 			break;
 		}
 
@@ -686,7 +692,7 @@ static int tty_restore_ctl_terminal(struct file_desc *d, int fd)
 
 	slave = open_tty_reg(slave_d, O_RDONLY);
 	if (slave < 0) {
-		pr_perror("Can't open %s", path_from_reg(slave_d));
+		pr_err("Can't open slave tty %s\n", path_from_reg(slave_d));
 		goto err;
 	}
 
@@ -833,7 +839,17 @@ static int restore_tty_params(int fd, struct tty_info *info)
 		winsize_copy(&p.w, info->tie->winsize);
 	}
 
-	return userns_call(do_restore_tty_parms, 0, &p, sizeof(p), fd);
+	if (info->tie->has_uid && info->tie->has_gid) {
+		if (fchown(fd, info->tie->uid, info->tie->gid)) {
+			pr_perror("Can't setup uid %d gid %d on %x",
+				  (int)info->tie->uid,
+				  (int)info->tie->gid,
+				  info->tfe->id);
+			return -1;
+		}
+	}
+
+	return userns_call(do_restore_tty_parms, UNS_ASYNC, &p, sizeof(p), fd);
 }
 
 /*
@@ -864,18 +880,14 @@ static int pty_open_slaves(struct tty_info *info)
 	struct fdinfo_list_entry *fle;
 	struct tty_info *slave;
 
-	sock = socket(PF_UNIX, SOCK_DGRAM, 0);
-	if (sock < 0) {
-		pr_perror("Can't create socket");
-		goto err;
-	}
+	sock = get_service_fd(TRANSPORT_FD_OFF);
 
 	list_for_each_entry(slave, &info->sibling, sibling) {
 		BUG_ON(tty_is_master(slave));
 
 		fd = open_tty_reg(slave->reg_d, slave->tfe->flags);
 		if (fd < 0) {
-			pr_perror("Can't open slave %s", path_from_reg(slave->reg_d));
+			pr_err("Can't open slave tty %s\n", path_from_reg(slave->reg_d));
 			goto err;
 		}
 
@@ -888,7 +900,7 @@ static int pty_open_slaves(struct tty_info *info)
 			 slave->tfe->id, fd, path_from_reg(slave->reg_d), fle->pid);
 
 		if (send_fd_to_peer(fd, fle, sock)) {
-			pr_perror("Can't send file descriptor");
+			pr_err("Can't send file descriptor\n");
 			goto err;
 		}
 
@@ -900,7 +912,6 @@ static int pty_open_slaves(struct tty_info *info)
 
 err:
 	close_safe(&fd);
-	close_safe(&sock);
 	return ret;
 }
 
@@ -936,11 +947,17 @@ static int pty_open_unpaired_slave(struct file_desc *d, struct tty_info *slave)
 	 */
 
 	if (likely(slave->inherit)) {
+		if (!stdin_isatty) {
+			pr_err("Don't have tty to inherit session from, aborting\n");
+			return -1;
+		}
+
 		fd = dup(get_service_fd(SELF_STDIN_OFF));
 		if (fd < 0) {
 			pr_perror("Can't dup SELF_STDIN_OFF");
 			return -1;
 		}
+
 		pr_info("Migrated slave peer %x -> to fd %d\n",
 			slave->tfe->id, fd);
 	} else {
@@ -949,7 +966,7 @@ static int pty_open_unpaired_slave(struct file_desc *d, struct tty_info *slave)
 			goto err;
 		master = pty_open_ptmx_index(&fake->d, slave->tie->pty->index, O_RDONLY);
 		if (master < 0) {
-			pr_perror("Can't open fale %x (index %d)",
+			pr_err("Can't open master pty %x (index %d)\n",
 				  slave->tfe->id, slave->tie->pty->index);
 			goto err;
 		}
@@ -958,7 +975,7 @@ static int pty_open_unpaired_slave(struct file_desc *d, struct tty_info *slave)
 
 		fd = open_tty_reg(slave->reg_d, slave->tfe->flags);
 		if (fd < 0) {
-			pr_perror("Can't open slave %s", path_from_reg(slave->reg_d));
+			pr_err("Can't open slave pty %s\n", path_from_reg(slave->reg_d));
 			goto err;
 		}
 
@@ -1010,7 +1027,7 @@ static int pty_open_ptmx(struct tty_info *info)
 
 	master = pty_open_ptmx_index(info->reg_d, info->tie->pty->index, info->tfe->flags);
 	if (master < 0) {
-		pr_perror("Can't open %x (index %d)",
+		pr_err("Can't open master pty %x (index %d)\n",
 			  info->tfe->id, info->tie->pty->index);
 		return -1;
 	}
@@ -1050,7 +1067,7 @@ static int open_simple_tty(struct tty_info *info)
 
 	fd = open_tty_reg(info->reg_d, info->tfe->flags);
 	if (fd < 0) {
-		pr_perror("Can't open %s %x",
+		pr_err("Can't open tty %s %x\n",
 				info->driver->name, info->tfe->id);
 		return -1;
 	}
@@ -1522,19 +1539,28 @@ static int collect_one_tty(void *obj, ProtobufCMessage *msg, struct cr_img *i)
 	 * The image might have no reg file record in old CRIU, so
 	 * lets don't fail for a while. After a couple of releases
 	 * simply require the record to present.
+	 *
+	 * Note for external ttys it's fine to not have any
+	 * reg file rectord because they are inherited from
+	 * command line on restore.
 	 */
 	info->reg_d = try_collect_special_file(info->tfe->id, 1);
 	if (!info->reg_d) {
-		if (is_pty(info->driver)) {
-			info->reg_d = pty_alloc_reg(info, true);
-			if (!info->reg_d) {
-				pr_err("Can't generate new reg descriptor for id %#x\n",
-				       info->tfe->id);
+		if (info->driver->type != TTY_TYPE__EXT_TTY) {
+			if (!deprecated_ok("TTY w/o regfile"))
+				return -1;
+
+			if (is_pty(info->driver)) {
+				info->reg_d = pty_alloc_reg(info, true);
+				if (!info->reg_d) {
+					pr_err("Can't generate new reg descriptor for id %#x\n",
+					       info->tfe->id);
+					return -1;
+				}
+			} else {
+				pr_err("No reg_d descriptor for id %#x\n", info->tfe->id);
 				return -1;
 			}
-		} else if (info->driver->type != TTY_TYPE__EXT_TTY) {
-			pr_err("No reg_d descriptor for id %#x\n", info->tfe->id);
-			return -1;
 		}
 	}
 
@@ -1668,7 +1694,7 @@ static int dump_tty_info(int lfd, u32 id, const struct fd_parms *p, struct tty_d
 	BUILD_BUG_ON(sizeof(termios.c_cc) != sizeof(void *));
 	BUILD_BUG_ON((sizeof(termios.c_cc) * TERMIOS_NCC) < sizeof(t.c_cc));
 
-	pti = parasite_dump_tty(p->ctl, p->fd, driver->type);
+	pti = parasite_dump_tty(p->fd_ctl, p->fd, driver->type);
 	if (!pti)
 		return -1;
 
@@ -1707,6 +1733,11 @@ static int dump_tty_info(int lfd, u32 id, const struct fd_parms *p, struct tty_d
 	info.locked		= pti->st_lock;
 	info.exclusive		= pti->st_excl;
 	info.packet_mode	= pti->st_pckt;
+
+	info.has_uid		= true;
+	info.uid		= userns_uid(p->stat.st_uid);
+	info.has_gid		= true;
+	info.gid		= userns_gid(p->stat.st_gid);
 
 	info.type = driver->type;
 	if (info.type == TTY_TYPE__PTY) {
@@ -1841,7 +1872,7 @@ static int tty_reblock(int id, int lfd, int flags)
 	if ((flags & fmask) != fmask) {
 		if (fcntl(lfd, F_SETFL, flags)) {
 			ret = -errno;
-			pr_perror("Can't revert mode back to %o on (%#x)\n", fmask, id);
+			pr_perror("Can't revert mode back to %o on (%#x)", fmask, id);
 			return ret;
 		}
 	}
@@ -1857,7 +1888,7 @@ static int tty_unblock(int id, int lfd, int flags)
 	if ((flags & fmask) != fmask) {
 		if (fcntl(lfd, F_SETFL, fmask)) {
 			ret = -errno;
-			pr_perror("Can't change mode to %o on (%#x)\n", fmask, id);
+			pr_perror("Can't change mode to %o on (%#x)", fmask, id);
 			return ret;
 		}
 	}
@@ -1941,7 +1972,7 @@ static void __tty_do_writeback_queued_data(struct tty_dump_info *dinfo)
 	if (dinfo->tty_data) {
 		if (write(dinfo->link->lfd, dinfo->tty_data,
 			  dinfo->tty_data_size) != dinfo->tty_data_size)
-			pr_perror("Can't writeback to tty (%#x)\n", dinfo->id);
+			pr_perror("Can't writeback to tty (%#x)", dinfo->id);
 	}
 	tty_reblock(dinfo->link->id, dinfo->link->lfd, dinfo->link->flags);
 }
@@ -2046,13 +2077,13 @@ int tty_prep_fds(void)
 	if (!opts.shell_job)
 		return 0;
 
-	if (!isatty(STDIN_FILENO)) {
-		pr_err("Standard stream is not a terminal, aborting\n");
-		return -1;
-	}
+	if (!isatty(STDIN_FILENO))
+		pr_info("Standard stream is not a terminal, may fail later\n");
+	else
+		stdin_isatty = true;
 
 	if (install_service_fd(SELF_STDIN_OFF, STDIN_FILENO) < 0) {
-		pr_perror("Can't dup stdin to SELF_STDIN_OFF");
+		pr_err("Can't dup stdin to SELF_STDIN_OFF\n");
 		return -1;
 	}
 

@@ -17,13 +17,15 @@
 #include <sys/resource.h>
 #include <signal.h>
 
-#include "compiler.h"
-#include "asm/string.h"
-#include "asm/types.h"
+#include "int.h"
+#include "types.h"
+#include "common/compiler.h"
+#include "string.h"
 #include "syscall.h"
+#include "signal.h"
 #include "config.h"
 #include "prctl.h"
-#include "log.h"
+#include "criu-log.h"
 #include "util.h"
 #include "image.h"
 #include "sk-inet.h"
@@ -38,7 +40,7 @@
 #include "images/mm.pb-c.h"
 
 #include "shmem.h"
-#include "asm/restorer.h"
+#include "restorer.h"
 
 #ifndef PR_SET_PDEATHSIG
 #define PR_SET_PDEATHSIG 1
@@ -52,7 +54,7 @@
 		__ret;							\
 	})
 
-static struct task_entries *task_entries;
+static struct task_entries *task_entries_local;
 static futex_t thread_inprogress;
 static pid_t *helpers;
 static int n_helpers;
@@ -86,7 +88,7 @@ static void sigchld_handler(int signal, siginfo_t *siginfo, void *data)
 
 	pr_info("Task %d %s %d\n", siginfo->si_pid, r, siginfo->si_status);
 
-	futex_abort_and_wake(&task_entries->nr_in_progress);
+	futex_abort_and_wake(&task_entries_local->nr_in_progress);
 	/* sa_restorer may be unmaped, so we can't go back to userspace*/
 	sys_kill(sys_getpid(), SIGSTOP);
 	sys_exit_group(1);
@@ -467,27 +469,27 @@ long __export_restore_thread(struct thread_restore_args *args)
 
 	pr_info("%ld: Restored\n", sys_gettid());
 
-	restore_finish_stage(CR_STATE_RESTORE);
+	restore_finish_stage(task_entries_local, CR_STATE_RESTORE);
 
 	if (restore_signals(args->siginfo, args->siginfo_n, false))
 		goto core_restore_end;
 
-	restore_finish_stage(CR_STATE_RESTORE_SIGCHLD);
+	restore_finish_stage(task_entries_local, CR_STATE_RESTORE_SIGCHLD);
 	restore_pdeath_sig(args);
 
 	if (args->ta->seccomp_mode != SECCOMP_MODE_DISABLED)
 		pr_info("Restoring seccomp mode %d for %ld\n", args->ta->seccomp_mode, sys_getpid());
 
-	restore_finish_stage(CR_STATE_RESTORE_CREDS);
+	restore_finish_stage(task_entries_local, CR_STATE_RESTORE_CREDS);
 
 	futex_dec_and_wake(&thread_inprogress);
 
-	new_sp = (long)rt_sigframe + SIGFRAME_OFFSET;
+	new_sp = (long)rt_sigframe + RT_SIGFRAME_OFFSET(rt_sigframe);
 	rst_sigreturn(new_sp);
 
 core_restore_end:
 	pr_err("Restorer abnormal termination for %ld\n", sys_getpid());
-	futex_abort_and_wake(&task_entries->nr_in_progress);
+	futex_abort_and_wake(&task_entries_local->nr_in_progress);
 	sys_exit_group(1);
 	return -1;
 }
@@ -802,7 +804,7 @@ static int timerfd_arm(struct task_restore_args *args)
 		pr_debug("timerfd: arm for fd %d (%d)\n", t->fd, i);
 
 		if (t->settime_flags & TFD_TIMER_ABSTIME) {
-			struct timespec ts = { };
+			struct timespec ts;
 
 			/*
 			 * We might need to adjust value because the checkpoint
@@ -988,7 +990,7 @@ static int wait_zombies(struct task_restore_args *task_args)
 	for (i = 0; i < task_args->zombies_n; i++) {
 		int ret, nr_in_progress;
 
-		nr_in_progress = futex_get(&task_entries->nr_in_progress);
+		nr_in_progress = futex_get(&task_entries_local->nr_in_progress);
 
 		ret = sys_waitid(P_PID, task_args->zombies[i], NULL, WNOWAIT | WEXITED, NULL);
 		if (ret == -ECHILD) {
@@ -996,7 +998,7 @@ static int wait_zombies(struct task_restore_args *task_args)
 			 * Let's wait when someone complete this stage
 			 * and try again.
 			 */
-			futex_wait_while_eq(&task_entries->nr_in_progress,
+			futex_wait_while_eq(&task_entries_local->nr_in_progress,
 								nr_in_progress);
 			i--;
 			continue;
@@ -1040,7 +1042,7 @@ long __export_restore_task(struct task_restore_args *args)
 	vdso_rt_size	= args->vdso_rt_size;
 #endif
 
-	task_entries = args->task_entries;
+	task_entries_local = args->task_entries;
 	helpers = args->helpers;
 	n_helpers = args->helpers_n;
 	zombies = args->zombies;
@@ -1052,6 +1054,10 @@ long __export_restore_task(struct task_restore_args *args)
 	act.rt_sa_flags = SA_SIGINFO | SA_RESTORER | SA_RESTART;
 	act.rt_sa_restorer = cr_restore_rt;
 	sys_sigaction(SIGCHLD, &act, NULL, sizeof(k_rtsigset_t));
+
+	ksigfillset(&to_block);
+	ksigaddset(&to_block, SIGCHLD);
+	ret = sys_sigprocmask(SIG_UNBLOCK, &to_block, NULL, sizeof(k_rtsigset_t));
 
 	log_set_fd(args->logfd);
 	log_set_loglevel(args->loglevel);
@@ -1352,7 +1358,7 @@ long __export_restore_task(struct task_restore_args *args)
 
 	pr_info("%ld: Restored\n", sys_getpid());
 
-	restore_finish_stage(CR_STATE_RESTORE);
+	restore_finish_stage(task_entries_local, CR_STATE_RESTORE);
 
 	if (wait_helpers(args) < 0)
 		goto core_restore_end;
@@ -1376,7 +1382,7 @@ long __export_restore_task(struct task_restore_args *args)
 	if (ret)
 		goto core_restore_end;
 
-	restore_finish_stage(CR_STATE_RESTORE_SIGCHLD);
+	restore_finish_stage(task_entries_local, CR_STATE_RESTORE_SIGCHLD);
 
 	rst_tcp_socks_all(args);
 
@@ -1398,7 +1404,7 @@ long __export_restore_task(struct task_restore_args *args)
 
 	futex_set_and_wake(&thread_inprogress, args->nr_threads);
 
-	restore_finish_stage(CR_STATE_RESTORE_CREDS);
+	restore_finish_stage(task_entries_local, CR_STATE_RESTORE_CREDS);
 
 	if (ret)
 		BUG();
@@ -1432,7 +1438,7 @@ long __export_restore_task(struct task_restore_args *args)
 	/*
 	 * Sigframe stack.
 	 */
-	new_sp = (long)rt_sigframe + SIGFRAME_OFFSET;
+	new_sp = (long)rt_sigframe + RT_SIGFRAME_OFFSET(rt_sigframe);
 
 	/*
 	 * Prepare the stack and call for sigreturn,
@@ -1442,7 +1448,7 @@ long __export_restore_task(struct task_restore_args *args)
 	rst_sigreturn(new_sp);
 
 core_restore_end:
-	futex_abort_and_wake(&task_entries->nr_in_progress);
+	futex_abort_and_wake(&task_entries_local->nr_in_progress);
 	pr_err("Restorer fail %ld\n", sys_getpid());
 	sys_exit_group(1);
 	return -1;

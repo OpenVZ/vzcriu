@@ -2,10 +2,9 @@
 #include <signal.h>
 #include <sys/signalfd.h>
 
-#include "compiler.h"
-#include "asm/types.h"
+#include "common/compiler.h"
 #include "signalfd.h"
-#include "proc_parse.h"
+#include "fdinfo.h"
 #include "imgset.h"
 #include "image.h"
 #include "util.h"

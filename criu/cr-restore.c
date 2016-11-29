@@ -19,22 +19,20 @@
 #include <sys/shm.h>
 #include <sys/mount.h>
 #include <sys/prctl.h>
-
 #include <sched.h>
 
 #include <sys/sendfile.h>
 
+#include "types.h"
 #include "ptrace.h"
-#include "compiler.h"
-#include "asm/types.h"
-#include "asm/restorer.h"
+#include "common/compiler.h"
 
 #include "cr_options.h"
 #include "servicefd.h"
 #include "image.h"
 #include "util.h"
 #include "util-pie.h"
-#include "log.h"
+#include "criu-log.h"
 #include "restorer.h"
 #include "sockets.h"
 #include "sk-packet.h"
@@ -76,7 +74,6 @@
 #include "seccomp.h"
 #include "fault-injection.h"
 #include "sk-queue.h"
-#include "spfs.h"
 
 #include "parasite-syscall.h"
 #include "files-reg.h"
@@ -89,9 +86,7 @@
 #include "images/pagemap.pb-c.h"
 #include "images/siginfo.pb-c.h"
 
-#include "asm/restore.h"
-#include "asm/atomic.h"
-#include "asm/bitops.h"
+#include "restore.h"
 
 #include "cr-errno.h"
 
@@ -224,9 +219,6 @@ static int root_prepare_shared(void)
 	struct pstree_item *pi;
 
 	pr_info("Preparing info about shared resources\n");
-
-	if (prepare_shared_unix())
-		return -1;
 
 	if (prepare_shared_tty())
 		return -1;
@@ -711,7 +703,7 @@ static int restore_one_zombie(CoreEntry *core)
 	prctl(PR_SET_NAME, (long)(void *)core->tc->comm, 0, 0, 0);
 
 	if (task_entries != NULL) {
-		restore_finish_stage(CR_STATE_RESTORE);
+		restore_finish_stage(task_entries, CR_STATE_RESTORE);
 		zombie_prepare_signals();
 	}
 
@@ -793,7 +785,7 @@ static int restore_one_task(int pid, CoreEntry *core)
 			return -1;
 		}
 
-		restore_finish_stage(CR_STATE_RESTORE);
+		restore_finish_stage(task_entries, CR_STATE_RESTORE);
 		if (wait_on_helpers_zombies()) {
 			pr_err("failed to wait on helpers and zombies\n");
 			ret = -1;
@@ -909,10 +901,8 @@ static inline int fork_with_pid(struct pstree_item *item)
 		int len;
 
 		ca.fd = open_proc_rw(PROC_GEN, LAST_PID_PATH);
-		if (ca.fd < 0) {
-			pr_perror("%d: Can't open %s", pid, LAST_PID_PATH);
+		if (ca.fd < 0)
 			goto err;
-		}
 
 		if (flock(ca.fd, LOCK_EX)) {
 			close(ca.fd);
@@ -1285,7 +1275,7 @@ static int restore_task_with_children(void *_arg)
 
 	/* Wait prepare_userns */
 	if (current->parent == NULL &&
-            restore_finish_stage(CR_STATE_RESTORE_NS) < 0)
+            restore_finish_stage(task_entries, CR_STATE_RESTORE_NS) < 0)
 			goto err;
 
 	/*
@@ -1321,7 +1311,7 @@ static int restore_task_with_children(void *_arg)
 		if (root_prepare_shared())
 			goto err;
 
-		if (restore_finish_stage(CR_STATE_RESTORE_SHARED) < 0)
+		if (restore_finish_stage(task_entries, CR_STATE_RESTORE_SHARED) < 0)
 			goto err;
 	}
 
@@ -1358,7 +1348,7 @@ static int restore_task_with_children(void *_arg)
 		fini_restore_mntns();
 	}
 
-	if (restore_finish_stage(CR_STATE_FORKING) < 0)
+	if (restore_finish_stage(task_entries, CR_STATE_FORKING) < 0)
 		goto err;
 
 	if (restore_one_task(current->pid.virt, ca->core))
@@ -1540,7 +1530,7 @@ static void finalize_restore(void)
 			continue;
 
 		/* Unmap the restorer blob */
-		ctl = parasite_prep_ctl(pid, NULL);
+		ctl = parasite_prep_ctl(pid, 0);
 		if (ctl == NULL)
 			continue;
 
@@ -1548,7 +1538,8 @@ static void finalize_restore(void)
 
 		xfree(ctl);
 
-		if (item->pid.state == TASK_STOPPED)
+		if ((item->pid.state == TASK_STOPPED) ||
+				(opts.final_state == TASK_STOPPED))
 			kill(item->pid.real, SIGSTOP);
 	}
 }
@@ -1644,8 +1635,6 @@ static int restore_root_task(struct pstree_item *init)
 	int ret, fd, mnt_ns_fd = -1;
 	int clean_remaps = 1, root_seized = 0;
 	struct pstree_item *item;
-	bool spfs_is_running = false;
-	int spfs_sock = -1;
 
 	ret = run_scripts(ACT_PRE_RESTORE);
 	if (ret != 0) {
@@ -1736,10 +1725,8 @@ static int restore_root_task(struct pstree_item *init)
 
 	if (root_ns_mask & CLONE_NEWNS) {
 		mnt_ns_fd = open_proc(init->pid.real, "ns/mnt");
-		if (mnt_ns_fd < 0) {
-			pr_perror("Can't open init's mntns fd");
+		if (mnt_ns_fd < 0)
 			goto out_kill;
-		}
 	}
 
 	ret = run_scripts(ACT_SETUP_NS);
@@ -1785,16 +1772,6 @@ static int restore_root_task(struct pstree_item *init)
 	clean_remaps = 0;
 	close_safe(&mnt_ns_fd);
 
-	ret = spfs_mngr_status(&spfs_is_running);
-	if (ret < 0)
-		goto out_kill;
-
-	if (spfs_is_running) {
-		spfs_sock = spfs_mngr_sock();
-		if (spfs_sock < 0)
-			goto out_kill;
-	}
-
 	ret = stop_usernsd();
 	if (ret < 0)
 		goto out_kill;
@@ -1806,12 +1783,6 @@ static int restore_root_task(struct pstree_item *init)
 	ret = prepare_cgroup_properties();
 	if (ret < 0)
 		goto out_kill;
-
-	if (spfs_is_running) {
-		ret = spfs_set_mode(spfs_sock, SPFS_MODE_STUB);
-		if (ret < 0)
-			goto out_kill;
-	}
 
 	ret = run_scripts(ACT_POST_RESTORE);
 	if (ret != 0) {
@@ -1872,14 +1843,6 @@ static int restore_root_task(struct pstree_item *init)
 	ret = run_scripts(ACT_POST_RESUME);
 	if (ret != 0)
 		pr_err("Post-resume script ret code %d\n", ret);
-
-	if (spfs_is_running) {
-		ret = spfs_release_replace(spfs_sock);
-		if (ret < 0)
-			goto out_kill;
-	}
-
-	close_safe(&spfs_sock);
 
 	if (!opts.restore_detach && !opts.exec_cmd)
 		wait(NULL);
@@ -2086,6 +2049,9 @@ static int prepare_itimers_from_fd(int pid, struct task_restore_args *args)
 	struct cr_img *img;
 	ItimerEntry *ie;
 
+	if (!deprecated_ok("Itimers"))
+		return -1;
+
 	img = open_image(CR_FD_ITIMERS, O_RSTR, pid);
 	if (!img)
 		return -1;
@@ -2207,6 +2173,9 @@ static int prepare_posix_timers_from_fd(int pid, struct task_restore_args *ta)
 	struct cr_img *img;
 	int ret = -1;
 	struct restore_posix_timer *t;
+
+	if (!deprecated_ok("Posix timers"))
+		return -1;
 
 	img = open_image(CR_FD_POSIX_TIMERS, O_RSTR, pid);
 	if (!img)
@@ -2379,7 +2348,7 @@ static int prep_sched_info(struct rst_sched_param *sp, ThreadCoreEntry *tc)
 	return 0;
 }
 
-static unsigned long decode_rlim(u_int64_t ival)
+static rlim_t decode_rlim(rlim_t ival)
 {
 	return ival == -1 ? RLIM_INFINITY : ival;
 }
@@ -2393,6 +2362,9 @@ static int prepare_rlimits_from_fd(int pid, struct task_restore_args *ta)
 	struct rlimit *r;
 	int ret;
 	struct cr_img *img;
+
+	if (!deprecated_ok("Rlimits"))
+		return -1;
 
 	/*
 	 * Old image -- read from the file.
@@ -2774,6 +2746,8 @@ static int sigreturn_restore(pid_t pid, struct task_restore_args *task_args, uns
 	unsigned long creds_pos = 0;
 	unsigned long creds_pos_next;
 
+	sigset_t blockmask;
+
 	pr_info("Restore via sigreturn\n");
 
 	/* pr_info_vma_list(&self_vma_list); */
@@ -2901,6 +2875,15 @@ static int sigreturn_restore(pid_t pid, struct task_restore_args *task_args, uns
 	}
 
 	task_args->breakpoint = &rsti(current)->breakpoint;
+
+	sigemptyset(&blockmask);
+	sigaddset(&blockmask, SIGCHLD);
+
+	if (sigprocmask(SIG_BLOCK, &blockmask, NULL) == -1) {
+		pr_perror("Can not set mask of blocked signals");
+		return -1;
+	}
+
 	task_args->task_entries = rst_mem_remap_ptr(task_entries_pos, RM_SHREMAP);
 
 	task_args->premmapped_addr = (unsigned long)rsti(current)->premmapped_addr;
@@ -2943,6 +2926,7 @@ static int sigreturn_restore(pid_t pid, struct task_restore_args *task_args, uns
 	for (i = 0; i < current->nr_threads; i++) {
 		CoreEntry *tcore;
 		struct rt_sigframe *sigframe;
+		k_rtsigset_t *blkset = NULL;
 
 		thread_args[i].pid = current->threads[i].virt;
 		thread_args[i].siginfo_n = siginfo_priv_nr[i];
@@ -2954,8 +2938,12 @@ static int sigreturn_restore(pid_t pid, struct task_restore_args *task_args, uns
 		if (thread_args[i].pid == pid) {
 			task_args->t = thread_args + i;
 			tcore = core;
-		} else
+			blkset = (void *)&tcore->tc->blk_sigset;
+		} else {
 			tcore = current->core[i];
+			if (tcore->thread_core->has_blk_sigset)
+				blkset = (void *)&tcore->thread_core->blk_sigset;
+		}
 
 		if ((tcore->tc || tcore->ids) && thread_args[i].pid != pid) {
 			pr_err("Thread has optional fields present %d\n",
@@ -2992,7 +2980,7 @@ static int sigreturn_restore(pid_t pid, struct task_restore_args *task_args, uns
 		thread_args[i].mz = mz + i;
 		sigframe = (struct rt_sigframe *)&mz[i].rt_sigframe;
 
-		if (construct_sigframe(sigframe, sigframe, tcore))
+		if (construct_sigframe(sigframe, sigframe, blkset, tcore))
 			goto err;
 
 		if (thread_args[i].pid != pid)
@@ -3040,7 +3028,6 @@ static int sigreturn_restore(pid_t pid, struct task_restore_args *task_args, uns
 	close_proc();
 	close_service_fd(ROOT_FD_OFF);
 	close_service_fd(USERNSD_SK);
-	close_service_fd(SPFS_MNGR_SK);
 
 	__gcov_flush();
 

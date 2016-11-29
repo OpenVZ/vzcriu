@@ -188,9 +188,10 @@ static int check_fd(struct autofs_params *p)
 	}
 
 	if (st.st_dev != p->fd_stat.st_dev) {
-		skip("%s: st_dev differs: %d != %d "
+		skip("%s: st_dev differs: %llu != %llu "
 		     "(waiting for \"device namespaces\")", p->mountpoint,
-				st.st_dev, p->fd_stat.st_dev);
+				(long long unsigned)st.st_dev,
+				(long long unsigned)p->fd_stat.st_dev);
 //		ret++;
 	}
 	if (st.st_mode != p->fd_stat.st_mode) {
@@ -199,37 +200,38 @@ static int check_fd(struct autofs_params *p)
 		ret++;
 	}
 	if (st.st_nlink != p->fd_stat.st_nlink) {
-		pr_err("%s: st_nlink differs:\n", p->mountpoint,
-				st.st_nlink, p->fd_stat.st_nlink);
+		pr_err("%s: st_nlink differs: %ld != %ld\n", p->mountpoint,
+				(long)st.st_nlink, (long)p->fd_stat.st_nlink);
 		ret++;
 	}
 	if (st.st_uid != p->fd_stat.st_uid) {
-		pr_err("%s: st_uid differs:\n", p->mountpoint,
+		pr_err("%s: st_uid differs: %u != %u\n", p->mountpoint,
 				st.st_uid, p->fd_stat.st_uid);
 		ret++;
 	}
 	if (st.st_gid != p->fd_stat.st_gid) {
-		pr_err("%s: st_gid differs:\n", p->mountpoint,
+		pr_err("%s: st_gid differs: %u != %u\n", p->mountpoint,
 				st.st_gid, p->fd_stat.st_gid);
 		ret++;
 	}
 	if (st.st_rdev != p->fd_stat.st_rdev) {
-		pr_err("%s: st_rdev differs:\n", p->mountpoint,
-				st.st_rdev, p->fd_stat.st_rdev);
+		pr_err("%s: st_rdev differs: %lld != %lld\n", p->mountpoint,
+				(long long)st.st_rdev,
+				(long long)p->fd_stat.st_rdev);
 		ret++;
 	}
 	if (st.st_size != p->fd_stat.st_size) {
-		pr_err("%s: st_size differs:\n", p->mountpoint,
+		pr_err("%s: st_size differs: %ld != %ld\n", p->mountpoint,
 				st.st_size, p->fd_stat.st_size);
 		ret++;
 	}
 	if (st.st_blksize != p->fd_stat.st_blksize) {
-		pr_err("%s: st_blksize differs:\n", p->mountpoint,
+		pr_err("%s: st_blksize differs %ld != %ld:\n", p->mountpoint,
 				st.st_blksize, p->fd_stat.st_blksize);
 		ret++;
 	}
 	if (st.st_blocks != p->fd_stat.st_blocks) {
-		pr_err("%s: st_blocks differs:\n", p->mountpoint,
+		pr_err("%s: st_blocks differs: %ld != %ld\n", p->mountpoint,
 				st.st_blocks, p->fd_stat.st_blocks);
 		ret++;
 	}
@@ -244,7 +246,7 @@ static int check_automount(struct autofs_params *p)
 
 	err = check_fd(p);
 	if (err) {
-		pr_err("%d: opened file descriptor wasn't migrated properly\n",
+		pr_err("%s: opened file descriptor wasn't migrated properly\n",
 				p->mountpoint);
 		return err;
 	}
@@ -441,7 +443,7 @@ static int automountd_serve(const char *mountpoint, struct autofs_params *p,
 					getpid());
 			return -EINVAL;
 		default:
-			pr_err("unknown request type: %ld\n", packet->hdr.type);
+			pr_err("unknown request type: %d\n", packet->hdr.type);
 			return -EINVAL;
 	}
 
@@ -484,7 +486,7 @@ static int automountd_loop(int pipe, const char *mountpoint, struct autofs_param
 			return -EINVAL;
 		}
 		if (bytes != sizeof(*packet)) {
-			pr_err("read less than expected: %ld\n", bytes);
+			pr_err("read less than expected: %zd\n", bytes);
 			return -EINVAL;
 		}
 		err = automountd_serve(mountpoint, param, packet);
@@ -608,7 +610,7 @@ static int start_automounter(struct autofs_params *p)
 		return -errno;
 	}
 	if (bytes != sizeof(ret)) {
-		pr_err("received less than expected: %d. Child %d died?\n",
+		pr_err("received less than expected: %zu. Child %d died?\n",
 				bytes, p->pid);
 		return -EINVAL;
 	}

@@ -10,6 +10,7 @@ export ARCH_DIR PIE_DIR
 # General flags.
 ccflags-y		+= -fno-strict-aliasing
 ccflags-y		+= -iquote $(SRC_DIR)/criu/include
+ccflags-y		+= -iquote $(SRC_DIR)/include
 ccflags-y		+= -iquote $(SRC_DIR)/images
 ccflags-y		+= -iquote $(SRC_DIR)/criu/pie
 ccflags-y		+= -iquote $(SRC_DIR)/$(ARCH_DIR)
@@ -24,35 +25,17 @@ ifeq ($(GMON),1)
 	GMONLDOPT	:= -pg
 endif
 
-#
-# piegen tool might be disabled by hands. Don't use it until
-# you know what you're doing.
-ifneq ($(filter ia32 x86 ppc64,$(ARCH)),)
-        ifneq ($(PIEGEN),no)
-                piegen-y := y
-                export piegen-y
-        endif
-endif
-
 # msg-* printing
-include $(__nmk_dir)/msg.mk
+include $(__nmk_dir)msg.mk
 
 #
 # Needed libraries checks
 include $(SRC_DIR)/criu/Makefile.packages
 
 #
-# Configure variables.
-CONFIG_HEADER := $(obj)/include/config.h
-ifneq ($(filter-out clean mrproper,$(MAKECMDGOALS)),)
-include $(SRC_DIR)/criu/Makefile.config
-endif
-config: $(VERSION_HEADER)
-
-#
 # System calls library.
 SYSCALL-LIB		:= $(ARCH_DIR)/syscalls.built-in.o
-syscalls_lib: config
+syscalls_lib:
 	$(Q) $(MAKE) $(call build-as,Makefile.syscalls,$(ARCH_DIR)) all
 .PHONY: syscalls_lib
 
@@ -67,7 +50,7 @@ $(ARCH-LIB): syscalls_lib
 ifeq ($(piegen-y),y)
 piegen-bin		:= criu/pie/piegen/piegen
 
-criu/pie/piegen/%: config
+criu/pie/piegen/%: $(CONFIG_HEADER)
 	$(Q) CC=$(HOSTCC) LD=$(HOSTLD) CFLAGS="$(ccflags-y) $(HOSTCFLAGS) $(WARNINGS) $(DEFINES)" $(MAKE) $(build)=criu/pie/piegen $@
 $(piegen-bin): criu/pie/piegen/built-in.o
 	$(call msg-link, $@)
@@ -85,6 +68,9 @@ pie: $(piegen-bin) criu/pie/lib.a
 	$(Q) $(MAKE) $(build)=criu/pie all
 .PHONY: pie
 
+criu/pie/%: pie
+	@true
+
 #
 # CRIU executable
 PROGRAM-BUILTINS	+= criu/pie/lib.a
@@ -94,6 +80,12 @@ PROGRAM-BUILTINS	+= $(ARCH-LIB)
 
 $(obj)/built-in.o: pie
 	$(Q) $(MAKE) $(call build-as,Makefile.crtools,criu) all
+
+$(obj)/Makefile:
+	@true
+
+$(obj)/%: pie
+	$(Q) $(MAKE) $(call build-as,Makefile.crtools,criu) $@
 
 $(obj)/criu: $(PROGRAM-BUILTINS)
 	$(call msg-link, $@)
@@ -127,7 +119,6 @@ subproper:
 	$(Q) $(MAKE) $(build)=$(PIE_DIR) mrproper
 	$(Q) $(MAKE) $(build)=$(PIE_DIR)/piegen mrproper
 .PHONY: subproper
-mrproper-y     += $(CONFIG_HEADER)
 mrproper: subproper
 
 UAPI_HEADERS := $(SRC_DIR)/criu/include/criu-plugin.h
@@ -141,7 +132,6 @@ install: $(obj)/criu
 	$(Q) install -m 644 $(UAPI_HEADERS) $(DESTDIR)$(INCLUDEDIR)
 	$(Q) mkdir -p $(DESTDIR)$(LIBEXECDIR)/criu/scripts
 	$(Q) install -m 755 $(SRC_DIR)/scripts/systemd-autofs-restart.sh $(DESTDIR)$(LIBEXECDIR)/criu/scripts
-	$(Q) install -m 755 $(SRC_DIR)/scripts/nfs-ports-allow.sh $(DESTDIR)$(LIBEXECDIR)/criu/scripts
 .PHONY: install
 
 uninstall:

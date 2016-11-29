@@ -1,7 +1,7 @@
 #ifndef __CR_PSTREE_H__
 #define __CR_PSTREE_H__
 
-#include "list.h"
+#include "common/list.h"
 #include "pid.h"
 #include "images/core.pb-c.h"
 
@@ -43,11 +43,11 @@ struct dmp_info {
 	 * threads. Dumping tasks with different creds is not supported.
 	 */
 	struct proc_status_creds *pi_creds;
-
+	struct page_pipe *mem_pp;
 	struct parasite_ctl *parasite_ctl;
 };
 
-static inline struct dmp_info *dmpi(struct pstree_item *i)
+static inline struct dmp_info *dmpi(const struct pstree_item *i)
 {
 	return (struct dmp_info *)(i + 1);
 }
@@ -59,9 +59,14 @@ static inline int shared_fdtable(struct pstree_item *item)
 		item->ids->files_id == item->parent->ids->files_id);
 }
 
+static inline bool is_alive_state(int state)
+{
+	return (state == TASK_ALIVE) || (state == TASK_STOPPED);
+}
+
 static inline bool task_alive(struct pstree_item *i)
 {
-	return (i->pid.state == TASK_ALIVE) || (i->pid.state == TASK_STOPPED);
+	return is_alive_state(i->pid.state);
 }
 
 extern void free_pstree(struct pstree_item *root_item);

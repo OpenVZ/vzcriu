@@ -12,11 +12,14 @@
 
 #include <fcntl.h>
 
-#include "compiler.h"
-#include "asm/types.h"
+#include "page.h"
+#include "common/compiler.h"
 #include "util.h"
 #include "cr_options.h"
 #include "servicefd.h"
+#include "rst-malloc.h"
+#include "lock.h"
+#include "string.h"
 
 #define DEFAULT_LOGFD		STDERR_FILENO
 /* Enable timestamps if verbosity is increased from default */
@@ -70,6 +73,53 @@ static void reset_buf_off(void)
 		buf_off = TS_BUF_OFF;
 	else
 		buf_off = 0;
+}
+
+/*
+ * Keeping the very first error messsage for RPC to report back.
+ */
+struct str_and_lock {
+	mutex_t l;
+	char s[1024];
+};
+
+static struct str_and_lock *first_err;
+
+int log_keep_err(void)
+{
+	first_err = shmalloc(sizeof(struct str_and_lock));
+	if (first_err == NULL)
+		return -1;
+
+	mutex_init(&first_err->l);
+	first_err->s[0] = '\0';
+	return 0;
+}
+
+static void log_note_err(char *msg)
+{
+	if (first_err && first_err->s[0] == '\0') {
+		/*
+		 * In any action other than restore this locking is
+		 * actually not required, but ... it's error path
+		 * anyway, so it doesn't make much sence to try hard
+		 * and optimize this out.
+		 */
+		mutex_lock(&first_err->l);
+		if (first_err->s[0] == '\0')
+			strlcpy(first_err->s, msg, sizeof(first_err->s));
+		mutex_unlock(&first_err->l);
+	}
+}
+
+char *log_first_err(void)
+{
+	if (!first_err)
+		return NULL;
+	if (first_err->s[0] == '\0')
+		return NULL;
+
+	return first_err->s;
 }
 
 int log_init(const char *output)
@@ -177,6 +227,10 @@ static void __print_on_level(unsigned int loglevel, const char *format, va_list 
 			break;
 		off += ret;
 	}
+
+	if (loglevel == LOG_ERROR)
+		log_note_err(buffer + buf_off);
+
 	errno =  __errno;
 }
 
