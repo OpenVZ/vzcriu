@@ -76,16 +76,19 @@ int main(int argc, char ** argv)
 		return 1;
 	}
 
+	addr.nl_groups = 1 << (UDEV_MONITOR_TEST - 2);
+	addr.nl_pid = getpid() * 10;
+	if (bind(dsk, (struct sockaddr *) &addr, sizeof(struct sockaddr_nl))) {
+		pr_perror("bind");
+		return 1;
+	}
+
 	addr.nl_pid = getpid();;
 	addr.nl_groups = 1 << (UDEV_MONITOR_TEST - 1);
 	if (connect(csk, (struct sockaddr *) &addr, sizeof(struct sockaddr_nl))) {
 		pr_perror("connect");
 		return 1;
 	}
-
-	test_daemon();
-
-	test_waitsig();
 
 	req.hdr.nlmsg_len       = sizeof(req);
 	req.hdr.nlmsg_type      = 0x1234;
@@ -123,6 +126,11 @@ int main(int argc, char ** argv)
 		return 1;
 	}
 
+#ifndef ZDTM_NETLINK_DATA
+	test_daemon();
+	test_waitsig();
+#endif
+
 	addr.nl_family = AF_NETLINK;
 	addr.nl_groups = 0;
 	addr.nl_pid = getpid();
@@ -134,7 +142,7 @@ int main(int argc, char ** argv)
 	msg.msg_iovlen  = 1;
 
 	iov.iov_base    = (void *) &req;
-	iov.iov_len     = sizeof(req);;
+	iov.iov_len     = sizeof(req);
 
 	if (sendmsg(dsk, &msg, 0) < 0) {
 		pr_perror("Can't send request message");
@@ -142,14 +150,45 @@ int main(int argc, char ** argv)
 	}
 
 	memset(&msg, 0, sizeof(msg));
-	msg.msg_namelen = 0;
+	msg.msg_namelen = sizeof(addr);
+	msg.msg_name	= &addr;
+	msg.msg_iov     = &iov;
+	msg.msg_iovlen  = 1;
+
+	iov.iov_base    = (void *) &req;
+	iov.iov_len     = sizeof(req) - 1;
+
+	if (sendmsg(dsk, &msg, 0) < 0) {
+		pr_perror("Can't send request message");
+		return 1;
+	}
+
+#ifdef ZDTM_NETLINK_DATA
+	test_daemon();
+	test_waitsig();
+#endif
+
+	memset(&msg, 0, sizeof(msg));
+	memset(&addr, 0, sizeof(addr));
+	msg.msg_namelen = sizeof(addr);
+	msg.msg_name	= &addr;
 	msg.msg_iov     = &iov;
 	msg.msg_iovlen  = 1;
 
 	iov.iov_base    = buf;
 	iov.iov_len     = sizeof(buf);
 
-	if (recvmsg(ssk, &msg, 0) < 0) {
+	if (recvmsg(ssk, &msg, 0) != sizeof(req)) {
+		pr_perror("Can't recv request message");
+		return 1;
+	}
+
+	if (addr.nl_pid != getpid() * 10) {
+		fail("address mismatch: %x != %x size %d", addr.nl_pid, getpid(), msg.msg_namelen);
+		return 1;
+	}
+
+	if (recvmsg(ssk, &msg, 0) != sizeof(req) - 1) {
 		pr_perror("Can't recv request message");
 		return 1;
 	}
