@@ -219,8 +219,9 @@ static int resolve_rel_name(struct unix_sk_desc *sk, const struct fd_parms *p)
 
 	for (i = 0; i < ARRAY_SIZE(dirs); i++) {
 		char dir[PATH_MAX], path[PATH_MAX];
+		int ret, root_fd;
 		struct stat st;
-		int ret;
+		int errno_save;
 
 		snprintf(path, sizeof(path), "/proc/%d/%s", p->pid, dirs[i]);
 		ret = readlink(path, dir, sizeof(dir));
@@ -230,10 +231,18 @@ static int resolve_rel_name(struct unix_sk_desc *sk, const struct fd_parms *p)
 		}
 		dir[ret] = 0;
 
+		if (cr_set_root(mntns_root, &root_fd))
+			goto err;
+
 		snprintf(path, sizeof(path), ".%s/%s", dir, sk->name);
-		if (fstatat(mntns_root, path, &st, 0)) {
-			if (errno == ENOENT)
+		ret = fstatat(mntns_root, path, &st, 0);
+		errno_save = errno;
+		if (cr_restore_root(root_fd))
+			goto err;
+		if (ret) {
+			if (errno_save == ENOENT)
 				continue;
+			pr_perror("Unable to stat %s", path);
 			goto err;
 		}
 
@@ -501,11 +510,11 @@ static int unix_process_name(struct unix_sk_desc *d, const struct unix_diag_msg 
 
 	if (name[0] != '\0') {
 		struct unix_diag_vfs *uv;
+		int mntns_root, root_fd;
 		bool deleted = false;
 		char rpath[PATH_MAX];
 		struct ns_id *ns;
 		struct stat st;
-		int mntns_root;
 
 		if (!tb[UNIX_DIAG_VFS]) {
 			pr_err("Bound socket w/o inode %#x\n", m->udiag_ino);
@@ -542,11 +551,19 @@ static int unix_process_name(struct unix_sk_desc *d, const struct unix_diag_msg 
 			goto postprone;
 		}
 
+		ret = cr_set_root(mntns_root, &root_fd);
+		if (ret)
+			goto out;
+
 		snprintf(rpath, sizeof(rpath), ".%s", name);
-		if (fstatat(mntns_root, rpath, &st, 0)) {
+		ret = fstatat(mntns_root, rpath, &st, 0);
+		if (ret) {
 			if (errno != ENOENT) {
 				pr_warn("Can't stat socket %#x(%s), skipping: %m (err %d)\n",
 					m->udiag_ino, rpath, errno);
+				ret = cr_restore_root(root_fd);
+				if (ret)
+					goto out;
 				goto skip;
 			}
 
@@ -561,6 +578,10 @@ static int unix_process_name(struct unix_sk_desc *d, const struct unix_diag_msg 
 				(int)uv->udiag_vfs_dev, (int)uv->udiag_vfs_ino);
 			deleted = true;
 		}
+
+		ret = cr_restore_root(root_fd);
+		if (ret)
+			goto out;
 
 		d->mode = st.st_mode;
 		d->uid	= st.st_uid;
