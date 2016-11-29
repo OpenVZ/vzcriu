@@ -119,6 +119,7 @@ TST_NOFILE	:=				\
 		sigpending			\
 		sigaltstack			\
 		sk-netlink			\
+		sk-netlink02			\
 		mem-touch			\
 		grow_map			\
 		grow_map02			\
@@ -414,6 +415,7 @@ stopped01:	override CFLAGS += -DZDTM_STOPPED_KILL
 stopped02:	override CFLAGS += -DZDTM_STOPPED_TKILL
 stopped12:	override CFLAGS += -DZDTM_STOPPED_KILL -DZDTM_STOPPED_TKILL
 clone_fs:		override LDLIBS += -pthread
+sk-netlink02:	override CFLAGS += -DZDTM_NETLINK_DATA
 
 $(LIB):	force
 	$(Q) $(MAKE) -C $(LIBDIR)
