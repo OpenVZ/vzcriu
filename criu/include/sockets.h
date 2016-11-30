@@ -36,6 +36,7 @@ extern int collect_sockets(struct ns_id *);
 extern int collect_inet_sockets(void);
 extern struct collect_image_info unix_sk_cinfo;
 extern int fix_external_unix_sockets(void);
+extern int prepare_shared_unix(void);
 
 extern struct collect_image_info netlink_sk_cinfo;
 
@@ -79,6 +80,14 @@ static inline int sk_decode_shutdown(int val)
 
 #ifndef NETLINK_SOCK_DIAG
 #define NETLINK_SOCK_DIAG NETLINK_INET_DIAG
+#endif
+
+#ifndef NETLINK_REPAIR
+#define NETLINK_REPAIR                  11
+#endif
+
+#ifndef SOL_NETLINK
+#define SOL_NETLINK			270
 #endif
 
 #endif /* __CR_SOCKETS_H__ */

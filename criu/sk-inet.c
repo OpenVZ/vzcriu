@@ -94,7 +94,7 @@ static void show_one_inet_img(const char *act, const InetSkEntry *e)
 		e->state, src_addr);
 }
 
-static int can_dump_ipproto(int ino, int proto)
+static int can_dump_ipproto(int ino, int proto, int type)
 {
 	/* Make sure it's a proto we support */
 	switch (proto) {
@@ -104,8 +104,12 @@ static int can_dump_ipproto(int ino, int proto)
 	case IPPROTO_UDPLITE:
 		break;
 	default:
-		pr_err("Unsupported proto %d for socket %x\n", proto, ino);
-		return 0;
+		/* Raw sockets may have any protocol inside */
+		if (type != SOCK_RAW) {
+			pr_err("Unsupported proto %d (type %d) for socket %x\n",
+			       proto, type, ino);
+			return 0;
+		}
 	}
 
 	return 1;
@@ -135,9 +139,9 @@ static int can_dump_inet_sk(const struct inet_sk_desc *sk)
 		return 1;
 	}
 
-	if (sk->type != SOCK_STREAM) {
+	if (sk->type != SOCK_STREAM && sk->type != SOCK_RAW) {
 		pr_err("Can't dump %d inet socket %x. "
-				"Only can stream and dgram.\n",
+				"Only can stream, dgram and raw.\n",
 				sk->type, sk->sd.ino);
 		return 0;
 	}
@@ -240,12 +244,24 @@ err:
 	return NULL;
 }
 
-static int dump_ip_opts(int sk, IpOptsEntry *ioe)
+
+static int dump_ip_opts(int family, int type, int sk, IpOptsEntry *ioe)
 {
 	int ret = 0;
 
-	ret |= dump_opt(sk, SOL_IP, IP_FREEBIND, &ioe->freebind);
-	ioe->has_freebind = ioe->freebind;
+	if (type == SOCK_RAW) {
+		if (family == AF_INET6) {
+			ret |= dump_opt(sk, SOL_IPV6, IPV6_HDRINCL, &ioe->hdrincl);
+		} else {
+			ret |= dump_opt(sk, SOL_IP, IP_HDRINCL, &ioe->hdrincl);
+			ret |= dump_opt(sk, SOL_IP, IP_NODEFRAG, &ioe->nodefrag);
+			ioe->has_nodefrag = ioe->nodefrag;
+		}
+		ioe->has_hdrincl = ioe->hdrincl;
+	} else {
+		ret |= dump_opt(sk, SOL_IP, IP_FREEBIND, &ioe->freebind);
+		ioe->has_freebind = ioe->freebind;
+	}
 
 	return ret;
 }
@@ -275,14 +291,18 @@ static int do_dump_one_inet_fd(int lfd, u32 id, const struct fd_parms *p, int fa
 	InetSkEntry ie = INET_SK_ENTRY__INIT;
 	IpOptsEntry ipopts = IP_OPTS_ENTRY__INIT;
 	SkOptsEntry skopts = SK_OPTS_ENTRY__INIT;
-	int ret = -1, err = -1, proto;
+	int ret = -1, err = -1, proto, type;
 
 	ret = do_dump_opt(lfd, SOL_SOCKET, SO_PROTOCOL,
 					&proto, sizeof(proto));
 	if (ret)
 		goto err;
+	ret = do_dump_opt(lfd, SOL_SOCKET, SO_TYPE,
+			  &type, sizeof(type));
+	if (ret)
+		goto err;
 
-	if (!can_dump_ipproto(p->stat.st_ino, proto))
+	if (!can_dump_ipproto(p->stat.st_ino, proto, type))
 		goto err;
 
 	sk = (struct inet_sk_desc *)lookup_socket(p->stat.st_ino, family, proto);
@@ -359,7 +379,7 @@ static int do_dump_one_inet_fd(int lfd, u32 id, const struct fd_parms *p, int fa
 	memcpy(ie.src_addr, sk->src_addr, pb_repeated_size(&ie, src_addr));
 	memcpy(ie.dst_addr, sk->dst_addr, pb_repeated_size(&ie, dst_addr));
 
-	if (dump_ip_opts(lfd, &ipopts))
+	if (dump_ip_opts(family, sk->type, lfd, &ipopts))
 		goto err;
 
 	if (dump_socket_opts(lfd, &skopts))
@@ -376,7 +396,7 @@ static int do_dump_one_inet_fd(int lfd, u32 id, const struct fd_parms *p, int fa
 
 	switch (proto) {
 	case IPPROTO_TCP:
-		err = dump_one_tcp(lfd, sk);
+		err = (sk->type != SOCK_RAW) ? dump_one_tcp(lfd, sk) : 0;
 		break;
 	default:
 		err = 0;
@@ -540,12 +560,18 @@ static int post_open_inet_sk(struct file_desc *d, int sk)
 	return 0;
 }
 
-int restore_ip_opts(int sk, IpOptsEntry *ioe)
+int restore_ip_opts(int family, int sk, IpOptsEntry *ioe)
 {
 	int ret = 0;
 
 	if (ioe->has_freebind)
 		ret |= restore_opt(sk, SOL_IP, IP_FREEBIND, &ioe->freebind);
+	if (ioe->has_nodefrag)
+		ret |= restore_opt(sk, SOL_IP, IP_NODEFRAG, &ioe->nodefrag);
+	if (ioe->has_hdrincl)
+		ret |= restore_opt(sk, family == AF_INET6 ? SOL_IPV6 : SOL_IP,
+				   family == AF_INET6 ? IPV6_HDRINCL : IP_HDRINCL,
+				   &ioe->hdrincl);
 
 	return ret;
 }
@@ -565,7 +591,7 @@ static int open_inet_sk(struct file_desc *d)
 		return -1;
 	}
 
-	if ((ie->type != SOCK_STREAM) && (ie->type != SOCK_DGRAM)) {
+	if ((ie->type != SOCK_STREAM) && (ie->type != SOCK_DGRAM) && (ie->type != SOCK_RAW)) {
 		pr_err("Unsupported socket type: %d\n", ie->type);
 		return -1;
 	}
@@ -641,7 +667,7 @@ done:
 	if (rst_file_params(sk, ie->fown, ie->flags))
 		goto err;
 
-	if (ie->ip_opts && restore_ip_opts(sk, ie->ip_opts))
+	if (ie->ip_opts && restore_ip_opts(ie->family, sk, ie->ip_opts))
 		goto err;
 
 	if (restore_socket_opts(sk, ie->opts))
@@ -713,7 +739,7 @@ int inet_bind(int sk, struct inet_sk_info *ii)
 	 * sockets could not be bound to them in this moment
 	 * without setting IP_FREEBIND.
 	 */
-	if (ii->ie->family == AF_INET6) {
+	if (ii->ie->family == AF_INET6 && ii->ie->proto != IPPROTO_RAW) {
 		int yes = 1;
 
 		if (restore_opt(sk, SOL_IP, IP_FREEBIND, &yes))

@@ -247,7 +247,13 @@ static inline bool issubpath(const char *path, const char *sub_path)
 /*
  * mkdir -p
  */
-int mkdirpat(int fd, const char *path);
+int mkdirpat(int fd, const char *path, int mode);
+/*
+ * mkdir -p `dirname $path`
+ */
+int mkdirname(const char *path);
+
+int rmdirp(const char *path, size_t keep);
 
 /*
  * Tests whether a path is a prefix of another path. This is different than
@@ -277,6 +283,8 @@ void print_data(unsigned long addr, unsigned char *data, size_t size);
 int setup_tcp_server(char *type);
 int run_tcp_server(bool daemon_mode, int *ask, int cfd, int sk);
 int setup_tcp_client(char *addr);
+int cr_set_root(int fd, int *old_root);
+int cr_restore_root(int fd);
 
 #define LAST_PID_PATH		"sys/kernel/ns_last_pid"
 #define PID_MAX_PATH		"sys/kernel/pid_max"

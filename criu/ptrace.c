@@ -7,6 +7,7 @@
 #include <stdbool.h>
 #include <limits.h>
 #include <signal.h>
+#include <fcntl.h>
 
 #include <sys/ptrace.h>
 #include <sys/types.h>
@@ -22,6 +23,45 @@
 #include "proc_parse.h"
 #include "seccomp.h"
 #include "cr_options.h"
+#include "criu-log.h"
+
+char *task_comm_info(pid_t pid, char *comm, size_t size)
+{
+	int ret = 0;
+
+	if (!pr_quelled(LOG_INFO)) {
+		int saved_errno = errno;
+		char path[64];
+		int fd;
+
+		snprintf(path, sizeof(path), "/proc/%d/comm", pid);
+		fd = open(path, O_RDONLY);
+		if (fd >= 0) {
+			ssize_t n = read(fd, comm, size);
+			if (n > 0)
+				comm[n-1] = '\0';
+			else
+				ret = -1;
+			close(fd);
+		} else
+			ret = -1;
+		errno = saved_errno;
+	}
+
+	if (ret || (pr_quelled(LOG_INFO) && comm[0]))
+		comm[0] = '\0';
+
+	return comm;
+}
+
+/*
+ * NOTE: Don't run simultaneously, it uses local static buffer!
+ */
+char *__task_comm_info(pid_t pid)
+{
+	static char comm[32];
+	return task_comm_info(pid, comm, sizeof(comm));
+}
 
 int unseize_task(pid_t pid, int orig_st, int st)
 {
@@ -79,7 +119,8 @@ int seize_catch_task(pid_t pid)
 		 * attaching to zombie from other errors.
 		 * All errors will be handled in seize_wait_task().
 		 */
-		pr_warn("Unable to interrupt task: %d (%s)\n", pid, strerror(errno));
+		pr_warn("Unable to interrupt task: %d (comm %s) (%s)\n",
+			pid, __task_comm_info(pid), strerror(errno));
 		return ret;
 	}
 
@@ -94,7 +135,8 @@ int seize_catch_task(pid_t pid)
 	 */
 	ret = ptrace(PTRACE_INTERRUPT, pid, NULL, NULL);
 	if (ret < 0) {
-		pr_warn("SEIZE %d: can't interrupt task: %s", pid, strerror(errno));
+		pr_warn("SEIZE %d (comm %s): can't interrupt task: %s",
+			pid, __task_comm_info(pid), strerror(errno));
 		if (ptrace(PTRACE_DETACH, pid, NULL, NULL))
 			pr_perror("Unable to detach from %d", pid);
 	}

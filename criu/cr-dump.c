@@ -373,11 +373,19 @@ static int dump_filemap(struct vma_area *vma_area, int fd)
 	struct fd_parms p = FD_PARMS_INIT;
 	VmaEntry *vma = vma_area->e;
 	int ret = 0;
+	struct statfs fst;
 	u32 id;
 
 	BUG_ON(!vma_area->vmst);
 	p.stat = *vma_area->vmst;
 	p.mnt_id = vma_area->mnt_id;
+
+	if (fstatfs(fd, &fst)) {
+		pr_perror("Unable to statfs fd %d", fd);
+		return -1;
+	}
+
+	p.fs_type = fst.f_type;
 
 	/*
 	 * AUFS support to compensate for the kernel bug
@@ -1114,7 +1122,7 @@ static int pre_dump_one_task(struct pstree_item *item)
 	vmas.nr = 0;
 
 	pr_info("========================================\n");
-	pr_info("Pre-dumping task (pid: %d)\n", pid);
+	pr_info("Pre-dumping task (pid: %d comm: %s)\n", pid, __task_comm_info(pid));
 	pr_info("========================================\n");
 
 	if (item->pid.state == TASK_STOPPED) {
@@ -1193,7 +1201,7 @@ static int dump_one_task(struct pstree_item *item)
 	vmas.nr = 0;
 
 	pr_info("========================================\n");
-	pr_info("Dumping task (pid: %d)\n", pid);
+	pr_info("Dumping task (pid: %d comm: %s)\n", pid, __task_comm_info(pid));
 	pr_info("========================================\n");
 
 	if (item->pid.state == TASK_DEAD)
@@ -1648,7 +1656,7 @@ int cr_dump_tasks(pid_t pid)
 	int ret = -1;
 
 	pr_info("========================================\n");
-	pr_info("Dumping processes (pid: %d)\n", pid);
+	pr_info("Dumping processes (pid: %d comm: %s)\n", pid, __task_comm_info(pid));
 	pr_info("========================================\n");
 
 	root_item = alloc_pstree_item();

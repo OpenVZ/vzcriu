@@ -63,6 +63,7 @@ TST_NOFILE	:=				\
 		sockets_spair			\
 		socket_queues			\
 		socket_queues02			\
+		socket-raw			\
 		socket-tcp			\
 		socket-tcp6			\
 		socket-tcp-local		\
@@ -119,6 +120,7 @@ TST_NOFILE	:=				\
 		sigpending			\
 		sigaltstack			\
 		sk-netlink			\
+		sk-netlink02			\
 		mem-touch			\
 		grow_map			\
 		grow_map02			\
@@ -258,6 +260,7 @@ TST_DIR		=				\
 		mnt_enablefs			\
 		autofs				\
 		del_standalone_un		\
+		del_standalone_un_dentry	\
 
 TST_DIR_FILE	=				\
 		chroot				\
@@ -414,6 +417,7 @@ stopped01:	override CFLAGS += -DZDTM_STOPPED_KILL
 stopped02:	override CFLAGS += -DZDTM_STOPPED_TKILL
 stopped12:	override CFLAGS += -DZDTM_STOPPED_KILL -DZDTM_STOPPED_TKILL
 clone_fs:		override LDLIBS += -pthread
+sk-netlink02:	override CFLAGS += -DZDTM_NETLINK_DATA
 
 $(LIB):	force
 	$(Q) $(MAKE) -C $(LIBDIR)
