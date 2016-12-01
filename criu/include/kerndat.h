@@ -36,6 +36,7 @@ struct kerndat_s {
 	bool has_loginuid;
 	enum pagemap_func pmap;
 	unsigned int has_xtlocks;
+	bool has_tcp_half_closed;
 };
 
 extern struct kerndat_s kdat;
@@ -58,5 +59,6 @@ extern int kerndat_fs_virtualized(unsigned int which, u32 kdev);
 
 extern int kerndat_tcp_repair_window();
 extern int kerndat_nl_repair();
+extern int kerndat_tcp_repair();
 
 #endif /* __CR_KERNDAT_H__ */

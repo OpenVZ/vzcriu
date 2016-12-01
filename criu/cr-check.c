@@ -920,6 +920,22 @@ static int check_cgroupns(void)
 	return 0;
 }
 
+static int check_tcp_halt_closed(void)
+{
+	int ret;
+
+	ret = kerndat_tcp_repair();
+	if (ret < 0)
+		return -1;
+
+	if (!kdat.has_tcp_half_closed) {
+		pr_err("TCP_REPAIR can't be enabled for half-closed sockets\n");
+		return -1;
+	}
+
+	return 0;
+}
+
 static int check_tcp_window(void)
 {
 	int ret;
@@ -1049,6 +1065,7 @@ int cr_check(void)
 		ret |= check_clone_parent_vs_pid();
 		ret |= check_cgroupns();
 		ret |= check_tcp_window();
+		ret |= check_tcp_halt_closed();
 	}
 
 	/*
@@ -1130,6 +1147,7 @@ static struct feature_list feature_list[] = {
 	{ "cgroupns", check_cgroupns },
 	{ "autofs", check_autofs },
 	{ "nl_repair", check_nl_repair },
+	{ "tcp_half_closed", check_tcp_halt_closed },
 	{ NULL, NULL },
 };
 
