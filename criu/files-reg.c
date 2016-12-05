@@ -839,14 +839,6 @@ static int dump_ghost_remap_type(char *path, const struct stat *st,
 	RemapFilePathEntry rpe = REMAP_FILE_PATH_ENTRY__INIT;
 	dev_t phys_dev;
 
-	pr_info("Dumping ghost file for fd %d id %#x\n", lfd, id);
-
-	if (st->st_size > opts.ghost_limit) {
-		pr_err("Can't dump ghost file %s of %"PRIu64" size, increase limit\n",
-				path, st->st_size);
-		return -1;
-	}
-
 	phys_dev = phys_stat_resolve_dev(nsid, st->st_dev, path);
 	list_for_each_entry(gf, &ghost_files, list)
 		if ((gf->dev == phys_dev) && (gf->ino == st->st_ino))
@@ -877,6 +869,14 @@ dump_entry:
 static int dump_ghost_remap(char *path, const struct stat *st,
 			    int lfd, u32 id, struct ns_id *nsid)
 {
+	pr_info("Dumping ghost file for fd %d id %#x\n", lfd, id);
+
+	if (st->st_size > opts.ghost_limit) {
+		pr_err("Can't dump ghost file %s of %"PRIu64" size, increase limit\n",
+				path, st->st_size);
+		return -1;
+	}
+
 	return dump_ghost_remap_type(path, st, lfd, id, nsid, REMAP_TYPE__GHOST, true);
 }
 
@@ -1033,6 +1033,7 @@ static int dump_linked_remap(char *path, int len, const struct stat *ost,
 static int dump_spfs_remap(char *path, const struct stat *st,
 				int lfd, u32 id, struct ns_id *nsid)
 {
+	pr_info("Dumping SPFS path for fd %d id %#x [%s]\n", lfd, id, path);
 	return dump_ghost_remap_type(path, st, lfd, id, nsid, REMAP_TYPE__SPFS, false);
 }
 
@@ -1264,7 +1265,6 @@ static int check_path_remap(struct fd_link *link, const struct fd_parms *parms,
 	}
 
 	if (spfs_file(parms, nsid)) {
-		pr_debug("Dump SPFS file remap for %x [%s]\n", id, rpath + 1);
 		if (dump_spfs_remap(rpath + 1, ost, lfd, id, nsid))
 			return -1;
 	}
