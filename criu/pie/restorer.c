@@ -404,8 +404,19 @@ static int restore_seccomp(struct task_restore_args *args)
 			 */
 			ret = sys_seccomp(SECCOMP_SET_MODE_FILTER, SECCOMP_FILTER_FLAG_TSYNC, (char *) fprog);
 			if (ret < 0) {
-				pr_err("sys_seccomp() returned %d\n", ret);
-				goto die;
+				if (ret == -ENOSYS) {
+					pr_debug("sys_seccomp is not supported in kernel, "
+						 "switching to prctl interface\n");
+					ret = sys_prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER,
+							(long)(void *)fprog, 0, 0);
+					if (ret) {
+						pr_err("sys_prctl(PR_SET_SECCOMP) returned %d\n", ret);
+						goto die;
+					}
+				} else {
+					pr_err("sys_seccomp() returned %d\n", ret);
+					goto die;
+				}
 			}
 
 			filter_data += fprog->len * sizeof(struct sock_filter);
