@@ -1977,6 +1977,37 @@ err:
 	return ret;
 }
 
+static long restorer_get_mmap_min_addr(void)
+{
+	/* CONFIG_LSM_MMAP_MIN_ADDR=65536 */
+	static const long default_mmap_min_addr = PAGE_SIZE * 0x10;
+	static const char path[] = "/proc/sys/vm/mmap_min_addr";
+	static long mmap_min_addr = 0;
+	char buf[128];
+	int ret, fd;
+
+	if (mmap_min_addr)
+		return mmap_min_addr;
+
+	fd = open(path, O_RDONLY);
+	if (fd < 0) {
+		pr_perror("Can't open %s, switching to default", path);
+		return default_mmap_min_addr;
+	}
+
+	ret = read(fd, buf, sizeof(buf));
+	if (ret < 0) {
+		pr_perror("Can't read %s, switching to default", path);
+		close(fd);
+		return default_mmap_min_addr;
+	}
+	close(fd);
+
+	mmap_min_addr = atol(buf);
+	pr_debug("Obtained %#lx as mmap_min_addr\n", mmap_min_addr);
+	return mmap_min_addr;
+}
+
 static long restorer_get_vma_hint(struct list_head *tgt_vma_list,
 		struct list_head *self_vma_list, long vma_len)
 {
@@ -1987,7 +2018,7 @@ static long restorer_get_vma_hint(struct list_head *tgt_vma_list,
 
 	end_vma.e = &end_e;
 	end_e.start = end_e.end = kdat.task_size;
-	prev_vma_end = PAGE_SIZE * 0x10; /* CONFIG_LSM_MMAP_MIN_ADDR=65536 */
+	prev_vma_end = restorer_get_mmap_min_addr();
 
 	s_vma = list_first_entry(self_vma_list, struct vma_area, list);
 	t_vma = list_first_entry(tgt_vma_list, struct vma_area, list);
