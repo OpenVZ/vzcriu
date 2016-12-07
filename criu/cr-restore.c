@@ -1996,7 +1996,8 @@ static long restorer_get_mmap_min_addr(void)
 	}
 
 	ret = read(fd, buf, sizeof(buf));
-	if (ret < 0) {
+	/* Al least it should be 4096, or something */
+	if (ret < 4) {
 		pr_perror("Can't read %s, switching to default", path);
 		close(fd);
 		return default_mmap_min_addr;
@@ -2005,6 +2006,11 @@ static long restorer_get_mmap_min_addr(void)
 
 	mmap_min_addr = atol(buf);
 	pr_debug("Obtained %#lx as mmap_min_addr\n", mmap_min_addr);
+	if (mmap_min_addr < default_mmap_min_addr) {
+		pr_debug("Adjust %#lx -> %#lx\n", mmap_min_addr, default_mmap_min_addr);
+		mmap_min_addr = default_mmap_min_addr;
+	}
+
 	return mmap_min_addr;
 }
 
