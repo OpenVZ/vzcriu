@@ -713,8 +713,10 @@ again:
 			ret = 0;
 		else if (xfer.parent && page_in_parent(pgstate == PST_DIRTY))
 			ret = page_pipe_add_hole(pp, pgaddr);
-		else
+		else if (pgstate != PST_ZERO)
 			ret = page_pipe_add_page(pp, pgaddr);
+		else
+			ret = 0;
 
 		if (ret == -EAGAIN) {
 			ret = dump_pages(pp, &xfer, addr);
