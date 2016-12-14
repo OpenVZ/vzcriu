@@ -84,6 +84,261 @@
 #include "fault-injection.h"
 #include "dump.h"
 
+typedef struct {
+	const char	*name;
+	const char	fmt_barrier[64];
+	const char	fmt_limit[64];
+	unsigned long	barrier;
+	unsigned long	limit;
+} bc_val_t;
+
+#define declare_ub(_u, _b, _l)							\
+	{									\
+		.name		= __stringify_1(_u),				\
+		.fmt_barrier	= "beancounter." __stringify_1(_u) ".barrier",	\
+		.fmt_limit	= "beancounter." __stringify_1(_u) ".limit",	\
+		.barrier	= _b,						\
+		.limit		= _l,						\
+	}
+
+#define declare_ub_unlimited(_u)						\
+	declare_ub(_u, LONG_MAX, LONG_MAX)
+
+static bc_val_t bc_vals[] = {
+	declare_ub_unlimited(lockedpages),
+	declare_ub_unlimited(privvmpages),
+	declare_ub_unlimited(shmpages),
+	declare_ub_unlimited(numproc),
+	declare_ub_unlimited(vmguarpages),
+	declare_ub_unlimited(numflock),
+	declare_ub_unlimited(numpty),
+	declare_ub_unlimited(numsiginfo),
+	declare_ub_unlimited(numfile),
+	declare_ub_unlimited(numiptent),
+};
+
+typedef struct {
+	const char	*name;
+	unsigned long	value;
+} memcg_val_t;
+
+static memcg_val_t memcg_vals[] = {
+	{
+		.name		= "memory.memsw.limit_in_bytes",
+		.value		= LONG_MAX,
+	}, {
+		.name		= "memory.limit_in_bytes",
+		.value		= LONG_MAX,
+	},
+};
+
+#define VE_BC_STATUS_UNDEF	0
+#define VE_BC_STATUS_READ	1
+#define VE_BC_STATUS_UNLIMITED	2
+
+typedef struct {
+	char		veid[512];
+	unsigned int	status;
+
+	int		bc_dirfd;
+	bc_val_t	*bc_vals;
+	size_t		nr_bc_vals;
+
+	int		memcg_dirfd;
+	memcg_val_t	*memcg_vals;
+	size_t		nr_memcg_vals;
+} bc_set_t;
+
+static bc_set_t bc_set = {
+	.bc_vals	= bc_vals,
+	.nr_bc_vals	= ARRAY_SIZE(bc_vals),
+	.memcg_vals	= memcg_vals,
+	.nr_memcg_vals	= ARRAY_SIZE(memcg_vals),
+	.bc_dirfd	= -1,
+	.memcg_dirfd	= -1,
+};
+
+extern char *get_dumpee_veid(pid_t pid_real);
+
+static int __maybe_unused ve_read_cg(int dirfd, const char *path, unsigned long *value)
+{
+	int fd, ret = -1;
+	char buf[256];
+
+	fd = openat(dirfd, path, O_RDONLY);
+	if (fd < 0) {
+		pr_perror("ubc: Can't open %s", path);
+		goto out;
+	}
+
+	ret = read(fd, buf, sizeof(buf));
+	close(fd);
+	if (ret <= 0) {
+		ret = -1;
+		pr_perror("ubc: Can't read %s", path);
+		goto out;
+	}
+	*value = atol(buf);
+	ret = 0;
+out:
+	return ret;
+}
+
+static int __maybe_unused ve_write_cg(int dirfd, const char *path, unsigned long value)
+{
+	int fd, ret = -1;
+	char buf[256];
+
+	fd = openat(dirfd, path, O_RDWR);
+	if (fd < 0) {
+		pr_perror("ubc: Can't open %s", path);
+		goto out;
+	}
+
+	snprintf(buf, sizeof(buf), "%lu", value);
+	ret = write(fd, buf, strlen(buf));
+	close(fd);
+	if (ret <= 0) {
+		ret = -1;
+		pr_perror("ubc: Can't write %s", path);
+		goto out;
+	}
+	ret = 0;
+out:
+	return ret;
+}
+
+static void __maybe_unused ve_bc_read(pid_t pid, bc_set_t *bc_set)
+{
+	char *veid = get_dumpee_veid(pid);
+	char path[PATH_MAX];
+	int i;
+
+	if (IS_ERR_OR_NULL(veid)) {
+		pr_err("ubc: Can't fetch VEID of a dumpee %d\n", pid);
+		return;
+	}
+	strlcpy(bc_set->veid, veid, sizeof(bc_set->veid));
+
+	pr_debug("ubc: reading %s\n", bc_set->veid);
+
+	snprintf(path, sizeof(path), "/sys/fs/cgroup/beancounter/%s", veid);
+	bc_set->bc_dirfd = open(path, O_DIRECTORY | O_PATH);
+	if (bc_set->bc_dirfd < 0) {
+		pr_perror("ubc: Can't open %s", path);
+		return;
+	}
+
+	snprintf(path, sizeof(path), "/sys/fs/cgroup/memory/machine.slice/%s", veid);
+	bc_set->memcg_dirfd = open(path, O_DIRECTORY | O_PATH);
+	if (bc_set->memcg_dirfd < 0) {
+		pr_perror("ubc: Can't open %s", path);
+		return;
+	}
+
+	for (i = 0; i < bc_set->nr_bc_vals; i++) {
+		if (ve_read_cg(bc_set->bc_dirfd,
+			       bc_set->bc_vals[i].fmt_barrier,
+			       &bc_set->bc_vals[i].barrier) ||
+		    ve_read_cg(bc_set->bc_dirfd,
+			       bc_set->bc_vals[i].fmt_limit,
+			       &bc_set->bc_vals[i].limit))
+			return;
+
+		pr_debug("ubc: %s: %s: barrier %lu limit %lu\n",
+			 veid, bc_set->bc_vals[i].name,
+			 bc_set->bc_vals[i].barrier,
+			 bc_set->bc_vals[i].limit);
+	}
+
+	for (i = 0; i < bc_set->nr_memcg_vals; i++) {
+		if (ve_read_cg(bc_set->memcg_dirfd,
+			       bc_set->memcg_vals[i].name,
+			       &bc_set->memcg_vals[i].value))
+			return;
+
+		pr_debug("ubc: %s: %s: %lu\n",
+			 veid, bc_set->memcg_vals[i].name,
+			 bc_set->memcg_vals[i].value);
+	}
+
+
+	pr_debug("ubc: read %s\n", bc_set->veid);
+	bc_set->status |= VE_BC_STATUS_READ;
+}
+
+static void __maybe_unused ve_bc_unlimit(bc_set_t *bc_set)
+{
+	int i, j;
+
+	if (!(bc_set->status & VE_BC_STATUS_READ))
+		return;
+
+	pr_debug("ubc: unlimiting %s\n", bc_set->veid);
+
+	for (i = 0; i < bc_set->nr_bc_vals; i++) {
+		if (ve_write_cg(bc_set->bc_dirfd,
+				bc_set->bc_vals[i].fmt_barrier,
+				LONG_MAX) ||
+		    ve_write_cg(bc_set->bc_dirfd,
+				bc_set->bc_vals[i].fmt_limit,
+				LONG_MAX)) {
+			pr_err("ubc: Can't unlimit %s/%s for %s\n",
+			       bc_set->bc_vals[i].fmt_barrier,
+			       bc_set->bc_vals[i].fmt_limit,
+			       bc_set->veid);
+			for (j = i; j >= 0; j--) {
+				ve_write_cg(bc_set->bc_dirfd,
+					    bc_set->bc_vals[j].fmt_barrier,
+					    bc_set->bc_vals[j].barrier);
+				ve_write_cg(bc_set->bc_dirfd,
+					    bc_set->bc_vals[j].fmt_limit,
+					    bc_set->bc_vals[j].limit);
+			}
+			return;
+		}
+	}
+
+	for (i = 0; i < bc_set->nr_memcg_vals; i++) {
+		if (ve_write_cg(bc_set->memcg_dirfd,
+				bc_set->memcg_vals[i].name,
+				LONG_MAX)) {
+			pr_err("ubc: Can't unlimit %s for %s\n",
+			       bc_set->memcg_vals[i].name,
+			       bc_set->veid);
+			for (j = i; j >= 0; j--) {
+				ve_write_cg(bc_set->memcg_dirfd,
+				bc_set->memcg_vals[i].name,
+				bc_set->memcg_vals[i].value);
+			}
+			return;
+		}
+	}
+
+	pr_debug("ubc: unlimited %s\n", bc_set->veid);
+	bc_set->status |= VE_BC_STATUS_UNLIMITED;
+}
+
+static void __maybe_unused ve_bc_finish(bc_set_t *bc_set)
+{
+	int i;
+
+	pr_debug("ubc: restore limits %s\n", bc_set->veid);
+
+	if (!(bc_set->status & VE_BC_STATUS_UNLIMITED))
+		return;
+
+	for (i = 0; i < bc_set->nr_bc_vals; i++) {
+		ve_write_cg(bc_set->bc_dirfd,
+			    bc_set->bc_vals[i].fmt_barrier,
+			    bc_set->bc_vals[i].barrier);
+		ve_write_cg(bc_set->bc_dirfd,
+			    bc_set->bc_vals[i].fmt_limit,
+			    bc_set->bc_vals[i].limit);
+	}
+	pr_debug("ubc: restored %s\n", bc_set->veid);
+}
+
 static char loc_buf[PAGE_SIZE];
 
 void free_mappings(struct vm_area_list *vma_area_list)
@@ -1441,6 +1696,8 @@ static int cr_pre_dump_finish(int ret)
 {
 	struct pstree_item *item;
 
+	ve_bc_finish(&bc_set);
+
 	pstree_switch_state(root_item, TASK_ALIVE);
 
 	timing_stop(TIME_FROZEN);
@@ -1505,6 +1762,8 @@ int cr_pre_dump_tasks(pid_t pid)
 	struct pstree_item *item;
 	int ret = -1;
 
+	ve_bc_read(pid, &bc_set);
+
 	root_item = alloc_pstree_item();
 	if (!root_item)
 		goto err;
@@ -1553,6 +1812,8 @@ int cr_pre_dump_tasks(pid_t pid)
 	if (collect_namespaces(false) < 0)
 		goto err;
 
+	ve_bc_unlimit(&bc_set);
+
 	for_each_pstree_item(item)
 		if (pre_dump_one_task(item))
 			goto err;
@@ -1572,6 +1833,8 @@ err:
 static int cr_dump_finish(int ret)
 {
 	int post_dump_ret = 0;
+
+	ve_bc_finish(&bc_set);
 
 	if (disconnect_from_page_server())
 		ret = -1;
@@ -1656,6 +1919,8 @@ int cr_dump_tasks(pid_t pid)
 	int pre_dump_ret = 0;
 	int ret = -1;
 
+	ve_bc_read(pid, &bc_set);
+
 	pr_info("========================================\n");
 	pr_info("Dumping processes (pid: %d comm: %s)\n", pid, __task_comm_info(pid));
 	pr_info("========================================\n");
@@ -1738,6 +2003,8 @@ int cr_dump_tasks(pid_t pid)
 
 	if (collect_seccomp_filters() < 0)
 		goto err;
+
+	ve_bc_unlimit(&bc_set);
 
 	for_each_pstree_item(item) {
 		if (dump_one_task(item))
