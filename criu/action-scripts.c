@@ -12,6 +12,7 @@
 #include "action-scripts.h"
 #include "pstree.h"
 #include "common/bug.h"
+#include "util.h"
 #include "spfs.h"
 
 static const char *action_names[ACT_MAX] = {
@@ -85,8 +86,13 @@ static int run_shell_scripts(const char *action)
 	}
 
 	list_for_each_entry(script, &scripts, node) {
+		int err;
 		pr_debug("\t[%s]\n", script->path);
-		ret |= system(script->path);
+		err = cr_system(-1, -1, -1, script->path,
+				(char *[]) { script->path, NULL }, 0);
+		if (err)
+			pr_err("Script %s exited with %d\n", script->path, err);
+		ret |= err;
 	}
 
 	unsetenv("CRTOOLS_SCRIPT_ACTION");
