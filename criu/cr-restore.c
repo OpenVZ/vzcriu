@@ -1750,6 +1750,45 @@ static int create_children_and_session(void)
 	return 0;
 }
 
+/*
+ * To eliminate overhead we don't parse VE cgroup mountpoint
+ * but presume to find it in known place. Otherwise simply
+ * don't enter into veX with one warning.
+ */
+int join_ve(bool veX)
+{
+	static const char ve0_tasks_path[] = "/sys/fs/cgroup/ve/tasks";
+	int veX_fd, exit_code = -1;
+	pid_t pid = getpid();
+	char buf[PATH_MAX];
+
+	if (!opts.ve)
+		return 0;
+
+	if (veX) {
+		snprintf(buf, PATH_MAX, "/sys/fs/cgroup/ve/%s/tasks", opts.ve);
+	} else {
+		strcpy(buf, ve0_tasks_path);
+	}
+
+	veX_fd = open(buf, O_WRONLY);
+	if (veX_fd < 0) {
+		pr_perror("ve: Can't open %s", buf);
+		return -1;
+	}
+
+	if (dprintf(veX_fd, "%d", pid) <= 0) {
+		pr_perror("ve: Can't put %d to VE %s", pid, buf);
+		goto err_close;
+	}
+
+	pr_debug("ve: Pid %d entered VE %s\n", pid, buf);
+	exit_code = 0;
+err_close:
+	close(veX_fd);
+	return exit_code;
+}
+
 static int restore_task_with_children(void *_arg)
 {
 	struct cr_clone_arg *ca = _arg;
@@ -2228,6 +2267,7 @@ static int restore_root_task(struct pstree_item *init)
 	int ret, fd, mnt_ns_fd = -1;
 	int root_seized = 0;
 	struct pstree_item *item;
+	bool in_veX = false;
 
 	ret = run_scripts(ACT_PRE_RESTORE);
 	if (ret != 0) {
@@ -2281,6 +2321,26 @@ static int restore_root_task(struct pstree_item *init)
 	}
 
 	__restore_switch_stage_nw(CR_STATE_ROOT_TASK);
+
+	/*
+	 * Userns daemon is started now in ve0, so we
+	 * should jump into destination VE cgroups so that
+	 * clone/unshare and etc would see us as running inside
+	 * container with all in-kernel restrictions applied.
+	 *
+	 * The main reason for running in veX is that there is
+	 * a number of ve_is_super() calls inside kernel for sake
+	 * of better isolation and virtualization (devtmpfs, mounting,
+	 * procfs filtering, sysfs and sysctl filtering, VTTY console
+	 * virtualization, owner_ve in net management).
+	 *
+	 * For privileged operations we should use userns_call.
+	 * For example to manipulate user beancounter.
+	 */
+	ret = join_veX();
+	if (ret)
+		goto out;
+	in_veX = true;
 
 	ret = fork_with_pid(init);
 	if (ret < 0)
@@ -2453,6 +2513,10 @@ skip_ns_bouncing:
 
 	__restore_switch_stage(CR_STATE_COMPLETE);
 
+	if (join_ve0())
+		goto out_kill_network_unlocked;
+	in_veX = false;
+
 	ret = compel_stop_on_syscall(task_entries->nr_threads, __NR(rt_sigreturn, 0), __NR(rt_sigreturn, 1));
 	if (ret) {
 		pr_err("Can't stop all tasks on rt_sigreturn\n");
@@ -2543,6 +2607,20 @@ out:
 	depopulate_roots_yard(mnt_ns_fd, true);
 	stop_usernsd();
 	__restore_switch_stage(CR_STATE_FAIL);
+
+	/*
+	 * At this point container is failed to restore, it means that
+	 * corresponding ve cgroup (veX) will be destroyed. Let's leave
+	 * this cgroup and enter to the ve0 just not to associate CRIU
+	 * master process with the container cgroup.
+	 * It's important because criu plugins such as reporter-vz-criu-plugin
+	 * can do fork()/clone() syscalls and create daemon processes,
+	 * and these processes will inherit container cgroup and then getting
+	 * killed by the vzctl during CT forced stop procedure.
+	 */
+	if (in_veX && join_ve0())
+		pr_warn("join_ve0 failed\n");
+
 	pr_err("Restoring FAILED.\n");
 	return -1;
 }
