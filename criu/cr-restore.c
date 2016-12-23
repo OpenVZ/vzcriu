@@ -2176,6 +2176,70 @@ static int write_restored_pid(void)
 	return 0;
 }
 
+extern char *get_dumpee_veid(pid_t pid_real);
+
+#define join_veX(pid)	join_ve(pid, true)
+#define join_ve0(pid)	join_ve(pid, false)
+
+/*
+ * To eliminate overhead we don't parse VE cgroup mountpoint
+ * but presume to find it in known place. Otherwise simply
+ * don't enter into veX with one warning.
+ */
+static int join_ve(pid_t pid, bool veX)
+{
+	static const char ve0_tasks_path[] = "/sys/fs/cgroup/ve/tasks";
+	static bool may_join_ve = false;
+	int ret, veX_fd, len;
+	char buf[PATH_MAX];
+	char *veid;
+
+	if (is_zdtm_run())
+		return 0;
+
+	if (!may_join_ve) {
+		if (access(ve0_tasks_path, F_OK)) {
+			pr_warn_once("ve: Can't access %s, non VZ kernel?\n",
+				     ve0_tasks_path);
+			return 0;
+		}
+		may_join_ve = true;
+	}
+
+	if (veX) {
+		veid = get_dumpee_veid(pid);
+		if (IS_ERR_OR_NULL(veid)) {
+			pr_err("ve: Can't fetch VEID of pid %d\n", pid);
+			ret = -1;
+			goto out;
+		}
+	} else
+		veid = "0";
+
+	if (veX)
+		snprintf(buf, PATH_MAX, "/sys/fs/cgroup/ve/%s/tasks", veid);
+	else
+		strcpy(buf, ve0_tasks_path);
+	ret = veX_fd = open(buf, O_WRONLY);
+	if (ret < 0) {
+		pr_perror("ve: Can't open %s", buf);
+		goto out;
+	}
+
+	len = sprintf(buf, "%d", getpid());
+	if (len <= 0 || write(veX_fd, buf, len) != len) {
+		pr_perror("ve: Can't enter VE cgroup (len=%d)", len);
+		ret = -1;
+		goto out;
+	}
+
+	pr_debug("ve: Pid %d entered VE %s via %s\n", getpid(), veid, buf);
+	close(veX_fd);
+	ret = 0;
+out:
+	return ret;
+}
+
 static int restore_root_task(struct pstree_item *init)
 {
 	enum trace_flags flag = TRACE_ALL;
@@ -2237,6 +2301,25 @@ static int restore_root_task(struct pstree_item *init)
 	}
 
 	__restore_switch_stage_nw(CR_STATE_ROOT_TASK);
+
+	/*
+	 * Userns daemon is started now in ve0, so we
+	 * should jump into destination VE cgroups so that
+	 * clone/unshare and etc would see us as running inside
+	 * container with all in-kernel restrictions applied.
+	 *
+	 * The main reason for running in veX is that there is
+	 * a number of ve_is_super() calls inside kernel for sake
+	 * of better isolation and virtualization (devtmpfs, mounting,
+	 * procfs filtering, sysfs and sysctl filtering, VTTY console
+	 * virtualization, owner_ve in net management).
+	 *
+	 * For privileged operations we should use userns_call.
+	 * For example to manipulate user beancounter.
+	 */
+	ret = join_veX(root_item->pid->real);
+	if (ret)
+		goto out;
 
 	ret = fork_with_pid(init);
 	if (ret < 0)
@@ -2421,6 +2504,8 @@ skip_ns_bouncing:
 		goto out_kill_network_unlocked;
 
 	__restore_switch_stage(CR_STATE_COMPLETE);
+
+	join_ve0(getpid());
 
 	ret = compel_stop_on_syscall(task_entries->nr_threads,
 		__NR(rt_sigreturn, 0), __NR(rt_sigreturn, 1), flag);
