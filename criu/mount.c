@@ -1218,7 +1218,7 @@ static __maybe_unused int add_cr_time_mount(struct mount_info *root, char *fsnam
 	return 0;
 }
 
-static char *get_dumpee_veid(void)
+char *get_dumpee_veid(pid_t pid_real)
 {
 	char *veid = getenv("VEID");
 	static char vebuf[256];
@@ -1228,14 +1228,14 @@ static char *get_dumpee_veid(void)
 	if (veid) {
 		pr_debug("VEID from env %s\n", veid);
 		return veid;
-	} else if (pid == 0 || root_item->pid.real != pid) {
-		FILE *f = fopen_proc(root_item->pid.real, "cgroup");
+	} else if (pid == 0 || pid_real != pid) {
+		FILE *f = fopen_proc(pid_real, "cgroup");
 		char *name, *path = NULL, *e;
 		char buf[PAGE_SIZE];
 
 		if (!f)
 			return ERR_PTR(-ENOENT);
-		pr_debug("Determinating VEID for pid %d\n", root_item->pid.real);
+		pr_debug("Determinating VEID for pid %d\n", pid_real);
 		found = false;
 
 		/*
@@ -1259,7 +1259,7 @@ static char *get_dumpee_veid(void)
 			if (e)
 				*e = '\0';
 			if (!strcmp(name, "ve")) {
-				pid = root_item->pid.real;
+				pid = pid_real;
 				strncpy(vebuf, path[0] == '/' ? &path[1] : path,
 					sizeof(vebuf) - 1);
 				pr_debug("VEID %s\n", vebuf);
@@ -1291,7 +1291,7 @@ static __maybe_unused int mount_cr_time_mount(struct ns_id *ns, unsigned int *s_
 		goto out;
 	}
 
-	veid = get_dumpee_veid();
+	veid = get_dumpee_veid(root_item->pid.real);
 	if (IS_ERR_OR_NULL(veid)) {
 		pr_err("Can't fetch VEID of a dumpee\n");
 		goto out;
