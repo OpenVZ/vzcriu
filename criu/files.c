@@ -1007,10 +1007,12 @@ int recv_fd_from_peer(struct fdinfo_list_entry *fle)
 	return fd;
 }
 
-int send_fd_to_peer(int fd, struct fdinfo_list_entry *fle, int sock)
+int send_fd_to_peer(int fd, struct fdinfo_list_entry *fle)
 {
 	struct sockaddr_un saddr;
-	int len;
+	int len, sock;
+
+	sock = get_service_fd(TRANSPORT_FD_OFF);
 
 	pr_info("\t\tWait fdinfo pid=%d fd=%d\n", fle->pid, fle->fe->fd);
 	futex_wait_while(&fle->real_pid, 0);
@@ -1020,7 +1022,7 @@ int send_fd_to_peer(int fd, struct fdinfo_list_entry *fle, int sock)
 	return send_fds(sock, &saddr, len, &fd, 1, (void *)&fle, sizeof(struct fdinfo_list_entry *));
 }
 
-static int send_fd_to_self(int fd, struct fdinfo_list_entry *fle, int sock)
+static int send_fd_to_self(int fd, struct fdinfo_list_entry *fle)
 {
 	int dfd = fle->fe->fd;
 
@@ -1031,7 +1033,7 @@ static int send_fd_to_self(int fd, struct fdinfo_list_entry *fle, int sock)
 	if (inherit_fd_resolve_clash(dfd) < 0)
 		return -1;
 
-	BUG_ON(dfd == sock);
+	BUG_ON(dfd == get_service_fd(TRANSPORT_FD_OFF));
 
 	pr_info("\t\t\tGoing to dup %d into %d\n", fd, dfd);
 	if (dup2(fd, dfd) != dfd) {
@@ -1066,18 +1068,16 @@ static int post_open_fd(int pid, struct fdinfo_list_entry *fle)
 
 static int serve_out_fd(int pid, int fd, struct file_desc *d)
 {
-	int sock, ret;
+	int ret;
 	struct fdinfo_list_entry *fle;
-
-	sock = get_service_fd(TRANSPORT_FD_OFF);
 
 	pr_info("\t\tCreate fd for %d\n", fd);
 
 	list_for_each_entry(fle, &d->fd_info_head, desc_list) {
 		if (pid == fle->pid)
-			ret = send_fd_to_self(fd, fle, sock);
+			ret = send_fd_to_self(fd, fle);
 		else
-			ret = send_fd_to_peer(fd, fle, sock);
+			ret = send_fd_to_peer(fd, fle);
 
 		if (ret) {
 			pr_err("Can't sent fd %d to %d\n", fd, fle->pid);
