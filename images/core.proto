@@ -45,6 +45,8 @@ message task_core_entry {
 	optional uint32			loginuid	= 13;
 
 	optional int32			oom_score_adj	= 14;
+	optional int32			tty_nr		= 15;
+	optional int32			tty_pgrp	= 16;
 }
 
 message task_kobj_ids_entry {

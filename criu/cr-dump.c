@@ -987,6 +987,13 @@ static int dump_task_core_all(struct parasite_ctl *ctl,
 	core->tc->task_state = item->pid.state;
 	core->tc->exit_code = 0;
 
+	if (stat->tty_nr) {
+		core->tc->has_tty_nr = true;
+		core->tc->has_tty_pgrp = true;
+		core->tc->tty_nr = stat->tty_nr;
+		core->tc->tty_pgrp = stat->tty_pgrp;
+	}
+
 	ret = parasite_dump_thread_leader_seized(ctl, pid, core);
 	if (ret)
 		goto err;
