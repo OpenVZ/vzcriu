@@ -1094,6 +1094,7 @@ static int open_fd(int pid, struct fdinfo_list_entry *fle)
 		return -1;
 	}
 
+	BUG_ON(fle->stage != FLE_INITIALIZED);
 	fle->stage = FLE_OPEN;
 
 	return serve_out_fd(pid, fle->fe->fd, d);
