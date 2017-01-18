@@ -814,8 +814,6 @@ int prepare_fd_pid(struct pstree_item *item)
 	INIT_LIST_HEAD(&rst_info->used);
 	INIT_LIST_HEAD(&rst_info->fds);
 	INIT_LIST_HEAD(&rst_info->eventpoll);
-	INIT_LIST_HEAD(&rst_info->tty_slaves);
-	INIT_LIST_HEAD(&rst_info->tty_ctty);
 
 	if (item->ids == NULL) /* zombie */
 		return 0;
@@ -1222,14 +1220,6 @@ int prepare_fds(struct pstree_item *me)
 		goto out_w;
 
 	/*
-	 * Now handle TTYs. Slaves are delayed to be sure masters
-	 * are already opened.
-	 */
-	ret = open_fdinfos(me->pid.virt, &rsti(me)->tty_slaves);
-	if (ret)
-		goto out_w;
-
-	/*
 	 * The eventpoll descriptors require all the other ones
 	 * to be already restored, thus we store them in a separate
 	 * list and restore at the very end.
@@ -1237,8 +1227,6 @@ int prepare_fds(struct pstree_item *me)
 	ret = open_fdinfos(me->pid.virt, &rsti(me)->eventpoll);
 	if (ret)
 		goto out_w;
-
-	ret = open_fdinfos(me->pid.virt, &rsti(me)->tty_ctty);
 out_w:
 	close_service_fd(TRANSPORT_FD_OFF);
 	if (rsti(me)->fdt)
