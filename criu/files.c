@@ -885,7 +885,7 @@ struct fd_open_state {
 	int (*cb)(int, struct fdinfo_list_entry *);
 };
 
-static int receive_fd(int pid, struct fdinfo_list_entry *fle);
+static int receive_fd(struct fdinfo_list_entry *fle);
 
 static void transport_name_gen(struct sockaddr_un *addr, int *len, int pid)
 {
@@ -1039,7 +1039,7 @@ static int setup_and_serve_out(struct fdinfo_list_entry *fle, int new_fd)
 	return 0;
 }
 
-static int open_fd(int pid, struct fdinfo_list_entry *fle)
+static int open_fd(struct fdinfo_list_entry *fle)
 {
 	struct file_desc *d = fle->desc;
 	struct fdinfo_list_entry *flem;
@@ -1048,7 +1048,7 @@ static int open_fd(int pid, struct fdinfo_list_entry *fle)
 	flem = file_master(d);
 	if (fle != flem) {
 		BUG_ON (fle->stage != FLE_INITIALIZED);
-		ret = receive_fd(pid, fle);
+		ret = receive_fd(fle);
 		if (ret != 0)
 			return ret;
 		goto fixup_ctty;
@@ -1085,7 +1085,7 @@ fixup_ctty:
 	return ret;
 }
 
-static int receive_fd(int pid, struct fdinfo_list_entry *fle)
+static int receive_fd(struct fdinfo_list_entry *fle)
 {
 	int ret;
 
@@ -1106,8 +1106,9 @@ static int receive_fd(int pid, struct fdinfo_list_entry *fle)
 	return 0;
 }
 
-static int open_fdinfos(int pid, struct list_head *list)
+static int open_fdinfos(struct pstree_item *me)
 {
+	struct list_head *list = &rsti(me)->fds;
 	struct fdinfo_list_entry *fle, *tmp;
 	LIST_HEAD(completed);
 	bool progress, again;
@@ -1120,7 +1121,7 @@ static int open_fdinfos(int pid, struct list_head *list)
 		list_for_each_entry_safe(fle, tmp, list, ps_list) {
 			st = fle->stage;
 			BUG_ON(st == FLE_RESTORED);
-			ret = open_fd(pid, fle);
+			ret = open_fd(fle);
 			if (ret == -1)
 				goto splice;
 			if (st != fle->stage || ret == 0)
@@ -1214,7 +1215,7 @@ int prepare_fds(struct pstree_item *me)
 		}
 	}
 
-	ret = open_fdinfos(me->pid.virt, &rsti(me)->fds);
+	ret = open_fdinfos(me);
 
 	close_service_fd(TRANSPORT_FD_OFF);
 	if (rsti(me)->fdt)
