@@ -1054,9 +1054,7 @@ static int open_fd(int pid, struct fdinfo_list_entry *fle)
 		ret = receive_fd(pid, fle);
 		if (ret != 0)
 			return ret;
-
-		fle->stage = FLE_RESTORED;
-		return 0;
+		goto fixup_ctty;
 	}
 
 	/*
@@ -1077,9 +1075,16 @@ static int open_fd(int pid, struct fdinfo_list_entry *fle)
 		if (setup_and_serve_out(fle, new_fd) < 0)
 			return -1;
 	}
+fixup_ctty:
+	if (ret == 0) {
+		if (fle->fe->fd == get_service_fd(CTL_TTY_OFF)) {
+			ret = tty_restore_ctl_terminal(fle->desc, fle->fe->fd);
+			if (ret == -1)
+				return ret;
+		}
 
-	if (ret == 0)
 		fle->stage = FLE_RESTORED;
+	}
 	return ret;
 }
 
@@ -1106,7 +1111,7 @@ static int receive_fd(int pid, struct fdinfo_list_entry *fle)
 
 static int open_fdinfos(int pid, struct list_head *list)
 {
-	struct fdinfo_list_entry *fle, *tmp, *service_fle = NULL;
+	struct fdinfo_list_entry *fle, *tmp;
 	LIST_HEAD(completed);
 	bool progress, again;
 	int st, ret = 0;
@@ -1134,8 +1139,6 @@ static int open_fdinfos(int pid, struct list_head *list)
 			}
 			if (ret == 1)
 			       again = true;
-			if (fle->fe->fd == get_service_fd(CTL_TTY_OFF))
-				service_fle = fle;
 		}
 		if (!progress && again)
 			wait_fds_event();
@@ -1144,9 +1147,6 @@ static int open_fdinfos(int pid, struct list_head *list)
 	BUG_ON(!list_empty(list));
 splice:
 	list_splice(&completed, list);
-
-	if (ret == 0 && service_fle)
-		ret = tty_restore_ctl_terminal(service_fle->desc, service_fle->fe->fd);
 
 	return ret;
 }
