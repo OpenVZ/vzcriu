@@ -235,6 +235,18 @@ struct mount_info *lookup_mnt_sdev(unsigned int s_dev)
 	return NULL;
 }
 
+static struct mount_info *lookup_mnt_sdev_on_root(unsigned int s_dev)
+{
+	struct mount_info *m;
+
+	for (m = mntinfo; m != NULL; m = m->next)
+		if (m->s_dev == s_dev &&
+		    is_root(m->root))
+			return m;
+
+	return NULL;
+}
+
 static struct mount_info *mount_resolve_path(struct mount_info *mntinfo_tree, const char *path)
 {
 	size_t pathlen = strlen(path);
@@ -279,7 +291,7 @@ int mount_resolve_devpts_mnt_id(int s_dev)
 {
 	struct mount_info *mi;
 
-	mi = lookup_mnt_sdev(s_dev);
+	mi = lookup_mnt_sdev_on_root(s_dev);
 	if (!mi) {
 		pr_err("No devpts mount point found for s_dev %#x\n", s_dev);
 		return -1;
@@ -290,7 +302,7 @@ int mount_resolve_devpts_mnt_id(int s_dev)
 	} else if (mi->fstype->code == FSTYPE__DEVTMPFS) {
 		char path[PATH_MAX];
 
-		snprintf(path, sizeof(path), "%s/pts", mi->mountpoint + 1);
+		snprintf(path, sizeof(path), "%s/pts/ptmx", mi->mountpoint + 1);
 		mi = mount_resolve_path(mi, path);
 		if (!mi) {
 			pr_err("Can't resolve %s\n", path);
