@@ -704,14 +704,13 @@ static int restore_priv_vma_content(struct pstree_item *t)
 	 */
 	while (1) {
 		unsigned long off, i, nr_pages;
-		struct iovec iov;
 
-		ret = pr.get_pagemap(&pr, &iov);
+		ret = pr.advance(&pr);
 		if (ret <= 0)
 			break;
 
-		va = (unsigned long)iov.iov_base;
-		nr_pages = iov.iov_len / PAGE_SIZE;
+		va = (unsigned long)decode_pointer(pr.pe->vaddr);
+		nr_pages = pr.pe->nr_pages;
 
 		for (i = 0; i < nr_pages; i++) {
 			unsigned char buf[PAGE_SIZE];
@@ -748,7 +747,7 @@ static int restore_priv_vma_content(struct pstree_item *t)
 			if (vma->ppage_bitmap) { /* inherited vma */
 				clear_bit(off, vma->ppage_bitmap);
 
-				ret = pr.read_pages(&pr, va, 1, buf);
+				ret = pr.read_pages(&pr, va, 1, buf, 0);
 				if (ret < 0)
 					goto err_read;
 
@@ -776,7 +775,7 @@ static int restore_priv_vma_content(struct pstree_item *t)
 
 				nr = min_t(int, nr_pages - i, (vma->e->end - va) / PAGE_SIZE);
 
-				ret = pr.read_pages(&pr, va, nr, p);
+				ret = pr.read_pages(&pr, va, nr, p, PR_ASYNC);
 				if (ret < 0)
 					goto err_read;
 
@@ -788,12 +787,12 @@ static int restore_priv_vma_content(struct pstree_item *t)
 			}
 
 		}
-
-		if (pr.put_pagemap)
-			pr.put_pagemap(&pr);
 	}
 
 err_read:
+	if (pr.sync(&pr))
+		return -1;
+
 	pr.close(&pr);
 	if (ret < 0)
 		return ret;

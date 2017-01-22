@@ -13,7 +13,6 @@
 #include "pstree.h"
 #include "common/bug.h"
 #include "util.h"
-#include "spfs.h"
 
 static const char *action_names[ACT_MAX] = {
 	[ ACT_PRE_DUMP ]	= "pre-dump",
@@ -25,8 +24,6 @@ static const char *action_names[ACT_MAX] = {
 	[ ACT_SETUP_NS ]	= "setup-namespaces",
 	[ ACT_POST_SETUP_NS ]	= "post-setup-namespaces",
 	[ ACT_POST_RESUME ]	= "post-resume",
-	[ ACT_POST_NET_LOCK ]	= "post-network-lock",
-	[ ACT_POST_SIGRETURN ]	= "post-sigreturn",
 };
 
 struct script {
@@ -46,7 +43,7 @@ static LIST_HEAD(scripts);
 
 static int run_shell_scripts(const char *action)
 {
-	int ret = 0;
+	int retval = 0;
 	struct script *script;
 	char image_dir[PATH_MAX];
 	static unsigned env_set = 0;
@@ -67,9 +64,6 @@ static int run_shell_scripts(const char *action)
 		}
 		env_set |= ENV_IMGDIR;
 	}
-
-	if (spfs_set_env())
-		return -1;
 
 	if (!(env_set & ENV_ROOTPID) && root_item) {
 		int pid;
@@ -93,12 +87,12 @@ static int run_shell_scripts(const char *action)
 				(char *[]) { script->path, NULL }, 0);
 		if (err)
 			pr_err("Script %s exited with %d\n", script->path, err);
-		ret |= err;
+		retval |= err;
 	}
 
 	unsetenv("CRTOOLS_SCRIPT_ACTION");
 
-	return ret;
+	return retval;
 }
 
 int run_scripts(enum script_actions act)

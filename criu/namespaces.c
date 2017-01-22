@@ -449,7 +449,7 @@ static unsigned int __get_ns_id(int pid, struct ns_desc *nd, protobuf_c_boolean 
 			goto out;
 		}
 		pr_perror("Unable to stat %s", ns_path);
-		return -1;
+		return 0;
 	}
 	kid = st.st_ino;
 	BUG_ON(!kid);
@@ -981,7 +981,7 @@ static int do_dump_namespaces(struct ns_id *ns)
 	case CLONE_NEWNET:
 		pr_info("Dump NET namespace info %d via %d\n",
 				ns->id, ns->ns_pid);
-		ret = dump_net_ns(ns);
+		ret = dump_net_ns(ns->id);
 		break;
 	default:
 		pr_err("Unknown namespace flag %x\n", ns->nd->cflag);

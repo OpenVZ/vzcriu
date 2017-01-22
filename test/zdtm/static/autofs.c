@@ -127,7 +127,7 @@ static int setup_direct(struct autofs_params *p)
 	}
 	p->fd = open(path, O_CREAT | O_EXCL, 0600);
 	if (p->fd < 0) {
-		pr_perror("%d: failed to open file %s\n", getpid(), path);
+		pr_perror("%d: failed to open file %s", getpid(), path);
 		return -errno;
 	}
 	if (fstat(p->fd, &p->fd_stat)) {
@@ -149,7 +149,7 @@ static int setup_indirect(struct autofs_params *p)
 	}
 	p->fd = open(path, O_CREAT | O_EXCL, 0600);
 	if (p->fd < 0) {
-		pr_perror("%d: failed to open file %s\n", getpid(), path);
+		pr_perror("%d: failed to open file %s", getpid(), path);
 		return -errno;
 	}
 	if (fstat(p->fd, &p->fd_stat)) {
@@ -227,7 +227,7 @@ static int check_fd(struct autofs_params *p)
 	}
 	if (st.st_blksize != p->fd_stat.st_blksize) {
 		pr_err("%s: st_blksize differs %ld != %ld:\n", p->mountpoint,
-				st.st_blksize, p->fd_stat.st_blksize);
+				(long)st.st_blksize, (long)p->fd_stat.st_blksize);
 		ret++;
 	}
 	if (st.st_blocks != p->fd_stat.st_blocks) {
@@ -301,7 +301,7 @@ static int autofs_dev_open(void)
 
 	fd = open(AUTOFS_DEV, O_RDONLY);
 	if (fd == -1) {
-		pr_perror("failed to open /dev/autofs\n");
+		pr_perror("failed to open /dev/autofs");
 		return -errno;
 	}
 	return fd;
@@ -323,7 +323,7 @@ static int autofs_open_mount(int devid, const char *mountpoint)
 	strcpy(param->path, mountpoint);
 
 	if (ioctl(autofs_dev, AUTOFS_DEV_IOCTL_OPENMOUNT, param) < 0) {
-		pr_perror("failed to open autofs mount %s\n", mountpoint);
+		pr_perror("failed to open autofs mount %s", mountpoint);
 		return -errno;
 	}
 
@@ -564,7 +564,7 @@ static int automountd(struct autofs_params *p, int control_fd)
 
 	ret = 0;
 	if (write(control_fd, &ret, sizeof(ret)) != sizeof(ret)) {
-		pr_perror("failed to send result\n");
+		pr_perror("failed to send result");
 		goto err;
 	}
 	close(control_fd);
@@ -572,7 +572,7 @@ static int automountd(struct autofs_params *p, int control_fd)
 
 err:
 	if (write(control_fd, &ret, sizeof(ret) != sizeof(ret))) {
-		pr_perror("failed to send result\n");
+		pr_perror("failed to send result");
 		return -errno;
 	}
 	return ret;
@@ -593,7 +593,7 @@ static int start_automounter(struct autofs_params *p)
 	pid = test_fork();
 	switch (pid) {
 		case -1:
-			pr_perror("failed to fork\n");
+			pr_perror("failed to fork");
 			return -1;
 		case 0:
 			close(control_fd[0]);
@@ -638,7 +638,7 @@ static int reap_child(struct autofs_params *p)
 	}
 
 	if (WIFSIGNALED(status)) {
-		pr_perror("Kid was killed by %d\n", WTERMSIG(status));
+		pr_err("Child was killed by %d\n", WTERMSIG(status));
 		return -1;
 	}
 
@@ -679,7 +679,7 @@ static int setup_catatonic(struct autofs_params *p)
 
 	p->fd = open(path, O_CREAT | O_EXCL, 0600);
 	if (p->fd >= 0) {
-		pr_perror("%d: was able to open file %s on catatonic mount\n", getpid(), path);
+		pr_perror("%d: was able to open file %s on catatonic mount", getpid(), path);
 		return -EINVAL;
 	}
 	free(path);

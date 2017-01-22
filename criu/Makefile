@@ -77,6 +77,7 @@ PROGRAM-BUILTINS	+= criu/pie/lib.a
 PROGRAM-BUILTINS	+= images/built-in.o
 PROGRAM-BUILTINS	+= $(obj)/built-in.o
 PROGRAM-BUILTINS	+= $(ARCH-LIB)
+PROGRAM-BUILTINS	+= soccr/libsoccr.a
 
 $(obj)/built-in.o: pie
 	$(Q) $(MAKE) $(call build-as,Makefile.crtools,criu) all
@@ -128,17 +129,16 @@ install: $(obj)/criu
 	$(E) "  INSTALL " $(obj)/criu
 	$(Q) mkdir -p $(DESTDIR)$(SBINDIR)
 	$(Q) install -m 755 $(obj)/criu $(DESTDIR)$(SBINDIR)
-	$(Q) mkdir -p $(DESTDIR)$(INCLUDEDIR)
-	$(Q) install -m 644 $(UAPI_HEADERS) $(DESTDIR)$(INCLUDEDIR)
+	$(Q) mkdir -p $(DESTDIR)$(INCLUDEDIR)/criu/
+	$(Q) install -m 644 $(UAPI_HEADERS) $(DESTDIR)$(INCLUDEDIR)/criu/
 	$(Q) mkdir -p $(DESTDIR)$(LIBEXECDIR)/criu/scripts
 	$(Q) install -m 755 $(SRC_DIR)/scripts/systemd-autofs-restart.sh $(DESTDIR)$(LIBEXECDIR)/criu/scripts
-	$(Q) install -m 755 $(SRC_DIR)/scripts/nfs-ports-allow.sh $(DESTDIR)$(LIBEXECDIR)/criu/scripts
 .PHONY: install
 
 uninstall:
 	$(E) " UNINSTALL" criu
 	$(Q) $(RM) $(addprefix $(DESTDIR)$(SBINDIR)/,criu)
-	$(Q) $(RM) $(addprefix $(DESTDIR)$(INCLUDEDIR)/,$(notdir $(UAPI_HEADERS)))
+	$(Q) $(RM) $(addprefix $(DESTDIR)$(INCLUDEDIR)/criu/,$(notdir $(UAPI_HEADERS)))
 	$(Q) $(RM) $(addprefix $(DESTDIR)$(LIBEXECDIR)/criu/scripts/,systemd-autofs-restart.sh)
 .PHONY: uninstall
 

@@ -438,30 +438,6 @@ static int dump_chrdev(struct fd_parms *p, int lfd, struct cr_img *img)
 	return do_dump_gen_file(p, lfd, ops, img);
 }
 
-static int check_blkdev(struct fd_parms *p, int lfd)
-{
-	/*
-	 * @ploop_major is module parameter actually,
-	 * set to PLOOP_DEVICE_MAJOR by default. We may
-	 * need to scan module params or access
-	 * /sys/block/ploopX/dev to fetch major.
-	 *
-	 * For a while simply use predefined @major.
-	 */
-	static const int ploop_major = 182;
-	int maj = major(p->stat.st_rdev);
-
-	/*
-	 * It's been found that systemd-udevd sometimes
-	 * opens-up ploop device from inside of container,
-	 * so allow him to do that.
-	 */
-	if (maj == ploop_major)
-		return 0;
-
-	return -1;
-}
-
 static int dump_one_file(struct pid *pid, int fd, int lfd, struct fd_opts *opts,
 		       struct cr_img *img, struct parasite_ctl *ctl)
 {
@@ -509,15 +485,7 @@ static int dump_one_file(struct pid *pid, int fd, int lfd, struct fd_opts *opts,
 		return do_dump_gen_file(&p, lfd, ops, img);
 	}
 
-	if (S_ISREG(p.stat.st_mode) || S_ISDIR(p.stat.st_mode) ||
-	    S_ISBLK(p.stat.st_mode)) {
-		struct fd_link link;
-
-		if (S_ISBLK(p.stat.st_mode)) {
-			if (check_blkdev(&p, lfd))
-				return -1;
-		}
-
+	if (S_ISREG(p.stat.st_mode) || S_ISDIR(p.stat.st_mode)) {
 		if (fill_fdlink(lfd, &p, &link))
 			return -1;
 
@@ -1261,6 +1229,7 @@ int prepare_fds(struct pstree_item *me)
 			break;
 	}
 out_w:
+	close_service_fd(TRANSPORT_FD_OFF);
 	if (rsti(me)->fdt)
 		futex_inc_and_wake(&rsti(me)->fdt->fdt_lock);
 out:
@@ -1695,15 +1664,29 @@ int inherit_fd_fini()
 	return 0;
 }
 
-int open_transport_socket()
+int open_transport_socket(void)
 {
-	int sock;
+	struct fdt *fdt = rsti(current)->fdt;
+	pid_t pid = current->pid.virt;
+	struct sockaddr_un saddr;
+	int sock, slen;
+
+	if (!task_alive(current) || (fdt && fdt->pid != pid))
+		return 0;
 
 	sock = socket(PF_UNIX, SOCK_DGRAM | SOCK_CLOEXEC, 0);
 	if (sock < 0) {
 		pr_perror("Can't create socket");
 		return -1;
 	}
+
+	transport_name_gen(&saddr, &slen, pid, -1);
+	if (bind(sock, (struct sockaddr *)&saddr, slen) < 0) {
+		pr_perror("Can't bind transport socket %s", saddr.sun_path + 1);
+		close(sock);
+		return -1;
+	}
+
 	if (install_service_fd(TRANSPORT_FD_OFF, sock) < 0) {
 		close(sock);
 		return -1;

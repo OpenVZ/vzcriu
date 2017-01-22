@@ -11,8 +11,7 @@
 #endif
 
 struct cr_imgset;
-struct ns_id;
-extern int dump_net_ns(struct ns_id *ns);
+extern int dump_net_ns(int ns_id);
 extern int prepare_net_ns(int pid);
 extern int netns_keep_nsfd(void);
 
@@ -27,6 +26,7 @@ extern int collect_net_namespaces(bool for_dump);
 
 extern int network_lock(void);
 extern void network_unlock(void);
+extern int network_lock_internal();
 
 extern struct ns_desc net_ns_desc;
 

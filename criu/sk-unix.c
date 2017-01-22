@@ -9,7 +9,6 @@
 #include <sys/un.h>
 #include <stdlib.h>
 #include <dlfcn.h>
-#include <libgen.h>
 
 #include "libnetlink.h"
 #include "cr_options.h"
@@ -29,7 +28,6 @@
 #include "pstree.h"
 #include "external.h"
 #include "crtools.h"
-#include "rst-malloc.h"
 
 #include "protobuf.h"
 #include "images/sk-unix.pb-c.h"
@@ -99,18 +97,7 @@ struct unix_sk_listen_icon {
 
 #define SK_HASH_SIZE		32
 
-static mutex_t *deleted_socket_mutex;
-
 static struct unix_sk_listen_icon *unix_listen_icons[SK_HASH_SIZE];
-
-int prepare_shared_unix(void)
-{
-	deleted_socket_mutex = shmalloc(sizeof(*deleted_socket_mutex));
-	if (!deleted_socket_mutex)
-		return -1;
-	mutex_init(deleted_socket_mutex);
-	return 0;
-}
 
 static struct unix_sk_listen_icon *lookup_unix_listen_icons(int peer_ino)
 {
@@ -232,9 +219,8 @@ static int resolve_rel_name(struct unix_sk_desc *sk, const struct fd_parms *p)
 
 	for (i = 0; i < ARRAY_SIZE(dirs); i++) {
 		char dir[PATH_MAX], path[PATH_MAX];
-		int ret, root_fd;
 		struct stat st;
-		int errno_save;
+		int ret;
 
 		snprintf(path, sizeof(path), "/proc/%d/%s", p->pid, dirs[i]);
 		ret = readlink(path, dir, sizeof(dir));
@@ -244,18 +230,10 @@ static int resolve_rel_name(struct unix_sk_desc *sk, const struct fd_parms *p)
 		}
 		dir[ret] = 0;
 
-		if (cr_set_root(mntns_root, &root_fd))
-			goto err;
-
 		snprintf(path, sizeof(path), ".%s/%s", dir, sk->name);
-		ret = fstatat(mntns_root, path, &st, 0);
-		errno_save = errno;
-		if (cr_restore_root(root_fd))
-			goto err;
-		if (ret) {
-			if (errno_save == ENOENT)
+		if (fstatat(mntns_root, path, &st, 0)) {
+			if (errno == ENOENT)
 				continue;
-			pr_perror("Unable to stat %s", path);
 			goto err;
 		}
 
@@ -464,7 +442,7 @@ dump:
 	 */
 	if (sk->rqlen != 0 && !(sk->type == SOCK_STREAM &&
 				sk->state == TCP_LISTEN))
-		if (dump_sk_queue(lfd, id, false))
+		if (dump_sk_queue(lfd, id))
 			goto err;
 
 	pr_info("Dumping unix socket at %d\n", p->fd);
@@ -523,11 +501,11 @@ static int unix_process_name(struct unix_sk_desc *d, const struct unix_diag_msg 
 
 	if (name[0] != '\0') {
 		struct unix_diag_vfs *uv;
-		int mntns_root, root_fd;
 		bool deleted = false;
 		char rpath[PATH_MAX];
 		struct ns_id *ns;
 		struct stat st;
+		int mntns_root;
 
 		if (!tb[UNIX_DIAG_VFS]) {
 			pr_err("Bound socket w/o inode %#x\n", m->udiag_ino);
@@ -564,19 +542,11 @@ static int unix_process_name(struct unix_sk_desc *d, const struct unix_diag_msg 
 			goto postprone;
 		}
 
-		ret = cr_set_root(mntns_root, &root_fd);
-		if (ret)
-			goto out;
-
 		snprintf(rpath, sizeof(rpath), ".%s", name);
-		ret = fstatat(mntns_root, rpath, &st, 0);
-		if (ret) {
+		if (fstatat(mntns_root, rpath, &st, 0)) {
 			if (errno != ENOENT) {
 				pr_warn("Can't stat socket %#x(%s), skipping: %m (err %d)\n",
 					m->udiag_ino, rpath, errno);
-				ret = cr_restore_root(root_fd);
-				if (ret)
-					goto out;
 				goto skip;
 			}
 
@@ -591,10 +561,6 @@ static int unix_process_name(struct unix_sk_desc *d, const struct unix_diag_msg 
 				(int)uv->udiag_vfs_dev, (int)uv->udiag_vfs_ino);
 			deleted = true;
 		}
-
-		ret = cr_restore_root(root_fd);
-		if (ret)
-			goto out;
 
 		d->mode = st.st_mode;
 		d->uid	= st.st_uid;
@@ -777,7 +743,8 @@ int fix_external_unix_sockets(void)
 		FownEntry fown = FOWN_ENTRY__INIT;
 		SkOptsEntry skopts = SK_OPTS_ENTRY__INIT;
 
-		if (sk->sd.already_dumped)
+		if (sk->sd.already_dumped ||
+		    list_empty(&sk->peer_list))
 			continue;
 
 		show_one_unix("Dumping extern", sk);
@@ -957,74 +924,11 @@ static int post_open_unix_sk(struct file_desc *d, int fd)
 	return 0;
 }
 
-/*
- * When path where socket lives is deleted, we need to reconstruct
- * it back up but allow caller to remove it after.
- */
-static int try_rebind_on_deleted(int sk, struct sockaddr_un *addr,
-				 struct unix_sk_info *ui,
-				 size_t *keep)
-{
-	char path[PATH_MAX], *pos;
-	int ret, _keep;
-
-	if (ui->ue->name.len >= sizeof(path)) {
-		pr_err("Too long name for socket\n");
-		return -ENOSPC;
-	}
-
-	memcpy(path, ui->name, ui->ue->name.len);
-	path[ui->ue->name.len] = '\0';
-
-	for (pos = strrchr(path, '/'); pos;
-	     pos = strrchr(path, '/')) {
-		*pos = '\0';
-
-		ret = access(path, R_OK | W_OK | X_OK);
-		if (ret == 0)
-			break;
-
-		if (errno != ENOENT) {
-			ret = -errno;
-			pr_perror("Can't access %s\n", path);
-			return ret;
-		}
-	}
-
-	_keep = pos ? pos - path : ui->ue->name.len;
-
-	memcpy(path, ui->name, ui->ue->name.len);
-	path[ui->ue->name.len] = '\0';
-
-	pos = dirname(path);
-	ret = mkdirpat(AT_FDCWD, pos, 0755);
-	if (ret) {
-		pr_err("Can't create %s\n", pos);
-		return ret;
-	}
-
-	ret = bind(sk, (struct sockaddr *)addr,
-		   sizeof(addr->sun_family) + ui->ue->name.len);
-	if (ret < 0) {
-		pr_perror("Can't bind on socket %s", (char *)ui->ue->name.data);
-		goto out;
-	}
-
-	*keep = _keep;
-	return 0;
-
-out:
-	if (rmdirp(pos, _keep))
-		pr_err("Can't cleanup %s\n", pos);
-	return ret;
-}
-
 static int bind_unix_sk(int sk, struct unix_sk_info *ui)
 {
 	struct sockaddr_un addr;
 	int cwd_fd = -1;
 	int ret = -1;
-	size_t keep;
 
 	if ((ui->ue->type == SOCK_STREAM) && (ui->ue->state == TCP_ESTABLISHED)) {
 		/*
@@ -1041,7 +945,6 @@ static int bind_unix_sk(int sk, struct unix_sk_info *ui)
 	memset(&addr, 0, sizeof(addr));
 	addr.sun_family = AF_UNIX;
 	memcpy(&addr.sun_path, ui->name, ui->ue->name.len);
-	keep = ui->ue->name.len;
 
 	if (prep_unix_sk_cwd(ui, &cwd_fd))
 		return -1;
@@ -1088,13 +991,8 @@ static int bind_unix_sk(int sk, struct unix_sk_info *ui)
 				ui->ue->deleted = false;
 
 			} else {
-				mutex_lock(deleted_socket_mutex);
-				ret = try_rebind_on_deleted(sk, &addr, ui, &keep);
-				mutex_unlock(deleted_socket_mutex);
-				if (ret) {
-					pr_err("Can't bind deleted socket\n");
-					goto done;
-				}
+				pr_perror("Can't bind socket");
+				goto done;
 			}
 		}
 
@@ -1121,15 +1019,9 @@ static int bind_unix_sk(int sk, struct unix_sk_info *ui)
 			}
 		}
 
-		if (ui->ue->deleted) {
-			if (unlink((char *)ui->ue->name.data) < 0) {
-				pr_perror("failed to unlink %s\n", ui->ue->name.data);
-				goto done;
-			}
-			if (rmdirp((char *)ui->ue->name.data, keep)) {
-				pr_err("Can't clean up %s\n", ui->ue->name.data);
-				goto done;
-			}
+		if (ui->ue->deleted && unlink((char *)ui->ue->name.data) < 0) {
+			pr_perror("failed to unlink %s", ui->ue->name.data);
+			goto done;
 		}
 	}
 

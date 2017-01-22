@@ -187,6 +187,9 @@ static int net_conf_op(char *tgt, SysctlEntry **conf, int n, int op, char *proto
 	if (n > size)
 		pr_warn("The image contains unknown sysctl-s\n");
 
+	if (opts.weak_sysctls)
+		flags = CTL_FLAGS_OPTIONAL;
+
 	rconf = xmalloc(sizeof(SysctlEntry *) * size);
 	if (!rconf)
 		return -1;
@@ -218,6 +221,7 @@ static int net_conf_op(char *tgt, SysctlEntry **conf, int n, int op, char *proto
 
 		snprintf(path[i], MAX_CONF_OPT_PATH, CONF_OPT_PATH, proto, tgt, devconfs[i]);
 		req[ri].name = path[i];
+		req[ri].flags = flags;
 		switch (conf[i]->type) {
 			case SYSCTL_TYPE__CTL_32:
 				req[ri].type = CTL_32;
@@ -230,7 +234,7 @@ static int net_conf_op(char *tgt, SysctlEntry **conf, int n, int op, char *proto
 				break;
 			case SYSCTL_TYPE__CTL_STR:
 				req[ri].type = CTL_STR(MAX_STR_CONF_LEN);
-				flags |= op == CTL_READ && !strcmp(devconfs[i], "stable_secret")
+				req[ri].flags |= op == CTL_READ && !strcmp(devconfs[i], "stable_secret")
 					? CTL_FLAGS_READ_EIO_SKIP : 0;
 
 				/* skip non-existing sysctl */
@@ -242,7 +246,6 @@ static int net_conf_op(char *tgt, SysctlEntry **conf, int n, int op, char *proto
 			default:
 				continue;
 		}
-		req[ri].flags = flags;
 		rconf[ri] = conf[i];
 		ri++;
 	}
@@ -1631,14 +1634,10 @@ static int mount_ns_sysfs(void)
 	return ns_sysfs_fd >= 0 ? 0 : -1;
 }
 
-int dump_net_ns(struct ns_id *ns)
+int dump_net_ns(int ns_id)
 {
 	struct cr_imgset *fds;
-	int ns_id = ns->id;
 	int ret;
-
-	if (fini_dump_sockets(ns))
-		return -1;
 
 	fds = cr_imgset_open(ns_id, NETNS, O_DUMP);
 	if (fds == NULL)
@@ -1656,9 +1655,9 @@ int dump_net_ns(struct ns_id *ns)
 			ret = dump_route(fds);
 		if (!ret)
 			ret = dump_rule(fds);
+		if (!ret)
+			ret = dump_iptables(fds);
 	}
-	if (!ret)
-		ret = dump_iptables(fds);
 	if (!ret)
 		ret = dump_nf_ct(fds, CR_FD_NETNF_CT);
 	if (!ret)
@@ -1689,9 +1688,10 @@ int prepare_net_ns(int pid)
 			ret = restore_route(pid);
 		if (!ret)
 			ret = restore_rule(pid);
+		if (!ret)
+			ret = restore_iptables(pid);
 	}
-	if (!ret)
-		ret = restore_iptables(pid);
+
 	if (!ret)
 		ret = restore_nf_ct(pid, CR_FD_NETNF_CT);
 	if (!ret)
@@ -1763,7 +1763,7 @@ err:
 	return ret;
 }
 
-static int network_lock_internal()
+int network_lock_internal()
 {
 	char conf[] =	"*filter\n"
 				":CRIU - [0:0]\n"
@@ -1823,9 +1823,7 @@ int network_lock(void)
 	if (run_scripts(ACT_NET_LOCK))
 		return -1;
 
-	if (network_lock_internal())
-		return -1;
-	return run_scripts(ACT_POST_NET_LOCK);
+	return network_lock_internal();
 }
 
 void network_unlock(void)

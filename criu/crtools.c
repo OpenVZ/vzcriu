@@ -12,7 +12,6 @@
 
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <sys/resource.h>
 
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -209,19 +208,6 @@ bool deprecated_ok(char *what)
 	return false;
 }
 
-/* FIXME: This is temp solution for huge number of VMAs with files carried */
-static void init_self_rlimits(void)
-{
-	struct rlimit r;
-
-	if (getrlimit(RLIMIT_NOFILE, &r) == 0) {
-		r.rlim_cur = 100000;
-		r.rlim_max = 100000;
-
-		setrlimit(RLIMIT_NOFILE, &r);
-	}
-}
-
 int main(int argc, char *argv[], char *envp[])
 {
 	pid_t pid = 0, tree_id = 0;
@@ -297,6 +283,7 @@ int main(int argc, char *argv[], char *envp[])
 		{ SK_INFLIGHT_PARAM,		no_argument,		0, 1083	},
 		{ "deprecated",			no_argument,		0, 1084 },
 		{ "display-stats",		no_argument,		0, 1086 },
+		{ "weak-sysctls",		no_argument,		0, 1087 },
 		{ },
 	};
 
@@ -314,8 +301,7 @@ int main(int argc, char *argv[], char *envp[])
 		goto usage;
 
 	init_opts();
-	init_self_rlimits();
-	
+
 	if (init_service_fd())
 		return 1;
 
@@ -613,6 +599,10 @@ int main(int argc, char *argv[], char *envp[])
 		case 1086:
 			opts.display_stats = true;
 			break;
+		case 1087:
+			pr_msg("Will skip non-existant sysctls on restore\n");
+			opts.weak_sysctls = true;
+			break;
 		case 'V':
 			pr_msg("Version: %s\n", CRIU_VERSION);
 			if (strcmp(CRIU_GITID, "0"))
@@ -698,11 +688,9 @@ int main(int argc, char *argv[], char *envp[])
 
 	if (log_init(opts.output))
 		return 1;
-
 	libsoccr_set_log(log_level, print_on_level);
 
 	pr_debug("Version: %s (gitid %s)\n", CRIU_VERSION, CRIU_GITID);
-
 	if (opts.deprecated_ok)
 		pr_debug("DEPRECATED ON\n");
 
@@ -834,6 +822,7 @@ usage:
 "     --exec-cmd         execute the command specified after '--' on successful\n"
 "                        restore making it the parent of the restored process\n"
 "  --freeze-cgroup       use cgroup freezer to collect processes\n"
+"  --weak-sysctls        skip restoring sysctls that are not available\n"
 "\n"
 "* External resources support:\n"
 "  --external RES        dump objects from this list as external resources:\n"

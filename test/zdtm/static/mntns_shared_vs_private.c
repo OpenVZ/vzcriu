@@ -90,11 +90,11 @@ int main(int argc, char **argv)
 	test_waitsig();
 
 	if (umount(path)) {
-		pr_perror("Unable to umount %s\n", path);
+		pr_perror("Unable to umount %s", path);
 		return 1;
 	}
 	if (umount(dirname)) {
-		pr_perror("Unable to umount %s\n", dirname);
+		pr_perror("Unable to umount %s", dirname);
 		return 1;
 	}
 
@@ -107,7 +107,7 @@ int main(int argc, char **argv)
 		}
 
 		if (status) {
-			pr_perror("%d/%d/%d/%d", WIFEXITED(status), WEXITSTATUS(status), WIFSIGNALED(status), WTERMSIG(status));
+			pr_err("%d/%d/%d/%d\n", WIFEXITED(status), WEXITSTATUS(status), WIFSIGNALED(status), WTERMSIG(status));
 			return 1;
 		}
 	}

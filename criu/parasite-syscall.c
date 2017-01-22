@@ -32,6 +32,7 @@
 #include "fault-injection.h"
 #include "syscall-codes.h"
 #include "signal.h"
+#include "sigframe.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -53,8 +54,7 @@ unsigned long get_exec_start(struct vm_area_list *vmas)
 
 		if (vma_area->e->start >= kdat.task_size)
 			continue;
-		if (!(vma_area->e->prot & PROT_EXEC) ||
-		    (vma_area->e->flags & MAP_GROWSDOWN))
+		if (!(vma_area->e->prot & PROT_EXEC))
 			continue;
 
 		len = vma_area_len(vma_area);
@@ -504,7 +504,7 @@ static int parasite_init_daemon(struct parasite_ctl *ctl, struct ns_id *net)
 
 	args = parasite_args(ctl, struct parasite_init_args);
 
-	args->sigframe = ctl->rsigframe;
+	args->sigframe = (uintptr_t)ctl->rsigframe;
 	args->log_level = log_get_loglevel();
 
 	futex_set(&args->daemon_connected, 0);
@@ -836,7 +836,7 @@ int parasite_drain_fds_seized(struct parasite_ctl *ctl,
 		goto err;
 	}
 
-	ret = recv_fds(ctl->tsock, lfds, nr_fds, opts);
+	ret = recv_fds(ctl->tsock, lfds, nr_fds, opts, sizeof(struct fd_opts));
 	if (ret)
 		pr_err("Can't retrieve FDs from socket\n");
 

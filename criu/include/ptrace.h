@@ -4,7 +4,6 @@
 #include <linux/types.h>
 #include <sys/ptrace.h>
 
-#include "config.h"
 #include "proc_parse.h"
 
 /* some constants for ptrace */
@@ -29,14 +28,6 @@
 
 /* Read signals from a shared (process wide) queue */
 #define PTRACE_PEEKSIGINFO_SHARED       (1 << 0)
-#endif
-
-#ifndef CONFIG_HAS_PTRACE_PEEKSIGINFO
-struct ptrace_peeksiginfo_args {
-        __u64 off;	/* from which siginfo to start */
-        __u32 flags;
-        __u32 nr;	/* how may siginfos to take */
-};
 #endif
 
 #ifndef PTRACE_GETREGSET
@@ -80,8 +71,5 @@ extern int unseize_task(pid_t pid, int orig_state, int state);
 extern int ptrace_peek_area(pid_t pid, void *dst, void *addr, long bytes);
 extern int ptrace_poke_area(pid_t pid, void *src, void *addr, long bytes);
 extern int ptrace_swap_area(pid_t pid, void *dst, void *src, long bytes);
-
-extern char *task_comm_info(pid_t pid, char *comm, size_t size);
-extern char *__task_comm_info(pid_t pid);
 
 #endif /* __CR_PTRACE_H__ */

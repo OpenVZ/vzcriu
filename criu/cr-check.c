@@ -24,6 +24,8 @@
 #include <linux/aio_abi.h>
 #include <sys/mount.h>
 
+#include "../soccr/soccr.h"
+
 #include "types.h"
 #include "fdinfo.h"
 #include "sockets.h"
@@ -37,6 +39,7 @@
 #include "mount.h"
 #include "tty.h"
 #include "ptrace.h"
+#include "ptrace-compat.h"
 #include "kerndat.h"
 #include "timerfd.h"
 #include "util.h"
@@ -920,6 +923,36 @@ static int check_cgroupns(void)
 	return 0;
 }
 
+static int check_tcp(void)
+{
+	socklen_t optlen;
+	int sk, ret;
+	int val;
+
+	sk = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
+	if (sk < 0) {
+		pr_perror("Can't create TCP socket :(");
+		return -1;
+	}
+
+	val = 1;
+	ret = setsockopt(sk, SOL_TCP, TCP_REPAIR, &val, sizeof(val));
+	if (ret < 0) {
+		pr_perror("Can't turn TCP repair mode ON");
+		goto out;
+	}
+
+	optlen = sizeof(val);
+	ret = getsockopt(sk, SOL_TCP, TCP_TIMESTAMP, &val, &optlen);
+	if (ret)
+		pr_perror("Can't get TCP_TIMESTAMP");
+
+out:
+	close(sk);
+
+	return ret;
+}
+
 static int check_tcp_halt_closed(void)
 {
 	int ret;
@@ -936,6 +969,46 @@ static int check_tcp_halt_closed(void)
 	return 0;
 }
 
+static int kerndat_tcp_repair_window(void)
+{
+	struct tcp_repair_window opt;
+	socklen_t optlen = sizeof(opt);
+	int sk, val = 1;
+
+	sk = socket(AF_INET, SOCK_STREAM, 0);
+	if (sk < 0) {
+		pr_perror("Unable to create inet socket");
+		goto errn;
+	}
+
+	if (setsockopt(sk, SOL_TCP, TCP_REPAIR, &val, sizeof(val))) {
+		if (errno == EPERM) {
+			pr_warn("TCP_REPAIR isn't available to unprivileged users\n");
+			goto now;
+		}
+		pr_perror("Unable to set TCP_REPAIR");
+		goto err;
+	}
+
+	if (getsockopt(sk, SOL_TCP, TCP_REPAIR_WINDOW, &opt, &optlen)) {
+		if (errno != ENOPROTOOPT) {
+			pr_perror("Unable to set TCP_REPAIR_WINDOW");
+			goto err;
+		}
+now:
+		val = 0;
+	} else
+		val = 1;
+
+	close(sk);
+	return val;
+
+err:
+	close(sk);
+errn:
+	return -1;
+}
+
 static int check_tcp_window(void)
 {
 	int ret;
@@ -944,21 +1017,8 @@ static int check_tcp_window(void)
 	if (ret < 0)
 		return -1;
 
-	if (!kdat.has_tcp_window) {
+	if (ret == 0) {
 		pr_err("The TCP_REPAIR_WINDOW option isn't supported.\n");
-		return -1;
-	}
-
-	return 0;
-}
-
-static int check_nl_repair(void)
-{
-	if (kerndat_nl_repair() < 0)
-		return -1;
-
-	if (!kdat.has_nl_repair) {
-		pr_warn("NETLINK_REPAIR isn't supported.\n");
 		return -1;
 	}
 
@@ -1073,7 +1133,6 @@ int cr_check(void)
 	 */
 	if (opts.check_experimental_features) {
 		ret |= check_autofs();
-		ret |= check_nl_repair();
 	}
 
 	print_on_level(DEFAULT_LOGLEVEL, "%s\n", ret ? CHECK_MAYBE : CHECK_GOOD);
@@ -1146,7 +1205,6 @@ static struct feature_list feature_list[] = {
 	{ "loginuid", check_loginuid },
 	{ "cgroupns", check_cgroupns },
 	{ "autofs", check_autofs },
-	{ "nl_repair", check_nl_repair },
 	{ "tcp_half_closed", check_tcp_halt_closed },
 	{ NULL, NULL },
 };

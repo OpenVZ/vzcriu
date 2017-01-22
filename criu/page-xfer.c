@@ -153,9 +153,11 @@ static int write_pagemap_loc(struct page_xfer *xfer,
 	int ret;
 	PagemapEntry pe = PAGEMAP_ENTRY__INIT;
 
-	iovec2pagemap(iov, &pe);
+	pe.vaddr = encode_pointer(iov->iov_base);
+	pe.nr_pages = iov->iov_len / PAGE_SIZE;
 	if (opts.auto_dedup && xfer->parent != NULL) {
-		ret = dedup_one_iovec(xfer->parent, iov);
+		ret = dedup_one_iovec(xfer->parent, pe.vaddr,
+				pagemap_len(&pe));
 		if (ret == -1) {
 			pr_perror("Auto-deduplication failed");
 			return ret;
@@ -199,23 +201,23 @@ static int check_pagehole_in_parent(struct page_read *p, struct iovec *iov)
 	off = (unsigned long)iov->iov_base;
 	end = off + iov->iov_len;
 	while (1) {
-		struct iovec piov;
 		unsigned long pend;
 
-		ret = p->seek_page(p, off, true);
-		if (ret <= 0 || !p->pe)
+		ret = p->seek_pagemap(p, off);
+		if (ret <= 0 || !p->pe) {
+			pr_err("Missing %lx in parent pagemap\n", off);
 			return -1;
+		}
 
-		pagemap2iovec(p->pe, &piov);
-		pr_debug("\tFound %p/%zu\n", piov.iov_base, piov.iov_len);
+		pr_debug("\tFound %"PRIx64"/%lu\n", p->pe->vaddr, pagemap_len(p->pe));
 
 		/*
-		 * The pagemap entry in parent may heppen to be
+		 * The pagemap entry in parent may happen to be
 		 * shorter, than the hole we write. In this case
 		 * we should go ahead and check the remainder.
 		 */
 
-		pend = (unsigned long)piov.iov_base + piov.iov_len;
+		pend = p->pe->vaddr + pagemap_len(p->pe);
 		if (end <= pend)
 			return 0;
 
@@ -239,7 +241,8 @@ static int write_pagehole_loc(struct page_xfer *xfer, struct iovec *iov)
 		}
 	}
 
-	iovec2pagemap(iov, &pe);
+	pe.vaddr = encode_pointer(iov->iov_base);
+	pe.nr_pages = iov->iov_len / PAGE_SIZE;
 	pe.has_in_parent = true;
 	pe.in_parent = true;
 
@@ -553,6 +556,20 @@ static int page_server_add(int sk, struct page_server_iov *pi)
 		chunk = len;
 		if (chunk > cxfer.pipe_size)
 			chunk = cxfer.pipe_size;
+
+		/*
+		 * Splicing into a pipe may end up blocking if pipe is "full",
+		 * and we need the SPLICE_F_NONBLOCK flag here. At the same time
+		 * splcing from UNIX socket with this flag aborts splice with
+		 * the EAGAIN if there's no data in it (TCP looks at the socket
+		 * O_NONBLOCK flag _only_ and waits for data), so before doing
+		 * the non-blocking splice we need to explicitly wait.
+		 */
+
+		if (sk_wait_data(sk) < 0) {
+			pr_perror("Can't poll socket");
+			return -1;
+		}
 
 		chunk = splice(sk, NULL, cxfer.p[1], NULL, chunk, SPLICE_F_MOVE | SPLICE_F_NONBLOCK);
 		if (chunk < 0) {

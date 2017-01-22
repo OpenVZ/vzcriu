@@ -41,6 +41,7 @@ TST_NOFILE	:=				\
 		socket_dgram_data		\
 		packet_sock			\
 		packet_sock_mmap		\
+		packet_sock_spkt		\
 		sock_filter			\
 		msgque				\
 		inotify_system			\
@@ -63,7 +64,6 @@ TST_NOFILE	:=				\
 		sockets_spair			\
 		socket_queues			\
 		socket_queues02			\
-		socket-raw			\
 		socket-tcp			\
 		socket-tcp6			\
 		socket-tcp-local		\
@@ -135,8 +135,6 @@ TST_NOFILE	:=				\
 		sigpending			\
 		sigaltstack			\
 		sk-netlink			\
-		sk-netlink02			\
-		sk-netlink03			\
 		mem-touch			\
 		grow_map			\
 		grow_map02			\
@@ -153,6 +151,7 @@ TST_NOFILE	:=				\
 		dumpable02			\
 		remap_dead_pid			\
 		remap_dead_pid_root			\
+		scm00				\
 		aio00				\
 		aio01				\
 		fd				\
@@ -172,6 +171,7 @@ TST_NOFILE	:=				\
 		clone_fs			\
 		macvlan			\
 		cr_veth				\
+		sock_peercred			\
 #		jobctl00			\
 
 ifneq ($(SRCARCH),arm)
@@ -263,6 +263,7 @@ TST_DIR		=				\
 		mntns_link_ghost		\
 		mntns_shared_bind		\
 		mntns_shared_bind02		\
+		mntns_shared_bind03		\
 		mntns_root_bind			\
 		mntns_root_bind02		\
 		mntns_overmount			\
@@ -277,7 +278,6 @@ TST_DIR		=				\
 		mnt_enablefs			\
 		autofs				\
 		del_standalone_un		\
-		del_standalone_un_dentry	\
 
 TST_DIR_FILE	=				\
 		chroot				\
@@ -410,6 +410,7 @@ shm:			override CFLAGS += -DNEW_IPC_NS
 msgque:			override CFLAGS += -DNEW_IPC_NS
 sem:			override CFLAGS += -DNEW_IPC_NS
 posix_timers:		override LDLIBS += -lrt -pthread
+remap_dead_pid_root:	override CFLAGS += -DREMAP_PID_ROOT
 socket-tcp6: override CFLAGS += -D ZDTM_IPV6
 socket-tcpbuf6: override CFLAGS += -D ZDTM_IPV6
 socket-tcpbuf-local: override CFLAGS += -D ZDTM_TCP_LOCAL
@@ -436,7 +437,6 @@ stopped01:	override CFLAGS += -DZDTM_STOPPED_KILL
 stopped02:	override CFLAGS += -DZDTM_STOPPED_TKILL
 stopped12:	override CFLAGS += -DZDTM_STOPPED_KILL -DZDTM_STOPPED_TKILL
 clone_fs:		override LDLIBS += -pthread
-sk-netlink02:	override CFLAGS += -DZDTM_NETLINK_DATA
 
 socket-tcp-fin-wait1:	override CFLAGS += -D ZDTM_TCP_FIN_WAIT1
 socket-tcp-fin-wait2:	override CFLAGS += -D ZDTM_TCP_FIN_WAIT2

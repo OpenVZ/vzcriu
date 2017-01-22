@@ -7,8 +7,10 @@
 #include <sys/mman.h>
 #include <errno.h>
 #include <sys/syscall.h>
+#include <sys/sysmacros.h>
+#include <sys/sysmacros.h>
+#include <stdint.h>
 #include <sys/socket.h>
-#include <linux/netlink.h>
 #include <arpa/inet.h>  /* for sockaddr_in and inet_ntoa() */
 
 #include "int.h"
@@ -25,7 +27,6 @@
 #include "proc_parse.h"
 #include "config.h"
 #include "syscall-codes.h"
-#include "sockets.h"
 #include "sk-inet.h"
 
 struct kerndat_s kdat = {
@@ -108,6 +109,39 @@ static int parse_self_maps(unsigned long vm_start, dev_t *device)
 
 	fclose(maps);
 	return -1;
+}
+
+static void kerndat_mmap_min_addr(void)
+{
+	/* From kernel's default CONFIG_LSM_MMAP_MIN_ADDR */
+	static const unsigned long default_mmap_min_addr = 65536;
+	uint64_t value;
+
+	struct sysctl_req req[] = {
+		{
+			.name	= "vm/mmap_min_addr",
+			.arg	= &value,
+			.type	= CTL_U64,
+		},
+	};
+
+	if (sysctl_op(req, ARRAY_SIZE(req), CTL_READ, 0)) {
+		pr_warn("Can't fetch %s value, use default %#lx\n",
+			req[0].name, (unsigned long)default_mmap_min_addr);
+		kdat.mmap_min_addr = default_mmap_min_addr;
+		return;
+	}
+
+	if (value < default_mmap_min_addr) {
+		pr_debug("Adjust mmap_min_addr %#lx -> %#lx\n",
+			 (unsigned long)value,
+			 (unsigned long)default_mmap_min_addr);
+		kdat.mmap_min_addr = default_mmap_min_addr;
+	} else
+		kdat.mmap_min_addr = value;
+
+	pr_debug("Found mmap_min_addr %#lx\n",
+		 (unsigned long)kdat.mmap_min_addr);
 }
 
 static int kerndat_get_shmemdev(void)
@@ -523,30 +557,6 @@ err:
 	return exit_code;
 }
 
-int kerndat_nl_repair()
-{
-	int sk, val = 1;
-
-	sk = socket(AF_NETLINK, SOCK_DGRAM, 0);
-	if (sk < 0) {
-		pr_perror("Unable to create a netlink socket");
-		return -1;
-	}
-
-	if (setsockopt(sk, SOL_NETLINK, NETLINK_REPAIR, &val, sizeof(val))) {
-		if (errno != ENOPROTOOPT) {
-			pr_perror("Unable to set NETLINK_REPAIR");
-			close(sk);
-			return -1;
-		}
-		kdat.has_nl_repair = false;
-	} else
-		kdat.has_nl_repair = true;
-	close(sk);
-
-	return 0;
-}
-
 int kerndat_init(void)
 {
 	int ret;
@@ -571,13 +581,10 @@ int kerndat_init(void)
 	if (!ret)
 		ret = kerndat_iptables_has_xtlocks();
 	if (!ret)
-		ret = kerndat_tcp_repair_window();
-	if (!ret)
-		ret = kerndat_nl_repair();
-	if (!ret)
 		ret = kerndat_tcp_repair();
 
 	kerndat_lsm();
+	kerndat_mmap_min_addr();
 
 	return ret;
 }
@@ -606,13 +613,10 @@ int kerndat_init_rst(void)
 	if (!ret)
 		ret = kerndat_iptables_has_xtlocks();
 	if (!ret)
-		ret = kerndat_tcp_repair_window();
-	if (!ret)
-		ret = kerndat_nl_repair();
-	if (!ret)
 		ret = kerndat_tcp_repair();
 
 	kerndat_lsm();
+	kerndat_mmap_min_addr();
 
 	return ret;
 }

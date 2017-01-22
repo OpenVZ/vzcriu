@@ -8,7 +8,6 @@
 
 #include "../soccr/soccr.h"
 
-#include "cr_options.h"
 #include "util.h"
 #include "common/list.h"
 #include "log.h"
@@ -30,17 +29,6 @@
 
 static LIST_HEAD(cpt_tcp_repair_sockets);
 static LIST_HEAD(rst_tcp_repair_sockets);
-
-static int tcp_repair_on(int fd)
-{
-	int ret, aux = 1;
-
-	ret = setsockopt(fd, SOL_TCP, TCP_REPAIR, &aux, sizeof(aux));
-	if (ret < 0)
-		pr_perror("Can't turn TCP repair mode ON");
-
-	return ret;
-}
 
 static int tcp_repair_establised(int fd, struct inet_sk_desc *sk)
 {
@@ -123,7 +111,7 @@ static int dump_tcp_conn_state(struct inet_sk_desc *sk)
 	char *buf;
 	struct libsoccr_sk_data data;
 
-	ret = libsoccr_get_sk_data(socr, &data, sizeof(data));
+	ret = libsoccr_save(socr, &data, sizeof(data));
 	if (ret < 0)
 		goto err_r;
 	if (ret != sizeof(data)) {
@@ -131,6 +119,8 @@ static int dump_tcp_conn_state(struct inet_sk_desc *sk)
 				ret, (int)sizeof(data));
 		goto err_r;
 	}
+
+	sk->state = data.state;
 
 	tse.inq_len = data.inq_len;
 	tse.inq_seq = data.inq_seq;
@@ -196,7 +186,7 @@ static int dump_tcp_conn_state(struct inet_sk_desc *sk)
 	if (ret < 0)
 		goto err_iw;
 
-	buf = libsoccr_get_queue_bytes(socr, TCP_RECV_QUEUE, 1);
+	buf = libsoccr_get_queue_bytes(socr, TCP_RECV_QUEUE, SOCCR_MEM_EXCL);
 	if (buf) {
 		ret = write_img_buf(img, buf, tse.inq_len);
 		if (ret < 0)
@@ -205,7 +195,7 @@ static int dump_tcp_conn_state(struct inet_sk_desc *sk)
 		xfree(buf);
 	}
 
-	buf = libsoccr_get_queue_bytes(socr, TCP_SEND_QUEUE, 1);
+	buf = libsoccr_get_queue_bytes(socr, TCP_SEND_QUEUE, SOCCR_MEM_EXCL);
 	if (buf) {
 		ret = write_img_buf(img, buf, tse.outq_len);
 		if (ret < 0)
@@ -243,7 +233,7 @@ int dump_one_tcp(int fd, struct inet_sk_desc *sk)
 	return 0;
 }
 
-static int send_tcp_queue(struct libsoccr_sk *sk, struct libsoccr_sk_data *data,
+static int read_tcp_queue(struct libsoccr_sk *sk, struct libsoccr_sk_data *data,
 		int queue, u32 len, struct cr_img *img)
 {
 	char *buf;
@@ -255,27 +245,23 @@ static int send_tcp_queue(struct libsoccr_sk *sk, struct libsoccr_sk_data *data,
 	if (read_img_buf(img, buf, len) < 0)
 		goto err;
 
-	if (libsoccr_set_queue_bytes(sk, data, sizeof(*data), queue, buf))
-		goto err;
-
-	xfree(buf);
-	return 0;
+	return libsoccr_set_queue_bytes(sk, queue, buf, SOCCR_MEM_EXCL);
 
 err:
 	xfree(buf);
 	return -1;
 }
 
-static int restore_tcp_queues(struct libsoccr_sk *sk, struct libsoccr_sk_data *data, struct cr_img *img)
+static int read_tcp_queues(struct libsoccr_sk *sk, struct libsoccr_sk_data *data, struct cr_img *img)
 {
 	u32 len;
 
 	len = data->inq_len;
-	if (len && send_tcp_queue(sk, data, TCP_RECV_QUEUE, len, img))
+	if (len && read_tcp_queue(sk, data, TCP_RECV_QUEUE, len, img))
 		return -1;
 
 	len = data->outq_len;
-	if (len && send_tcp_queue(sk, data, TCP_SEND_QUEUE, len, img))
+	if (len && read_tcp_queue(sk, data, TCP_SEND_QUEUE, len, img))
 		return -1;
 
 	return 0;
@@ -287,6 +273,7 @@ static int restore_tcp_conn_state(int sk, struct libsoccr_sk *socr, struct inet_
 	struct cr_img *img;
 	TcpStreamEntry *tse;
 	struct libsoccr_sk_data data = {};
+	union libsoccr_addr sa_src, sa_dst;
 
 	pr_info("Restoring TCP connection id %x ino %x\n", ii->ie->id, ii->ie->ino);
 
@@ -337,31 +324,29 @@ static int restore_tcp_conn_state(int sk, struct libsoccr_sk *socr, struct inet_
 		data.rcv_wup = tse->rcv_wup;
 	}
 
-	if (restore_sockaddr(&data.src_addr,
+	if (restore_sockaddr(&sa_src,
 				ii->ie->family, ii->ie->src_port,
 				ii->ie->src_addr, 0) < 0)
 		goto err_c;
-	if (restore_sockaddr(&data.dst_addr,
+	if (restore_sockaddr(&sa_dst,
 				ii->ie->family, ii->ie->dst_port,
 				ii->ie->dst_addr, 0) < 0)
 		goto err_c;
 
-	(void)data;
+	libsoccr_set_addr(socr, 1, &sa_src, 0);
+	libsoccr_set_addr(socr, 0, &sa_dst, 0);
 
 	/*
-	 * O_NONBLOCK has to be set before libsoccr_set_sk_data_noq(),
+	 * O_NONBLOCK has to be set before libsoccr_restore(),
 	 * it is required to restore syn-sent sockets.
 	 */
 	if (restore_prepare_socket(sk))
 		goto err_c;
 
-	if (libsoccr_set_sk_data_noq(socr, &data, sizeof(data)))
+	if (read_tcp_queues(socr, &data, img))
 		goto err_c;
 
-	if (restore_tcp_queues(socr, &data, img))
-		goto err_c;
-
-	if (libsoccr_set_sk_data(socr, &data, sizeof(data)))
+	if (libsoccr_restore(socr, &data, sizeof(data)))
 		goto err_c;
 
 	if (tse->has_nodelay && tse->nodelay) {
@@ -449,69 +434,3 @@ void rst_unlock_tcp_connections(void)
 	list_for_each_entry(ii, &rst_tcp_repair_sockets, rlist)
 		nf_unlock_connection_info(ii);
 }
-
-int check_tcp(void)
-{
-	socklen_t optlen;
-	int sk, ret;
-	int val;
-
-	sk = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
-	if (sk < 0) {
-		pr_perror("Can't create TCP socket :(");
-		return -1;
-	}
-
-	ret = tcp_repair_on(sk);
-	if (ret)
-		goto out;
-
-	optlen = sizeof(val);
-	ret = getsockopt(sk, SOL_TCP, TCP_TIMESTAMP, &val, &optlen);
-	if (ret)
-		pr_perror("Can't get TCP_TIMESTAMP");
-
-out:
-	close(sk);
-
-	return ret;
-}
-
-int kerndat_tcp_repair_window()
-{
-	struct tcp_repair_window opt;
-	socklen_t optlen = sizeof(opt);
-	int sk, val = 1;
-
-	sk = socket(AF_INET, SOCK_STREAM, 0);
-	if (sk < 0) {
-		pr_perror("Unable to create inet socket");
-		return -1;
-	}
-
-	if (setsockopt(sk, SOL_TCP, TCP_REPAIR, &val, sizeof(val))) {
-		if (errno == EPERM) {
-			kdat.has_tcp_window = false;
-			pr_warn("TCP_REPAIR isn't available to unprivileged users\n");
-			close(sk);
-			return 0;
-		}
-		pr_perror("Unable to set TCP_REPAIR");
-		close(sk);
-		return -1;
-	}
-
-	if (getsockopt(sk, SOL_TCP, TCP_REPAIR_WINDOW, &opt, &optlen)) {
-		if (errno != ENOPROTOOPT) {
-			pr_perror("Unable to set TCP_REPAIR_WINDOW");
-			close(sk);
-			return -1;
-		}
-		kdat.has_tcp_window = false;
-	} else
-		kdat.has_tcp_window = true;
-	close(sk);
-
-	return 0;
-}
-

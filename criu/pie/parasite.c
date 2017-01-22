@@ -20,8 +20,6 @@
 #include "tty.h"
 #include "aio.h"
 
-#include <string.h>
-
 #include "asm/parasite.h"
 #include "restorer.h"
 
@@ -42,31 +40,6 @@ static struct parasite_dump_pages_args *mprotect_args = NULL;
 #ifndef PR_GET_PDEATHSIG
 #define PR_GET_PDEATHSIG  2
 #endif
-
-struct ve_ioc_arg
-{
-	aio_context_t	ctx_id;
-	unsigned	val;
-};
-
-#define VE_AIO_IOC_WAIT_ACTIVE  _IOW('a',  1, struct ve_ioc_arg)
-
-static int aio_wait_pending(void)
-{
-	int fd, ret;
-
-	fd = sys_open("/proc/self/aio", O_RDONLY, 0);
-	if (fd < 0) {
-		pr_err("Can't open /proc/self/aio\n");
-		return fd == -ENOENT ? 0 : -1;
-	}
-
-	ret = sys_ioctl(fd, VE_AIO_IOC_WAIT_ACTIVE, 0);
-	if (ret)
-		pr_err("Waiting of active aios finished with err=%d\n", ret);
-	sys_close(fd);
-	return ret;
-}
 
 static int mprotect_vmas(struct parasite_dump_pages_args *args)
 {
@@ -302,12 +275,70 @@ grps_err:
 	return -1;
 }
 
+static int fill_fds_opts(struct parasite_drain_fd *fds, struct fd_opts *opts)
+{
+	int i;
+
+	for (i = 0; i < fds->nr_fds; i++) {
+		int flags, fd = fds->fds[i], ret;
+		struct fd_opts *p = opts + i;
+		struct f_owner_ex owner_ex;
+		uint32_t v[2];
+
+		flags = sys_fcntl(fd, F_GETFD, 0);
+		if (flags < 0) {
+			pr_err("fcntl(%d, F_GETFD) -> %d\n", fd, flags);
+			return -1;
+		}
+
+		p->flags = (char)flags;
+
+		ret = sys_fcntl(fd, F_GETOWN_EX, (long)&owner_ex);
+		if (ret) {
+			pr_err("fcntl(%d, F_GETOWN_EX) -> %d\n", fd, ret);
+			return -1;
+		}
+
+		/*
+		 * Simple case -- nothing is changed.
+		 */
+		if (owner_ex.pid == 0) {
+			p->fown.pid = 0;
+			continue;
+		}
+
+		ret = sys_fcntl(fd, F_GETOWNER_UIDS, (long)&v);
+		if (ret) {
+			pr_err("fcntl(%d, F_GETOWNER_UIDS) -> %d\n", fd, ret);
+			return -1;
+		}
+
+		p->fown.uid	 = v[0];
+		p->fown.euid	 = v[1];
+		p->fown.pid_type = owner_ex.type;
+		p->fown.pid	 = owner_ex.pid;
+	}
+
+	return 0;
+}
+
 static int drain_fds(struct parasite_drain_fd *args)
 {
 	int ret;
+	struct fd_opts *opts;
+
+	/*
+	 * See the drain_fds_size() in criu code, the memory
+	 * for this args is ensured to be large enough to keep
+	 * an array of fd_opts at the tail.
+	 */
+	opts = ((void *)args) + sizeof(*args) + args->nr_fds * sizeof(args->fds[0]);
+	ret = fill_fds_opts(args, opts);
+	if (ret)
+		return ret;
 
 	ret = send_fds(tsock, NULL, 0,
-		       args->fds, args->nr_fds, true);
+		       args->fds, args->nr_fds, opts, sizeof(struct fd_opts));
 	if (ret)
 		pr_err("send_fds failed (%d)\n", ret);
 
@@ -428,9 +459,6 @@ static int sane_ring(struct parasite_aio *aio)
 static int parasite_check_aios(struct parasite_check_aios_args *args)
 {
 	int i;
-
-	if (aio_wait_pending() < 0)
-		return -1;
 
 	for (i = 0; i < args->nr_rings; i++) {
 		struct aio_ring *ring;
@@ -634,14 +662,19 @@ static noinline void fini_sigreturn(unsigned long new_sp)
 	ARCH_RT_SIGRETURN(new_sp);
 }
 
-static int fini(void)
+static void parasite_cleanup(void)
 {
-	unsigned long new_sp;
-
 	if (mprotect_args) {
 		mprotect_args->add_prot = 0;
 		mprotect_vmas(mprotect_args);
 	}
+}
+
+static int fini(void)
+{
+	unsigned long new_sp;
+
+	parasite_cleanup();
 
 	new_sp = (long)sigframe + RT_SIGFRAME_OFFSET(sigframe);
 	pr_debug("%ld: new_sp=%lx ip %lx\n", sys_gettid(),
@@ -655,6 +688,59 @@ static int fini(void)
 	BUG();
 
 	return -1;
+}
+
+static int parasite_daemon_cmd(int cmd, void *args)
+{
+	int ret;
+
+	switch (cmd) {
+	case PARASITE_CMD_DUMPPAGES:
+		ret = dump_pages(args);
+		break;
+	case PARASITE_CMD_MPROTECT_VMAS:
+		ret = mprotect_vmas(args);
+		break;
+	case PARASITE_CMD_DUMP_SIGACTS:
+		ret = dump_sigact(args);
+		break;
+	case PARASITE_CMD_DUMP_ITIMERS:
+		ret = dump_itimers(args);
+		break;
+	case PARASITE_CMD_DUMP_POSIX_TIMERS:
+		ret = dump_posix_timers(args);
+		break;
+	case PARASITE_CMD_DUMP_THREAD:
+		ret = dump_thread(args);
+		break;
+	case PARASITE_CMD_DUMP_MISC:
+		ret = dump_misc(args);
+		break;
+	case PARASITE_CMD_DRAIN_FDS:
+		ret = drain_fds(args);
+		break;
+	case PARASITE_CMD_GET_PROC_FD:
+		ret = parasite_get_proc_fd();
+		break;
+	case PARASITE_CMD_DUMP_TTY:
+		ret = parasite_dump_tty(args);
+		break;
+	case PARASITE_CMD_CHECK_AIOS:
+		ret = parasite_check_aios(args);
+		break;
+	case PARASITE_CMD_CHECK_VDSO_MARK:
+		ret = parasite_check_vdso_mark(args);
+		break;
+	case PARASITE_CMD_DUMP_CGROUP:
+		ret = parasite_dump_cgroup(args);
+		break;
+	default:
+		pr_err("Unknown command in parasite daemon thread leader: %d\n", cmd);
+		ret = -1;
+		break;
+	}
+
+	return ret;
 }
 
 static noinline __used int noinline parasite_daemon(void *args)
@@ -679,53 +765,10 @@ static noinline __used int noinline parasite_daemon(void *args)
 			continue;
 		}
 
-		switch (m.cmd) {
-		case PARASITE_CMD_FINI:
+		if (m.cmd == PARASITE_CMD_FINI)
 			goto out;
-		case PARASITE_CMD_DUMPPAGES:
-			ret = dump_pages(args);
-			break;
-		case PARASITE_CMD_MPROTECT_VMAS:
-			ret = mprotect_vmas(args);
-			break;
-		case PARASITE_CMD_DUMP_SIGACTS:
-			ret = dump_sigact(args);
-			break;
-		case PARASITE_CMD_DUMP_ITIMERS:
-			ret = dump_itimers(args);
-			break;
-		case PARASITE_CMD_DUMP_POSIX_TIMERS:
-			ret = dump_posix_timers(args);
-			break;
-		case PARASITE_CMD_DUMP_THREAD:
-			ret = dump_thread(args);
-			break;
-		case PARASITE_CMD_DUMP_MISC:
-			ret = dump_misc(args);
-			break;
-		case PARASITE_CMD_DRAIN_FDS:
-			ret = drain_fds(args);
-			break;
-		case PARASITE_CMD_GET_PROC_FD:
-			ret = parasite_get_proc_fd();
-			break;
-		case PARASITE_CMD_DUMP_TTY:
-			ret = parasite_dump_tty(args);
-			break;
-		case PARASITE_CMD_CHECK_AIOS:
-			ret = parasite_check_aios(args);
-			break;
-		case PARASITE_CMD_CHECK_VDSO_MARK:
-			ret = parasite_check_vdso_mark(args);
-			break;
-		case PARASITE_CMD_DUMP_CGROUP:
-			ret = parasite_dump_cgroup(args);
-			break;
-		default:
-			pr_err("Unknown command in parasite daemon thread leader: %d\n", m.cmd);
-			ret = -1;
-			break;
-		}
+
+		ret = parasite_daemon_cmd(m.cmd, args);
 
 		if (__parasite_daemon_reply_ack(m.cmd, ret))
 			break;
@@ -762,7 +805,7 @@ static noinline __used int parasite_init_daemon(void *data)
 	int ret;
 
 	args->sigreturn_addr = fini_sigreturn;
-	sigframe = args->sigframe;
+	sigframe = (void*)(uintptr_t)args->sigframe;
 
 	ret = tsock = sys_socket(PF_UNIX, SOCK_SEQPACKET, 0);
 	if (tsock < 0) {
@@ -796,6 +839,17 @@ err:
 	return -1;
 }
 
+static int parasite_trap_cmd(int cmd, void *args)
+{
+	switch (cmd) {
+	case PARASITE_CMD_DUMP_THREAD:
+		return dump_thread(args);
+	}
+
+	pr_err("Unknown command to parasite: %d\n", cmd);
+	return -EINVAL;
+}
+
 #ifndef __parasite_entry
 # define __parasite_entry
 #endif
@@ -805,14 +859,11 @@ int __used __parasite_entry parasite_service(unsigned int cmd, void *args)
 	pr_info("Parasite cmd %d/%x process\n", cmd, cmd);
 
 	switch (cmd) {
-	case PARASITE_CMD_DUMP_THREAD:
-		return dump_thread(args);
 	case PARASITE_CMD_INIT_DAEMON:
 		return parasite_init_daemon(args);
 	case PARASITE_CMD_UNMAP:
 		return unmap_itself(args);
 	}
 
-	pr_err("Unknown command to parasite: %d\n", cmd);
-	return -EINVAL;
+	return parasite_trap_cmd(cmd, args);
 }

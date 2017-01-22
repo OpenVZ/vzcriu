@@ -90,9 +90,6 @@ struct libsoccr_sk_data {
 	__u32	max_window;
 	__u32	rcv_wnd;
 	__u32	rcv_wup;
-
-	union libsoccr_addr src_addr;
-	union libsoccr_addr dst_addr;
 };
 
 /*
@@ -127,13 +124,28 @@ struct libsoccr_sk_data {
 struct libsoccr_sk *libsoccr_pause(int fd);
 void libsoccr_resume(struct libsoccr_sk *sk);
 
+/* This one is like _resume, but doesn't turn repair off on socket. */
+void libsoccr_release(struct libsoccr_sk *sk);
+
+/*
+ * Flags for calls below
+ */
+
+/*
+ * Memory given to or taken from library is in exclusive ownership
+ * of the resulting owner. I.e. -- when taken by caller from library,
+ * the former will free() one, when given to the library, the latter
+ * is to free() it.
+ */
+#define SOCCR_MEM_EXCL		0x1
+
 /*
  * CHECKPOINTING calls
  *
  * Roughly the checkpoint steps for sockets in supported states are
  *
  * 	h = libsoccr_pause(sk);
- * 	libsoccr_get_sk_data(h, &data, sizeof(data))
+ * 	libsoccr_save(h, &data, sizeof(data))
  * 	inq = libsoccr_get_queue_bytes(h, TCP_RECV_QUEUE, 0)
  * 	outq = libsoccr_get_queue_bytes(h, TCP_SEND_QUEUE, 0)
  * 	getsocname(sk, &name, ...)
@@ -154,7 +166,7 @@ void libsoccr_resume(struct libsoccr_sk *sk);
  * data_size shows the size of a buffer. The returned value is the
  * amount of bytes put into data (the rest is zeroed with memcpy).
  */
-int libsoccr_get_sk_data(struct libsoccr_sk *sk, struct libsoccr_sk_data *data, unsigned data_size);
+int libsoccr_save(struct libsoccr_sk *sk, struct libsoccr_sk_data *data, unsigned data_size);
 
 /*
  * Get a pointer on the contents of queues. The amount of bytes is
@@ -169,7 +181,14 @@ int libsoccr_get_sk_data(struct libsoccr_sk *sk, struct libsoccr_sk_data *data, 
  * library and should free() it himself. Otherwise the buffer can
  * be claimed again and will be free by library upon _resume call.
  */
-char *libsoccr_get_queue_bytes(struct libsoccr_sk *sk, int queue_id, int steal);
+char *libsoccr_get_queue_bytes(struct libsoccr_sk *sk, int queue_id, unsigned flags);
+
+/*
+ * Returns filled libsoccr_addr for a socket. This value is also required
+ * on restore, but addresses may be obtained from somewhere else, these
+ * are just common sockaddr-s.
+ */
+union libsoccr_addr *libsoccr_get_addr(struct libsoccr_sk *sk, int self, unsigned flags);
 
 /*
  * RESTORING calls
@@ -181,12 +200,11 @@ char *libsoccr_get_queue_bytes(struct libsoccr_sk *sk, int queue_id, int steal);
  * 	sk = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
  *
  * 	h = libsoccr_pause(sk)
- * 	bind(sk, &name, ...)
- *
- * 	libsoccr_set_sk_data_noq(h, &data, sizeof(data))
- * 	libsoccr_set_queue_bytes(h, &data, sizeof(data), TCP_RECV_QUEUE, inq)
- * 	libsoccr_set_queue_bytes(h, &data, sizeof(data), TCP_SEND_QUEUE, outq)
- * 	libsoccr_set_sk_data(h, &data, sizeof(data))
+ * 	libsoccr_set_queue_bytes(h, TCP_SEND_QUEUE, outq);
+ * 	libsoccr_set_queue_bytes(h, TCP_RECV_QUEUE, inq);
+ * 	libsoccr_set_addr(h, 1, src_addr);
+ * 	libsoccr_set_addr(h, 0, dst_addr);
+ * 	libsoccr_restore(h, &data, sizeof(data))
  *
  * 	libsoccr_resume(h)
  *
@@ -195,22 +213,22 @@ char *libsoccr_get_queue_bytes(struct libsoccr_sk *sk, int queue_id, int steal);
  */
 
 /*
- * Performs additional restore actions on bind()-ed and connect()-ed
- * socket, but without queues restored.
+ * Set a pointer on the send/recv queue data.
+ * If flags have SOCCR_MEM_EXCL, the buffer is stolen by the library and is 
+ * free()-ed after libsoccr_resume().
  */
-int libsoccr_set_sk_data_noq(struct libsoccr_sk *sk, struct libsoccr_sk_data *data, unsigned data_size);
+int libsoccr_set_queue_bytes(struct libsoccr_sk *sk, int queue_id, char *bytes, unsigned flags);
 
 /*
- * Performs final restore action after queues restoration.
+ * Set a pointer on the libsoccr_addr for src/dst.
+ * If flags have SOCCR_MEM_EXCL, the buffer is stolen by the library and is 
+ * fre()-ed after libsoccr_resume().
  */
-int libsoccr_set_sk_data(struct libsoccr_sk *sk, struct libsoccr_sk_data *data, unsigned data_size);
+int libsoccr_set_addr(struct libsoccr_sk *sk, int self, union libsoccr_addr *, unsigned flags);
 
 /*
- * Restores the data in queues. The amount of data in *buf should
- * match the _len-s from data as in the _get_queue_bytes case.
- *
- * Called after the _set_sk_data().
+ * Performs restore actions on a socket
  */
-int libsoccr_set_queue_bytes(struct libsoccr_sk *sk, struct libsoccr_sk_data *data, unsigned data_size,
-		int queue, char *buf);
+int libsoccr_restore(struct libsoccr_sk *sk, struct libsoccr_sk_data *data, unsigned data_size);
+
 #endif

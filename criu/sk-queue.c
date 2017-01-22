@@ -9,7 +9,6 @@
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/sendfile.h>
-#include <linux/socket.h>
 
 #include "common/list.h"
 #include "imgset.h"
@@ -59,7 +58,25 @@ struct collect_image_info sk_queues_cinfo = {
 	.collect = collect_one_packet,
 };
 
-int dump_sk_queue(int sock_fd, int sock_id, bool dump_addr)
+/*
+ * Maximum size of the control messages. XXX -- is there any
+ * way to get this value out of the kernel?
+ * */
+#define CMSG_MAX_SIZE	1024
+
+static int dump_packet_cmsg(struct msghdr *mh, SkPacketEntry *pe)
+{
+	struct cmsghdr *ch;
+
+	for (ch = CMSG_FIRSTHDR(mh); ch; ch = CMSG_NXTHDR(mh, ch)) {
+		pr_err("Control messages in queue, not supported\n");
+		return -1;
+	}
+
+	return 0;
+}
+
+int dump_sk_queue(int sock_fd, int sock_id)
 {
 	SkPacketEntry pe = SK_PACKET_ENTRY__INIT;
 	int ret, size, orig_peek_off;
@@ -109,7 +126,7 @@ int dump_sk_queue(int sock_fd, int sock_id, bool dump_addr)
 	pe.id_for = sock_id;
 
 	while (1) {
-		unsigned char addr[_K_SS_MAXSIZE];
+		char cmsg[CMSG_MAX_SIZE];
 		struct iovec iov = {
 			.iov_base	= data,
 			.iov_len	= size,
@@ -117,12 +134,9 @@ int dump_sk_queue(int sock_fd, int sock_id, bool dump_addr)
 		struct msghdr msg = {
 			.msg_iov	= &iov,
 			.msg_iovlen	= 1,
+			.msg_control	= &cmsg,
+			.msg_controllen	= sizeof(cmsg),
 		};
-
-		if (dump_addr) {
-			msg.msg_name	= addr;
-			msg.msg_namelen	= _K_SS_MAXSIZE;
-		}
 
 		ret = pe.length = recvmsg(sock_fd, &msg, MSG_DONTWAIT | MSG_PEEK);
 		if (!ret)
@@ -147,11 +161,8 @@ int dump_sk_queue(int sock_fd, int sock_id, bool dump_addr)
 			goto err_set_sock;
 		}
 
-		if (msg.msg_namelen) {
-			pe.has_addr = true;
-			pe.addr.data = addr;
-			pe.addr.len = msg.msg_namelen;
-		}
+		if (dump_packet_cmsg(&msg, &pe))
+			goto err_set_sock;
 
 		ret = pb_write_one(img_from_set(glob_imgset, CR_FD_SK_QUEUES), &pe, PB_SK_QUEUES);
 		if (ret < 0) {
@@ -198,13 +209,6 @@ int restore_sk_queue(int fd, unsigned int peer_id)
 	list_for_each_entry_safe(pkt, tmp, &packets_list, list) {
 		SkPacketEntry *entry = pkt->entry;
 		char *buf;
-		struct iovec iov = {
-			.iov_len	= entry->length,
-		};
-		struct msghdr msg = {
-			.msg_iov	= &iov,
-			.msg_iovlen	= 1,
-		};
 
 		if (entry->id_for != peer_id)
 			continue;
@@ -223,12 +227,6 @@ int restore_sk_queue(int fd, unsigned int peer_id)
 		buf = xmalloc(entry->length);
 		if (buf ==NULL)
 			goto err;
-		iov.iov_base = buf;
-
-		if (entry->has_addr) {
-			msg.msg_name = entry->addr.data;
-			msg.msg_namelen = entry->addr.len;
-		}
 
 		if (lseek(img_raw_fd(img), pkt->img_off, SEEK_SET) == -1) {
 			pr_perror("lseek() failed");
@@ -240,7 +238,7 @@ int restore_sk_queue(int fd, unsigned int peer_id)
 			goto err;
 		}
 
-		ret = sendmsg(fd, &msg, 0);
+		ret = write(fd, buf, entry->length);
 		xfree(buf);
 		if (ret < 0) {
 			pr_perror("Failed to send packet");

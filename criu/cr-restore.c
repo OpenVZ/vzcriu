@@ -74,7 +74,7 @@
 #include "seccomp.h"
 #include "fault-injection.h"
 #include "sk-queue.h"
-#include "spfs.h"
+#include "sigframe.h"
 
 #include "parasite-syscall.h"
 #include "files-reg.h"
@@ -221,9 +221,6 @@ static int root_prepare_shared(void)
 
 	pr_info("Preparing info about shared resources\n");
 
-	if (prepare_shared_unix())
-		return -1;
-
 	if (prepare_shared_tty())
 		return -1;
 
@@ -267,10 +264,6 @@ static int root_prepare_shared(void)
 		goto err;
 
 	ret = run_post_prepare();
-	if (ret)
-		goto err;
-
-	ret = open_transport_socket();
 	if (ret)
 		goto err;
 
@@ -609,8 +602,6 @@ static int restore_one_alive_task(int pid, CoreEntry *core)
 
 	if (prepare_vmas(current, ta))
 		return -1;
-
-	close_service_fd(TRANSPORT_FD_OFF);
 
 	return sigreturn_restore(pid, ta, args_len, core);
 }
@@ -1352,6 +1343,9 @@ static int restore_task_with_children(void *_arg)
 		fini_restore_mntns();
 	}
 
+	if (open_transport_socket())
+		return -1;
+
 	if (restore_finish_stage(task_entries, CR_STATE_FORKING) < 0)
 		goto err;
 
@@ -1633,75 +1627,12 @@ static int write_restored_pid(void)
 	return 0;
 }
 
-extern char *get_dumpee_veid(pid_t pid_real);
-
-#define join_veX(pid)	join_ve(pid, true)
-#define join_ve0(pid)	join_ve(pid, false)
-
-/*
- * To eliminate overhead we don't parse VE cgroup mountpoint
- * but presume to find it in known place. Otherwise simply
- * don't enter into veX with one warning.
- */
-static int join_ve(pid_t pid, bool veX)
-{
-	static const char ve0_tasks_path[] = "/sys/fs/cgroup/ve/tasks";
-	static bool may_join_ve = false;
-	int ret, veX_fd, len;
-	char buf[PATH_MAX];
-	char *veid;
-
-	if (!may_join_ve) {
-		if (access(ve0_tasks_path, F_OK)) {
-			pr_warn_once("ve: Can't access %s, non VZ kernel?\n",
-				     ve0_tasks_path);
-			return 0;
-		}
-		may_join_ve = true;
-	}
-
-	if (veX) {
-		veid = get_dumpee_veid(pid);
-		if (IS_ERR_OR_NULL(veid)) {
-			pr_err("ve: Can't fetch VEID of pid %d\n", pid);
-			ret = -1;
-			goto out;
-		}
-	} else
-		veid = "0";
-
-	if (veX)
-		snprintf(buf, PATH_MAX, "/sys/fs/cgroup/ve/%s/tasks", veid);
-	else
-		strcpy(buf, ve0_tasks_path);
-	ret = veX_fd = open(buf, O_WRONLY);
-	if (ret < 0) {
-		pr_perror("ve: Can't open %s", buf);
-		goto out;
-	}
-
-	len = sprintf(buf, "%d", getpid());
-	if (len <= 0 || write(veX_fd, buf, len) != len) {
-		pr_perror("ve: Can't enter VE cgroup (len=%d)", len);
-		ret = -1;
-		goto out;
-	}
-
-	pr_debug("ve: Pid %d entered VE %s via %s\n", getpid(), veid, buf);
-	close(veX_fd);
-	ret = 0;
-out:
-	return ret;
-}
-
 static int restore_root_task(struct pstree_item *init)
 {
 	enum trace_flags flag = TRACE_ALL;
 	int ret, fd, mnt_ns_fd = -1;
-	int clean_remaps = 1, root_seized = 0;
+	int root_seized = 0;
 	struct pstree_item *item;
-	bool spfs_is_running = false;
-	int spfs_sock = -1;
 
 	ret = run_scripts(ACT_PRE_RESTORE);
 	if (ret != 0) {
@@ -1748,25 +1679,6 @@ static int restore_root_task(struct pstree_item *init)
 
 	futex_set(&task_entries->nr_in_progress,
 			stage_participants(CR_STATE_RESTORE_NS));
-
-	/*
-	 * Userns daemon is started now in ve0, so we
-	 * should jump into destination VE cgroups so that
-	 * clone/unshare and etc would see us as running inside
-	 * container with all in-kernel restrictions applied.
-	 *
-	 * The main reason for running in veX is that there is
-	 * a number of ve_is_super() calls inside kernel for sake
-	 * of better isolation and virtualization (devtmpfs, mounting,
-	 * procfs filtering, sysfs and sysctl filtering, VTTY console
-	 * virtualization, owner_ve in net management).
-	 *
-	 * For privileged operations we should use userns_call.
-	 * For example to manipulate user beancounter.
-	 */
-	ret = join_veX(root_item->pid.real);
-	if (ret)
-		goto out;
 
 	ret = fork_with_pid(init);
 	if (ret < 0)
@@ -1819,6 +1731,19 @@ static int restore_root_task(struct pstree_item *init)
 	if (ret)
 		goto out_kill;
 
+	if (opts.empty_ns & CLONE_NEWNET) {
+		/*
+		 * Local TCP connections were locked by network_lock_internal()
+		 * on dump and normally should have been C/R-ed by respectively
+		 * dump_iptables() and restore_iptables() in net.c. However in
+		 * the '--empty-ns net' mode no iptables C/R is done and we
+		 * need to return these rules by hands.
+		 */
+		ret = network_lock_internal();
+		if (ret)
+			goto out_kill;
+	}
+
 	timing_start(TIME_FORK);
 	ret = restore_switch_stage(CR_STATE_RESTORE_SHARED);
 	if (ret < 0)
@@ -1848,26 +1773,6 @@ static int restore_root_task(struct pstree_item *init)
 	if (ret < 0)
 		goto out_kill;
 
-	/*
-	 * There is no need to call try_clean_remaps() after this point,
-	 * as restore went OK and all ghosts were removed by the openers.
-	 */
-	if (depopulate_roots_yard(mnt_ns_fd, false))
-		goto out_kill;
-
-	clean_remaps = 0;
-	close_safe(&mnt_ns_fd);
-
-	ret = spfs_mngr_status(&spfs_is_running);
-	if (ret < 0)
-		goto out_kill;
-
-	if (spfs_is_running) {
-		spfs_sock = spfs_mngr_sock();
-		if (spfs_sock < 0)
-			goto out_kill;
-	}
-
 	ret = stop_usernsd();
 	if (ret < 0)
 		goto out_kill;
@@ -1880,11 +1785,8 @@ static int restore_root_task(struct pstree_item *init)
 	if (ret < 0)
 		goto out_kill;
 
-	if (spfs_is_running) {
-		ret = spfs_set_mode(spfs_sock, SPFS_MODE_STUB);
-		if (ret < 0)
-			goto out_kill;
-	}
+	if (fault_injected(FI_POST_RESTORE))
+		goto out_kill;
 
 	ret = run_scripts(ACT_POST_RESTORE);
 	if (ret != 0) {
@@ -1893,6 +1795,15 @@ static int restore_root_task(struct pstree_item *init)
 		write_stats(RESTORE_STATS);
 		goto out_kill;
 	}
+
+	/*
+	 * There is no need to call try_clean_remaps() after this point,
+	 * as restore went OK and all ghosts were removed by the openers.
+	 */
+	if (depopulate_roots_yard(mnt_ns_fd, false))
+		goto out_kill;
+
+	close_safe(&mnt_ns_fd);
 
 	if (write_restored_pid())
 		goto out_kill;
@@ -1922,8 +1833,6 @@ static int restore_root_task(struct pstree_item *init)
 	pr_info("Restore finished successfully. Resuming tasks.\n");
 	futex_set_and_wake(&task_entries->start, CR_STATE_COMPLETE);
 
-	join_ve0(getpid());
-
 	if (ret == 0)
 		ret = parasite_stop_on_syscall(task_entries->nr_threads,
 						__NR_rt_sigreturn, flag);
@@ -1933,10 +1842,6 @@ static int restore_root_task(struct pstree_item *init)
 
 	if (ret == 0)
 		finalize_restore();
-
-	ret = run_scripts(ACT_POST_SIGRETURN);
-	if (ret)
-		pr_err("Post-sigreturn script ret code %d\n", ret);
 
 	if (restore_freezer_state())
 		pr_err("Unable to restore freezer state\n");
@@ -1951,14 +1856,6 @@ static int restore_root_task(struct pstree_item *init)
 	ret = run_scripts(ACT_POST_RESUME);
 	if (ret != 0)
 		pr_err("Post-resume script ret code %d\n", ret);
-
-	if (spfs_is_running) {
-		ret = spfs_release_replace(spfs_sock);
-		if (ret < 0)
-			goto out_kill;
-	}
-
-	close_safe(&spfs_sock);
 
 	if (!opts.restore_detach && !opts.exec_cmd)
 		wait(NULL);
@@ -1990,8 +1887,7 @@ out_kill:
 
 out:
 	fini_cgroup();
-	if (clean_remaps)
-		depopulate_roots_yard(mnt_ns_fd, true);
+	depopulate_roots_yard(mnt_ns_fd, true);
 	stop_usernsd();
 	__restore_switch_stage(CR_STATE_FAIL);
 	pr_err("Restoring FAILED.\n");
@@ -2063,43 +1959,6 @@ err:
 	return ret;
 }
 
-static long restorer_get_mmap_min_addr(void)
-{
-	/* CONFIG_LSM_MMAP_MIN_ADDR=65536 */
-	static const long default_mmap_min_addr = PAGE_SIZE * 0x10;
-	static const char path[] = "/proc/sys/vm/mmap_min_addr";
-	static long mmap_min_addr = 0;
-	char buf[128];
-	int ret, fd;
-
-	if (mmap_min_addr)
-		return mmap_min_addr;
-
-	fd = open(path, O_RDONLY);
-	if (fd < 0) {
-		pr_perror("Can't open %s, switching to default", path);
-		return default_mmap_min_addr;
-	}
-
-	ret = read(fd, buf, sizeof(buf));
-	/* Al least it should be 4096, or something */
-	if (ret < 4) {
-		pr_perror("Can't read %s, switching to default", path);
-		close(fd);
-		return default_mmap_min_addr;
-	}
-	close(fd);
-
-	mmap_min_addr = atol(buf);
-	pr_debug("Obtained %#lx as mmap_min_addr\n", mmap_min_addr);
-	if (mmap_min_addr < default_mmap_min_addr) {
-		pr_debug("Adjust %#lx -> %#lx\n", mmap_min_addr, default_mmap_min_addr);
-		mmap_min_addr = default_mmap_min_addr;
-	}
-
-	return mmap_min_addr;
-}
-
 static long restorer_get_vma_hint(struct list_head *tgt_vma_list,
 		struct list_head *self_vma_list, long vma_len)
 {
@@ -2110,7 +1969,7 @@ static long restorer_get_vma_hint(struct list_head *tgt_vma_list,
 
 	end_vma.e = &end_e;
 	end_e.start = end_e.end = kdat.task_size;
-	prev_vma_end = restorer_get_mmap_min_addr();
+	prev_vma_end = kdat.mmap_min_addr;
 
 	s_vma = list_first_entry(self_vma_list, struct vma_area, list);
 	t_vma = list_first_entry(tgt_vma_list, struct vma_area, list);
@@ -3181,7 +3040,6 @@ static int sigreturn_restore(pid_t pid, struct task_restore_args *task_args, uns
 	close_proc();
 	close_service_fd(ROOT_FD_OFF);
 	close_service_fd(USERNSD_SK);
-	close_service_fd(SPFS_MNGR_SK);
 
 	__gcov_flush();
 

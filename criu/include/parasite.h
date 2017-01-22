@@ -71,7 +71,7 @@ struct parasite_init_args {
 
 	int			log_level;
 
-	struct rt_sigframe	*sigframe;
+	u64			sigframe; /* pointer to sigframe */
 
 	void			*sigreturn_addr;
 	futex_t			daemon_connected;
@@ -236,13 +236,21 @@ struct parasite_drain_fd {
 	int	fds[0];
 };
 
+struct fd_opts {
+	char flags;
+	struct {
+		uint32_t uid;
+		uint32_t euid;
+		uint32_t signum;
+		uint32_t pid_type;
+		uint32_t pid;
+	} fown;
+};
+
 static inline int drain_fds_size(struct parasite_drain_fd *dfds)
 {
 	int nr_fds = min((int)PARASITE_MAX_FDS, dfds->nr_fds);
-
-	BUILD_BUG_ON(sizeof(*dfds) + PARASITE_MAX_FDS * sizeof(dfds->fds[0]) > PAGE_SIZE);
-
-	return sizeof(dfds) + nr_fds * sizeof(dfds->fds[0]);
+	return sizeof(*dfds) + nr_fds * (sizeof(dfds->fds[0]) + sizeof(struct fd_opts));
 }
 
 struct parasite_tty_args {

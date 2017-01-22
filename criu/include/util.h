@@ -10,7 +10,9 @@
 #include <string.h>
 #include <sys/types.h>
 #include <sys/statfs.h>
+#include <sys/sysmacros.h>
 #include <dirent.h>
+#include <poll.h>
 
 #include "int.h"
 #include "common/compiler.h"
@@ -248,12 +250,6 @@ static inline bool issubpath(const char *path, const char *sub_path)
  * mkdir -p
  */
 int mkdirpat(int fd, const char *path, int mode);
-/*
- * mkdir -p `dirname $path`
- */
-int mkdirname(const char *path);
-
-int rmdirp(const char *path, size_t keep);
 
 /*
  * Tests whether a path is a prefix of another path. This is different than
@@ -267,6 +263,12 @@ void split(char *str, char token, char ***out, int *n);
 int fd_has_data(int lfd);
 
 int make_yard(char *path);
+
+static inline int sk_wait_data(int sk)
+{
+	struct pollfd pfd = {sk, POLLIN, 0};
+	return poll(&pfd, 1, -1);
+}
 
 void tcp_nodelay(int sk, bool on);
 void tcp_cork(int sk, bool on);
@@ -283,8 +285,6 @@ void print_data(unsigned long addr, unsigned char *data, size_t size);
 int setup_tcp_server(char *type);
 int run_tcp_server(bool daemon_mode, int *ask, int cfd, int sk);
 int setup_tcp_client(char *addr);
-int cr_set_root(int fd, int *old_root);
-int cr_restore_root(int fd);
 
 #define LAST_PID_PATH		"sys/kernel/ns_last_pid"
 #define PID_MAX_PATH		"sys/kernel/pid_max"

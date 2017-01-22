@@ -16,18 +16,6 @@
 #define TCP_REPAIR_OPTIONS	22
 #endif
 
-#ifndef IP_HDRINCL
-# define IP_HDRINCL		3
-#endif
-
-#ifndef IP_NODEFRAG
-# define IP_NODEFRAG		22
-#endif
-
-#ifndef IPV6_HDRINCL
-# define IPV6_HDRINCL		36
-#endif
-
 struct inet_sk_desc {
 	struct socket_desc	sd;
 	unsigned int		type;
@@ -86,8 +74,6 @@ extern int restore_one_tcp(int sk, struct inet_sk_info *si);
 
 #define SK_EST_PARAM	"tcp-established"
 #define SK_INFLIGHT_PARAM "skip-in-flight"
-
-extern int check_tcp(void);
 
 struct task_restore_args;
 int prepare_tcp_socks(struct task_restore_args *);
