@@ -12,7 +12,6 @@ enum script_actions {
 	ACT_POST_SETUP_NS,
 	ACT_POST_RESUME,
 	ACT_POST_NET_LOCK,
-	ACT_POST_SIGRETURN,
 
 	ACT_MAX
 };

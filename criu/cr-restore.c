@@ -1948,10 +1948,6 @@ static int restore_root_task(struct pstree_item *init)
 	if (ret == 0)
 		finalize_restore();
 
-	ret = run_scripts(ACT_POST_SIGRETURN);
-	if (ret)
-		pr_err("Post-sigreturn script ret code %d\n", ret);
-
 	if (restore_freezer_state())
 		pr_err("Unable to restore freezer state\n");
 
