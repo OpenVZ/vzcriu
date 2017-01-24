@@ -24,6 +24,7 @@ static const char *action_names[ACT_MAX] = {
 	[ ACT_NET_UNLOCK ]	= "network-unlock",
 	[ ACT_SETUP_NS ]	= "setup-namespaces",
 	[ ACT_POST_SETUP_NS ]	= "post-setup-namespaces",
+	[ ACT_PRE_RESUME ]	= "pre-resume",
 	[ ACT_POST_RESUME ]	= "post-resume",
 	[ ACT_POST_NET_LOCK ]	= "post-network-lock",
 };
