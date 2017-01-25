@@ -1751,7 +1751,7 @@ static int propagate_siblings(struct mount_info *mi)
 	list_for_each_entry(t, &mi->mnt_share, mnt_share) {
 		if (t->mounted)
 			continue;
-		if (t->bind && t->bind->shared_id == t->shared_id)
+		if (t->bind && t->bind->shared_id == mi->shared_id)
 			continue;
 		pr_debug("\t\tBind share %s\n", t->mountpoint);
 		t->bind = mi;
@@ -2244,6 +2244,15 @@ static bool can_mount_now(struct mount_info *mi)
 	if (!fsroot_mounted(mi) && (mi->bind == NULL && !mi->need_plugin && !mi->external))
 		return false;
 
+	if (mi->bind && mi->shared_id != mi->bind->shared_id) {
+		struct mount_info *n;
+		int len;
+
+		len = strlen(mi->root);
+		list_for_each_entry(n, &mi->mnt_share, mnt_share)
+			if (len > strlen(n->root))
+				return false;
+	}
 shared:
 	if (mi->parent->shared_id) {
 		struct mount_info *p = mi->parent, *n;
