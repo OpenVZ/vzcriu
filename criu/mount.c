@@ -307,7 +307,7 @@ int mount_resolve_devpts_mnt_id(int s_dev)
 	} else if (mi->fstype->code == FSTYPE__DEVTMPFS) {
 		char path[PATH_MAX];
 
-		snprintf(path, sizeof(path), "%s/pts/ptmx", mi->mountpoint + 1);
+		snprintf(path, sizeof(path), "%s/pts/ptmx", mi->ns_mountpoint + 1);
 		mi = mount_resolve_path(mi, path);
 		if (!mi) {
 			pr_err("Can't resolve %s\n", path);

@@ -500,11 +500,11 @@ static struct file_desc *pty_alloc_reg(struct tty_info *info, bool add, bool inv
 				pr_err("Can't resolve link mnt_id %#x\n", info->tfe->mnt_id);
 				return NULL;
 			}
-			pr_debug("Mount at %s\n", mi->mountpoint);
+			pr_debug("Mount at %s\n", mi->ns_mountpoint);
 		}
 	}
 
-	namelen = strlen(mi->mountpoint) + 64;
+	namelen = strlen(mi->ns_mountpoint) + 64;
 
 	r = xzalloc(sizeof(*r) + sizeof(*r->rfe) + namelen);
 	if (!r)
@@ -516,10 +516,10 @@ static struct file_desc *pty_alloc_reg(struct tty_info *info, bool add, bool inv
 	r->rfe->name = (void *)r + sizeof(*r) + sizeof(*r->rfe);
 
 	if (!need_pts)
-		snprintf(r->rfe->name, namelen, "%s/ptmx", mi->mountpoint);
+		snprintf(r->rfe->name, namelen, "%s/ptmx", mi->ns_mountpoint);
 	else
 		snprintf(r->rfe->name, namelen, "%s/%u",
-			 mi->mountpoint, info->tie->pty->index);
+			 mi->ns_mountpoint, info->tie->pty->index);
 
 	if (add)
 		file_desc_add(&r->d, tfe->id, &noops);
@@ -529,6 +529,7 @@ static struct file_desc *pty_alloc_reg(struct tty_info *info, bool add, bool inv
 	r->rfe->id	= tfe->id;
 	r->rfe->flags	= tfe->flags;
 	r->rfe->fown	= tfe->fown;
+	r->rfe->mnt_id	= mi->mnt_id;
 	r->path		= &r->rfe->name[1];
 
 	return &r->d;
