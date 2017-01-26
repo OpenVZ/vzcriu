@@ -1,4 +1,5 @@
 #define _XOPEN_SOURCE 500
+#define _GNU_SOURCE
 
 #include <termios.h>
 #include <stdlib.h>
@@ -7,6 +8,7 @@
 #include <signal.h>
 #include <limits.h>
 #include <fcntl.h>
+#include <sched.h>
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -81,6 +83,11 @@ int main(int argc, char *argv[])
 	char buf[64];
 
 	test_init(argc, argv);
+
+	if (unshare(CLONE_NEWNS)) {
+		pr_perror("Can't unshare");
+		exit(1);
+	}
 
 	if (mkdir(dirname, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH)) {
 		pr_perror("Can't create testing directory %s", dirname);
