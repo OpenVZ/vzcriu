@@ -1,5 +1,5 @@
-#ifndef __CR_LOCK_H__
-#define __CR_LOCK_H__
+#ifndef __CR_COMMON_LOCK_H__
+#define __CR_COMMON_LOCK_H__
 
 #include <stdint.h>
 #include <linux/futex.h>
@@ -10,6 +10,11 @@
 #include "atomic.h"
 #include "log.h"
 #include "common/bug.h"
+
+#define LOCK_BUG_ON(condition)							\
+	if ((condition))							\
+		*(volatile unsigned long *)NULL = 0xdead0000 + __LINE__
+#define LOCK_BUG()	LOCK_BUG_ON(1)
 
 #ifdef CR_NOGLIBC
 # include "syscall.h"
@@ -156,4 +161,4 @@ static inline void mutex_unlock(mutex_t *m)
 	BUG_ON(sys_futex((uint32_t *)&m->raw.counter, FUTEX_WAKE, 1, NULL, NULL, 0) < 0);
 }
 
-#endif /* __CR_LOCK_H__ */
+#endif /* __CR_COMMON_LOCK_H__ */
