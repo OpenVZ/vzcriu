@@ -11,6 +11,7 @@
 #include "pipes.h"
 #include "util-pie.h"
 #include "autofs.h"
+#include "namespaces.h"
 
 #include "protobuf.h"
 #include "util.h"
@@ -142,6 +143,25 @@ static int mark_pipe_master(void *unused)
 
 static struct pipe_data_rst *pd_hash_pipes[PIPE_DATA_HASH_SIZE];
 
+typedef struct {
+	unsigned int	pipe_id;
+	size_t		size;
+} pipe_set_size_arg_t;
+
+static int pipe_set_size(void *arg, int fd, int pid)
+{
+	pipe_set_size_arg_t *p = arg;
+
+	pr_info("Restoring size %#zx for %#x\n", p->size, p->pipe_id);
+
+	if (fcntl(fd, F_SETPIPE_SZ, p->size) < 0) {
+		pr_perror("Can't restore pipe size");
+		return -1;
+	}
+
+	return 0;
+}
+
 int restore_pipe_data(int img_type, int pfd, u32 id, struct pipe_data_rst **hash)
 {
 	int ret;
@@ -201,13 +221,11 @@ int restore_pipe_data(int img_type, int pfd, u32 id, struct pipe_data_rst **hash
 out:
 	ret = 0;
 	if (pd->pde->has_size) {
-		pr_info("Restoring size %#x for %#x\n",
-				pd->pde->size, pd->pde->pipe_id);
-		ret = fcntl(pfd, F_SETPIPE_SZ, pd->pde->size);
-		if (ret < 0)
-			pr_perror("Can't restore pipe size");
-		else
-			ret = 0;
+		pipe_set_size_arg_t args = {
+			.pipe_id	= pd->pde->pipe_id,
+			.size		= (size_t)pd->pde->size,
+		};
+		ret = userns_call(pipe_set_size, UNS_ASYNC, &args, sizeof(args), pfd);
 	}
 err:
 	return ret;
