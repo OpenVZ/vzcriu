@@ -81,7 +81,7 @@ static int dump_one_eventpoll(int lfd, u32 id, const struct fd_parms *p)
 	EventpollFileEntry e = EVENTPOLL_FILE_ENTRY__INIT;
 	struct eventpoll_list ep_list = {LIST_HEAD_INIT(ep_list.list), 0};
 	union fdinfo_entries *te, *tmp;
-	int i, ret = -1;
+	int i, j, ret = -1;
 
 	e.id = id;
 	e.flags = p->flags;
@@ -94,10 +94,21 @@ static int dump_one_eventpoll(int lfd, u32 id, const struct fd_parms *p)
 	if (!e.tfd)
 		goto out;
 
-	i = 0;
-	list_for_each_entry(te, &ep_list.list, epl.node)
+	i = j = 0;
+	list_for_each_entry(te, &ep_list.list, epl.node) {
+		char fdpath[128];
+
+		snprintf(fdpath, sizeof(fdpath), "/proc/%d/fd/%d",
+			 p->pid, te->epl.e.tfd);
+		if (access(fdpath, F_OK)) {
+			pr_warn("Escaped fd descriptor %d on pid %d, ignoring\n",
+				te->epl.e.tfd, p->pid);
+			j++;
+			continue;
+		}
 		e.tfd[i++] = &te->epl.e;
-	e.n_tfd = ep_list.n;
+	}
+	e.n_tfd = ep_list.n - j;
 
 	pr_info_eventpoll("Dumping ", &e);
 	ret = pb_write_one(img_from_set(glob_imgset, CR_FD_EVENTPOLL_FILE),
