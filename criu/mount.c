@@ -321,6 +321,17 @@ int mount_resolve_devpts_mnt_id(int s_dev)
 	return -1;
 }
 
+struct mount_info *lookup_first_fstype(int code)
+{
+	struct mount_info *m;
+
+	for (m = mntinfo; m != NULL; m = m->next)
+		if (m->fstype->code == code &&
+		    is_root(m->root))
+			return m;
+	return NULL;
+}
+
 dev_t phys_stat_resolve_dev(struct ns_id *ns, dev_t st_dev, const char *path)
 {
 	struct mount_info *m;
