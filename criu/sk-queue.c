@@ -119,7 +119,7 @@ static int dump_packet_cmsg(struct msghdr *mh, SkPacketEntry *pe, int flags)
 		if (ch->cmsg_len == CMSG_LEN(sizeof(struct ucred)) &&
 		    ch->cmsg_type == SCM_CREDENTIALS &&
 		    ch->cmsg_level == SOL_SOCKET) {
-			struct ucred *ucred = CMSG_DATA(ch); 
+			struct ucred *ucred = (void *)CMSG_DATA(ch);
 
 			if (dump_sk_creds(ucred, pe, flags))
 				return -1;
