@@ -475,7 +475,10 @@ static struct file_desc *pty_alloc_reg(struct tty_info *info, bool add, bool inv
 	size_t namelen;
 	bool need_pts;
 
-	mi = lookup_mnt_id(info->tfe->mnt_id);
+	if (info->tfe->mnt_id)
+		mi = lookup_mnt_id(info->tfe->mnt_id);
+	else
+		mi = lookup_first_fstype(FSTYPE__DEVPTS);
 	if (!mi) {
 		pr_err("Can't resolve mnt_id %#x\n", info->tfe->mnt_id);
 		return NULL;
@@ -491,7 +494,10 @@ static struct file_desc *pty_alloc_reg(struct tty_info *info, bool add, bool inv
 			struct reg_file_info *rfi = container_of(info->link->reg_d,
 								 struct reg_file_info, d);
 			pr_debug("Trying to use link: %s\n", rfi->path);
-			mi = lookup_mnt_id(info->link->tfe->mnt_id);
+			if (info->link->tfe->mnt_id)
+				mi = lookup_mnt_id(info->link->tfe->mnt_id);
+			else
+				mi = lookup_first_fstype(FSTYPE__DEVPTS);
 			if (!mi) {
 				pr_err("Can't resolve link mnt_id %#x\n", info->tfe->mnt_id);
 				return NULL;
