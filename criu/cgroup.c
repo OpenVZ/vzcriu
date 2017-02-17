@@ -1782,6 +1782,79 @@ static int rewrite_cgroup_roots(CgroupEntry *cge)
 	return 0;
 }
 
+static int vz_rewrite_net_cls(CgroupEntry *cge)
+{
+	static const char sysfs_ctl_net_cls_prio[] = "/sys/fs/cgroup/net_cls,net_prio";
+	static const char ctl_net_prio_cls[] = "net_prio,net_cls";
+	static const char ctl_net_cls[] = "net_cls";
+	bool rewrote = false;
+	char *prev;
+	int i, j;
+
+	if (access(sysfs_ctl_net_cls_prio, F_OK)) {
+		pr_debug("No %s accessable, skipping rewrite\n",
+			 sysfs_ctl_net_cls_prio);
+		return 0;
+	}
+
+	/*
+	 * The transition should fit the following algo:
+	 *
+	 *  - only one "net_cls" controller present in the
+	 *    system, ie n_cnames = 1, this is a main key
+	 *    for transition, for new kernels there is
+	 *    a merge of net_cls controller into
+	 *    "net_prio,net_cls" where n_cnames = 2
+	 *
+	 *  - once found nothing else is allowed (remember
+	 *    we read data from image so it might be corrupted)
+	 */
+	for (i = 0; i < cge->n_controllers; i++) {
+		CgControllerEntry *ce = cge->controllers[i];
+
+		if (ce->n_cnames != 1 || strcmp(ctl_net_cls, ce->cnames[0]))
+			continue;
+
+		pr_warn_once("rewriting controller entry %s -> %s\n",
+			     ctl_net_cls, ctl_net_prio_cls);
+		prev = ce->cnames[0];
+		ce->cnames[0] = xstrdup(ctl_net_prio_cls);
+		if (!ce->cnames[0]) {
+			ce->cnames[0] = prev;
+			return -ENOMEM;
+		}
+		xfree(prev);
+		if (!rewrote)
+			rewrote = true;
+	}
+
+	if (!rewrote) {
+		pr_debug("No %s -> %s transition detected, skipping rewrite\n",
+			 ctl_net_cls, ctl_net_prio_cls);
+		return 0;
+	}
+
+	for (i = 0; i < cge->n_sets; i++) {
+		CgSetEntry *se = cge->sets[i];
+
+		for (j = 0; j < se->n_ctls; j++) {
+			if (strcmp(ctl_net_cls, se->ctls[j]->name))
+				continue;
+			pr_warn_once("rewriting controller set entry entry %s -> %s\n",
+				     ctl_net_cls, ctl_net_prio_cls);
+			prev = se->ctls[j]->name;
+			se->ctls[j]->name = xstrdup(ctl_net_prio_cls);
+			if (!se->ctls[j]->name) {
+				se->ctls[j]->name = prev;
+				return -ENOMEM;
+			}
+			xfree(prev);
+		}
+	}
+
+	return 0;
+}
+
 int prepare_cgroup(void)
 {
 	int ret;
@@ -1798,6 +1871,14 @@ int prepare_cgroup(void)
 		return ret;
 
 	if (rewrite_cgroup_roots(ce))
+		return -1;
+
+	/*
+	 * FIXME: Temporary solution, need to implement
+	 * intelligent merging denepding on controllers
+	 * present on the node.
+	 */
+	if (vz_rewrite_net_cls(ce))
 		return -1;
 
 	n_sets = ce->n_sets;
