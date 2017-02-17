@@ -1782,6 +1782,52 @@ static int rewrite_cgroup_roots(CgroupEntry *cge)
 	return 0;
 }
 
+static int vz_rewrite_net_cls(CgroupEntry *cge)
+{
+	static const char ctl_net_cls_prio[] = "net_cls,net_prio";
+	static const char ctl_net_cls[] = "net_cls";
+	char *prev;
+	int i, j;
+
+	for (i = 0; i < cge->n_controllers; i++) {
+		CgControllerEntry *ce = cge->controllers[i];
+
+		for (j = 0; j < ce->n_cnames; j++) {
+			if (strcmp(ctl_net_cls, ce->cnames[j]))
+				continue;
+			pr_warn_once("rewriting controller entry %s -> %s\n",
+				     ctl_net_cls, ctl_net_cls_prio);
+			prev = ce->cnames[j];
+			ce->cnames[j] = xstrdup(ctl_net_cls_prio);
+			if (!ce->cnames[j]) {
+				ce->cnames[j] = prev;
+				return -ENOMEM;
+			}
+			xfree(prev);
+		}
+	}
+
+	for (i = 0; i < cge->n_sets; i++) {
+		CgSetEntry *se = cge->sets[i];
+
+		for (j = 0; j < se->n_ctls; j++) {
+			if (strcmp(ctl_net_cls, se->ctls[j]->name))
+				continue;
+			pr_warn_once("rewriting controller set entry entry %s -> %s\n",
+				     ctl_net_cls, ctl_net_cls_prio);
+			prev = se->ctls[j]->name;
+			se->ctls[j]->name = xstrdup(ctl_net_cls_prio);
+			if (!se->ctls[j]->name) {
+				se->ctls[j]->name = prev;
+				return -ENOMEM;
+			}
+			xfree(prev);
+		}
+	}
+
+	return 0;
+}
+
 int prepare_cgroup(void)
 {
 	int ret;
@@ -1798,6 +1844,14 @@ int prepare_cgroup(void)
 		return ret;
 
 	if (rewrite_cgroup_roots(ce))
+		return -1;
+
+	/*
+	 * FIXME: Temporary solution, need to implement
+	 * intelligent merging denepding on controllers
+	 * present on the node.
+	 */
+	if (vz_rewrite_net_cls(ce))
 		return -1;
 
 	n_sets = ce->n_sets;
