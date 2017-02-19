@@ -1,5 +1,6 @@
 #include <unistd.h>
 #include <linux/netlink.h>
+#include <linux/socket.h>
 #include <linux/rtnetlink.h>
 #include <libnl3/netlink/msg.h>
 
@@ -14,6 +15,10 @@
 #include "libnetlink.h"
 #include "sk-queue.h"
 #include "kerndat.h"
+
+#ifndef SOL_NETLINK
+#define SOL_NETLINK 270
+#endif
 
 struct netlink_sk_desc {
 	struct socket_desc	sd;
@@ -117,11 +122,41 @@ static bool can_dump_netlink_sk(int lfd, struct netlink_sk_desc *sk)
 	return true;
 }
 
+static int dump_nl_opts(int sk, NlSkOptsEntry *e)
+{
+	int ret = 0;
+	socklen_t len;
+
+	ret |= dump_opt(sk, SOL_NETLINK, NETLINK_PKTINFO, &e->pktinfo);
+	ret |= dump_opt(sk, SOL_NETLINK, NETLINK_BROADCAST_ERROR, &e->broadcast_error);
+	ret |= dump_opt(sk, SOL_NETLINK, NETLINK_NO_ENOBUFS, &e->no_enobufs);
+
+	len = sizeof(e->listen_all_nsid);
+	if (getsockopt(sk, SOL_NETLINK, NETLINK_LISTEN_ALL_NSID, &e->listen_all_nsid, &len)) {
+		if (errno == ENOPROTOOPT) {
+			pr_warn("Unable to get NETLINK_LISTEN_ALL_NSID");
+		} else {
+			pr_perror("Can't get NETLINK_LISTEN_ALL_NSID opt");
+			ret = -1;
+		}
+	}
+
+	len = sizeof(e->cap_ack);
+	if (getsockopt(sk, SOL_NETLINK, NETLINK_CAP_ACK, &e->cap_ack, &len) &&
+	    errno != ENOPROTOOPT) {
+		pr_perror("Can't get NETLINK_CAP_ACK opt");
+		ret = -1;
+	}
+
+	return ret;
+}
+
 static int dump_one_netlink_fd(int lfd, u32 id, const struct fd_parms *p)
 {
 	struct netlink_sk_desc *sk;
 	NetlinkSkEntry ne = NETLINK_SK_ENTRY__INIT;
 	SkOptsEntry skopts = SK_OPTS_ENTRY__INIT;
+	NlSkOptsEntry nlopts = NL_SK_OPTS_ENTRY__INIT;
 
 	sk = (struct netlink_sk_desc *)lookup_socket(p->stat.st_ino, PF_NETLINK, 0);
 	if (IS_ERR(sk))
@@ -174,6 +209,10 @@ static int dump_one_netlink_fd(int lfd, u32 id, const struct fd_parms *p)
 
 	ne.fown = (FownEntry *)&p->fown;
 	ne.opts	= &skopts;
+	ne.nl_opts = &nlopts;
+
+	if (dump_nl_opts(lfd, &nlopts))
+		goto err;
 
 	if (dump_socket_opts(lfd, &skopts))
 		goto err;
@@ -220,6 +259,24 @@ static int restore_netlink_queue(int sk, int id)
 		return -1;
 
 	return 0;
+}
+
+static int restore_nl_opts(int sk, NlSkOptsEntry *e)
+{
+	int yes = 1, ret = 0;
+
+	if (e->pktinfo)
+		ret |= restore_opt(sk, SOL_NETLINK, NETLINK_PKTINFO, &yes);
+	if (e->broadcast_error)
+		ret |= restore_opt(sk, SOL_NETLINK, NETLINK_BROADCAST_ERROR, &yes);
+	if (e->no_enobufs)
+		ret |= restore_opt(sk, SOL_NETLINK, NETLINK_NO_ENOBUFS, &yes);
+	if (e->listen_all_nsid)
+		ret |= restore_opt(sk, SOL_NETLINK, NETLINK_LISTEN_ALL_NSID, &yes);
+	if (e->cap_ack)
+		ret |= restore_opt(sk, SOL_NETLINK, NETLINK_CAP_ACK, &yes);
+
+	return ret;
 }
 
 static int open_netlink_sk(struct file_desc *d, int *new_fd)
@@ -271,6 +328,9 @@ static int open_netlink_sk(struct file_desc *d, int *new_fd)
 		goto err;
 
 	if (restore_netlink_queue(sk, nse->id))
+		goto err;
+
+	if (nse->nl_opts && restore_nl_opts(sk, nse->nl_opts))
 		goto err;
 
 	if (restore_socket_opts(sk, nse->opts))
