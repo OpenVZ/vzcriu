@@ -10,6 +10,7 @@
 #include <sys/socket.h>
 #include <sys/sendfile.h>
 #include <linux/socket.h>
+#include <linux/netlink.h>
 
 #include "common/list.h"
 #include "imgset.h"
@@ -132,6 +133,18 @@ static int dump_packet_cmsg(struct msghdr *mh, SkPacketEntry *pe, int flags)
 			if (dump_sk_creds(ucred, pe, flags))
 				return -1;
 			continue;
+		}
+		if (ch->cmsg_level == SOL_NETLINK &&
+		    ch->cmsg_type == NETLINK_PKTINFO &&
+		    ch->cmsg_len == CMSG_LEN(sizeof(struct nl_pktinfo))) {
+			struct nl_pktinfo *info = (struct nl_pktinfo *)CMSG_DATA(ch);
+
+			/* Groups less than 32 are returned in msg_address */
+			if (info->group < 32)
+				continue;
+
+			pr_err("A sender group %d isn't supported\n", info->group);
+			return -1;
 		}
 		pr_err("cmsg: len %ld type %d level %d\n",
 			ch->cmsg_len, ch->cmsg_type, ch->cmsg_level);
