@@ -151,6 +151,23 @@ static int dump_nl_opts(int sk, NlSkOptsEntry *e)
 	return ret;
 }
 
+static int dump_nl_queue(int sk, int id) {
+	int ret, old_val, on = 1;
+
+	if (dump_opt(sk, SOL_NETLINK, NETLINK_NO_ENOBUFS, &old_val))
+		return -1;
+
+	if (!old_val && restore_opt(sk, SOL_NETLINK, NETLINK_NO_ENOBUFS, &on))
+		return -1;
+
+	ret = dump_sk_queue(sk, id, SK_QUEUE_DUMP_ADDR);
+
+	if (!old_val && restore_opt(sk, SOL_NETLINK, NETLINK_NO_ENOBUFS, &old_val))
+		return -1;
+
+	return ret;
+}
+
 static int dump_one_netlink_fd(int lfd, u32 id, const struct fd_parms *p)
 {
 	struct netlink_sk_desc *sk;
@@ -217,7 +234,7 @@ static int dump_one_netlink_fd(int lfd, u32 id, const struct fd_parms *p)
 	if (dump_socket_opts(lfd, &skopts))
 		goto err;
 
-	if (kdat.has_nl_repair && dump_sk_queue(lfd, id, SK_QUEUE_DUMP_ADDR))
+	if (kdat.has_nl_repair && dump_nl_queue(lfd, id))
 		goto err;
 
 	if (pb_write_one(img_from_set(glob_imgset, CR_FD_NETLINK_SK), &ne, PB_NETLINK_SK))
