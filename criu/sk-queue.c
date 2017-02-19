@@ -98,7 +98,9 @@ static int dump_sk_creds(struct ucred *ucred, SkPacketEntry *pe, int flags)
 		int ret;
 
 		/* Does a process exist? */
-		if (pidns) {
+		if (ucred->pid == 0) {
+			ret = 0;
+		} else if (pidns) {
 			snprintf(path, sizeof(path), "%d", ucred->pid);
 			ret = faccessat(get_service_fd(CR_PROC_FD_OFF),
 							path, R_OK, 0);
@@ -313,7 +315,7 @@ int restore_sk_queue(int fd, unsigned int peer_id)
 			msg.msg_namelen = entry->addr.len;
 		}
 
-		if (entry->ucred) {
+		if (entry->ucred && entry->ucred->pid) {
 			struct ucred *ucred;
 			struct cmsghdr *ch;
 
