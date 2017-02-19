@@ -270,10 +270,10 @@ static int open_netlink_sk(struct file_desc *d, int *new_fd)
 	if (rst_file_params(sk, nse->fown, nse->flags))
 		goto err;
 
-	if (restore_socket_opts(sk, nse->opts))
+	if (restore_netlink_queue(sk, nse->id))
 		goto err;
 
-	if (restore_netlink_queue(sk, nse->id))
+	if (restore_socket_opts(sk, nse->opts))
 		goto err;
 
 	*new_fd = sk;
