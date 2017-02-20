@@ -131,7 +131,7 @@ static int dump_packet_cmsg(struct msghdr *mh, SkPacketEntry *pe, int flags)
 		if (ch->cmsg_level == SOL_NETLINK &&
 		    ch->cmsg_type == NETLINK_PKTINFO &&
 		    ch->cmsg_len == CMSG_LEN(sizeof(struct nl_pktinfo))) {
-			struct nl_pktinfo *info = CMSG_DATA(ch);
+			struct nl_pktinfo *info = (void *)CMSG_DATA(ch);
 
 			/* Groups less than 32 are returned in msg_address */
 			if (info->group < 32)
