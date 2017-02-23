@@ -804,7 +804,7 @@ static unsigned int userns_id(unsigned int id, UidGidExtent **map, int n)
 	return INVALID_ID;
 }
 
-static unsigned int host_id(unsigned int id, UidGidExtent **map, int n)
+static unsigned int parent_userns_xid(unsigned int id, UidGidExtent **map, int n)
 {
 	int i;
 
@@ -820,16 +820,14 @@ static unsigned int host_id(unsigned int id, UidGidExtent **map, int n)
 	return INVALID_ID;
 }
 
-static uid_t host_uid(uid_t uid)
+static uid_t parent_userns_uid(UsernsEntry *e, uid_t uid)
 {
-	UsernsEntry *e = userns_entry;
-	return host_id(uid, e->uid_map, e->n_uid_map);
+	return parent_userns_xid(uid, e->uid_map, e->n_uid_map);
 }
 
-static gid_t host_gid(gid_t gid)
+static gid_t parent_userns_gid(UsernsEntry *e, gid_t gid)
 {
-	UsernsEntry *e = userns_entry;
-	return host_id(gid, e->gid_map, e->n_gid_map);
+	return parent_userns_xid(gid, e->gid_map, e->n_gid_map);
 }
 
 uid_t userns_uid(uid_t uid)
@@ -975,6 +973,7 @@ static int collect_ns_hierarhy(bool for_dump)
 
 static int check_user_ns(struct ns_id *ns)
 {
+	UsernsEntry *e = ns->user.e;
 	pid_t pid = ns->ns_pid;
 	int status;
 	pid_t chld;
@@ -991,8 +990,8 @@ static int check_user_ns(struct ns_id *ns)
 		uid_t uid;
 		gid_t gid;
 
-		uid = host_uid(0);
-		gid = host_gid(0);
+		uid = parent_userns_uid(e, 0);
+		gid = parent_userns_gid(e, 0);
 		if (uid == INVALID_ID || gid == INVALID_ID) {
 			pr_err("Unable to convert uid or gid\n");
 			exit(1);
