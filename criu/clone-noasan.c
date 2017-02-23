@@ -38,3 +38,8 @@ int clone_noasan(int (*fn)(void *), int flags, void *arg)
 	 */
 	return clone(fn, stack_ptr, flags, arg);
 }
+
+int clone_noasan_vm(int (*fn)(void *), void *stack, int flags, void *arg)
+{
+	return clone(fn, stack, flags, arg);
+}
