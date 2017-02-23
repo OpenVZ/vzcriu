@@ -8,7 +8,7 @@
 #include "files.h"
 #include "common/list.h"
 #include "images/netdev.pb-c.h"
-#include "images/userns.pb-c.h"
+#include "images/ns.pb-c.h"
 
 #ifndef CLONE_NEWNS
 #define CLONE_NEWNS 0x00020000
