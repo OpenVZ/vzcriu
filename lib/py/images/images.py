@@ -563,6 +563,7 @@ handlers = {
                                  bpfmap_data_extra_handler()),
     'APPARMOR': entry_handler(pb.apparmor_entry),
     'DEVICE': entry_handler(pb.device_entry),
+    'NS': entry_handler(pb.ns_entry),
 }
 
 
