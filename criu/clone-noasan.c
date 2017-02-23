@@ -82,3 +82,8 @@ int clone3_with_pid_noasan(int (*fn)(void *), void *arg, int flags, int exit_sig
 		exit(fn(arg));
 	return pid;
 }
+
+int clone_noasan_vm(int (*fn)(void *), void *stack, int flags, void *arg)
+{
+	return clone(fn, stack, flags, arg);
+}
