@@ -508,6 +508,7 @@ handlers = {
 	'AUTOFS'		: entry_handler(pb.autofs_entry),
 	'FILES'                 : entry_handler(pb.file_entry),
 	'CPUINFO'		: entry_handler(pb.cpuinfo_entry),
+	'NS'                    : entry_handler(pb.ns_entry),
 	}
 
 def __rhandler(f):
