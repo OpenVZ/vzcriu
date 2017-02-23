@@ -24,6 +24,7 @@
 #include "page.h"
 #include "util.h"
 #include "memfd.h"
+#include "pstree.h"
 #include "protobuf.h"
 #include "images/pagemap.pb-c.h"
 
@@ -448,6 +449,7 @@ int collect_shmem(int pid, struct vma_area *vma)
 static int shmem_wait_and_open(struct shmem_info *si, VmaEntry *vi)
 {
 	char path[128];
+	pid_t pid;
 	int ret;
 
 	pr_info("Waiting for the %lx shmem to appear\n", si->shmid);
@@ -457,7 +459,8 @@ static int shmem_wait_and_open(struct shmem_info *si, VmaEntry *vi)
 		si->pid, si->fd);
 
 	pr_info("Opening shmem [%s] \n", path);
-	ret = open_proc_rw(si->pid, "fd/%d", si->fd);
+	pid = pstree_pid_by_virt(si->pid)->real;
+	ret = open_fd_of_real_pid(pid, si->fd, O_RDWR);
 	futex_inc_and_wake(&si->lock);
 	if (ret < 0)
 		return -1;
