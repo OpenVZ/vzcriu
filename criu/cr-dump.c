@@ -1155,7 +1155,7 @@ static int dump_task_core_all(struct parasite_ctl *ctl, struct pstree_item *item
 		}
 	}
 
-	ret = parasite_dump_thread_leader_seized(ctl, pid, core);
+	ret = parasite_dump_thread_leader_seized(ctl, item, pid, core);
 	if (ret)
 		goto err;
 
@@ -1322,7 +1322,7 @@ static int dump_task_thread(struct parasite_ctl *parasite_ctl, const struct pstr
 	pr_info("Dumping core for thread (pid: %d)\n", pid);
 	pr_info("----------------------------------------\n");
 
-	ret = parasite_dump_thread_seized(tctl, parasite_ctl, id, tid, core);
+	ret = parasite_dump_thread_seized(tctl, parasite_ctl, item, id, tid, core);
 	if (ret) {
 		pr_err("Can't dump thread for pid %d\n", pid);
 		goto err;
