@@ -101,6 +101,7 @@
 #define BPFMAP_DATA_MAGIC    0x64324033 /* Arkhangelsk */
 #define APPARMOR_MAGIC	     0x59423047 /* Nikolskoye */
 #define DEVICE_MAGIC	     0x60023777 /* Belozersk */
+#define NS_MAGIC	     0x44293409 /* Yalta */
 
 #define IFADDR_MAGIC	RAW_IMAGE_MAGIC
 #define ROUTE_MAGIC	RAW_IMAGE_MAGIC

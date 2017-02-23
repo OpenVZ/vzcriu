@@ -111,6 +111,7 @@ struct cr_fd_desc_tmpl imgset_template[CR_FD_MAX] = {
 	FD_ENTRY_F(BPFMAP_DATA,	"bpfmap-data", O_NOBUF),
 	FD_ENTRY(APPARMOR,	"apparmor"),
 	FD_ENTRY(DEVICE,	"vz-device"),
+	FD_ENTRY(NS,		"ns"),
 
 	[CR_FD_STATS] = {
 		.fmt	= "stats-%s",
