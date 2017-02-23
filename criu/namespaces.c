@@ -14,6 +14,7 @@
 #include <limits.h>
 #include <errno.h>
 #include <sys/ioctl.h>
+#include <sys/mman.h>
 
 #include "page.h"
 #include "rst-malloc.h"
@@ -33,6 +34,9 @@
 #include "util.h"
 #include "images/ns.pb-c.h"
 #include "images/pidns.pb-c.h"
+#include "common/scm.h"
+#include "fdstore.h"
+#include "clone-noasan.h"
 
 static struct ns_desc *ns_desc_array[] = {
 	&net_ns_desc,
@@ -2221,6 +2225,118 @@ err_out:
 	return ret;
 }
 
+int store_self_ns(struct ns_id *ns)
+{
+	int fd, id;
+
+	/* Pin one with a file descriptor */
+	fd = open_proc(PROC_SELF, "ns/%s", ns->nd->str);
+	if (fd < 0)
+		return -1;
+
+	id = fdstore_add(fd);
+	close(fd);
+	return id;
+}
+
+enum {
+	NS__CREATED = 1,
+	NS__MAPS_POPULATED,
+	NS__RESTORED,
+	NS__EXIT_HELPER,
+	NS__ERROR,
+};
+
+struct ns_arg {
+	struct ns_id *me;
+	futex_t futex;
+	pid_t pid;
+};
+
+static int create_user_ns_hierarhy_fn(void *in_arg)
+{
+	struct ns_arg *arg, *p_arg = in_arg;
+	futex_t *p_futex = NULL, *futex = NULL;
+	size_t map_size = 2 * 1024 * 1024;
+	void *map = MAP_FAILED, *stack;
+	int status, ret = -1;
+	struct ns_id *me, *child;
+	pid_t pid = -1;
+
+	if (p_arg->me != root_user_ns)
+		p_futex = &p_arg->futex;
+	me = p_arg->me;
+
+	me->user.nsfd_id = store_self_ns(me);
+	if (me->user.nsfd_id < 0) {
+		pr_err("Can't add fd to fdstore\n");
+		goto out;
+	}
+
+	if (p_futex) {
+		/* Set self pid to allow parent restore user_ns maps */
+		p_arg->pid = get_self_real_pid();
+		futex_set_and_wake(p_futex, NS__CREATED);
+
+		futex_wait_while_lt(p_futex, NS__MAPS_POPULATED);
+		if (prepare_userns_creds()) {
+			pr_err("Can't prepare creds\n");
+			goto out;
+		}
+	}
+
+	map = mmap(NULL, map_size, PROT_WRITE | PROT_READ, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+	if (map == MAP_FAILED) {
+		pr_perror("Failed to mmap");
+		goto out;
+	}
+	arg = map + map_size - sizeof(*arg);
+	stack = ((void *)arg) - sizeof(unsigned long);
+	futex = &arg->futex;
+
+	list_for_each_entry(child, &me->children, siblings) {
+		arg->me = child;
+		futex_init(futex);
+
+		pid = clone_noasan_vm(create_user_ns_hierarhy_fn, stack,
+				      CLONE_NEWUSER | CLONE_VM | CLONE_FILES |
+				      SIGCHLD, arg);
+		if (pid < 0) {
+			pr_perror("Can't clone");
+			goto out;
+		}
+		futex_wait_while_lt(futex, NS__CREATED);
+		/* Use child real pid */
+		if (prepare_userns(arg->pid, child->user.e) < 0) {
+			pr_err("Can't prepare child user_ns\n");
+			goto out;
+		}
+		futex_set_and_wake(futex, NS__MAPS_POPULATED);
+
+		errno = 0;
+		if (waitpid(pid, &status, 0) < 0 || !WIFEXITED(status) || WEXITSTATUS(status)) {
+			pr_perror("Child process waiting: %d", status);
+			close_pid_proc();
+			goto out;
+		}
+		close_pid_proc();
+	}
+
+	ret = 0;
+out:
+	if (p_futex)
+		futex_set_and_wake(p_futex, ret ? NS__ERROR : NS__RESTORED);
+	if (map != MAP_FAILED)
+		munmap(map, map_size);
+	return ret ? 1 : 0;
+}
+
+static int create_user_ns_hierarhy(void)
+{
+	struct ns_arg arg = { .me = root_user_ns };
+	return create_user_ns_hierarhy_fn(&arg);
+}
+
 int prepare_namespace(struct pstree_item *item, unsigned long clone_flags)
 {
 	pid_t pid = vpid(item);
@@ -2233,7 +2349,8 @@ int prepare_namespace(struct pstree_item *item, unsigned long clone_flags)
 	if (block_sigmask(&sig_mask, SIGCHLD) < 0)
 		return -1;
 
-	if ((clone_flags & CLONE_NEWUSER) && prepare_userns_creds())
+	if ((clone_flags & CLONE_NEWUSER) && (prepare_userns_creds() ||
+					      create_user_ns_hierarhy()))
 		return -1;
 
 	/*
