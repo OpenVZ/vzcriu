@@ -148,6 +148,7 @@ struct ns_id {
 		} net;
 		struct {
 			UsernsEntry *e;
+			int nsfd_id;
 		} user;
 	};
 };
@@ -190,6 +191,7 @@ extern int dump_task_ns_ids(struct pstree_item *);
 extern int predump_task_ns_ids(struct pstree_item *);
 extern int rst_add_ns_id(unsigned int id, struct pstree_item *, struct ns_desc *nd);
 extern struct ns_id *lookup_ns_by_id(unsigned int id, struct ns_desc *nd);
+extern int store_self_ns(struct ns_id *ns);
 
 extern int collect_user_namespaces(bool for_dump);
 extern int prepare_userns(pid_t real_pid, UsernsEntry *e);
