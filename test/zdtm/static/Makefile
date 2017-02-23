@@ -276,6 +276,7 @@ TST_NOFILE	:=				\
 		change_mnt_context		\
 		ve				\
 		ve_clock_fallback		\
+		userns00			\
 #		jobctl00			\
 
 PKG_CONFIG ?= pkg-config
