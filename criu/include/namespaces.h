@@ -2,6 +2,7 @@
 #define __CR_NS_H__
 
 #include <sys/socket.h>
+#include <sys/ioctl.h>
 
 #include "common/compiler.h"
 #include "files.h"
@@ -48,6 +49,12 @@
 #define CLONE_SUBNS (CLONE_NEWNS | CLONE_NEWNET)
 
 #define EXTRA_SIZE 20
+
+#ifndef NSIO
+#define NSIO	      0xb7
+#define NS_GET_USERNS _IO(NSIO, 0x1)
+#define NS_GET_PARENT _IO(NSIO, 0x2)
+#endif
 
 struct ns_desc {
 	unsigned int cflag;
@@ -97,6 +104,10 @@ struct ns_id {
 	unsigned int id;
 	pid_t ns_pid;
 	struct ns_desc *nd;
+	struct ns_id *parent;
+	struct list_head children;
+	struct list_head siblings;
+	struct ns_id *user_ns;
 	struct ns_id *next;
 	enum ns_type type;
 	char *ext_key;
