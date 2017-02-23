@@ -7,6 +7,7 @@
 #include "files.h"
 #include "common/list.h"
 #include "images/netdev.pb-c.h"
+#include "images/userns.pb-c.h"
 
 #ifndef CLONE_NEWNS
 #define CLONE_NEWNS	0x00020000
@@ -149,6 +150,9 @@ struct ns_id {
 			struct list_head links;
 			NetnsEntry *netns;
 		} net;
+		struct {
+			UsernsEntry *e;
+		} user;
 	};
 };
 extern struct ns_id *ns_ids;
