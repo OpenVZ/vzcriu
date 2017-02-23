@@ -217,6 +217,7 @@ TST_NOFILE	:=				\
 		pid_file			\
 		selinux00			\
 		userns00			\
+		userns01			\
 #		jobctl00			\
 
 ifneq ($(SRCARCH),arm)
