@@ -910,6 +910,8 @@ err:
 	return -1;
 }
 
+static int dump_user_ns(struct ns_id *ns);
+
 int collect_user_ns(struct ns_id *ns, void *oarg)
 {
 	/*
@@ -917,7 +919,7 @@ int collect_user_ns(struct ns_id *ns, void *oarg)
 	 * mappings, which are used for convirting local id-s to
 	 * userns id-s (userns_uid(), userns_gid())
 	 */
-	if (dump_user_ns(root_item->pid->real, root_item->ids->user_ns_id))
+	if (dump_user_ns(ns))
 		return -1;
 
 	return 0;
@@ -950,8 +952,9 @@ static int collect_ns_hierarhy(bool for_dump)
 	return 0;
 }
 
-static int check_user_ns(int pid)
+static int check_user_ns(struct ns_id *ns)
 {
+	pid_t pid = ns->ns_pid;
 	int status;
 	pid_t chld;
 
@@ -1045,9 +1048,10 @@ static int check_user_ns(int pid)
 	return 0;
 }
 
-int dump_user_ns(pid_t pid, int ns_id)
+static int dump_user_ns(struct ns_id *ns)
 {
 	int ret, exit_code = -1;
+	pid_t pid = ns->ns_pid;
 	UsernsEntry *e = &userns_entry;
 	struct cr_img *img;
 
@@ -1061,10 +1065,10 @@ int dump_user_ns(pid_t pid, int ns_id)
 		goto err;
 	e->n_gid_map = ret;
 
-	if (check_user_ns(pid))
+	if (check_user_ns(ns))
 		return -1;
 
-	img = open_image(CR_FD_USERNS, O_DUMP, ns_id);
+	img = open_image(CR_FD_USERNS, O_DUMP, ns->id);
 	if (!img)
 		goto err;
 	ret = pb_write_one(img, e, PB_USERNS);
