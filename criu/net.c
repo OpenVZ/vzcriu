@@ -3200,30 +3200,63 @@ static int do_create_net_ns(struct ns_id *ns)
 	return 0;
 }
 
-static int __prepare_net_namespaces(void *unused)
+struct net_create_arg {
+	struct ns_id *uns;
+	int root_nsfd;
+};
+
+static int __create_net_namespaces(void *arg)
 {
-	struct ns_id *nsid;
-	int root_ns;
+	struct net_create_arg *nca = (struct net_create_arg *)arg;
+	struct ns_id *uns = nca->uns, *netns;
 
-	if (prepare_xtable_lock())
-		return -1;
+	if (uns && uns != root_user_ns) {
+		int ufd;
 
-	root_ns = open_proc(PROC_SELF, "ns/net");
-	if (root_ns < 0)
-		return -1;
+		ufd = fdstore_get(uns->user.nsfd_id);
+		if (ufd < 0) {
+			pr_err("Can't get user ns %d\n", uns->id);
+			return 1;
+		}
 
-	/* Pin one with a file descriptor */
-	for (nsid = ns_ids; nsid != NULL; nsid = nsid->next) {
-		if (nsid->nd != &net_ns_desc)
-			continue;
+		if (setns(ufd, CLONE_NEWUSER) < 0) {
+			pr_perror("Can't set user ns %d", uns->id);
+			close(ufd);
+			return 1;
+		}
 
-		if (nsid->type == NS_ROOT) {
-			nsid->net.ns_fd = root_ns;
-		} else {
-			if (do_create_net_ns(nsid))
-				goto err;
+		close(ufd);
+
+		if (prepare_userns_creds() < 0) {
+			pr_err("Can't prepare creds\n");
+			return 1;
 		}
 	}
+
+	/* Pin one with a file descriptor */
+	for (netns = ns_ids; netns != NULL; netns = netns->next) {
+		if (netns->nd != &net_ns_desc)
+			continue;
+		if (netns->user_ns != uns)
+			continue;
+
+		if (netns->type == NS_ROOT) {
+			netns->net.ns_fd = nca->root_nsfd;
+		} else {
+			if (do_create_net_ns(netns))
+				return 1;
+		}
+	}
+
+	return 0;
+}
+
+static int __prepare_net_namespaces(void *arg)
+{
+	struct ns_id *nsid;
+
+	if (prepare_xtable_lock())
+		return 1;
 
 	for (nsid = ns_ids; nsid != NULL; nsid = nsid->next) {
 		if (nsid->nd != &net_ns_desc)
@@ -3262,13 +3295,35 @@ static int __prepare_net_namespaces(void *unused)
 
 	return 0;
 err:
-	return -1;
+	return 1;
 }
 
 int prepare_net_namespaces(void)
 {
+	struct net_create_arg nca;
+	struct ns_id *uns;
+
 	if (!(root_ns_mask & CLONE_NEWNET))
 		return 0;
+
+	nca.root_nsfd = open_proc(PROC_SELF, "ns/net");
+	if (nca.root_nsfd < 0)
+		return -1;
+
+	if ((root_ns_mask & CLONE_NEWUSER)) {
+		for (uns = ns_ids; uns != NULL; uns = uns->next) {
+			if (uns->nd != &user_ns_desc)
+				continue;
+			nca.uns = uns;
+			if (call_in_child_process(__create_net_namespaces, (void *)&nca))
+				return -1;
+		}
+	} else {
+		/* Create netnses with host userns owner */
+		nca.uns = NULL;
+		if (call_in_child_process(__create_net_namespaces, (void *)&nca))
+			return -1;
+	}
 
 	return call_in_child_process(__prepare_net_namespaces, NULL);
 }
