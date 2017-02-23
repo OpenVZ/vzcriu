@@ -38,6 +38,7 @@
 #include "common/scm.h"
 #include "fdstore.h"
 #include "clone-noasan.h"
+#include "proc_parse.h"
 
 static struct ns_desc *ns_desc_array[] = {
 	&net_ns_desc,  &uts_ns_desc, &ipc_ns_desc,  &pid_ns_desc,
@@ -1092,12 +1093,27 @@ err:
 	return -1;
 }
 
-static int dump_user_ns(struct ns_id *ns);
+static int __dump_user_ns(struct ns_id *ns);
+
+static int dump_user_ns(void *arg)
+{
+	struct ns_id *ns = arg;
+
+	if (switch_ns(ns->parent->ns_pid, &user_ns_desc, NULL) < 0) {
+		pr_err("Can't enter user namespace\n");
+		return -1;
+	}
+
+	return __dump_user_ns(ns);
+}
 
 int collect_user_ns(struct ns_id *ns, void *oarg)
 {
+	struct ns_id *p_ns;
 	UsernsEntry *e;
 	int ret;
+
+	p_ns = ns->parent;
 
 	e = xmalloc(sizeof(*e));
 	if (!e)
@@ -1113,7 +1129,19 @@ int collect_user_ns(struct ns_id *ns, void *oarg)
 	 * mappings, which are used for converting local id-s to
 	 * userns id-s (userns_uid(), userns_gid())
 	 */
-	ret = dump_user_ns(ns);
+	if (p_ns) {
+		/*
+		 * Currently, we are in NS_CRIU. To dump a NS_OTHER ns,
+		 * we need to enter its parent ns. As entered to user_ns
+		 * task has no a way back, we create a child for that.
+		 * NS_ROOT is dumped w/o clone(), it's xids maps is relatively
+		 * to NS_CRIU.
+		 */
+		ret = call_in_child_process(dump_user_ns, ns);
+	} else {
+		ret = __dump_user_ns(ns);
+	}
+
 	if (ret) {
 		ns->user.e = NULL;
 		if (ns->type == NS_ROOT)
@@ -1157,6 +1185,9 @@ static int check_user_ns(struct ns_id *ns)
 	pid_t pid = ns->ns_pid;
 	int status;
 	pid_t chld;
+
+	if (ns->type != NS_ROOT)
+		return 0;
 
 	chld = fork();
 	if (chld == -1) {
@@ -1246,7 +1277,7 @@ static int check_user_ns(struct ns_id *ns)
 	return 0;
 }
 
-static int dump_user_ns(struct ns_id *ns)
+static int __dump_user_ns(struct ns_id *ns)
 {
 	UsernsEntry *e = ns->user.e;
 	pid_t pid = ns->ns_pid;
