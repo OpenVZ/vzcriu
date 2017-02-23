@@ -542,8 +542,8 @@ handlers = {
     'BPFMAP_FILE': entry_handler(pb.bpfmap_file_entry),
     'BPFMAP_DATA': entry_handler(pb.bpfmap_data_entry,
                                 bpfmap_data_extra_handler()),
+    'NS' : entry_handler(pb.ns_entry),
 }
-
 
 def __rhandler(f):
     # Images v1.1 NOTE: First read "first" magic.

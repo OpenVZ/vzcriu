@@ -115,6 +115,7 @@ enum {
 	CR_FD_MEMFD_FILE,
 
 	CR_FD_AUTOFS,
+	CR_FD_NS,
 
 	CR_FD_MAX
 };
