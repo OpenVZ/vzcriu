@@ -240,6 +240,7 @@ TST_NOFILE	:=				\
 		timens_nested			\
 		timens_for_kids			\
 		zombie_leader			\
+		userns00			\
 #		jobctl00			\
 
 pkg-config-check = $(shell sh -c 'pkg-config $(1) && echo y')
