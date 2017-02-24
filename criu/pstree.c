@@ -986,6 +986,21 @@ static int prepare_pstree_kobj_ids(void)
 			 */
 			rsti(item)->clone_flags &= ~(CLONE_NEWNS | CLONE_NEWUSER);
 
+		/*
+		 * Net namespaces also do not correlated with task hierarhy,
+		 * so we create them manually in prepare_net_namespaces().
+		 * The second reason is that some kernel modules, such as network
+		 * packet generator, run kernel thread upon net-namespace creattion
+		 * taking the pid we've been requeting via LAST_PID_PATH interface
+		 * in fork_with_pid(), so that we can't restore a take with pid needed.
+		 *
+		 * The cgroup namespace is also unshared explicitly in the
+		 * move_in_cgroup(), so drop this flag here as well. And same
+		 * for time namespace.
+		 */
+		rsti(item)->clone_flags &= ~(CLONE_NEWNET | CLONE_NEWCGROUP |
+					     CLONE_NEWTIME);
+
 		/**
 		 * Only child reaper can clone with CLONE_NEWPID
 		 */
