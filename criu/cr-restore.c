@@ -1574,21 +1574,8 @@ static inline int fork_with_pid(struct pstree_item *item)
 		}
 	}
 
-	/*
-	 * Some kernel modules, such as network packet generator
-	 * run kernel thread upon net-namespace creation taking
-	 * the @pid we've been requesting via LAST_PID_PATH interface
-	 * so that we can't restore a take with pid needed.
-	 *
-	 * Here is an idea -- unshare net namespace in callee instead.
-	 */
-	/*
-	 * The cgroup namespace is also unshared explicitly in the
-	 * move_in_cgroup(), so drop this flag here as well.
-	 */
 	close_pid_proc();
-	ret = clone_noasan(restore_task_with_children,
-			   (ca.clone_flags & ~(CLONE_NEWNET | CLONE_NEWCGROUP | CLONE_NEWTIME)) | SIGCHLD, &ca);
+	ret = clone_noasan(restore_task_with_children, ca.clone_flags | SIGCHLD, &ca);
 
 	if (ret < 0) {
 		pr_perror("Can't fork for %d", pid);
