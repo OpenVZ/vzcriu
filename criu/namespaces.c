@@ -1958,12 +1958,7 @@ int read_ns_with_hookups(void)
 			goto close;
 		}
 
-		if (rst_add_ns_id(e->id, -1, desc)) {
-			pr_err("Can't add user ns\n");
-			goto close;
-		}
-
-		ns = lookup_ns_by_id(e->id, desc);
+		ns = rst_new_ns_id(e->id, -1, desc, NS_OTHER);
 		if (!ns) {
 			pr_err("Can't find ns %d\n", e->id);
 			goto close;
