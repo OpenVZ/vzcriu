@@ -9,6 +9,9 @@
 #include "rst-malloc.h"
 #include "common/lock.h"
 #include "namespaces.h"
+#include "cgroup.h"
+#include "ipc_ns.h"
+#include "uts_ns.h"
 #include "files.h"
 #include "tty.h"
 #include "mount.h"
@@ -543,6 +546,22 @@ static int read_pstree_ids(struct pstree_item *pi)
 		if (rst_add_ns_id(pi->ids->user_ns_id, pi, &user_ns_desc))
 			return -1;
 	}
+	if (pi->ids->has_ipc_ns_id) {
+		if (rst_add_ns_id(pi->ids->ipc_ns_id, pi, &ipc_ns_desc))
+			return -1;
+	}
+	if (pi->ids->has_uts_ns_id) {
+		if (rst_add_ns_id(pi->ids->uts_ns_id, pi, &uts_ns_desc))
+			return -1;
+	}
+	if (pi->ids->has_cgroup_ns_id) {
+		if (rst_add_ns_id(pi->ids->cgroup_ns_id, pi, &cgroup_ns_desc))
+			return -1;
+	}
+	if (pi->ids->has_time_ns_id) {
+		if (rst_add_ns_id(pi->ids->time_ns_id, pi, &time_ns_desc))
+			return -1;
+	}
 
 	return 0;
 }
@@ -661,6 +680,8 @@ static int read_pstree_image(pid_t *pid_max)
 		ret = read_one_pstree_item(img, pid_max);
 	} while (ret > 0);
 
+	if (ret == 0)
+		ret = set_ns_roots();
 	close_image(img);
 	return ret;
 }
