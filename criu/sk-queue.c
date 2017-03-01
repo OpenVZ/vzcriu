@@ -348,7 +348,7 @@ int restore_sk_queue(int fd, unsigned int peer_id)
 
 			msg.msg_control = cmsg;
 			msg.msg_controllen = sizeof(cmsg);
-			
+
 			ch = CMSG_FIRSTHDR(&msg);
 			ch->cmsg_len = CMSG_LEN(sizeof(struct ucred));
 			ch->cmsg_level = SOL_SOCKET;
