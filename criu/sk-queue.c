@@ -86,7 +86,7 @@ static int dump_sk_creds(struct ucred *ucred, SkPacketEntry *pe, int flags)
 		 * because virt pid-s are known for dumped task only
 		 */
 		pr_err("ucred-s for unix sockets aren't supported yet");
-		return -1;
+		goto out;
 	} else {
 		int pidns = root_ns_mask & CLONE_NEWPID;
 		char path[64];
@@ -105,13 +105,17 @@ static int dump_sk_creds(struct ucred *ucred, SkPacketEntry *pe, int flags)
 		}
 		if (ret) {
 			pr_err("Unable to dump ucred for a dead process %d\n", ucred->pid);
-			return -1;
+			goto out;
 		}
 		ent->pid = ucred->pid;
 	}
+
 	pe->ucred = ent;
 
 	return 0;
+out:
+	xfree(ent);
+	return -1;
 }
 
 static int dump_packet_cmsg(struct msghdr *mh, SkPacketEntry *pe, int flags)
@@ -272,6 +276,7 @@ err_set_sock:
 		ret = -1;
 	}
 err_brk:
+	xfree(pe.ucred);
 	xfree(data);
 	return ret;
 }
