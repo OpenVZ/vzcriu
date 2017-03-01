@@ -190,7 +190,7 @@ extern int restore_ns(int rst, struct ns_desc *nd);
 
 extern int dump_task_ns_ids(struct pstree_item *);
 extern int predump_task_ns_ids(struct pstree_item *);
-extern int rst_add_ns_id(unsigned int id, struct pstree_item *, struct ns_desc *nd);
+extern int rst_add_ns_id(unsigned int id, pid_t pid, struct ns_desc *nd);
 extern struct ns_id *lookup_ns_by_id(unsigned int id, struct ns_desc *nd);
 extern int store_self_ns(struct ns_id *ns);
 
