@@ -41,6 +41,8 @@
 #include "files-reg.h"
 #include "plugin.h"
 
+#define ATOP_ACCT_FILE "tmp/atop.d/atop.acct"
+
 int setfsuid(uid_t fsuid);
 int setfsgid(gid_t fsuid);
 
@@ -1412,6 +1414,19 @@ ext:
 	if (S_ISREG(p->stat.st_mode) && should_check_size(rfe.flags)) {
 		rfe.has_size = true;
 		rfe.size = p->stat.st_size;
+
+		/*
+		 * FIXME: A temp solution until we can
+		 * detect tasks which has called acct()
+		 * where file get filled after container
+		 * stop. In particular atop utility setups
+		 * statistics file into a known place.
+		 */
+		if (!strcmp(&link->name[1], "/"ATOP_ACCT_FILE)) {
+			pr_warn("Zap size check for %s\n", &link->name[1]);
+			rfe.has_size = false;
+			rfe.size = 0;
+		}
 	}
 
 	rfe.has_mode = true;
@@ -1771,7 +1786,10 @@ ext:
 			pr_err("File %s has bad size %"PRIu64" (expect %"PRIu64")\n",
 					rfi->path, st.st_size,
 					rfi->rfe->size);
-			return -1;
+			if (strcmp(rfi->path, ATOP_ACCT_FILE))
+				return -1;
+			else
+				pr_warn("Skip size test on %s\n", ATOP_ACCT_FILE);
 		}
 
 		if (rfi->rfe->has_mode && (st.st_mode != rfi->rfe->mode)) {
