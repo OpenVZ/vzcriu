@@ -336,6 +336,13 @@ static void __maybe_unused ve_bc_finish(bc_set_t *bc_set)
 			    bc_set->bc_vals[i].fmt_limit,
 			    bc_set->bc_vals[i].limit);
 	}
+
+	for (i = bc_set->nr_memcg_vals - 1; i >= 0; i--) {
+		ve_write_cg(bc_set->memcg_dirfd,
+			    bc_set->memcg_vals[i].name,
+			    bc_set->memcg_vals[i].value);
+	}
+
 	pr_debug("ubc: restored %s\n", bc_set->veid);
 }
 
