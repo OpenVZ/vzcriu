@@ -58,6 +58,8 @@
 #include "plugin.h"
 #include "string.h"
 
+#define ATOP_ACCT_FILE "tmp/atop.d/atop.acct"
+
 int setfsuid(uid_t fsuid);
 int setfsgid(gid_t fsuid);
 
@@ -1938,6 +1940,19 @@ static bool store_validation_data(RegFileEntry *rfe, const struct fd_parms *p, i
 	rfe->has_size = true;
 	rfe->size = p->stat.st_size;
 
+	/*
+	 * FIXME: A temp solution until we can
+	 * detect tasks which has called acct()
+	 * where file get filled after container
+	 * stop. In particular atop utility setups
+	 * statistics file into a known place.
+	 */
+	if (!strcmp(rfe->name, "/" ATOP_ACCT_FILE)) {
+		pr_warn("Zap size check for %s\n", &rfe->name[1]);
+		rfe->has_size = false;
+		rfe->size = 0;
+	}
+
 	if (opts.file_validation_method == FILE_VALIDATION_BUILD_ID)
 		result = store_validation_data_build_id(rfe, lfd, p);
 
@@ -2385,7 +2400,10 @@ static bool validate_file(const int fd, const struct stat *fd_status, const stru
 	if (rfi->rfe->has_size && (fd_status->st_size != rfi->rfe->size)) {
 		pr_err("File %s has bad size %" PRIu64 " (expect %" PRIu64 ")\n", rfi->path, fd_status->st_size,
 		       rfi->rfe->size);
-		return false;
+		if (strcmp(rfi->path, ATOP_ACCT_FILE))
+			return false;
+		else
+			pr_warn("Skip size test on %s\n", ATOP_ACCT_FILE);
 	}
 
 	if (opts.file_validation_method == FILE_VALIDATION_BUILD_ID)
