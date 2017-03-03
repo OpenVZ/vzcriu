@@ -1784,10 +1784,17 @@ static int rewrite_cgroup_roots(CgroupEntry *cge)
 
 static int vz_rewrite_net_cls(CgroupEntry *cge)
 {
+	static const char sysfs_ctl_net_cls_prio[] = "/sys/fs/cgroup/net_cls,net_prio";
 	static const char ctl_net_cls_prio[] = "net_cls,net_prio";
 	static const char ctl_net_cls[] = "net_cls";
 	char *prev;
 	int i, j;
+
+	if (access(sysfs_ctl_net_cls_prio, F_OK)) {
+		pr_debug("No %s accessable, skipping rewrite\n",
+			 sysfs_ctl_net_cls_prio);
+		return 0;
+	}
 
 	for (i = 0; i < cge->n_controllers; i++) {
 		CgControllerEntry *ce = cge->controllers[i];
