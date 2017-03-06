@@ -1,6 +1,9 @@
 #ifndef __CR_PARASITE_SYSCALL_H__
 #define __CR_PARASITE_SYSCALL_H__
 
+#include <sys/time.h>
+#include <sys/resource.h>
+
 #include "pid.h"
 #include "common/list.h"
 #include "config.h"
@@ -52,6 +55,10 @@ struct parasite_ctl {
 	void			*addr_args;				/* address for arguments */
 	unsigned long		args_size;
 	int			tsock;					/* transport socket for transferring fds */
+
+	struct rlimit		old_rlimit;
+	struct rlimit		new_rlimit;
+	int			unlimited;
 };
 
 extern int parasite_dump_sigacts_seized(struct parasite_ctl *ctl, struct cr_imgset *cr_imgset);

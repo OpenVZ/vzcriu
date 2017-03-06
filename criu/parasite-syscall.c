@@ -45,6 +45,36 @@
 #define MEMFD_FNAME	"CRIUMFD"
 #define MEMFD_FNAME_SZ	sizeof(MEMFD_FNAME)
 
+static int rlimit_unlimit_nofile(pid_t pid, struct parasite_ctl *ctl)
+{
+	ctl->new_rlimit.rlim_cur = kdat.sysctl_nr_open;
+	ctl->new_rlimit.rlim_max = kdat.sysctl_nr_open;
+
+	if (prlimit(pid, RLIMIT_NOFILE, &ctl->new_rlimit, &ctl->old_rlimit)) {
+		pr_perror("rlimir: Can't setup RLIMIT_NOFILE for %d", pid);
+		return -1;
+	} else
+		pr_debug("rlimit: RLIMIT_NOFILE unlimited for %d\n", pid);
+
+	ctl->unlimited = 1;
+	return 0;
+}
+
+static int rlimit_limit_nofile(pid_t pid, struct parasite_ctl *ctl)
+{
+	if (!ctl->unlimited)
+		return 0;
+
+	if (prlimit(pid, RLIMIT_NOFILE, &ctl->old_rlimit, NULL)) {
+		pr_perror("rlimir: Can't restore RLIMIT_NOFILE for %d", pid);
+		return -1;
+	} else
+		pr_debug("rlimit: RLIMIT_NOFILE restored for %d\n", pid);
+
+	ctl->unlimited = 0;
+	return 0;
+}
+
 unsigned long get_exec_start(struct vm_area_list *vmas)
 {
 	struct vma_area *vma_area;
@@ -1114,6 +1144,8 @@ int parasite_cure_seized(struct parasite_ctl *ctl)
 {
 	int ret;
 
+	rlimit_limit_nofile(ctl->rpid, ctl);
+
 	ret = parasite_cure_remote(ctl);
 	if (!ret)
 		ret = parasite_cure_local(ctl);
@@ -1169,6 +1201,9 @@ struct parasite_ctl *parasite_prep_ctl(pid_t pid, unsigned long exec_start)
 
 	ctl->syscall_ip = exec_start;
 	pr_debug("Parasite syscall_ip at %p\n", (void *)ctl->syscall_ip);
+
+	if (rlimit_unlimit_nofile(pid, ctl))
+		goto err;
 
 	return ctl;
 
@@ -1424,6 +1459,19 @@ struct parasite_ctl *parasite_infect_seized(pid_t pid, struct pstree_item *item,
 	return ctl;
 
 err_restore:
+	{
+		char t[PATH_MAX];
+		snprintf(t, sizeof(t), "/proc/%d/fd", pid);
+
+		cr_system(-1, -1, -1, "/bin/ls",
+			  (char *[]) { "/bin/ls", "-l", t, NULL },
+			  0);
+		snprintf(t, sizeof(t), "/proc/%d/limits", pid);
+
+		cr_system(-1, -1, -1, "/usr/bin/cat",
+			  (char *[]) { "/usr/bin/cat", t, NULL },
+			  0);
+	}
 	parasite_cure_seized(ctl);
 	return NULL;
 }
