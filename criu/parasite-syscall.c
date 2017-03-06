@@ -1244,8 +1244,11 @@ static int parasite_memfd_exchange(struct parasite_ctl *ctl, unsigned long size)
 	fd = (int)(long)sret;
 	if (fd == -ENOSYS)
 		return 1;
-	if (fd < 0)
+	if (fd < 0) {
+		errno = -fd;
+		pr_perror("memfd_create failed err=%d", errno);
 		return fd;
+	}
 
 	ctl->map_length = round_up(size, page_size());
 	lfd = open_proc_rw(ctl->rpid, "fd/%d", fd);
