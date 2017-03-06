@@ -1294,7 +1294,7 @@ int parasite_map_exchange(struct parasite_ctl *ctl, unsigned long size)
 	int ret;
 
 	ret = parasite_memfd_exchange(ctl, size);
-	if (ret == 1) {
+	if (ret) {
 		pr_info("MemFD parasite doesn't work, goto legacy mmap\n");
 		ret = parasite_mmap_exchange(ctl, size);
 	}
