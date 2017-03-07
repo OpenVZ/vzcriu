@@ -147,6 +147,40 @@ static void kerndat_mmap_min_addr(void)
 		 (unsigned long)kdat.mmap_min_addr);
 }
 
+static int kerndat_files_stat(void)
+{
+	uint64_t max_files;
+	uint32_t nr_open;
+
+	struct sysctl_req req[] = {
+		{
+			.name	= "fs/file-max",
+			.arg	= &max_files,
+			.type	= CTL_U64,
+		},
+		{
+			.name	= "fs/nr_open",
+			.arg	= &nr_open,
+			.type	= CTL_U32,
+		},
+	};
+
+	if (sysctl_op(req, ARRAY_SIZE(req), CTL_READ, 0)) {
+		pr_warn("Can't fetch file_stat, using kernel defaults\n");
+		nr_open = 1024 * 1024;
+		max_files = 8192;
+	}
+
+	kdat.sysctl_nr_open = nr_open;
+	kdat.files_stat_max_files = max_files;
+
+	pr_debug("files stat: %s %lu, %s %u\n",
+		 req[0].name, kdat.files_stat_max_files,
+		 req[1].name, kdat.sysctl_nr_open);
+
+	return 0;
+}
+
 static int kerndat_get_shmemdev(void)
 {
 	void *map;
@@ -623,6 +657,7 @@ int kerndat_init(void)
 
 	kerndat_lsm();
 	kerndat_mmap_min_addr();
+	kerndat_files_stat();
 
 	return ret;
 }
@@ -659,6 +694,7 @@ int kerndat_init_rst(void)
 
 	kerndat_lsm();
 	kerndat_mmap_min_addr();
+	kerndat_files_stat();
 
 	return ret;
 }
