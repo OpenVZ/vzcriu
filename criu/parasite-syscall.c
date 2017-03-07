@@ -1459,19 +1459,6 @@ struct parasite_ctl *parasite_infect_seized(pid_t pid, struct pstree_item *item,
 	return ctl;
 
 err_restore:
-	{
-		char t[PATH_MAX];
-		snprintf(t, sizeof(t), "/proc/%d/fd", pid);
-
-		cr_system(-1, -1, -1, "/bin/ls",
-			  (char *[]) { "/bin/ls", "-l", t, NULL },
-			  0);
-		snprintf(t, sizeof(t), "/proc/%d/limits", pid);
-
-		cr_system(-1, -1, -1, "/usr/bin/cat",
-			  (char *[]) { "/usr/bin/cat", t, NULL },
-			  0);
-	}
 	parasite_cure_seized(ctl);
 	return NULL;
 }
