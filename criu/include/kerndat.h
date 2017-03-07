@@ -49,6 +49,8 @@ struct kerndat_s {
 	bool has_tcp_half_closed;
 	bool stack_guard_gap_hidden;
 	int lsm;
+	unsigned int sysctl_nr_open;
+	unsigned long files_stat_max_files;
 };
 
 extern struct kerndat_s kdat;
