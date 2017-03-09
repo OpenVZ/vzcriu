@@ -1202,9 +1202,6 @@ struct parasite_ctl *parasite_prep_ctl(pid_t pid, unsigned long exec_start)
 	ctl->syscall_ip = exec_start;
 	pr_debug("Parasite syscall_ip at %p\n", (void *)ctl->syscall_ip);
 
-	if (rlimit_unlimit_nofile(pid, ctl))
-		goto err;
-
 	return ctl;
 
 err:
@@ -1401,6 +1398,8 @@ struct parasite_ctl *parasite_infect_seized(pid_t pid, struct pstree_item *item,
 	ctl = parasite_prep_ctl(pid, p);
 	if (!ctl)
 		return NULL;
+	if (rlimit_unlimit_nofile(pid, ctl))
+		goto err_restore;
 
 	parasite_ensure_args_size(dump_pages_args_size(vma_area_list));
 	parasite_ensure_args_size(aio_rings_args_size(vma_area_list));
