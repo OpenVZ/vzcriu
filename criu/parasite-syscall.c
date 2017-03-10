@@ -45,7 +45,7 @@
 #define MEMFD_FNAME	"CRIUMFD"
 #define MEMFD_FNAME_SZ	sizeof(MEMFD_FNAME)
 
-static int rlimit_unlimit_nofile(pid_t pid, struct parasite_ctl *ctl)
+int rlimit_unlimit_nofile(pid_t pid, struct parasite_ctl *ctl)
 {
 	ctl->new_rlimit.rlim_cur = kdat.sysctl_nr_open;
 	ctl->new_rlimit.rlim_max = kdat.sysctl_nr_open;
@@ -60,7 +60,7 @@ static int rlimit_unlimit_nofile(pid_t pid, struct parasite_ctl *ctl)
 	return 0;
 }
 
-static int rlimit_limit_nofile(pid_t pid, struct parasite_ctl *ctl)
+int rlimit_limit_nofile(pid_t pid, struct parasite_ctl *ctl)
 {
 	if (!ctl->unlimited)
 		return 0;

@@ -61,6 +61,9 @@ struct parasite_ctl {
 	int			unlimited;
 };
 
+extern int rlimit_unlimit_nofile(pid_t pid, struct parasite_ctl *ctl);
+extern int rlimit_limit_nofile(pid_t pid, struct parasite_ctl *ctl);
+
 extern int parasite_dump_sigacts_seized(struct parasite_ctl *ctl, struct cr_imgset *cr_imgset);
 extern int parasite_dump_itimers_seized(struct parasite_ctl *ctl, struct pstree_item *);
 
