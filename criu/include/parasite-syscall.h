@@ -77,7 +77,7 @@ extern int parasite_dump_posix_timers_seized(struct proc_posix_timers_stat *proc
 		ctl->addr_args;						\
 	})
 
-extern void *parasite_args_s(struct parasite_ctl *ctl, int args_size);
+extern void *parasite_args_s(struct parasite_ctl *ctl, unsigned long args_size);
 extern int parasite_send_fd(struct parasite_ctl *ctl, int fd);
 
 /*

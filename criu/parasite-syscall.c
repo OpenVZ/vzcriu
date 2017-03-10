@@ -268,7 +268,7 @@ int __parasite_execute_syscall(struct parasite_ctl *ctl,
 	return err;
 }
 
-void *parasite_args_s(struct parasite_ctl *ctl, int args_size)
+void *parasite_args_s(struct parasite_ctl *ctl, unsigned long args_size)
 {
 	BUG_ON(args_size > ctl->args_size);
 	return ctl->addr_args;
