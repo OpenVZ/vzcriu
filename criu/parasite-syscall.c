@@ -1092,6 +1092,8 @@ int parasite_stop_daemon(struct parasite_ctl *ctl)
 
 int parasite_cure_remote(struct parasite_ctl *ctl)
 {
+	rlimit_limit_nofile(ctl->rpid, ctl);
+
 	if (parasite_stop_daemon(ctl))
 		return -1;
 
@@ -1143,8 +1145,6 @@ int parasite_cure_local(struct parasite_ctl *ctl)
 int parasite_cure_seized(struct parasite_ctl *ctl)
 {
 	int ret;
-
-	rlimit_limit_nofile(ctl->rpid, ctl);
 
 	ret = parasite_cure_remote(ctl);
 	if (!ret)
