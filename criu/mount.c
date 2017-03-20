@@ -1967,7 +1967,7 @@ static int do_new_mount(struct mount_info *mi)
 		goto out;
 	}
 
-	if (!mi->is_ns_root && !mi->external && remount_ro) {
+	if (!mi->is_ns_root && remount_ro) {
 		int fd;
 
 		fd = open(mi->mountpoint, O_PATH);
@@ -2277,7 +2277,7 @@ static bool can_mount_now(struct mount_info *mi)
 		}
 	}
 
-	if (!fsroot_mounted(mi) && (mi->bind == NULL && !mi->need_plugin && !mi->external))
+	if (!fsroot_mounted(mi) && (mi->bind == NULL && !mi->need_plugin))
 		return false;
 
 	if (mi->bind && mi->shared_id != mi->bind->shared_id) {
