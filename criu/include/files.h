@@ -20,6 +20,7 @@ struct file_desc;
 struct cr_imgset;
 struct rst_info;
 struct parasite_ctl;
+struct parasite_drain_fd;
 
 struct fd_link {
 	union {
@@ -50,6 +51,7 @@ struct fd_parms {
 	int		mnt_id;
 
 	struct parasite_ctl *fd_ctl;
+	struct parasite_drain_fd *dfds;
 };
 
 #define FD_PARMS_INIT			\

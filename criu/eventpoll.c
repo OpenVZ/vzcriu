@@ -12,6 +12,7 @@
 #include <sys/ioctl.h>
 #include <sys/epoll.h>
 
+#include "types.h"
 #include "crtools.h"
 #include "common/compiler.h"
 #include "imgset.h"
@@ -22,6 +23,7 @@
 #include "util.h"
 #include "log.h"
 #include "pstree.h"
+#include "parasite.h"
 
 #include "protobuf.h"
 #include "images/eventpoll.pb-c.h"
@@ -81,7 +83,7 @@ static int dump_one_eventpoll(int lfd, u32 id, const struct fd_parms *p)
 	EventpollFileEntry e = EVENTPOLL_FILE_ENTRY__INIT;
 	struct eventpoll_list ep_list = {LIST_HEAD_INIT(ep_list.list), 0};
 	union fdinfo_entries *te, *tmp;
-	int i, j, ret = -1;
+	int i, j, k, ret = -1;
 
 	e.id = id;
 	e.flags = p->flags;
@@ -96,12 +98,13 @@ static int dump_one_eventpoll(int lfd, u32 id, const struct fd_parms *p)
 
 	i = j = 0;
 	list_for_each_entry(te, &ep_list.list, epl.node) {
-		char fdpath[128];
+		for (k = 0; k < p->dfds->nr_fds; k++) {
+			if (p->dfds->fds[k] == te->epl.e.tfd)
+				break;
+		}
 
-		snprintf(fdpath, sizeof(fdpath), "/proc/%d/fd/%d",
-			 p->pid, te->epl.e.tfd);
-		if (access(fdpath, F_OK)) {
-			pr_warn("Escaped fd descriptor %d on pid %d, ignoring\n",
+		if (k >= p->dfds->nr_fds) {
+			pr_warn("Escaped/closed fd descriptor %d on pid %d, ignoring\n",
 				te->epl.e.tfd, p->pid);
 			j++;
 			continue;
