@@ -278,6 +278,7 @@ TST_NOFILE	:=				\
 		ve_clock_fallback		\
 		userns00			\
 		userns01			\
+		userns02			\
 #		jobctl00			\
 
 PKG_CONFIG ?= pkg-config
@@ -689,6 +690,7 @@ sk-unix-unconn-seqpacket:	CFLAGS += -D ZDTM_UNIX_SEQPACKET
 scm03-seqpacket:	CFLAGS += -D ZDTM_UNIX_SEQPACKET
 
 pty-console:		CFLAGS += -D ZDTM_DEV_CONSOLE
+userns02:		CFLAGS += -D USERNS02
 
 shm-unaligned:		CFLAGS += -DZDTM_SHM_UNALIGNED
 shm-hugetlb:		CFLAGS += -DZDTM_HUGETLB
