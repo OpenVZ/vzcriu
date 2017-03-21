@@ -218,6 +218,7 @@ TST_NOFILE	:=				\
 		selinux00			\
 		userns00			\
 		userns01			\
+		userns02			\
 #		jobctl00			\
 
 ifneq ($(SRCARCH),arm)
@@ -559,6 +560,7 @@ socket-tcp4v6-closing:	CFLAGS += -D ZDTM_IPV4V6
 shm-unaligned:		CFLAGS += -DZDTM_SHM_UNALIGNED
 
 pty-console:		CFLAGS += -D ZDTM_DEV_CONSOLE
+userns02:		CFLAGS += -D USERNS02
 
 shm-unaligned:		CFLAGS += -DZDTM_SHM_UNALIGNED
 
