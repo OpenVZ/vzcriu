@@ -173,8 +173,9 @@ static int epoll_not_ready_tfd(EventpollTfdEntry *tdefe)
 		else
 			return (fle->stage != FLE_RESTORED);
 	}
-	BUG();
-	return 0;
+
+	pr_err("Unexpected state for tfd (id %#x fd %d)\n", tdefe->id, tdefe->tfd);
+	return -1;
 }
 
 static int eventpoll_retore_tfd(int fd, int id, EventpollTfdEntry *tdefe)
@@ -197,13 +198,14 @@ static int eventpoll_post_open(struct file_desc *d, int fd)
 {
 	struct eventpoll_tfd_file_info *td_info;
 	struct eventpoll_file_info *info;
-	int i;
+	int i, ret;
 
 	info = container_of(d, struct eventpoll_file_info, d);
 
 	for (i = 0; i < info->efe->n_tfd; i++) {
-		if (epoll_not_ready_tfd(info->efe->tfd[i]))
-			return 1;
+		ret = epoll_not_ready_tfd(info->efe->tfd[i]);
+		if (ret)
+			return ret;
 	}
 	for (i = 0; i < info->efe->n_tfd; i++) {
 		if (eventpoll_retore_tfd(fd, info->efe->id, info->efe->tfd[i]))
@@ -211,8 +213,9 @@ static int eventpoll_post_open(struct file_desc *d, int fd)
 	}
 
 	list_for_each_entry(td_info, &eventpoll_tfds, list) {
-		if (epoll_not_ready_tfd(td_info->tdefe))
-			return 1;
+		ret = epoll_not_ready_tfd(td_info->tdefe);
+		if (ret)
+			return ret;
 	}
 	list_for_each_entry(td_info, &eventpoll_tfds, list) {
 		if (td_info->tdefe->id != info->efe->id)
