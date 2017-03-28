@@ -796,24 +796,24 @@ err:
 }
 
 struct unix_sk_info {
-	UnixSkEntry *ue;
-	struct list_head list;
-	char *name;
-	char *name_dir;
-	unsigned flags;
-	struct unix_sk_info *peer;
-	struct file_desc d;
-	struct list_head connected; /* List of sockets, connected to me */
-	struct list_head node; /* To link in peer's connected list  */
+	UnixSkEntry		*ue;
+	struct list_head	list;
+	char			*name;
+	char			*name_dir;
+	unsigned int		flags;
+	struct unix_sk_info	*peer;
+	struct file_desc	d;
+	struct list_head	connected;	/* List of sockets, connected to me */
+	struct list_head	node;		/* To link in peer's connected list  */
 
 	/*
 	 * For DGRAM sockets with queues, we should only restore the queue
 	 * once although it may be open by more than one tid. This is the peer
 	 * that should do the queueing.
 	 */
-	u32 queuer;
-	u8 bound:1;
-	u8 listen:1;
+	u32			queuer;
+	u8			bound:1;
+	u8			listen:1;
 };
 
 #define USK_PAIR_MASTER		0x1
