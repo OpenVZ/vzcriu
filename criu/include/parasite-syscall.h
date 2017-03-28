@@ -61,6 +61,7 @@ struct parasite_ctl {
 	int			unlimited;
 };
 
+extern void rlimit_limit_nofile_self(void);
 extern int rlimit_unlimit_nofile(pid_t pid, struct parasite_ctl *ctl);
 extern int rlimit_limit_nofile(pid_t pid, struct parasite_ctl *ctl);
 
