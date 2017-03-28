@@ -2045,6 +2045,8 @@ int cr_restore_tasks(void)
 	if (kerndat_init_rst())
 		goto err;
 
+	rlimit_limit_nofile_self();
+
 	timing_start(TIME_RESTORE);
 
 	if (cpu_init() < 0)
