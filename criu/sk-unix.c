@@ -811,9 +811,9 @@ struct unix_sk_info {
 	 * once although it may be open by more than one tid. This is the peer
 	 * that should do the queueing.
 	 */
-	u32			queuer;
-	u8			bound:1;
-	u8			listen:1;
+	unsigned int		queuer;
+	bool			bound;
+	bool			listen;
 };
 
 #define USK_PAIR_MASTER		0x1
@@ -1098,7 +1098,7 @@ static int bind_unix_sk(int sk, struct unix_sk_info *ui)
 	}
 
 	if (ui->ue->state != TCP_LISTEN) {
-		ui->bound = 1;
+		ui->bound = true;
 		wake_connected_sockets(ui);
 	}
 
@@ -1301,7 +1301,7 @@ static int open_unixsk_standalone(struct unix_sk_info *ui, int *new_fd)
 			pr_perror("Can't make usk listen");
 			return -1;
 		}
-		ui->listen = 1;
+		ui->listen = true;
 		wake_connected_sockets(ui);
 	}
 
@@ -1425,8 +1425,8 @@ static int collect_one_unixsk(void *o, ProtobufCMessage *base, struct cr_img *i)
 
 	ui->queuer = 0;
 	ui->peer = NULL;
-	ui->bound = 0;
-	ui->listen = 0;
+	ui->bound = false;
+	ui->listen = false;
 	INIT_LIST_HEAD(&ui->connected);
 	INIT_LIST_HEAD(&ui->node);
 	ui->flags = 0;
