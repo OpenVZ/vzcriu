@@ -129,7 +129,7 @@ static void show_one_unix_img(const char *act, const UnixSkEntry *e)
 		act, e->id, e->ino, e->peer, e->type, e->state, (int)e->name.len);
 }
 
-static int can_dump_unix_sk(const struct unix_sk_desc *sk)
+static bool can_dump_unix_sk(const struct unix_sk_desc *sk)
 {
 	/*
 	 * The last case in this "if" is seqpacket socket,
@@ -142,7 +142,7 @@ static int can_dump_unix_sk(const struct unix_sk_desc *sk)
 		pr_err("Unsupported type (%d) on socket %x.\n"
 				"Only stream/dgram/seqpacket are supported.\n",
 				sk->type, sk->sd.ino);
-		return 0;
+		return false;
 	}
 
 	switch (sk->state) {
@@ -153,10 +153,10 @@ static int can_dump_unix_sk(const struct unix_sk_desc *sk)
 	default:
 		pr_err("Unknown state %d for unix socket %x\n",
 				sk->state, sk->sd.ino);
-		return 0;
+		return false;
 	}
 
-	return 1;
+	return true;
 }
 
 static bool unix_sk_exception_lookup_id(unsigned int ino)
