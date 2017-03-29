@@ -1506,7 +1506,6 @@ static int resolve_unix_peers(void *unused)
 			continue;
 
 		peer = find_unix_sk_by_ino(ui->ue->peer);
-
 		if (!peer) {
 			pr_err("FATAL: Peer %#x unresolved for %#x\n",
 					ui->ue->peer, ui->ue->ino);
