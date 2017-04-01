@@ -144,6 +144,7 @@ TST_NOFILE	:=				\
 		file_fown			\
 		file_cloexec			\
 		proc-self			\
+		proc-self01			\
 		eventfs00			\
 		epoll				\
 		epoll01				\
@@ -691,6 +692,7 @@ scm03-seqpacket:	CFLAGS += -D ZDTM_UNIX_SEQPACKET
 
 pty-console:		CFLAGS += -D ZDTM_DEV_CONSOLE
 userns02:		CFLAGS += -D USERNS02
+proc-self01:		override CFLAGS += -D PROC_SELF01
 
 shm-unaligned:		CFLAGS += -DZDTM_SHM_UNALIGNED
 shm-hugetlb:		CFLAGS += -DZDTM_HUGETLB
