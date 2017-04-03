@@ -450,6 +450,42 @@ struct pid *pstree_pid_by_virt(pid_t pid)
 	return NULL;
 }
 
+/*
+ *  0 -- pids are the same
+ *  1 -- @a is a parent of @b
+ *  2 -- @b is a parent of @a
+ *  3 -- pids are not connected
+ *  -1 -- pid not found
+ */
+int pstree_pid_cmp(pid_t a, pid_t b)
+{
+	struct pstree_item *pstree_a, *pstree_b, *t;
+	struct pid *pid_a, *pid_b;
+
+	if (a == b)
+		return 0;
+
+	pid_a = pstree_pid_by_virt(a);
+	pid_b = pstree_pid_by_virt(b);
+	if (!pid_a || !pid_b)
+		return -1;
+
+	pstree_a = container_of(pid_a, struct pstree_item, pid);
+	pstree_b = container_of(pid_b, struct pstree_item, pid);
+
+	for (t = pstree_b; t->parent; t = t->parent) {
+		if (t == pstree_a)
+			return 1;
+	}
+
+	for (t = pstree_a; t->parent; t = t->parent) {
+		if (t == pstree_b)
+			return 2;
+	}
+
+	return 3;
+}
+
 static int read_pstree_ids(struct pstree_item *pi)
 {
 	int ret;
