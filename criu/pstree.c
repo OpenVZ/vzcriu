@@ -474,8 +474,8 @@ int pstree_pid_cmp(pid_t a, pid_t b)
 	if (!pid_a || !pid_b)
 		return -1;
 
-	pstree_a = container_of(pid_a, struct pstree_item, pid);
-	pstree_b = container_of(pid_b, struct pstree_item, pid);
+	pstree_a = pid_a->item;
+	pstree_b = pid_b->item;
 
 	for (t = pstree_b; t->parent; t = t->parent) {
 		if (t == pstree_a)
