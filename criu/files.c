@@ -725,6 +725,7 @@ static int collect_fd(int pid, FdinfoEntry *e, struct rst_info *rst_info)
 {
 	struct fdinfo_list_entry *le, *new_le;
 	struct file_desc *fdesc;
+	int ret;
 
 	pr_info("Collect fdinfo pid=%d fd=%d id=%#x\n",
 		pid, e->fd, e->id);
@@ -741,9 +742,20 @@ static int collect_fd(int pid, FdinfoEntry *e, struct rst_info *rst_info)
 		return -1;
 	}
 
-	list_for_each_entry(le, &fdesc->fd_info_head, desc_list)
-		if (pid_rst_prio(new_le->pid, le->pid))
+	list_for_each_entry(le, &fdesc->fd_info_head, desc_list) {
+		ret = pstree_pid_cmp(new_le->pid, le->pid);
+		if (ret < 0) {
+			/*
+			 * Fall back into old algo, should not
+			 * happen though.
+			 */
+			pr_warn("Can't compare pids %d, %d (%d)\n",
+				new_le->pid, le->pid, ret);
+			if (pid_rst_prio(new_le->pid, le->pid))
+				break;
+		} else if (ret == 1)
 			break;
+	}
 
 	if (fdesc->ops->collect_fd)
 		fdesc->ops->collect_fd(fdesc, new_le, rst_info);
