@@ -166,7 +166,7 @@ static int seize_cgroup_tree(char *root_path, const char *state)
 				snprintf(__path, sizeof(__path), "/proc/%d/stack", pid);
 				fd = open(__path, O_RDONLY);
 				if (fd >= 0) {
-					ret = read(fd, __buf, sizeof(__buf));
+					ret = read(fd, __buf, sizeof(__buf) - 1);
 					if (ret > 0) {
 						__buf[ret] = '\0';
 						pr_debug("/proc/%d/stack:\n%s\n",
@@ -178,7 +178,7 @@ static int seize_cgroup_tree(char *root_path, const char *state)
 				snprintf(__path, sizeof(__path), "/proc/%d/stat", pid);
 				fd = open(__path, O_RDONLY);
 				if (fd >= 0) {
-					ret = read(fd, __buf, sizeof(__buf));
+					ret = read(fd, __buf, sizeof(__buf) - 1);
 					if (ret > 0) {
 						__buf[ret] = '\0';
 						pr_debug("/proc/%d/stat:\n%s\n",
@@ -190,7 +190,7 @@ static int seize_cgroup_tree(char *root_path, const char *state)
 				snprintf(__path, sizeof(__path), "/proc/%d/status", pid);
 				fd = open(__path, O_RDONLY);
 				if (fd >= 0) {
-					ret = read(fd, __buf, sizeof(__buf));
+					ret = read(fd, __buf, sizeof(__buf) - 1);
 					if (ret > 0) {
 						__buf[ret] = '\0';
 						pr_debug("/proc/%d/status:\n%s\n",
