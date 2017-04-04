@@ -156,7 +156,7 @@ static int seize_cgroup_tree(char *root_path, const char *state)
 				 * https://jira.sw.ru/browse/PSBM-53929
 				 * Drop before the release.
 				 */
-				char __path[64], __buf[1024];
+				char __path[64], __buf[2048];
 				static char ps_cmd[] = "ps";
 				int fd, ret;
 
@@ -182,6 +182,18 @@ static int seize_cgroup_tree(char *root_path, const char *state)
 					if (ret > 0) {
 						__buf[ret] = '\0';
 						pr_debug("/proc/%d/stat:\n%s\n",
+							 pid, __buf);
+					}
+					close(fd);
+				}
+
+				snprintf(__path, sizeof(__path), "/proc/%d/status", pid);
+				fd = open(__path, O_RDONLY);
+				if (fd >= 0) {
+					ret = read(fd, __buf, sizeof(__buf));
+					if (ret > 0) {
+						__buf[ret] = '\0';
+						pr_debug("/proc/%d/status:\n%s\n",
 							 pid, __buf);
 					}
 					close(fd);
