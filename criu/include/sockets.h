@@ -28,6 +28,7 @@ extern int dump_socket(struct fd_parms *p, int lfd, FdinfoEntry *);
 extern int dump_socket_opts(int sk, SkOptsEntry *soe);
 extern int restore_socket_opts(int sk, SkOptsEntry *soe);
 extern int sk_setbufs(int sk, uint32_t *bufs);
+extern int restore_socket_bufsz(int sk, SkOptsEntry *soe);
 extern void release_skopts(SkOptsEntry *);
 extern int restore_prepare_socket(int sk);
 extern void preload_socket_modules(void);
