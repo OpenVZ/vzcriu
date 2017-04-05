@@ -326,8 +326,10 @@ static int freezer_detach(void)
 		pid_t pid = processes_to_wait_pids[i];
 		int status, save_errno;
 
-		if (ptrace(PTRACE_DETACH, pid, NULL, NULL) == 0)
+		if (ptrace(PTRACE_DETACH, pid, NULL, NULL) == 0) {
+			pr_debug("Detached from %d\n", pid);
 			continue;
+		}
 
 		save_errno = errno;
 
