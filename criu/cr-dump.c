@@ -1948,10 +1948,8 @@ static int cr_dump_finish(int ret)
 		 * checkpoint.
 		 */
 		post_dump_ret = run_scripts(ACT_POST_DUMP);
-		if (post_dump_ret) {
-			post_dump_ret = WEXITSTATUS(post_dump_ret);
-			pr_info("Post dump script passed with %d\n", post_dump_ret);
-		}
+		if (post_dump_ret)
+			pr_err("Post dump script passed with %d\n", post_dump_ret);
 	}
 
 	/*
