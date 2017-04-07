@@ -146,6 +146,34 @@ static int freezer_restore_state(void)
 static int processes_to_wait;
 static pid_t *processes_to_wait_pids;
 
+static bool is_traced(pid_t pid)
+{
+	char path[PATH_MAX];
+	FILE *f;
+
+	snprintf(path, sizeof(path), "/proc/%d/status", pid);
+	f = fopen(path, "r");
+	if (!f) {
+		pr_perror("Unable to open %s", path);
+		return false;
+	}
+
+	while (fgets(path, sizeof(path), f)) {
+		pid_t tpid;
+
+		if (strncmp("TracerPid:\t", path, 11))
+			continue;
+
+		fclose(f);
+
+		tpid = atol(&path[11]);
+		pr_debug("pid %d is traced by %d\n", pid, tpid);
+		return tpid ? true : false;
+	}
+	fclose(f);
+	return false;
+}
+
 static int seize_cgroup_tree(char *root_path, const char *state)
 {
 	DIR *dir;
@@ -192,6 +220,12 @@ static int seize_cgroup_tree(char *root_path, const char *state)
 			snprintf(buf, sizeof(buf), "/proc/%d/exe", pid);
 			if (stat(buf, &st) == -1 && errno == ENOENT)
 				continue;
+
+			if (is_traced(pid)) {
+				fclose(f);
+				return -EAGAIN;
+			}
+
 			/*
 			 * fails when meets a zombie, or eixting process:
 			 * there is a small race in a kernel -- the process
@@ -467,6 +501,8 @@ static int freeze_processes(void)
 		close(fd);
 		return -1;
 	}
+
+again:
 	if (state == thawed) {
 		freezer_thawed = true;
 
@@ -515,6 +551,16 @@ static int freeze_processes(void)
 		if (exit_code == -EAGAIN) {
 			if (alarm_timeouted())
 				goto err;
+			if (freezer_thawed) {
+				if (set_freezer_state(fd, thawed, sizeof(thawed))) {
+					pr_err("Unable to thaw tasks\n");
+					exit_code = -1;
+					goto err;
+				}
+				state = thawed;
+				nanosleep(&req, NULL);
+				goto again;
+			}
 			nanosleep(&req, NULL);
 		} else
 			break;
