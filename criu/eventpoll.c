@@ -193,8 +193,19 @@ static int eventpoll_retore_tfd(int fd, int id, EventpollTfdEntry *tdefe)
 	event.events	= tdefe->events;
 	event.data.u64	= tdefe->data;
 	if (epoll_ctl(fd, EPOLL_CTL_ADD, tdefe->tfd, &event)) {
-		pr_perror("Can't add event on %#08x", id);
-		return -1;
+		if (errno != EEXIST && errno != EPERM && errno != ELOOP) {
+			pr_perror("Can't add event on %#08x", id);
+			return -1;
+		} else {
+			int rc = errno;
+			/*
+			 * FIXME: Until kcmp for epolls is supported
+			 * we should ignore such errors, we simply
+			 * can't figure out real target files.
+			 */
+			pr_warn("Ignore event on %#08x, errno -%d (%s)",
+				id, rc, strerror(rc));
+		}
 	}
 
 	return 0;
