@@ -67,6 +67,17 @@ static const char frozen[]	= "FROZEN";
 static const char freezing[]	= "FREEZING";
 static const char thawed[]	= "THAWED";
 
+static int set_freezer_state(int fd, const char *state, size_t len)
+{
+	lseek(fd, 0, SEEK_SET);
+	if (write(fd, state, len) != len) {
+		pr_perror("freezer: Unable to apply %s", state);
+		return -1;
+	}
+
+	return 0;
+}
+
 static const char *get_freezer_state(int fd)
 {
 	char state[32];
@@ -459,9 +470,8 @@ static int freeze_processes(void)
 	if (state == thawed) {
 		freezer_thawed = true;
 
-		lseek(fd, 0, SEEK_SET);
-		if (write(fd, frozen, sizeof(frozen)) != sizeof(frozen)) {
-			pr_perror("Unable to freeze tasks");
+		if (set_freezer_state(fd, frozen, sizeof(frozen))) {
+			pr_err("Unable to freeze tasks\n");
 			close(fd);
 			return -1;
 		}
@@ -512,9 +522,8 @@ static int freeze_processes(void)
 
 err:
 	if (exit_code == 0 || freezer_thawed) {
-		lseek(fd, 0, SEEK_SET);
-		if (write(fd, thawed, sizeof(thawed)) != sizeof(thawed)) {
-			pr_perror("Unable to thaw tasks");
+		if (set_freezer_state(fd, thawed, sizeof(thawed))) {
+			pr_err("Unable to thaw tasks\n");
 			exit_code = -1;
 		}
 	}
