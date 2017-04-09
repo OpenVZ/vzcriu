@@ -923,7 +923,7 @@ static int restore_sk_common(int fd, struct unix_sk_info *ui)
 	return 0;
 }
 
-static void revert_unix_sk_cwd(int *prev_cwd_fd, int *root_fd)
+static void revert_unix_sk_cwd(struct unix_sk_info *ui, int *prev_cwd_fd, int *root_fd)
 {
 	if (*root_fd >= 0) {
 		if (fchdir(*root_fd) || chroot("."))
@@ -934,7 +934,8 @@ static void revert_unix_sk_cwd(int *prev_cwd_fd, int *root_fd)
 		if (fchdir(*prev_cwd_fd))
 			pr_perror("Can't revert working dir");
 		else
-			pr_debug("Reverted working dir\n");
+			if (ui->name_dir)
+				pr_debug("Reverted working dir\n");
 		close(*prev_cwd_fd);
 		*prev_cwd_fd = -1;
 	}
@@ -1018,11 +1019,11 @@ static int post_open_unix_sk(struct file_desc *d, int fd)
 				sizeof(addr.sun_family) +
 				peer->ue->name.len) < 0) {
 		pr_perror("Can't connect %#x socket", ui->ue->ino);
-		revert_unix_sk_cwd(&cwd_fd, &root_fd);
+		revert_unix_sk_cwd(peer, &cwd_fd, &root_fd);
 		return -1;
 	}
 
-	revert_unix_sk_cwd(&cwd_fd, &root_fd);
+	revert_unix_sk_cwd(peer, &cwd_fd, &root_fd);
 
 	if (restore_socket_bufsz(fd, ui->ue->opts))
 		return -1;
@@ -1144,7 +1145,7 @@ static int bind_unix_sk(int sk, struct unix_sk_info *ui)
 
 	ret = 0;
 done:
-	revert_unix_sk_cwd(&cwd_fd, &root_fd);
+	revert_unix_sk_cwd(ui, &cwd_fd, &root_fd);
 	return ret;
 }
 
@@ -1430,7 +1431,7 @@ static void unlink_stale(struct unix_sk_info *ui)
 			ui->name ? (ui->name[0] ? ui->name : &ui->name[1]) : "-",
 			ui->name_dir ? ui->name_dir : "-");
 	}
-	revert_unix_sk_cwd(&cwd_fd, &root_fd);
+	revert_unix_sk_cwd(ui, &cwd_fd, &root_fd);
 }
 
 static int resolve_unix_peer(struct unix_sk_info *ui);
