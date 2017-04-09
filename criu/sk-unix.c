@@ -28,6 +28,7 @@
 #include "pstree.h"
 #include "external.h"
 #include "crtools.h"
+#include "rst-malloc.h"
 
 #include "protobuf.h"
 #include "images/sk-unix.pb-c.h"
@@ -88,6 +89,7 @@ struct unix_sk_desc {
 };
 
 static LIST_HEAD(unix_sockets);
+static LIST_HEAD(unix_ghost_addr);
 
 struct unix_sk_listen_icon {
 	unsigned int			peer_ino;
@@ -96,6 +98,13 @@ struct unix_sk_listen_icon {
 };
 
 #define SK_HASH_SIZE		32
+
+typedef struct {
+	struct list_head	list;
+	struct list_head	children;
+	char			*name;
+	size_t			namelen;
+} ghost_addr_t;
 
 static struct unix_sk_listen_icon *unix_listen_icons[SK_HASH_SIZE];
 
@@ -107,6 +116,20 @@ static struct unix_sk_listen_icon *lookup_unix_listen_icons(int peer_ino)
 			ic; ic = ic->next)
 		if (ic->peer_ino == peer_ino)
 			return ic;
+	return NULL;
+}
+
+static ghost_addr_t *lookup_ghost_addr(void *name, size_t namelen)
+{
+	ghost_addr_t *ga;
+
+	list_for_each_entry(ga, &unix_ghost_addr, list) {
+		if (ga->namelen != namelen ||
+		    memcmp(ga->name, name, namelen))
+			continue;
+		return ga;
+	}
+
 	return NULL;
 }
 
@@ -807,6 +830,8 @@ struct unix_sk_info {
 	struct list_head	connected;	/* List of sockets, connected to me */
 	struct list_head	node;		/* To link in peer's connected list  */
 
+	struct list_head	ghost_addr_node;
+
 	/*
 	 * For DGRAM sockets with queues, we should only restore the queue
 	 * once although it may be open by more than one tid. This is the peer
@@ -819,6 +844,9 @@ struct unix_sk_info {
 
 #define USK_PAIR_MASTER		(1 << 0)
 #define USK_PAIR_SLAVE		(1 << 1)
+#define USK_GHOST_NAME		(1 << 2)
+#define USK_GHOST_WAIT		(1 << 3)
+#define USK_ADDR_RDY		(1 << 4)
 
 static struct unix_sk_info *find_unix_sk_by_ino(int ino)
 {
@@ -1405,6 +1433,8 @@ static int collect_one_unixsk(void *o, ProtobufCMessage *base, struct cr_img *i)
 	ui->ue = pb_msg(base, UnixSkEntry);
 	ui->name_dir = (void *)ui->ue->name_dir;
 
+	INIT_LIST_HEAD(&ui->ghost_addr_node);
+
 	if (add_post_prepare_cb_once(resolve_unix_peers, NULL))
 		return -1;
 
@@ -1417,6 +1447,26 @@ static int collect_one_unixsk(void *o, ProtobufCMessage *base, struct cr_img *i)
 		ui->name = (void *)ui->ue->name.data;
 
 		unlink_stale(ui);
+		if (ui->ue->has_deleted && ui->ue->deleted &&
+		    ui->ue->type == SOCK_DGRAM) {
+			ghost_addr_t *ga;
+
+			ga = lookup_ghost_addr(ui->name, ui->ue->name.len);
+			if (!ga) {
+				ga = shmalloc(sizeof(*ga));
+				if (!ga)
+					return -ENOMEM;
+
+				INIT_LIST_HEAD(&ga->children);
+
+				ga->name	= (void *)ui->name;
+				ga->namelen	= ui->ue->name.len;
+
+				list_add_tail(&ga->list, &unix_ghost_addr);
+			}
+
+			list_add_tail(&ui->ghost_addr_node, &ga->children);
+		}
 	} else
 		ui->name = NULL;
 
