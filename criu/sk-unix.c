@@ -9,6 +9,7 @@
 #include <sys/un.h>
 #include <stdlib.h>
 #include <dlfcn.h>
+#include <libgen.h>
 
 #include "libnetlink.h"
 #include "cr_options.h"
@@ -29,6 +30,7 @@
 #include "external.h"
 #include "crtools.h"
 #include "rst-malloc.h"
+#include "atomic.h"
 
 #include "protobuf.h"
 #include "images/sk-unix.pb-c.h"
@@ -102,6 +104,7 @@ struct unix_sk_listen_icon {
 typedef struct {
 	struct list_head	list;
 	struct list_head	children;
+	char			*name_dir;
 	char			*name;
 	size_t			namelen;
 } ghost_addr_t;
@@ -119,13 +122,15 @@ static struct unix_sk_listen_icon *lookup_unix_listen_icons(int peer_ino)
 	return NULL;
 }
 
-static ghost_addr_t *lookup_ghost_addr(void *name, size_t namelen)
+static ghost_addr_t *lookup_ghost_addr(void *name_dir, void *name, size_t namelen)
 {
 	ghost_addr_t *ga;
 
 	list_for_each_entry(ga, &unix_ghost_addr, list) {
 		if (ga->namelen != namelen ||
-		    memcmp(ga->name, name, namelen))
+		    memcmp(ga->name, name, namelen) ||
+		    ((unsigned long)name_dir ^
+		     (unsigned long)(void *)ga->name_dir))
 			continue;
 		return ga;
 	}
@@ -831,6 +836,10 @@ struct unix_sk_info {
 	struct list_head	node;		/* To link in peer's connected list  */
 
 	struct list_head	ghost_addr_node;
+	struct list_head	ghost_wait_head;
+	struct list_head	ghost_waiters;
+	struct unix_sk_info	*ghost_master;
+	atomic_t		ghost_counter;
 
 	/*
 	 * For DGRAM sockets with queues, we should only restore the queue
@@ -841,6 +850,8 @@ struct unix_sk_info {
 	bool			bound;
 	bool			listen;
 };
+
+static int bind_unix_sk(int sk, struct unix_sk_info *ui);
 
 #define USK_PAIR_MASTER		(1 << 0)
 #define USK_PAIR_SLAVE		(1 << 1)
@@ -866,6 +877,18 @@ static int wake_connected_sockets(struct unix_sk_info *ui)
 	struct unix_sk_info *tmp;
 
 	list_for_each_entry(tmp, &ui->connected, node) {
+		fle = file_master(&tmp->d);
+		set_fds_event(fle->pid);
+	}
+	return 0;
+}
+
+static int wake_ghost_waiters(struct unix_sk_info *ui)
+{
+	struct fdinfo_list_entry *fle;
+	struct unix_sk_info *tmp;
+
+	list_for_each_entry(tmp, &ui->ghost_wait_head, ghost_waiters) {
 		fle = file_master(&tmp->d);
 		set_fds_event(fle->pid);
 	}
@@ -980,10 +1003,27 @@ static int post_open_unix_sk(struct file_desc *d, int fd)
 {
 	struct unix_sk_info *ui;
 	struct unix_sk_info *peer;
+	struct unix_sk_info *gm;
 	struct sockaddr_un addr;
 	int cwd_fd = -1, root_fd = -1;
 
 	ui = container_of(d, struct unix_sk_info, d);
+	gm = ui->ghost_master;
+
+	if (ui->flags & USK_GHOST_WAIT) {
+		if (!(gm->flags & USK_ADDR_RDY))
+			return 1;
+		if (ui->flags & (USK_PAIR_MASTER | USK_PAIR_SLAVE)) {
+			if (bind_unix_sk(fd, ui))
+				return -1;
+			return 0;
+		}
+	} else if (ui->flags & USK_GHOST_NAME) {
+		if (bind_unix_sk(fd, ui))
+			return -1;
+		return 0;
+	}
+
 	BUG_ON((ui->flags & (USK_PAIR_MASTER | USK_PAIR_SLAVE)) ||
 			(ui->ue->uflags & (USK_CALLBACK | USK_INHERIT)));
 
@@ -1012,6 +1052,15 @@ static int post_open_unix_sk(struct file_desc *d, int fd)
 		return -1;
 	}
 
+	if (gm) {
+		if (atomic_dec_and_test(&gm->ghost_counter)) {
+			pr_debug("ghost: Unlinking %s\n", gm->ue->name.data);
+			if (unlink((char *)gm->ue->name.data))
+				pr_perror("ghost: Failed to unlink master %s",
+					  gm->ue->name.data);
+		}
+	}
+
 	revert_unix_sk_cwd(peer, &cwd_fd, &root_fd);
 
 	if (restore_socket_bufsz(fd, ui->ue->opts))
@@ -1021,6 +1070,63 @@ static int post_open_unix_sk(struct file_desc *d, int fd)
 		return -1;
 
 	return restore_sk_common(fd, ui);
+}
+
+/*
+ * When path where socket lives is deleted, we need to reconstruct
+ * it back up but allow caller to remove it after.
+ */
+static int bind_on_deleted(int sk, struct unix_sk_info *ui)
+{
+	char path[PATH_MAX], *pos;
+	struct sockaddr_un addr;
+	int ret;
+
+	if (ui->ue->name.len >= sizeof(path)) {
+		pr_err("Too long name for socket\n");
+		return -ENOSPC;
+	}
+
+	memcpy(path, ui->name, ui->ue->name.len);
+	path[ui->ue->name.len] = '\0';
+
+	for (pos = strrchr(path, '/'); pos;
+	     pos = strrchr(path, '/')) {
+		*pos = '\0';
+
+		ret = access(path, R_OK | W_OK | X_OK);
+		if (ret == 0)
+			break;
+
+		if (errno != ENOENT) {
+			ret = -errno;
+			pr_perror("Can't access %s\n", path);
+			return ret;
+		}
+	}
+
+	memcpy(path, ui->name, ui->ue->name.len);
+	path[ui->ue->name.len] = '\0';
+
+	pos = dirname(path);
+	ret = mkdirpat(AT_FDCWD, pos, 0755);
+	if (ret) {
+		pr_err("Can't create %s\n", pos);
+		return ret;
+	}
+
+	memset(&addr, 0, sizeof(addr));
+	addr.sun_family = AF_UNIX;
+	memcpy(&addr.sun_path, ui->name, ui->ue->name.len);
+
+	ret = bind(sk, (struct sockaddr *)&addr,
+		   sizeof(addr.sun_family) + ui->ue->name.len);
+	if (ret < 0) {
+		pr_perror("Can't bind on socket %s", (char *)ui->ue->name.data);
+		return ret;
+	}
+
+	return 0;
 }
 
 static int bind_unix_sk(int sk, struct unix_sk_info *ui)
@@ -1093,10 +1199,12 @@ static int bind_unix_sk(int sk, struct unix_sk_info *ui)
 				ui->ue->deleted = false;
 
 			} else {
-				pr_perror("Can't bind socket");
-				goto done;
+				if (bind_on_deleted(sk, ui))
+					goto done;
+				ui->flags |= USK_ADDR_RDY;
 			}
 		}
+		ui->flags |= USK_ADDR_RDY;
 
 		if (*ui->name && ui->ue->file_perms) {
 			FilePermsEntry *perms = ui->ue->file_perms;
@@ -1121,9 +1229,22 @@ static int bind_unix_sk(int sk, struct unix_sk_info *ui)
 			}
 		}
 
-		if (ui->ue->deleted && unlink((char *)ui->ue->name.data) < 0) {
-			pr_perror("failed to unlink %s", ui->ue->name.data);
-			goto done;
+		if (ui->ue->deleted || ui->ghost_master) {
+			struct unix_sk_info *gm = ui->ghost_master;
+			bool do_unlink = true;
+
+			if (gm && !atomic_dec_and_test(&gm->ghost_counter))
+				do_unlink = false;
+
+			if (!atomic_dec_and_test(&ui->ghost_counter))
+				do_unlink = false;
+
+			if (do_unlink) {
+				pr_debug("ghost: Unlinking %s\n", ui->ue->name.data);
+				if (unlink((char *)ui->ue->name.data))
+					pr_perror("ghost: Failed to unlink %s",
+						  ui->ue->name.data);
+			}
 		}
 	}
 
@@ -1131,6 +1252,8 @@ static int bind_unix_sk(int sk, struct unix_sk_info *ui)
 		ui->bound = true;
 		wake_connected_sockets(ui);
 	}
+
+	wake_ghost_waiters(ui);
 
 	ret = 0;
 done:
@@ -1140,7 +1263,7 @@ done:
 
 static int open_unixsk_pair_master(struct unix_sk_info *ui, int *new_fd)
 {
-	int sk[2];
+	int sk[2], ret = 0;
 	struct unix_sk_info *peer = ui->peer;
 
 	pr_info("Opening pair master (id %#x ino %#x peer %#x)\n",
@@ -1160,8 +1283,11 @@ static int open_unixsk_pair_master(struct unix_sk_info *ui, int *new_fd)
 	if (restore_sk_queue(sk[1], ui->ue->id))
 		return -1;
 
-	if (bind_unix_sk(sk[0], ui))
-		return -1;
+	if (!(ui->flags & USK_GHOST_WAIT)) {
+		if (bind_unix_sk(sk[0], ui))
+			return -1;
+	} else
+		ret = 1;
 
 	if (restore_sk_common(sk[0], ui))
 		return -1;
@@ -1174,12 +1300,12 @@ static int open_unixsk_pair_master(struct unix_sk_info *ui, int *new_fd)
 	close(sk[1]);
 
 	*new_fd = sk[0];
-	return 0;
+	return ret;
 }
 
 static int open_unixsk_pair_slave(struct unix_sk_info *ui, int *new_fd)
 {
-	int sk, ret;
+	int sk, ret = 0;
 
 	ret = recv_desc_from_peer(&ui->d, &sk);
 	if (ret != 0) {
@@ -1188,19 +1314,22 @@ static int open_unixsk_pair_slave(struct unix_sk_info *ui, int *new_fd)
 		return ret;
 	}
 
-	if (bind_unix_sk(sk, ui))
-		return -1;
+	if (!(ui->flags & USK_GHOST_WAIT)) {
+		if (bind_unix_sk(sk, ui))
+			return -1;
+	} else
+		ret = 1;
 
 	if (restore_sk_common(sk, ui))
 		return -1;
 
 	*new_fd = sk;
-	return 0;
+	return ret;
 }
 
 static int open_unixsk_standalone(struct unix_sk_info *ui, int *new_fd)
 {
-	int sk;
+	int sk, ret = 0;
 
 	pr_info("Opening standalone socket (id %#x ino %#x peer %#x)\n",
 			ui->ue->id, ui->ue->ino, ui->ue->peer);
@@ -1322,8 +1451,11 @@ static int open_unixsk_standalone(struct unix_sk_info *ui, int *new_fd)
 		}
 	}
 
-	if (bind_unix_sk(sk, ui))
-		return -1;
+	if (!(ui->flags & USK_GHOST_WAIT)) {
+		if (bind_unix_sk(sk, ui))
+			return -1;
+	} else
+		ret = 1;
 
 	if (ui->ue->state == TCP_LISTEN) {
 		pr_info("\tPutting %#x into listen state\n", ui->ue->ino);
@@ -1350,7 +1482,7 @@ out:
 		return -1;
 
 	*new_fd = sk;
-	return 0;
+	return ret;
 }
 
 static int open_unix_sk(struct file_desc *d, int *new_fd)
@@ -1359,11 +1491,11 @@ static int open_unix_sk(struct file_desc *d, int *new_fd)
 	struct unix_sk_info *ui;
 	int ret;
 
+	ui = container_of(d, struct unix_sk_info, d);
+
 	fle = file_master(d);
 	if (fle->stage >= FLE_OPEN)
 		return post_open_unix_sk(d, fle->fe->fd);
-
-	ui = container_of(d, struct unix_sk_info, d);
 
 	if (inherited_fd(d, new_fd)) {
 		ui->ue->uflags |= USK_INHERIT;
@@ -1435,6 +1567,10 @@ static int collect_one_unixsk(void *o, ProtobufCMessage *base, struct cr_img *i)
 	ui->name_dir = (void *)ui->ue->name_dir;
 
 	INIT_LIST_HEAD(&ui->ghost_addr_node);
+	INIT_LIST_HEAD(&ui->ghost_wait_head);
+	INIT_LIST_HEAD(&ui->ghost_waiters);
+	ui->ghost_master = NULL;
+	atomic_set(&ui->ghost_counter, 1);
 
 	if (add_post_prepare_cb_once(resolve_unix_peers, NULL))
 		return -1;
@@ -1452,7 +1588,7 @@ static int collect_one_unixsk(void *o, ProtobufCMessage *base, struct cr_img *i)
 		    ui->ue->type == SOCK_DGRAM) {
 			ghost_addr_t *ga;
 
-			ga = lookup_ghost_addr(ui->name, ui->ue->name.len);
+			ga = lookup_ghost_addr(ui->name_dir, ui->name, ui->ue->name.len);
 			if (!ga) {
 				ga = shmalloc(sizeof(*ga));
 				if (!ga)
@@ -1460,6 +1596,7 @@ static int collect_one_unixsk(void *o, ProtobufCMessage *base, struct cr_img *i)
 
 				INIT_LIST_HEAD(&ga->children);
 
+				ga->name_dir	= (void *)ui->name_dir;
 				ga->name	= (void *)ui->name;
 				ga->namelen	= ui->ue->name.len;
 
@@ -1542,6 +1679,84 @@ static void interconnected_pair(struct unix_sk_info *ui, struct unix_sk_info *pe
 	}
 }
 
+static int ghost_new_name(char *name, size_t namelen,
+			  char **name_new, size_t *namelen_new)
+{
+	static unsigned int cnt = 0;
+	char sname[64];
+	size_t k;
+
+	k = snprintf(sname, sizeof(sname), "criu-%u", cnt++);
+	*namelen_new = namelen + k + 1;
+	if (*namelen_new > UNIX_PATH_MAX) {
+		pr_err("ghost: New name for socket is too long\n");
+		return -1;
+	}
+
+	*name_new = shmalloc(*namelen_new);
+	if (!*name_new) {
+		pr_err("ghost: Can't allocate new name for socket\n");
+		return -ENOMEM;
+	}
+
+	k = snprintf(*name_new, *namelen_new, "%s-%s", name, sname) + 1;
+	if (k != *namelen_new) {
+		pr_err("ghost: Name stripped\n");
+		return -1;
+	}
+
+	return 0;
+}
+
+static int resolve_unix_ghosts(void)
+{
+	struct unix_sk_info *ui, *t;
+	ghost_addr_t *ga;
+
+	pr_debug("ghost: Resolving addresses\n");
+
+	list_for_each_entry(ga, &unix_ghost_addr, list) {
+		pr_debug("ghost: address %s\n", ga->name);
+
+		list_for_each_entry(ui, &ga->children, ghost_addr_node) {
+			size_t newnamelen;
+			char *newname;
+
+			pr_debug("\tghost: ino %#x peer %#x\n", ui->ue->ino,
+				 ui->peer ? ui->peer->ue->ino : 0);
+
+			if (ghost_new_name(ga->name, ga->namelen,
+					   &newname, &newnamelen))
+				return -1;
+
+			pr_debug("\tghost: name transition %s -> %s\n",
+				 ui->name, newname);
+			ui->name = newname;
+			ui->ue->name.len = newnamelen;
+			ui->ue->name.data = (void *)newname;
+			ui->flags |= USK_GHOST_NAME;
+
+			unlink_stale(ui);
+
+			list_for_each_entry(t, &unix_sockets, list) {
+				if (t->flags & (USK_GHOST_NAME | USK_GHOST_WAIT))
+					continue;
+				if (t->peer != ui)
+					continue;
+				pr_debug("\t\tghost: connected to us %#x -> %#x\n",
+					 t->ue->ino, ui->ue->ino);
+
+				t->flags |= USK_GHOST_NAME | USK_GHOST_WAIT;
+				t->ghost_master = ui;
+				atomic_inc(&ui->ghost_counter);
+				list_add(&t->ghost_waiters, &ui->ghost_wait_head);
+			}
+		}
+	}
+
+	return 0;
+}
+
 static int resolve_unix_peers(void *unused)
 {
 	struct unix_sk_info *ui, *peer;
@@ -1586,7 +1801,7 @@ static int resolve_unix_peers(void *unused)
 
 	}
 
-	return 0;
+	return resolve_unix_ghosts();
 }
 
 int unix_sk_id_add(unsigned int ino)
