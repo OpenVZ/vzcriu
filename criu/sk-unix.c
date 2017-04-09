@@ -817,8 +817,8 @@ struct unix_sk_info {
 	bool			listen;
 };
 
-#define USK_PAIR_MASTER		0x1
-#define USK_PAIR_SLAVE		0x2
+#define USK_PAIR_MASTER		(1 << 0)
+#define USK_PAIR_SLAVE		(1 << 1)
 
 static struct unix_sk_info *find_unix_sk_by_ino(int ino)
 {
