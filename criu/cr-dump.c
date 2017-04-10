@@ -1509,8 +1509,8 @@ static int dump_zombies(void)
 		if (parse_pid_stat(vpid(item), &pps_buf) < 0)
 			goto err;
 
-		item->sid = pps_buf.sid;
-		item->pgid = pps_buf.pgid;
+		item->sid->ns[0].virt = pps_buf.sid;
+		item->pgid->ns[0].virt = pps_buf.pgid;
 
 		BUG_ON(!list_empty(&item->children));
 		if (dump_one_zombie(item, &pps_buf) < 0)
@@ -1722,14 +1722,15 @@ static int dump_one_task(struct pstree_item *item, InventoryEntry *parent_ie)
 	}
 
 	item->pid->ns[0].virt = misc.pid;
+	item->sid->ns[0].virt = misc.sid;
+	item->pgid->ns[0].virt = misc.pgid;
 	pstree_insert_pid(item->pid);
-	item->sid = misc.sid;
-	item->pgid = misc.pgid;
 
 	pr_info("sid=%d pgid=%d pid=%d\n",
-		item->sid, item->pgid, vpid(item));
+		item->sid->ns[0].virt, item->pgid->ns[0].virt, vpid(item));
 
-	if (item->sid == 0) {
+
+	if (item->sid->ns[0].virt == 0) {
 		pr_err("A session leader of %d(%d) is outside of its pid namespace\n",
 			item->pid->real, vpid(item));
 		goto err_cure;
