@@ -574,52 +574,51 @@ int pstree_pid_cmp(pid_t a, pid_t b)
 	return 3;
 }
 
-static int read_pstree_ids(struct pstree_item *pi)
+static int read_pstree_ids(pid_t pid, TaskKobjIdsEntry **ids)
 {
-	pid_t pid = vpid(pi);
-	int ret;
 	struct cr_img *img;
+	int ret;
 
-	img = open_image(CR_FD_IDS, O_RSTR, vpid(pi));
+	img = open_image(CR_FD_IDS, O_RSTR, pid);
 	if (!img)
 		return -1;
 
-	ret = pb_read_one_eof(img, &pi->ids, PB_IDS);
+	ret = pb_read_one_eof(img, ids, PB_IDS);
 	close_image(img);
 
 	if (ret <= 0)
 		return ret;
 
-	if (pi->ids->has_mnt_ns_id) {
-		if (rst_add_ns_id(pi->ids->mnt_ns_id, pid, &mnt_ns_desc))
+	if ((*ids)->has_mnt_ns_id) {
+		if (rst_add_ns_id((*ids)->mnt_ns_id, pid, &mnt_ns_desc))
 			return -1;
 	}
-	if (pi->ids->has_net_ns_id) {
-		if (rst_add_ns_id(pi->ids->net_ns_id, pid, &net_ns_desc))
+	if ((*ids)->has_net_ns_id) {
+		if (rst_add_ns_id((*ids)->net_ns_id, pid, &net_ns_desc))
 			return -1;
 	}
-	if (pi->ids->has_pid_ns_id) {
-		if (rst_add_ns_id(pi->ids->pid_ns_id, pid, &pid_ns_desc))
+	if ((*ids)->has_pid_ns_id) {
+		if (rst_add_ns_id((*ids)->pid_ns_id, pid, &pid_ns_desc))
 			return -1;
 	}
-	if (pi->ids->has_user_ns_id) {
-		if (rst_add_ns_id(pi->ids->user_ns_id, pid, &user_ns_desc))
+	if ((*ids)->has_user_ns_id) {
+		if (rst_add_ns_id((*ids)->user_ns_id, pid, &user_ns_desc))
 			return -1;
 	}
-	if (pi->ids->has_ipc_ns_id) {
-		if (rst_add_ns_id(pi->ids->ipc_ns_id, pid, &ipc_ns_desc))
+	if ((*ids)->has_ipc_ns_id) {
+		if (rst_add_ns_id((*ids)->ipc_ns_id, pid, &ipc_ns_desc))
 			return -1;
 	}
-	if (pi->ids->has_uts_ns_id) {
-		if (rst_add_ns_id(pi->ids->uts_ns_id, pid, &uts_ns_desc))
+	if ((*ids)->has_uts_ns_id) {
+		if (rst_add_ns_id((*ids)->uts_ns_id, pid, &uts_ns_desc))
 			return -1;
 	}
-	if (pi->ids->has_cgroup_ns_id) {
-		if (rst_add_ns_id(pi->ids->cgroup_ns_id, pid, &cgroup_ns_desc))
+	if ((*ids)->has_cgroup_ns_id) {
+		if (rst_add_ns_id((*ids)->cgroup_ns_id, pid, &cgroup_ns_desc))
 			return -1;
 	}
-	if (pi->ids->has_time_ns_id) {
-		if (rst_add_ns_id(pi->ids->time_ns_id, pid, &time_ns_desc))
+	if ((*ids)->has_time_ns_id) {
+		if (rst_add_ns_id((*ids)->time_ns_id, pid, &time_ns_desc))
 			return -1;
 	}
 
@@ -721,7 +720,7 @@ static int read_one_pstree_item(struct cr_img *img, pid_t *pid_max)
 	task_entries->nr_tasks++;
 
 	/* note: we don't fail if we have empty ids */
-	if (read_pstree_ids(pi) < 0)
+	if (read_pstree_ids(vpid(pi), &pi->ids) < 0)
 		goto err;
 
 	ret = 1;
