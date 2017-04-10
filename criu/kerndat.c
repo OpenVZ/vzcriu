@@ -1142,6 +1142,33 @@ static bool kerndat_has_clone3_set_tid(void)
 	return 0;
 }
 
+int kerndat_has_nspid(void)
+{
+	struct bfd f;
+	int ret = -1;
+	char *str;
+
+	f.fd = open("/proc/self/status", O_RDONLY);
+	if (f.fd < 0) {
+		pr_perror("Can't open /proc/self/status");
+		return -1;
+	}
+	if (bfdopenr(&f))
+		return -1;
+	while ((str = breadline(&f)) != NULL) {
+		if (IS_ERR(str))
+			goto close;
+		if (!strncmp(str, "NSpid:", 6)) {
+			kdat.has_nspid = true;
+			break;
+		}
+	}
+	ret = 0;
+close:
+	bclose(&f);
+	return ret;
+}
+
 int kerndat_init(void)
 {
 	int ret;
@@ -1286,6 +1313,10 @@ int kerndat_init(void)
 
 	if (!ret && kerndat_task_ct_fields_supported()) {
 		pr_err("kerndat_task_ct_fields_supported failed when initializing kerndat.\n");
+		ret = -1;
+	}
+	if (!ret && kerndat_has_nspid()) {
+		pr_err("kerndat_has_nspid failed when initializing kerndat.\n");
 		ret = -1;
 	}
 

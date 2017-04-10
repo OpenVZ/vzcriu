@@ -1296,6 +1296,17 @@ static int check_net_diag_raw(void)
 		socket_test_collect_bit(AF_INET6, IPPROTO_RAW)) ? 0 : -1;
 }
 
+static int check_ns_pid(void)
+{
+	if (kerndat_has_nspid() < 0)
+		return -1;
+
+	if (!kdat.has_nspid)
+		return -1;
+
+	return 0;
+}
+
 static int (*chk_feature)(void);
 
 /*
@@ -1407,6 +1418,7 @@ int cr_check(void)
 		ret |= check_net_diag_raw();
 		ret |= check_clone3_set_tid();
 		ret |= check_time_namespace();
+		ret |= check_ns_pid();
 	}
 
 	/*
@@ -1514,6 +1526,7 @@ static struct feature_list feature_list[] = {
 	{ "external_net_ns", check_external_net_ns},
 	{ "clone3_set_tid", check_clone3_set_tid},
 	{ "nl_repair", check_nl_repair },
+	{ "ns_pid", check_ns_pid},
 	{ NULL, NULL },
 };
 
