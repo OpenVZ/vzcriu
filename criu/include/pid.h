@@ -45,6 +45,7 @@ struct pid {
 	 * the pid value to be restored. This pid fetched from the
 	 * dumpee context, because the dumpee might have own pid namespace.
 	 */
+	int level;
 	struct {
 		pid_t virt;
 		struct rb_node node;
