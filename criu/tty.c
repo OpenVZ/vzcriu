@@ -1565,9 +1565,10 @@ out:
 		 * checkpoint complete process tree together with
 		 * the process which keeps the master peer.
 		 */
-		if (root_item->sid != vpid(root_item)) {
-			if (root_item->pgid == vpid(root_item)) {
-				if (tty_set_prgp(fd, root_item->pgid))
+		if (!equal_pid(root_item->sid, root_item->pid)) {
+			if (!equal_pid(root_item->pgid, root_item->pid)) {
+				BUG_ON(current->pid->level != root_item->pgid->level);
+				if (tty_set_prgp(fd, last_level_pid(root_item->pgid)))
 					goto err;
 			} else {
 				pr_debug("Restore inherited group %d\n", getpgid(getppid()));
@@ -1754,7 +1755,8 @@ static struct pstree_item *find_session_leader(pid_t sid)
 	struct pstree_item *item;
 
 	for_each_pstree_item(item) {
-		if (item->sid == sid && vpid(item) == sid)
+		if (item->sid->ns[0].virt == sid &&
+		    equal_pid(item->pid, item->sid))
 			return item;
 	}
 
