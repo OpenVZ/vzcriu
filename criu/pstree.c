@@ -410,7 +410,7 @@ static int prepare_pstree_for_shell_job(pid_t pid)
 
 	old_gid = root_item->pgid->ns[0].virt;
 	if (old_gid != vpid(root_item)) {
-		if (lookup_create_item(current_sid) == NULL)
+		if (lookup_create_item(current_sid, root_item->ids->pid_ns_id) == NULL)
 			return -1;
 
 		pr_info("Migrating process tree (GID %d->%d)\n",
@@ -421,7 +421,7 @@ static int prepare_pstree_for_shell_job(pid_t pid)
 				pi->pgid->ns[0].virt = current_gid;
 		}
 
-		if (lookup_create_item(current_gid) == NULL)
+		if (lookup_create_item(current_gid, root_item->ids->pid_ns_id) == NULL)
 			return -1;
 	}
 
@@ -456,7 +456,7 @@ static struct pid *find_pid_or_place_in_hier(struct rb_node **root, pid_t pid, i
  * it is not there yet. If pid_node isn't set, pstree_item
  * is inserted.
  */
-static struct pid *lookup_create_pid(pid_t pid, struct pid *pid_node)
+static struct pid *lookup_create_pid(pid_t pid, struct pid *pid_node, int ns_id)
 {
 	struct rb_node **new = NULL, *parent = NULL;
 	struct pid *found;
@@ -479,20 +479,20 @@ static struct pid *lookup_create_pid(pid_t pid, struct pid *pid_node)
 	return pid_node;
 }
 
-void pstree_insert_pid(struct pid *pid_node)
+void pstree_insert_pid(struct pid *pid_node, uint32_t ns_id)
 {
 	struct pid* n;
 
-	n = lookup_create_pid(pid_node->ns[0].virt, pid_node);
+	n = lookup_create_pid(pid_node->ns[0].virt, pid_node, ns_id);
 
 	BUG_ON(n != pid_node);
 }
 
-struct pstree_item *lookup_create_item(pid_t pid)
+struct pstree_item *lookup_create_item(pid_t pid, uint32_t ns_id)
 {
 	struct pid *node;
 
-	node = lookup_create_pid(pid, NULL);
+	node = lookup_create_pid(pid, NULL, ns_id);
 	if (!node)
 		return NULL;
 
@@ -683,7 +683,7 @@ static int read_one_pstree_item(struct cr_img *img, pid_t *pid_max)
 		goto err;
 	}
 
-	pi = lookup_create_item(e->pid);
+	pi = lookup_create_item(e->pid, ids->pid_ns_id);
 	if (pi == NULL)
 		goto err;
 	BUG_ON(pi->pid->state != TASK_UNDEF);
@@ -696,9 +696,9 @@ static int read_one_pstree_item(struct cr_img *img, pid_t *pid_max)
 	 * be initialized when we meet PstreeEntry with this pid or
 	 * we will create helpers for them.
 	 */
-	if (lookup_create_item(e->pgid) == NULL)
+	if (lookup_create_item(e->pgid, ids->pid_ns_id) == NULL)
 		goto err;
-	if (lookup_create_item(e->sid) == NULL)
+	if (lookup_create_item(e->sid, ids->pid_ns_id) == NULL)
 		goto err;
 
 	pi->pid->ns[0].virt = e->pid;
@@ -742,7 +742,7 @@ static int read_one_pstree_item(struct cr_img *img, pid_t *pid_max)
 		pi->threads[i]->item = NULL;
 		if (i == 0)
 			continue; /* A thread leader is in a tree already */
-		node = lookup_create_pid(pi->threads[i]->ns[0].virt, pi->threads[i]);
+		node = lookup_create_pid(pi->threads[i]->ns[0].virt, pi->threads[i], ids->pid_ns_id);
 
 		BUG_ON(node == NULL);
 		if (node != pi->threads[i]) {
@@ -841,7 +841,7 @@ static int prepare_pstree_ids(pid_t pid)
 			pid = get_free_pid();
 			if (pid < 0)
 				break;
-			helper = lookup_create_item(pid);
+			helper = lookup_create_item(pid, item->ids->pid_ns_id);
 			if (helper == NULL)
 				return -1;
 
