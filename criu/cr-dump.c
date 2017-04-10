@@ -1231,7 +1231,7 @@ static int dump_task_thread(struct parasite_ctl *parasite_ctl,
 				const struct pstree_item *item, int id)
 {
 	struct parasite_thread_ctl *tctl = dmpi(item)->thread_ctls[id];
-	struct pid *tid = &item->threads[id];
+	struct pid *tid = item->threads[id];
 	CoreEntry *core = item->core[id];
 	pid_t pid = tid->real;
 	int ret = -1;
@@ -1377,9 +1377,9 @@ static int dump_task_signals(pid_t pid, struct pstree_item *item)
 
 	/* Dump private signals for each thread */
 	for (i = 0; i < item->nr_threads; i++) {
-		ret = dump_signal_queue(item->threads[i].real, &item->core[i]->thread_core->signals_p, false);
+		ret = dump_signal_queue(item->threads[i]->real, &item->core[i]->thread_core->signals_p, false);
 		if (ret) {
-			pr_err("Can't dump private signals for thread %d\n", item->threads[i].real);
+			pr_err("Can't dump private signals for thread %d\n", item->threads[i]->real);
 			return -1;
 		}
 	}
@@ -1403,8 +1403,8 @@ static int dump_task_threads(struct parasite_ctl *parasite_ctl,
 
 	for (i = 0; i < item->nr_threads; i++) {
 		/* Leader is already dumped */
-		if (item->pid->real == item->threads[i].real) {
-			item->threads[i].ns[0].virt = vpid(item);
+		if (item->pid->real == item->threads[i]->real) {
+			item->threads[i]->ns[0].virt = vpid(item);
 			continue;
 		}
 		if (dump_task_thread(parasite_ctl, item, i))

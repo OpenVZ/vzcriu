@@ -219,7 +219,7 @@ static void try_use_tsync(struct seccomp_entry *leader, struct pstree_item *item
 		return;
 
 	for (i = 0; i < item->nr_threads; i++) {
-		entry = seccomp_find_entry(item->threads[i].real);
+		entry = seccomp_find_entry(item->threads[i]->real);
 		BUG_ON(!entry);
 
 		if (entry == leader)
@@ -257,7 +257,7 @@ static void try_use_tsync(struct seccomp_entry *leader, struct pstree_item *item
 		chain_a->filter.flags |= SECCOMP_FILTER_FLAG_TSYNC;
 
 	for (i = 0; i < item->nr_threads; i++) {
-		entry = seccomp_find_entry(item->threads[i].real);
+		entry = seccomp_find_entry(item->threads[i]->real);
 		BUG_ON(!entry);
 
 		if (entry == leader)
@@ -287,7 +287,7 @@ static int collect_filters(struct pstree_item *item)
 	}
 
 	for (i = 0; i < item->nr_threads; i++) {
-		entry = seccomp_find_entry(item->threads[i].real);
+		entry = seccomp_find_entry(item->threads[i]->real);
 		if (!entry) {
 			pr_err("Can't collect filter on tid_real %d\n",
 			       item->pid->real);
@@ -443,7 +443,7 @@ int seccomp_prepare_threads(struct pstree_item *item, struct task_restore_args *
 
 		if (thread_core->seccomp_filter >= seccomp_img_entry->n_seccomp_filters) {
 			pr_err("Corrupted filter index on tid %d (%u > %zu)\n",
-			       item->threads[i].ns[0].virt, thread_core->seccomp_filter,
+			       item->threads[i]->ns[0].virt, thread_core->seccomp_filter,
 			       seccomp_img_entry->n_seccomp_filters);
 			return -1;
 		}
@@ -451,7 +451,7 @@ int seccomp_prepare_threads(struct pstree_item *item, struct task_restore_args *
 		sf = seccomp_img_entry->seccomp_filters[thread_core->seccomp_filter];
 		if (sf->filter.len % (sizeof(struct sock_filter))) {
 			pr_err("Corrupted filter len on tid %d (index %u)\n",
-			       item->threads[i].ns[0].virt,
+			       item->threads[i]->ns[0].virt,
 			       thread_core->seccomp_filter);
 			return -1;
 		}
@@ -461,7 +461,7 @@ int seccomp_prepare_threads(struct pstree_item *item, struct task_restore_args *
 		while (sf->has_prev) {
 			if (sf->prev >= seccomp_img_entry->n_seccomp_filters) {
 				pr_err("Corrupted filter index on tid %d (%u > %zu)\n",
-				       item->threads[i].ns[0].virt, sf->prev,
+				       item->threads[i]->ns[0].virt, sf->prev,
 				       seccomp_img_entry->n_seccomp_filters);
 				return -1;
 			}
@@ -469,7 +469,7 @@ int seccomp_prepare_threads(struct pstree_item *item, struct task_restore_args *
 			sf = seccomp_img_entry->seccomp_filters[sf->prev];
 			if (sf->filter.len % (sizeof(struct sock_filter))) {
 				pr_err("Corrupted filter len on tid %d (index %u)\n",
-				       item->threads[i].ns[0].virt, sf->prev);
+				       item->threads[i]->ns[0].virt, sf->prev);
 				return -1;
 			}
 			filters_size += sf->filter.len;
@@ -483,7 +483,7 @@ int seccomp_prepare_threads(struct pstree_item *item, struct task_restore_args *
 		args->seccomp_filters = rst_mem_alloc(rst_size, RM_PRIVATE);
 		if (!args->seccomp_filters) {
 			pr_err("Can't allocate %zu bytes for filters on tid %d\n",
-			       rst_size, item->threads[i].ns[0].virt);
+			       rst_size, item->threads[i]->ns[0].virt);
 			return -ENOMEM;
 		}
 		args->seccomp_filters_data = (void *)args->seccomp_filters +
