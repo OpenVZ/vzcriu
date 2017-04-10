@@ -214,7 +214,7 @@ static int dump_sk_creds(struct ucred *ucred, SkPacketEntry *pe, int flags)
 	} else {
 		int pidns = root_ns_mask & CLONE_NEWPID;
 		char path[64];
-		int ret;
+		int ret, _errno;
 
 		/* Does a process exist? */
 		if (ucred->pid == 0) {
@@ -223,21 +223,23 @@ static int dump_sk_creds(struct ucred *ucred, SkPacketEntry *pe, int flags)
 			snprintf(path, sizeof(path), "%d", ucred->pid);
 			ret = faccessat(get_service_fd(CR_PROC_FD_OFF),
 							path, R_OK, 0);
+			_errno = errno;
 		} else {
 			snprintf(path, sizeof(path), "/proc/%d", ucred->pid);
 			ret = access(path, R_OK);
+			_errno = errno;
 		}
 		if (ret) {
-			pr_err("Unable to dump ucred for a dead process %d\n", ucred->pid);
-			goto out;
+			errno = _errno;
+			pr_perror("ucred: Unable to dump ucred for a dead process %d,"
+				  "ignoring packet", ucred->pid);
+			pe->ucred = NULL;
+			xfree(ent);
+			return 2;
 		}
 	}
 
 	return 0;
-out:
-	pe->ucred = NULL;
-	xfree(ent);
-	return -1;
 }
 
 static int dump_packet_cmsg(struct msghdr *mh, SkPacketEntry *pe, int flags)
@@ -387,9 +389,11 @@ int dump_sk_queue(int sock_fd, int sock_id, int flags)
 		}
 
 		if (ret > 0) {
-			ret = -1;
-			if (queue_packet_entry(&pe, data, pe.length))
-				goto err_set_sock;
+			if (ret == 1) {
+				ret = -1;
+				if (queue_packet_entry(&pe, data, pe.length))
+					goto err_set_sock;
+			}
 			continue;
 		}
 
