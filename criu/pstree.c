@@ -695,6 +695,15 @@ static int read_one_pstree_item(struct cr_img *img, pid_t *pid_max)
 			goto err;
 	}
 
+	if (!ids->has_pid_ns_id) {
+		/*
+		 * At least root_item must have ids, and pid_ns_id field
+		 * was populated since ids are introduced.
+		 */
+		pr_err("No pid_ns id\n");
+		goto err;
+	}
+
 	pi = lookup_create_item(e->pid);
 	if (pi == NULL)
 		goto err;
