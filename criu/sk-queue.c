@@ -421,7 +421,7 @@ int restore_sk_queue(int fd, unsigned int peer_id)
 	int ret;
 	struct cr_img *img;
 
-	pr_info("Trying to restore recv queue for %u\n", peer_id);
+	pr_info("Trying to restore recv queue for %#x\n", peer_id);
 
 	if (restore_prepare_socket(fd))
 		return -1;
@@ -445,7 +445,7 @@ int restore_sk_queue(int fd, unsigned int peer_id)
 		if (entry->id_for != peer_id)
 			continue;
 
-		pr_info("\tRestoring %d-bytes skb for %u\n",
+		pr_info("\tRestoring %d-bytes skb for %#x\n",
 			(unsigned int)entry->length, peer_id);
 
 		/*
