@@ -24,7 +24,6 @@
 #include "crtools.h"
 
 struct pstree_item *root_item;
-static struct rb_root pid_root_rb;
 
 void core_entry_free(CoreEntry *core)
 {
@@ -460,10 +459,10 @@ static int prepare_pstree_for_shell_job(pid_t pid)
 		}
 	}
 
-	if (old_gid != current_gid && !lookup_create_item(current_gid, root_item->ids->pid_ns_id))
+	if (old_gid != current_gid && !lookup_create_item(&current_gid, 1, root_item->ids->pid_ns_id))
 		return -1;
 add_fake_session_leader:
-	if (old_sid != current_sid && !lookup_create_item(current_sid, root_item->ids->pid_ns_id))
+	if (old_sid != current_sid && !lookup_create_item(&current_sid, 1, root_item->ids->pid_ns_id))
 		return -1;
 	return 0;
 }
@@ -496,48 +495,91 @@ static struct pid *find_pid_or_place_in_hier(struct rb_node **root, pid_t pid, i
  * it is not there yet. If pid_node isn't set, pstree_item
  * is inserted.
  */
-static struct pid *lookup_create_pid(pid_t pid, struct pid *pid_node, int ns_id)
+static struct pid *lookup_create_pid(pid_t *pid, int level, struct pid *pid_node, int ns_id)
 {
 	struct rb_node **new = NULL, *parent = NULL;
 	struct pid *found;
+	struct ns_id *ns;
+	int i;
 
-	found = find_pid_or_place_in_hier(&pid_root_rb.rb_node, pid, 0, &parent, &new);
-	if (found)
+	ns = lookup_ns_by_id(ns_id, &pid_ns_desc);
+
+	while (level > 0 && ns && !pid[level - 1]) {
+		level--;
+		ns = ns->parent;
+	}
+	if (!level || !ns) {
+		pr_err("Can't skip zero pids levels (%d) or find {parent,} ns (%d)\n", level, ns_id);
+		return NULL;
+	}
+
+	found = find_pid_or_place_in_hier(&ns->pid.rb_root.rb_node, pid[level - 1], level - 1, &parent, &new);
+	if (found) {
+		for (i = level - 2; i >= 0; i--)
+			if (pid[i] != found->ns[i].virt || RB_EMPTY_NODE(&found->ns[i].node)) {
+				pr_err("Wrong pid\n");
+				return NULL;
+			}
 		return found;
+	}
 
 	if (!pid_node) {
 		struct pstree_item *item;
 
-		item = __alloc_pstree_item(true, 1);
+		item = __alloc_pstree_item(true, level);
 		if (item == NULL)
 			return NULL;
 
-		item->pid->ns[0].virt = pid;
+		for (i = 0; i < level; i++)
+			item->pid->ns[i].virt = pid[i];
 		pid_node = item->pid;
 	}
-	rb_link_and_balance(&pid_root_rb, &pid_node->ns[0].node, parent, new);
+
+	for (i = level - 1; i >= 0; i--) {
+		found = find_pid_or_place_in_hier(&ns->pid.rb_root.rb_node, pid[i], i, &parent, &new);
+		if (found) {
+			pr_err("pid is already linked\n");
+			return NULL;
+		}
+		if (!pid[i]) {
+			pr_err("Zero pid level\n");
+			return NULL;
+		}
+		rb_link_and_balance(&ns->pid.rb_root, &pid_node->ns[i].node, parent, new);
+		ns = ns->parent;
+		if (!ns && i) {
+			pr_err("ns has no parent\n");
+			return NULL;
+		}
+	}
 	return pid_node;
 }
 
 void pstree_insert_pid(struct pid *pid_node, uint32_t ns_id)
 {
 	struct pid *n;
+	pid_t pid[MAX_NS_NESTING];
+	int i;
 
-	n = lookup_create_pid(pid_node->ns[0].virt, pid_node, ns_id);
+	BUG_ON(pid_node->level > MAX_NS_NESTING);
+	for (i = 0; i < pid_node->level; i++)
+		pid[i] = pid_node->ns[i].virt;
+
+	n = lookup_create_pid(pid, pid_node->level, pid_node, ns_id);
 
 	BUG_ON(n != pid_node);
 }
 
-struct pstree_item *lookup_create_item(pid_t pid, uint32_t ns_id)
+struct pstree_item *lookup_create_item(pid_t *pid, int level, uint32_t ns_id)
 {
 	struct pid *node;
 
-	node = lookup_create_pid(pid, NULL, ns_id);
+	node = lookup_create_pid(pid, level, NULL, ns_id);
 	if (!node)
 		return NULL;
 
 	if (node->state == TASK_THREAD) {
-		pr_err("The %d node is used for a thread\n", pid);
+		pr_err("The %d node is used for a thread\n", pid[0]);
 		return NULL;
 	}
 
@@ -546,7 +588,7 @@ struct pstree_item *lookup_create_item(pid_t pid, uint32_t ns_id)
 
 struct pid *pstree_pid_by_virt(pid_t pid)
 {
-	struct rb_node *node = pid_root_rb.rb_node;
+	struct rb_node *node = top_pid_ns->pid.rb_root.rb_node;
 
 	while (node) {
 		struct pid *this = rb_entry(node, struct pid, ns[0].node);
@@ -723,7 +765,7 @@ static int read_one_pstree_item(struct cr_img *img, pid_t *pid_max)
 		goto err;
 	}
 
-	pi = lookup_create_item(e->pid, ids->pid_ns_id);
+	pi = lookup_create_item((pid_t *)&e->pid, 1, ids->pid_ns_id);
 	if (pi == NULL)
 		goto err;
 	BUG_ON(pi->pid->state != TASK_UNDEF);
@@ -736,9 +778,9 @@ static int read_one_pstree_item(struct cr_img *img, pid_t *pid_max)
 	 * be initialized when we meet PstreeEntry with this pid or
 	 * we will create helpers for them.
 	 */
-	if (lookup_create_item(e->pgid, ids->pid_ns_id) == NULL)
+	if (lookup_create_item((pid_t *)&e->pgid, 1, ids->pid_ns_id) == NULL)
 		goto err;
-	if (lookup_create_item(e->sid, ids->pid_ns_id) == NULL)
+	if (lookup_create_item((pid_t *)&e->sid, 1, ids->pid_ns_id) == NULL)
 		goto err;
 
 	pi->pid->ns[0].virt = e->pid;
@@ -785,7 +827,7 @@ static int read_one_pstree_item(struct cr_img *img, pid_t *pid_max)
 		pi->threads[i]->item = NULL;
 		if (i == 0)
 			continue; /* A thread leader is in a tree already */
-		node = lookup_create_pid(pi->threads[i]->ns[0].virt, pi->threads[i], ids->pid_ns_id);
+		node = lookup_create_pid((pid_t *)&pi->threads[i]->ns[0].virt, 1, pi->threads[i], ids->pid_ns_id);
 
 		BUG_ON(node == NULL);
 		if (node != pi->threads[i]) {
@@ -830,7 +872,7 @@ static int get_free_pid(void)
 	static struct pid *prev, *next;
 
 	if (prev == NULL)
-		prev = rb_entry(rb_first(&pid_root_rb), struct pid, ns[0].node);
+		prev = rb_entry(rb_first(&top_pid_ns->pid.rb_root), struct pid, ns[0].node);
 
 	while (1) {
 		struct rb_node *node;
@@ -883,7 +925,7 @@ static int prepare_pstree_ids(pid_t pid)
 			helper_pid = get_free_pid();
 			if (helper_pid < 0)
 				break;
-			helper = lookup_create_item(helper_pid, item->ids->pid_ns_id);
+			helper = lookup_create_item(&helper_pid, 1, item->ids->pid_ns_id);
 			if (helper == NULL)
 				return -1;
 
