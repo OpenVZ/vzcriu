@@ -78,6 +78,7 @@ struct kerndat_s {
 	bool has_kcmp_epoll_tfd;
 	bool has_ve_ctty;
 	bool task_ct_fields_supported;
+	bool has_nspid;
 };
 
 extern struct kerndat_s kdat;
@@ -102,5 +103,6 @@ extern int kerndat_tcp_repair();
 extern int kerndat_uffd(void);
 extern int kerndat_nl_repair();
 extern bool is_zdtm_run(void);
+extern int kerndat_has_nspid(void);
 
 #endif /* __CR_KERNDAT_H__ */

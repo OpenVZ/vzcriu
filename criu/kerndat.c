@@ -1086,6 +1086,33 @@ static int kerndat_tun_netns(void)
 	return check_tun_netns_cr(&kdat.tun_ns);
 }
 
+int kerndat_has_nspid(void)
+{
+	struct bfd f;
+	int ret = -1;
+	char *str;
+
+	f.fd = open("/proc/self/status", O_RDONLY);
+	if (f.fd < 0) {
+		pr_perror("Can't open /proc/self/status");
+		return -1;
+	}
+	if (bfdopenr(&f))
+		return -1;
+	while ((str = breadline(&f)) != NULL) {
+		if (IS_ERR(str))
+			goto close;
+		if (!strncmp(str, "NSpid:", 6)) {
+			kdat.has_nspid = true;
+			break;
+		}
+	}
+	ret = 0;
+close:
+	bclose(&f);
+	return ret;
+}
+
 int kerndat_init(void)
 {
 	int ret;
@@ -1159,6 +1186,8 @@ int kerndat_init(void)
 		ret = has_kcmp_epoll_tfd();
 	if (!ret)
 		ret = kerndat_nl_repair();
+	if (!ret)
+		ret = kerndat_has_nspid();
 
 	kerndat_task_ct_fields_supported();
 	kerndat_ve_ctty();
