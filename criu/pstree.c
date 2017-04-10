@@ -586,6 +586,35 @@ static int read_pstree_ids(pid_t pid, TaskKobjIdsEntry **ids)
 	return ret;
 }
 
+static TaskKobjIdsEntry *dup_ns_ids(TaskKobjIdsEntry *ids)
+{
+	TaskKobjIdsEntry *copy;
+	int size = sizeof(*copy);
+
+	copy = shmalloc(size);
+	if (!copy) {
+		pr_err("Can't allocate ids copy\n");
+		return NULL;
+	}
+	task_kobj_ids_entry__init(copy);
+
+#define COPY_NS_ID(copy, name)				\
+	if (ids->has_##name##_ns_id) {			\
+		copy->has_##name##_ns_id = true;	\
+		copy->name##_ns_id = ids->name##_ns_id;	\
+	}
+	COPY_NS_ID(copy, mnt);
+	COPY_NS_ID(copy, net);
+	COPY_NS_ID(copy, user);
+	COPY_NS_ID(copy, pid);
+	COPY_NS_ID(copy, ipc);
+	COPY_NS_ID(copy, uts);
+	COPY_NS_ID(copy, cgroup);
+#undef COPY_NS_ID
+
+	return copy;
+}
+
 /*
  * Returns <0 on error, 0 on eof and >0 on successful read
  */
@@ -619,11 +648,20 @@ static int read_one_pstree_item(struct cr_img *img, pid_t *pid_max)
 		parent = pid->item;
 	}
 
-	pi = lookup_create_item(e->pid);
-	if (pi == NULL) {
-		task_kobj_ids_entry__free_unpacked(ids, NULL);
-		goto err;
+	if (!ids) {
+		/* In not corrupted old image, only dead tasks don't have ids */
+		if (!parent || !parent->ids) {
+			pr_err("Parent or root_item has no ids\n");
+			goto err;
+		}
+		ids = dup_ns_ids(parent->ids);
+		if (!ids)
+			goto err;
 	}
+
+	pi = lookup_create_item(e->pid);
+	if (pi == NULL)
+		goto err;
 	BUG_ON(pi->pid->state != TASK_UNDEF);
 
 	pi->ids = ids;
@@ -944,16 +982,6 @@ static int prepare_pstree_kobj_ids(void)
 		struct pstree_item *parent = item->parent;
 		TaskKobjIdsEntry *ids;
 		unsigned long cflags;
-
-		if (!item->ids) {
-			if (item == root_item) {
-				pr_err("No IDS for root task.\n");
-				pr_err("Images currupted or too old criu was used for dump.\n");
-				return -1;
-			}
-
-			continue;
-		}
 
 		if (parent)
 			ids = parent->ids;
