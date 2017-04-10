@@ -150,6 +150,9 @@ struct ns_id {
 			UsernsEntry *e;
 			int nsfd_id;
 		} user;
+		struct {
+			struct rb_root rb_root;
+		} pid;
 	};
 };
 extern struct ns_id *ns_ids;
