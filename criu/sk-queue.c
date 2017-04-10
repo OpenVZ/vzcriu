@@ -483,6 +483,11 @@ int restore_sk_queue(int fd, unsigned int peer_id)
 			ucred->uid = entry->ucred->uid;
 			ucred->gid = entry->ucred->gid;
 			msg.msg_controllen = CMSG_SPACE(sizeof(struct ucred));
+
+			pr_debug("\tsend creds pid %d uid %d gid %d\n",
+				 entry->ucred->pid,
+				 entry->ucred->uid,
+				 entry->ucred->gid);
 		}
 
 		ret = sendmsg(fd, &msg, 0);
