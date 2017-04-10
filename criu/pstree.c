@@ -631,6 +631,7 @@ static int read_pstree_ids(pid_t pid, TaskKobjIdsEntry **ids)
 static int read_one_pstree_item(struct cr_img *img, pid_t *pid_max)
 {
 	struct pstree_item *pi;
+	TaskKobjIdsEntry *ids;
 	PstreeEntry *e;
 	int ret, i;
 
@@ -638,11 +639,20 @@ static int read_one_pstree_item(struct cr_img *img, pid_t *pid_max)
 	if (ret <= 0)
 		return ret;
 
+	/* note: we don't fail if we have empty ids */
+	ret = read_pstree_ids(e->pid, &ids);
+	if (ret < 0)
+		goto err;
+
 	ret = -1;
 	pi = lookup_create_item(e->pid);
-	if (pi == NULL)
+	if (pi == NULL) {
+		task_kobj_ids_entry__free_unpacked(ids, NULL);
 		goto err;
+	}
 	BUG_ON(pi->pid->state != TASK_UNDEF);
+
+	pi->ids = ids;
 
 	/*
 	 * All pids should be added in the tree to be able to find
@@ -718,10 +728,6 @@ static int read_one_pstree_item(struct cr_img *img, pid_t *pid_max)
 
 	task_entries->nr_threads += e->n_threads;
 	task_entries->nr_tasks++;
-
-	/* note: we don't fail if we have empty ids */
-	if (read_pstree_ids(vpid(pi), &pi->ids) < 0)
-		goto err;
 
 	ret = 1;
 err:
