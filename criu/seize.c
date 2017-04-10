@@ -707,8 +707,8 @@ static void unseize_task_and_threads(const struct pstree_item *item, int st)
 		return;
 
 	for (i = 1; i < item->nr_threads; i++)
-		if (ptrace(PTRACE_DETACH, item->threads[i].real, NULL, NULL))
-			pr_perror("Unable to detach from %d", item->threads[i].real);
+		if (ptrace(PTRACE_DETACH, item->threads[i]->real, NULL, NULL))
+			pr_perror("Unable to detach from %d", item->threads[i]->real);
 }
 
 static void pstree_wait(struct pstree_item *root_item)
@@ -783,7 +783,7 @@ static inline bool thread_collected(struct pstree_item *i, pid_t tid)
 		return true;
 
 	for (t = 0; t < i->nr_threads; t++)
-		if (tid == i->threads[t].real)
+		if (tid == i->threads[t]->real)
 			return true;
 
 	return false;
@@ -792,7 +792,7 @@ static inline bool thread_collected(struct pstree_item *i, pid_t tid)
 static int collect_threads(struct pstree_item *item)
 {
 	struct seccomp_entry *task_seccomp_entry;
-	struct pid *threads = NULL;
+	struct pid **threads = NULL;
 	int nr_threads = 0, i = 0, ret, nr_inprogress, nr_stopped = 0;
 
 	task_seccomp_entry = seccomp_find_entry(item->pid->real);
@@ -809,19 +809,23 @@ static int collect_threads(struct pstree_item *item)
 	}
 
 	/* The number of threads can't be less than already frozen */
-	item->threads = xrealloc(item->threads, nr_threads * sizeof(struct pid));
+	item->threads = xrealloc(item->threads, nr_threads * sizeof(struct pid *));
 	if (item->threads == NULL)
 		return -1;
 
 	if (item->nr_threads == 0) {
-		item->threads[0].real = item->pid->real;
+		item->threads[0] = xmalloc(sizeof(struct pid));
+		if (!item->threads[0])
+			return -1;
+		item->threads[0]->real = item->pid->real;
 		item->nr_threads = 1;
-		item->threads[0].item = NULL;
+		item->threads[0]->item = NULL;
+		item->threads[0]->level = 1;
 	}
 
 	nr_inprogress = 0;
 	for (i = 0; i < nr_threads; i++) {
-		pid_t pid = threads[i].real;
+		pid_t pid = threads[i]->real;
 		struct proc_status_creds t_creds = {};
 
 		if (thread_collected(item, pid))
@@ -853,9 +857,13 @@ static int collect_threads(struct pstree_item *item)
 			processes_to_wait--;
 
 		BUG_ON(item->nr_threads + 1 > nr_threads);
-		item->threads[item->nr_threads].real = pid;
-		item->threads[item->nr_threads].item = NULL;
+		item->threads[item->nr_threads] = xmalloc(sizeof(struct pid));
+		if (!item->threads[item->nr_threads])
+			goto err;
+		item->threads[item->nr_threads]->real = pid;
+		item->threads[item->nr_threads]->item = NULL;
 		item->threads[item->nr_threads].state = TASK_THREAD;
+		item->threads[item->nr_threads]->level = 1;
 		item->nr_threads++;
 
 		if (ret == TASK_DEAD) {
@@ -876,10 +884,14 @@ static int collect_threads(struct pstree_item *item)
 		goto err;
 	}
 
+	while (nr_threads-- > 0)
+		xfree(threads[nr_threads]);
 	xfree(threads);
 	return nr_inprogress;
 
 err:
+	while (nr_threads-- > 0)
+		xfree(threads[nr_threads]);
 	xfree(threads);
 	return -1;
 }

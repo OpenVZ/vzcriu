@@ -494,7 +494,7 @@ static int parasite_prepare_threads(struct parasite_ctl *ctl,
 		goto free_ctls;
 
 	for (i = 0; i < item->nr_threads; i++) {
-		struct pid *tid = &item->threads[i];
+		struct pid *tid = item->threads[i];
 
 		if (item->pid->real == tid->real) {
 			thread_sp[i] = compel_get_leader_sp(ctl);
@@ -528,7 +528,7 @@ struct parasite_ctl *parasite_infect_seized(pid_t pid, struct pstree_item *item,
 	unsigned long p;
 	int ret;
 
-	BUG_ON(item->threads[0].real != pid);
+	BUG_ON(item->threads[0]->real != pid);
 
 	p = get_exec_start(vma_area_list);
 	if (!p) {
