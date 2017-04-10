@@ -1710,7 +1710,7 @@ static void restore_pgid(void)
 	if (my_pgid == pgid)
 		return;
 
-	if (my_pgid != vpid(current)) {
+	if (my_pgid != last_level_pid(current->pid)) {
 		struct pstree_item *leader;
 
 		/*
@@ -1732,7 +1732,7 @@ static void restore_pgid(void)
 		exit(1);
 	}
 
-	if (my_pgid == vpid(current))
+	if (my_pgid == last_level_pid(current->pid))
 		futex_set_and_wake(&rsti(current)->pgrp_set, 1);
 }
 
