@@ -1314,7 +1314,7 @@ static int dump_task_thread(struct parasite_ctl *parasite_ctl, const struct pstr
 	struct parasite_thread_ctl *tctl = dmpi(item)->thread_ctls[id];
 	struct pid *tid = item->threads[id];
 	CoreEntry *core = item->core[id];
-	pid_t pid = tid->real;
+	pid_t pid = tid->real, parasite_tid;
 	int ret = -1;
 	struct cr_img *img;
 
@@ -1322,11 +1322,13 @@ static int dump_task_thread(struct parasite_ctl *parasite_ctl, const struct pstr
 	pr_info("Dumping core for thread (pid: %d)\n", pid);
 	pr_info("----------------------------------------\n");
 
-	ret = parasite_dump_thread_seized(tctl, parasite_ctl, item, id, tid, core);
+	ret = parasite_dump_thread_seized(tctl, parasite_ctl, item, id, tid, &parasite_tid, core);
 	if (ret) {
 		pr_err("Can't dump thread for pid %d\n", pid);
 		goto err;
 	}
+	tid->ns[0].virt = parasite_tid;
+
 	pstree_insert_pid(tid);
 
 	core->thread_core->creds->lsm_profile = dmpi(item)->thread_lsms[id]->profile;

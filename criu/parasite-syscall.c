@@ -182,7 +182,8 @@ int parasite_dump_thread_leader_seized(struct parasite_ctl *ctl, const struct ps
 }
 
 int parasite_dump_thread_seized(struct parasite_thread_ctl *tctl, struct parasite_ctl *ctl,
-				const struct pstree_item *item, int id, struct pid *tid, CoreEntry *core)
+				const struct pstree_item *item, int id, struct pid *tid, pid_t *parasite_tid,
+				CoreEntry *core)
 {
 	struct parasite_dump_thread *args;
 	pid_t pid = tid->real;
@@ -233,7 +234,7 @@ int parasite_dump_thread_seized(struct parasite_thread_ctl *tctl, struct parasit
 		return -1;
 	}
 
-	tid->ns[0].virt = args->tid;
+	*parasite_tid = args->tid;
 	return dump_thread_core(pid, core, args);
 }
 
