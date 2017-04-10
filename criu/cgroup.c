@@ -784,7 +784,7 @@ int dump_thread_cgroup(const struct pstree_item *item, u32 *cg_id, struct parasi
 	if (id < 0)
 		tid = pid;
 	else
-		tid = item->threads[id].real;
+		tid = item->threads[id]->real;
 
 	pr_info("Dumping cgroups for thread %d\n", tid);
 	if (parse_thread_cgroup(pid, tid, args, &ctls, &n_ctls))

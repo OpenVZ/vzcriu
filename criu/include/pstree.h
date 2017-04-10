@@ -24,8 +24,8 @@ struct pstree_item {
 
 	pid_t tty_pgrp;
 
-	int nr_threads;	     /* number of threads */
-	struct pid *threads; /* array of threads */
+	int nr_threads;	      /* number of threads */
+	struct pid **threads; /* array of threads */
 	CoreEntry **core;
 	TaskKobjIdsEntry *ids;
 	union {

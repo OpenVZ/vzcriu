@@ -812,7 +812,7 @@ static int open_cores(int pid, CoreEntry *leader_core)
 		goto err;
 
 	for (i = 0; i < current->nr_threads; i++) {
-		tpid = current->threads[i].ns[0].virt;
+		tpid = current->threads[i]->ns[0].virt;
 
 		if (tpid == pid)
 			cores[i] = leader_core;
@@ -2133,14 +2133,14 @@ static int attach_to_tasks(bool root_seized)
 			continue;
 
 		if (item->nr_threads == 1) {
-			item->threads[0].real = item->pid->real;
+			item->threads[0]->real = item->pid->real;
 		} else {
 			if (parse_threads(item->pid->real, &item->threads, &item->nr_threads))
 				return -1;
 		}
 
 		for (i = 0; i < item->nr_threads; i++) {
-			pid_t pid = item->threads[i].real;
+			pid_t pid = item->threads[i]->real;
 
 			if (item != root_item || !root_seized || i != 0) {
 				if (ptrace(PTRACE_SEIZE, pid, 0, 0)) {
@@ -2193,7 +2193,7 @@ static int restore_rseq_cs(void)
 			continue;
 
 		if (item->nr_threads == 1) {
-			item->threads[0].real = item->pid->real;
+			item->threads[0]->real = item->pid->real;
 		} else {
 			if (parse_threads(item->pid->real, &item->threads, &item->nr_threads)) {
 				pr_err("restore_rseq_cs: parse_threads failed\n");
@@ -2202,7 +2202,7 @@ static int restore_rseq_cs(void)
 		}
 
 		for (i = 0; i < item->nr_threads; i++) {
-			pid_t pid = item->threads[i].real;
+			pid_t pid = item->threads[i]->real;
 			struct rst_rseq *rseqe = rsti(item)->rseqe;
 
 			if (!rseqe) {
@@ -2237,14 +2237,14 @@ static int catch_tasks(bool root_seized)
 			continue;
 
 		if (item->nr_threads == 1) {
-			item->threads[0].real = item->pid->real;
+			item->threads[0]->real = item->pid->real;
 		} else {
 			if (parse_threads(item->pid->real, &item->threads, &item->nr_threads))
 				return -1;
 		}
 
 		for (i = 0; i < item->nr_threads; i++) {
-			pid_t pid = item->threads[i].real;
+			pid_t pid = item->threads[i]->real;
 
 			if (ptrace(PTRACE_INTERRUPT, pid, 0, 0)) {
 				pr_perror("Can't interrupt the %d task", pid);
@@ -2311,16 +2311,17 @@ static int finalize_restore_detach(void)
 			continue;
 
 		for (i = 0; i < item->nr_threads; i++) {
-			pid = item->threads[i].real;
+			pid = item->threads[i]->real;
 			if (pid < 0) {
 				pr_err("pstree item has invalid pid %d\n", pid);
 				continue;
 			}
 
-			if (arch_set_thread_regs_nosigrt(&item->threads[i])) {
+			if (arch_set_thread_regs_nosigrt(item->threads[i])) {
 				pr_perror("Restoring regs for %d failed", pid);
 				return -1;
 			}
+
 			if (ptrace(PTRACE_DETACH, pid, NULL, 0)) {
 				pr_perror("Unable to detach %d", pid);
 				return -1;
@@ -3534,7 +3535,7 @@ static int prepare_signals(int pid, struct task_restore_args *ta, CoreEntry *lea
 
 	for (i = 0; i < current->nr_threads; i++) {
 		if (!current->core[i]->thread_core->signals_p) /*backward compatibility*/
-			ret = open_signal_image(CR_FD_PSIGNAL, current->threads[i].ns[0].virt, &siginfo_priv_nr[i]);
+			ret = open_signal_image(CR_FD_PSIGNAL, current->threads[i]->ns[0].virt, &siginfo_priv_nr[i]);
 		else
 			ret = prepare_one_signal_queue(current->core[i]->thread_core->signals_p, &siginfo_priv_nr[i]);
 		if (ret < 0)
@@ -4083,7 +4084,7 @@ static int sigreturn_restore(pid_t pid, struct task_restore_args *task_args, uns
 		k_rtsigset_t *blkset = NULL;
 
 #endif
-		thread_args[i].pid = current->threads[i].ns[0].virt;
+		thread_args[i].pid = current->threads[i]->ns[0].virt;
 		thread_args[i].siginfo_n = siginfo_priv_nr[i];
 		thread_args[i].siginfo = task_args->siginfo;
 		thread_args[i].siginfo += siginfo_n;
