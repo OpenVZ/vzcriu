@@ -600,6 +600,14 @@ static int read_pstree_ids(pid_t pid, TaskKobjIdsEntry **ids)
 	if ((*ids)->has_pid_ns_id) {
 		if (rst_add_ns_id((*ids)->pid_ns_id, pid, &pid_ns_desc))
 			return -1;
+		if (!top_pid_ns) {
+			/*
+			 * If top_pid_ns is not set, this means that here is old dump,
+			 * which does not contain ns.img. It can have only one pid_ns,
+			 * so we set it here.
+			 */
+			top_pid_ns = lookup_ns_by_id((*ids)->pid_ns_id, &pid_ns_desc);
+		}
 	}
 	if ((*ids)->has_user_ns_id) {
 		if (rst_add_ns_id((*ids)->user_ns_id, pid, &user_ns_desc))
