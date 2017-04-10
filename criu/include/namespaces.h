@@ -49,6 +49,8 @@
 /* Nested namespaces are supported only for these types */
 #define CLONE_SUBNS (CLONE_NEWNS | CLONE_NEWNET | CLONE_NEWUSER)
 
+#define MAX_NS_NESTING 32
+
 #define EXTRA_SIZE 20
 
 #ifndef NSIO
