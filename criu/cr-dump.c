@@ -1334,7 +1334,7 @@ static int dump_task_thread(struct parasite_ctl *parasite_ctl, const struct pstr
 	}
 	tid->ns[0].virt = parasite_tid;
 
-	pstree_insert_pid(tid);
+	pstree_insert_pid(tid, item->ids->pid_ns_id);
 
 	core->thread_core->creds->lsm_profile = dmpi(item)->thread_lsms[id]->profile;
 	core->thread_core->creds->lsm_sockcreate = dmpi(item)->thread_lsms[0]->sockcreate;
@@ -2044,7 +2044,7 @@ static int dump_one_task(struct pstree_item *item, InventoryEntry *parent_ie)
 	item->pid->ns[0].virt = misc.pid;
 	item->sid->ns[0].virt = misc.sid;
 	item->pgid->ns[0].virt = misc.pgid;
-	pstree_insert_pid(item->pid);
+	pstree_insert_pid(item->pid, item->ids->pid_ns_id);
 
 	pr_info("sid=%d pgid=%d pid=%d\n",
 		item->sid->ns[0].virt, item->pgid->ns[0].virt, vpid(item));
