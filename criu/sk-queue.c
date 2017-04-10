@@ -349,6 +349,7 @@ int restore_sk_queue(int fd, unsigned int peer_id)
 {
 	struct sk_packet *pkt, *tmp;
 	int ret = -1;
+	size_t sum_len = 0;
 
 	pr_info("Trying to restore recv queue for %u\n", peer_id);
 
@@ -361,12 +362,13 @@ int restore_sk_queue(int fd, unsigned int peer_id)
 		if (entry->id_for != peer_id)
 			continue;
 
-		pr_info("\tRestoring %d-bytes skb for %u\n", (unsigned int)entry->length, peer_id);
+		pr_info("\tRestoring %d-bytes (%zu bytes sent) skb for %u\n",
+			(unsigned int)entry->length, sum_len, peer_id);
 
 		ret = send_one_pkt(fd, pkt);
 		if (ret)
 			goto out;
-
+		sum_len += (size_t)entry->length;
 		list_del(&pkt->list);
 		sk_packet_entry__free_unpacked(entry, NULL);
 		xfree(pkt);
