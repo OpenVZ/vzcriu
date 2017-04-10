@@ -2488,11 +2488,11 @@ err:
 	goto out;
 }
 
-int parse_threads(int pid, struct pid **_t, int *_n)
+int parse_threads(int pid, struct pid ***_t, int *_n)
 {
 	struct dirent *de;
 	DIR *dir;
-	struct pid *t = NULL;
+	struct pid **t = NULL;
 	int nr = 1;
 
 	if (*_t)
@@ -2503,24 +2503,25 @@ int parse_threads(int pid, struct pid **_t, int *_n)
 		return -1;
 
 	while ((de = readdir(dir))) {
-		struct pid *tmp;
+		struct pid **tmp;
 
 		/* We expect numbers only here */
 		if (de->d_name[0] == '.')
 			continue;
 
 		if (*_t == NULL) {
-			tmp = xrealloc(t, nr * sizeof(struct pid));
-			if (!tmp) {
-				xfree(t);
-				closedir(dir);
-				return -1;
-			}
+			tmp = xrealloc(t, nr * sizeof(struct pid *));
+			if (!tmp)
+				goto err;
 			t = tmp;
-			t[nr - 1].ns[0].virt = -1;
+			t[nr - 1] = xmalloc(sizeof(struct pid));
+			if (!t[nr - 1])
+				goto err;
+			t[nr - 1]->ns[0].virt = -1;
 		}
-		t[nr - 1].real = atoi(de->d_name);
-		t[nr - 1].state = TASK_THREAD;
+		t[nr - 1]->real = atoi(de->d_name);
+		t[nr - 1]->state = TASK_THREAD;
+		t[nr - 1]->level = 1;
 		nr++;
 	}
 
@@ -2533,6 +2534,12 @@ int parse_threads(int pid, struct pid **_t, int *_n)
 		BUG_ON(nr - 1 != *_n);
 
 	return 0;
+err:
+	while (--nr > 0)
+		xfree(t[nr - 1]);
+	xfree(t);
+	closedir(dir);
+	return -1;
 }
 
 int parse_cgroup_file(FILE *f, struct list_head *retl, unsigned int *n)

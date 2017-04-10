@@ -1252,7 +1252,7 @@ static int fixup_thread_rseq(const struct pstree_item *item, int i)
 {
 	CoreEntry *core = item->core[i];
 	struct criu_rseq_cs *rseq_cs = &dmpi(item)->thread_rseq_cs[i];
-	pid_t tid = item->threads[i].real;
+	pid_t tid = item->threads[i]->real;
 
 	if (!kdat.has_ptrace_get_rseq_conf)
 		return 0;
@@ -1272,7 +1272,7 @@ static int fixup_thread_rseq(const struct pstree_item *item, int i)
 	}
 
 	if (task_in_rseq(rseq_cs, TI_IP(core))) {
-		struct pid *tid = &item->threads[i];
+		struct pid *tid = item->threads[i];
 
 		/*
 		 * We need to fixup task instruction pointer from
@@ -1312,7 +1312,7 @@ static int fixup_thread_rseq(const struct pstree_item *item, int i)
 static int dump_task_thread(struct parasite_ctl *parasite_ctl, const struct pstree_item *item, int id)
 {
 	struct parasite_thread_ctl *tctl = dmpi(item)->thread_ctls[id];
-	struct pid *tid = &item->threads[id];
+	struct pid *tid = item->threads[id];
 	CoreEntry *core = item->core[id];
 	pid_t pid = tid->real;
 	int ret = -1;
@@ -1470,9 +1470,9 @@ static int dump_task_signals(pid_t pid, struct pstree_item *item)
 
 	/* Dump private signals for each thread */
 	for (i = 0; i < item->nr_threads; i++) {
-		ret = dump_signal_queue(item->threads[i].real, &item->core[i]->thread_core->signals_p, false);
+		ret = dump_signal_queue(item->threads[i]->real, &item->core[i]->thread_core->signals_p, false);
 		if (ret) {
-			pr_err("Can't dump private signals for thread %d\n", item->threads[i].real);
+			pr_err("Can't dump private signals for thread %d\n", item->threads[i]->real);
 			return -1;
 		}
 	}
@@ -1538,7 +1538,7 @@ static int dump_thread_rseq(struct pstree_item *item, int i)
 	RseqEntry **rseqep = &core->thread_core->rseq_entry;
 	struct criu_rseq rseq = {};
 	struct criu_rseq_cs *rseq_cs = &dmpi(item)->thread_rseq_cs[i];
-	pid_t tid = item->threads[i].real;
+	pid_t tid = item->threads[i]->real;
 
 	/*
 	 * If we are here it means that rseq() syscall is supported,
@@ -1636,8 +1636,8 @@ static int dump_task_threads(struct parasite_ctl *parasite_ctl, const struct pst
 
 	for (i = 0; i < item->nr_threads; i++) {
 		/* Leader is already dumped */
-		if (item->pid->real == item->threads[i].real) {
-			item->threads[i].ns[0].virt = vpid(item);
+		if (item->pid->real == item->threads[i]->real) {
+			item->threads[i]->ns[0].virt = vpid(item);
 			continue;
 		}
 		ret = dump_task_thread(parasite_ctl, item, i);
@@ -1786,7 +1786,7 @@ static int dump_task_cgroup(struct parasite_ctl *parasite_ctl, const struct pstr
 		CoreEntry *core = item->core[i];
 
 		/* Leader is already dumped */
-		if (item->pid->real == item->threads[i].real)
+		if (item->pid->real == item->threads[i]->real)
 			continue;
 
 		/* For now, we only need to dump the root task's cgroup ns, because we
@@ -1796,7 +1796,7 @@ static int dump_task_cgroup(struct parasite_ctl *parasite_ctl, const struct pstr
 		info = NULL;
 		if (item->ids->has_cgroup_ns_id && !item->parent) {
 			info = &cgroup_args;
-			sprintf(cgroup_args.thread_cgrp, "self/task/%d/cgroup", item->threads[i].ns[0].virt);
+			sprintf(cgroup_args.thread_cgrp, "self/task/%d/cgroup", item->threads[i]->ns[0].virt);
 			if (parasite_dump_cgroup(parasite_ctl, &cgroup_args))
 				return -1;
 		}

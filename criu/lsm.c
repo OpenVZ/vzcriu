@@ -310,7 +310,7 @@ int collect_and_suspend_lsm(void)
 			if (!thread_lsms[i])
 				return -1;
 
-			if (collect_lsm_profile(item->threads[i].real, thread_lsms[i]) < 0)
+			if (collect_lsm_profile(item->threads[i]->real, thread_lsms[i]) < 0)
 				return -1;
 		}
 	}
