@@ -222,9 +222,6 @@ static int root_prepare_shared(void)
 
 	pr_info("Preparing info about shared resources\n");
 
-	if (prepare_shared_unix())
-		return -1;
-
 	if (prepare_shared_tty())
 		return -1;
 

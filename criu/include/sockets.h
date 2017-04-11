@@ -38,7 +38,6 @@ extern int fini_dump_sockets(struct ns_id *ns);
 extern int collect_inet_sockets(void);
 extern struct collect_image_info unix_sk_cinfo;
 extern int fix_external_unix_sockets(void);
-extern int prepare_shared_unix(void);
 
 extern struct collect_image_info netlink_sk_cinfo;
 
