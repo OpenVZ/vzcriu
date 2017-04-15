@@ -1682,12 +1682,36 @@ static void interconnected_pair(struct unix_sk_info *ui, struct unix_sk_info *pe
 static int ghost_new_name(char *name, size_t namelen,
 			  char **name_new, size_t *namelen_new)
 {
+	static const char name_fmt[] = "~criu-%u";
 	static unsigned int cnt = 0;
-	char sname[64];
+	char sname[64], *pos;
 	size_t k;
 
-	k = snprintf(sname, sizeof(sname), "criu-%u", cnt++);
-	*namelen_new = namelen + k + 1;
+	for (pos = &name[namelen - 1]; pos > name; pos--) {
+		if (*pos == name_fmt[0])
+			break;
+	}
+
+	if (strncmp(pos, name_fmt, 6) == 0) {
+		unsigned int __cnt;
+		char *__name;
+
+		if (sscanf(pos, name_fmt, &__cnt) == 1) {
+			pr_debug("ghost: cnt %d detected\n", __cnt);
+			cnt = __cnt + 1;
+		}
+
+		namelen = (pos - name);
+		__name = alloca(namelen + 1);
+		memcpy(__name, name, namelen);
+		__name[namelen++] = '\0';
+		name = __name;
+		pr_debug("ghost: Name stipped to %s\n", name);
+	}
+
+	memzero(sname, sizeof(sname));
+	k = snprintf(sname, sizeof(sname), name_fmt, cnt++);
+	*namelen_new = namelen + k;
 	if (*namelen_new > UNIX_PATH_MAX) {
 		pr_err("ghost: New name for socket is too long\n");
 		return -1;
@@ -1699,9 +1723,9 @@ static int ghost_new_name(char *name, size_t namelen,
 		return -ENOMEM;
 	}
 
-	k = snprintf(*name_new, *namelen_new, "%s-%s", name, sname) + 1;
+	k = snprintf(*name_new, *namelen_new, "%s%s", name, sname);
 	if (k != *namelen_new) {
-		pr_err("ghost: Name stripped\n");
+		pr_err("ghost: Name generation failed\n");
 		return -1;
 	}
 
