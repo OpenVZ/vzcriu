@@ -1033,9 +1033,6 @@ static int post_open_unix_sk(struct file_desc *d, int fd)
 
 	revert_unix_sk_cwd(peer, &cwd_fd);
 
-	if (restore_socket_bufsz(fd, ui->ue->opts))
-		return -1;
-
 	if (peer->queuer == ui->ue->ino && restore_sk_queue(fd, peer->ue->id))
 		return -1;
 
@@ -1244,10 +1241,6 @@ static int open_unixsk_pair_master(struct unix_sk_info *ui, int *new_fd)
 		return -1;
 	}
 
-	if (restore_socket_bufsz(sk[0], ui->ue->opts) ||
-	    restore_socket_bufsz(sk[1], peer->ue->opts))
-		return -1;
-
 	if (restore_sk_queue(sk[0], peer->ue->id))
 		return -1;
 	if (restore_sk_queue(sk[1], ui->ue->id))
@@ -1343,9 +1336,6 @@ static int open_unixsk_standalone(struct unix_sk_info *ui, int *new_fd)
 			return -1;
 		}
 
-		if (restore_socket_bufsz(sks[1], ui->ue->opts))
-			return -1;
-
 		/*
 		 * Restore queue at the one end,
 		 * before closing the second one.
@@ -1381,9 +1371,6 @@ static int open_unixsk_standalone(struct unix_sk_info *ui, int *new_fd)
 			pr_perror("Can't clear socket's peer");
 			return -1;
 		}
-
-		if (restore_socket_bufsz(sks[1], ui->ue->opts))
-			return -1;
 
 		/*
 		 * This must be after the connect() hack, because
