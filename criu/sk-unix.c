@@ -1657,6 +1657,9 @@ static int ghost_new_name(char *name, size_t namelen,
 	char sname[64], *pos;
 	size_t k;
 
+	pr_debug("ghost: handling name %s namelen %d\n",
+		 name, (int)namelen);
+
 	for (pos = &name[namelen - 1]; pos > name; pos--) {
 		if (*pos == name_fmt[0])
 			break;
@@ -1676,7 +1679,8 @@ static int ghost_new_name(char *name, size_t namelen,
 		memcpy(__name, name, namelen);
 		__name[namelen++] = '\0';
 		name = __name;
-		pr_debug("ghost: Name stipped to %s\n", name);
+		pr_debug("ghost: Name stipped to %s (namelen %d)\n",
+			 name, (int)namelen);
 	}
 
 	memzero(sname, sizeof(sname));
@@ -1694,8 +1698,9 @@ static int ghost_new_name(char *name, size_t namelen,
 	}
 
 	k = snprintf(*name_new, *namelen_new, "%s%s", name, sname);
-	if (k != *namelen_new) {
-		pr_err("ghost: Name generation failed\n");
+	if (k != (*namelen_new - 1)) {
+		pr_err("ghost: Name generation failed (%s %d %d)\n",
+		       *name_new, (int)k, (int)*namelen_new);
 		return -1;
 	}
 
