@@ -198,7 +198,7 @@ static int dump_sk_creds(struct ucred *ucred, SkPacketEntry *pe, int flags)
 	ent->pid = ucred->pid;
 
 	if (pe->ucred)
-		pr_warn("ucred: ucred already assigned");
+		pr_warn("ucred: ucred already assigned\n");
 	pe->ucred = ent;
 
 	if (flags & SK_QUEUE_REAL_PID) {
