@@ -31,6 +31,7 @@
 #include "crtools.h"
 #include "rst-malloc.h"
 #include "atomic.h"
+#include "sysctl.h"
 
 #include "protobuf.h"
 #include "images/sk-unix.pb-c.h"
@@ -1512,6 +1513,38 @@ static void unlink_stale(struct unix_sk_info *ui)
 	revert_unix_sk_cwd(ui, &cwd_fd);
 }
 
+/*
+ * FIXME: Instead of hardcoding the value
+ * we should improve dump and carry the settings
+ * inside netns image (see prepare_namespace).
+ */
+static int setup_sysctl(void *unused)
+{
+	uint32_t value = 0, prev;
+
+	struct sysctl_req req[] = {
+		{
+			.name	= "net/unix/max_dgram_qlen",
+			.arg	= &value,
+			.type	= CTL_U32,
+		},
+	};
+
+	if (sysctl_op(req, ARRAY_SIZE(req), CTL_READ, CLONE_NEWNET))
+		pr_warn("Can't fetch %s value, use default\n", req[0].name);
+
+	/*
+	 * The limit from systemd source code.
+	 */
+	prev = value, value = 512;
+	pr_debug("Adjust %s: %u -> %u\n", req[0].name, prev, value);
+
+	if (sysctl_op(req, ARRAY_SIZE(req), CTL_WRITE, CLONE_NEWNET))
+		pr_warn("Can't adjust %s value, use default\n", req[0].name);
+
+	return 0;
+}
+
 static int resolve_unix_peers(void *unused);
 
 static int collect_one_unixsk(void *o, ProtobufCMessage *base, struct cr_img *i)
@@ -1530,6 +1563,9 @@ static int collect_one_unixsk(void *o, ProtobufCMessage *base, struct cr_img *i)
 	atomic_set(&ui->ghost_counter, 1);
 
 	if (add_post_prepare_cb_once(resolve_unix_peers, NULL))
+		return -1;
+
+	if (add_post_prepare_cb_once(setup_sysctl, NULL))
 		return -1;
 
 	if (ui->ue->name.len) {
