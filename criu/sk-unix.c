@@ -1271,6 +1271,9 @@ static int open_unixsk_pair_slave(struct unix_sk_info *ui, int *new_fd)
 {
 	int sk, ret = 0;
 
+	pr_info("Receiving pair slave (id %#x ino %#x peer %#x)\n",
+		ui->ue->id, ui->ue->ino, ui->ue->peer);
+
 	ret = recv_desc_from_peer(&ui->d, &sk);
 	if (ret != 0) {
 		if (ret != 1)
