@@ -9,6 +9,7 @@
 #include <stdbool.h>
 #include <limits.h>
 #include <errno.h>
+#include <dirent.h>
 
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -92,6 +93,9 @@ int main(int argc, char **argv)
 	int sk_dgram[4];
 	socklen_t len;
 	int sk_st[5];
+
+	struct dirent *de;
+	DIR *dir;
 
 	test_init(argc, argv);
 
@@ -303,6 +307,23 @@ int main(int argc, char **argv)
 		     c5, c6, c7, c8);
 		return 1;
 	}
+
+	dir = opendir(subdir_dg);
+	if (!dir) {
+		fail("Can't open %s", subdir_dg);
+		return 1;
+	}
+
+	while ((de = readdir(dir))) {
+		if (!strcmp(de->d_name, "."))
+			continue;
+		if (!strcmp(de->d_name, ".."))
+			continue;
+		fail("File %s found in dir %s", de->d_name, subdir_dg);
+		return 1;
+	}
+	closedir(dir);
+
 
 	pass();
 	return 0;
