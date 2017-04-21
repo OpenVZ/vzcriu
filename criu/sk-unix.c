@@ -1809,6 +1809,8 @@ static int resolve_unix_ghosts(void)
 			list_for_each_entry(t, &unix_sockets, list) {
 				if (t->flags & (USK_GHOST_NAME | USK_GHOST_WAIT))
 					continue;
+				if (t->flags & (USK_PAIR_MASTER | USK_PAIR_SLAVE))
+					continue;
 				if (t->peer != ui)
 					continue;
 				pr_debug("\t\tghost: connected to us %#x -> %#x\n",
