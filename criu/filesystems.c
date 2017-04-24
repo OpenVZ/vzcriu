@@ -121,6 +121,9 @@ static int dump_binfmt_misc_entry(int dfd, char *name, struct cr_img *img)
 
 	if (pb_write_one(img, &bme, PB_BINFMT_MISC))
 		goto err;
+	pr_debug("binfmt_misc_pattern=:%s:E::%s::%s:%s\n",
+		 bme.name, bme.extension, bme.interpreter,
+		 bme.flags ? : "\0");
 	ret = 0;
 err:
 	free(bme.interpreter);
