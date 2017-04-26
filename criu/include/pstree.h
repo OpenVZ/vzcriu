@@ -35,10 +35,10 @@ struct pstree_item {
 	struct ns_id *user_ns;
 };
 
-static inline pid_t vpid(const struct pstree_item *i)
-{
-	return i->pid->ns[0].virt;
-}
+#define vpid(item)    (item->pid->ns[0].virt)
+#define vsid(item)    (item->sid->ns[0].virt)
+#define vpgid(item)   (item->pgid->ns[0].virt)
+#define vtid(item, i) (item->threads[i]->ns[0].virt)
 
 #define PID_SIZE(level) (sizeof(struct pid) + (level - 1) * sizeof(((struct pid *)NULL)->ns[0]))
 

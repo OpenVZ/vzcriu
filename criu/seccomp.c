@@ -433,15 +433,16 @@ int seccomp_prepare_threads(struct pstree_item *item, struct task_restore_args *
 			continue;
 
 		if (thread_core->seccomp_filter >= seccomp_img_entry->n_seccomp_filters) {
-			pr_err("Corrupted filter index on tid %d (%u > %zu)\n", item->threads[i]->ns[0].virt,
-			       thread_core->seccomp_filter, seccomp_img_entry->n_seccomp_filters);
+			pr_err("Corrupted filter index on tid %d (%u > %zu)\n",
+			       vtid(item, i), thread_core->seccomp_filter,
+			       seccomp_img_entry->n_seccomp_filters);
 			return -1;
 		}
 
 		sf = seccomp_img_entry->seccomp_filters[thread_core->seccomp_filter];
 		if (sf->filter.len % (sizeof(struct sock_filter))) {
 			pr_err("Corrupted filter len on tid %d (index %u)\n",
-			       item->threads[i]->ns[0].virt,
+			       vtid(item, i),
 			       thread_core->seccomp_filter);
 			return -1;
 		}
@@ -451,7 +452,7 @@ int seccomp_prepare_threads(struct pstree_item *item, struct task_restore_args *
 		while (sf->has_prev) {
 			if (sf->prev >= seccomp_img_entry->n_seccomp_filters) {
 				pr_err("Corrupted filter index on tid %d (%u > %zu)\n",
-				       item->threads[i]->ns[0].virt, sf->prev,
+				       vtid(item, i), sf->prev,
 				       seccomp_img_entry->n_seccomp_filters);
 				return -1;
 			}
@@ -459,7 +460,7 @@ int seccomp_prepare_threads(struct pstree_item *item, struct task_restore_args *
 			sf = seccomp_img_entry->seccomp_filters[sf->prev];
 			if (sf->filter.len % (sizeof(struct sock_filter))) {
 				pr_err("Corrupted filter len on tid %d (index %u)\n",
-				       item->threads[i]->ns[0].virt, sf->prev);
+				       vtid(item, i), sf->prev);
 				return -1;
 			}
 			filters_size += sf->filter.len;
@@ -473,7 +474,7 @@ int seccomp_prepare_threads(struct pstree_item *item, struct task_restore_args *
 		args->seccomp_filters = rst_mem_alloc(rst_size, RM_PRIVATE);
 		if (!args->seccomp_filters) {
 			pr_err("Can't allocate %zu bytes for filters on tid %d\n",
-			       rst_size, item->threads[i]->ns[0].virt);
+			       rst_size, vtid(item, i));
 			return -ENOMEM;
 		}
 		args->seccomp_filters_data =
