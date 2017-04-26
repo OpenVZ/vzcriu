@@ -634,9 +634,9 @@ static int collect_remap_dead_process(struct reg_file_info *rfi,
 	}
 
 
-	helper->sid->ns[0].virt = root_item->sid->ns[0].virt;
-	helper->pgid->ns[0].virt = root_item->pgid->ns[0].virt;
-	helper->pid->ns[0].virt = rfe->remap_id;
+	vsid(helper) = vsid(root_item);
+	vpgid(helper) = vpgid(root_item);
+	vpid(helper) = rfe->remap_id;
 	helper->parent = root_item;
 	helper->ids = root_item->ids;
 	if (init_pstree_helper(helper)) {
