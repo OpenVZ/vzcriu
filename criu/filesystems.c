@@ -40,9 +40,10 @@ struct binfmt_misc_info {
 
 LIST_HEAD(binfmt_misc_list);
 
-static int binfmt_misc_parse(struct mount_info *pm)
+static int binfmt_misc_parse(struct mount_info *pm, bool for_dump)
 {
-	opts.has_binfmt_misc = true;
+	if (for_dump)
+		opts.has_binfmt_misc = true;
 	return 0;
 
 }
@@ -503,7 +504,7 @@ static int devtmpfs_restore(struct mount_info *pm)
 }
 
 /* Is it mounted w or w/o the newinstance option */
-static int devpts_parse(struct mount_info *pm)
+static int devpts_parse(struct mount_info *pm, bool for_dump)
 {
 	int ret;
 
@@ -562,7 +563,7 @@ out:
 	return ret;
 }
 
-static int debugfs_parse(struct mount_info *pm)
+static int debugfs_parse(struct mount_info *pm, bool for_dump)
 {
 	/* tracefs is automounted underneath debugfs sometimes, and the
 	 * kernel's overmounting protection prevents us from mounting debugfs
@@ -573,12 +574,12 @@ static int debugfs_parse(struct mount_info *pm)
 	return 0;
 }
 
-static int tracefs_parse(struct mount_info *pm)
+static int tracefs_parse(struct mount_info *pm, bool for_dump)
 {
 	return 1;
 }
 
-static int cgroup_parse(struct mount_info *pm)
+static int cgroup_parse(struct mount_info *pm, bool for_dump)
 {
 	if (!(root_ns_mask & CLONE_NEWCGROUP))
 		return 0;
