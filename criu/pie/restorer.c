@@ -621,8 +621,8 @@ long __export_restore_thread(struct thread_restore_args *args)
 	int my_pid = sys_gettid();
 	int ret;
 
-	if (my_pid != args->pid) {
-		pr_err("Thread pid mismatch %d/%d\n", my_pid, args->pid);
+	if (my_pid != args->pid[args->level-1]) {
+		pr_err("Thread pid mismatch %d/%d\n", my_pid, args->pid[args->level-1]);
 		goto core_restore_end;
 	}
 
@@ -1841,35 +1841,52 @@ long __export_restore_task(struct task_restore_args *args)
 		long parent_tid;
 		int i, fd = -1;
 
-		/* One level pid ns hierarhy */
-		fd = sys_openat(args->proc_fd, LAST_PID_PATH, O_RDWR, 0);
-		if (fd < 0) {
-			pr_err("can't open last pid fd %d\n", fd);
-			goto core_restore_end;
+		if (thread_args[0].pid[1] == 0) {
+			BUG_ON(args->level != 1);
+			/* One level pid ns hierarhy */
+			fd = sys_openat(args->proc_fd, LAST_PID_PATH, O_RDWR, 0);
+			if (fd < 0) {
+				pr_err("can't open last pid fd %d\n", fd);
+				goto core_restore_end;
+			}
 		}
 
 		mutex_lock(&task_entries_local->last_pid_mutex);
 
 		for (i = 0; i < args->nr_threads; i++) {
 			char last_pid_buf[16], *s;
-
 			/* skip self */
-			if (thread_args[i].pid == args->t->pid)
+			if (thread_args[i].pid[0] == args->t->pid[0])
 				continue;
 
-			new_sp = restorer_stack(thread_args[i].mz);
-			last_pid_len = std_vprint_num(last_pid_buf, sizeof(last_pid_buf), thread_args[i].pid - 1, &s);
-			sys_lseek(fd, 0, SEEK_SET);
-			ret = sys_write(fd, s, last_pid_len);
-			if (ret < 0) {
-				pr_err("Can't set last_pid %ld/%s\n", ret, last_pid_buf);
-				sys_close(fd);
-				mutex_unlock(&task_entries_local->last_pid_mutex);
-				goto core_restore_end;
-			}
+			if (fd >= 0) {
+				/* One level pid ns hierarhy */
+				last_pid_len = std_vprint_num(last_pid_buf, sizeof(last_pid_buf), thread_args[i].pid[0] - 1, &s);
+				sys_lseek(fd, 0, SEEK_SET);
+				ret = sys_write(fd, s, last_pid_len);
+				if (ret < 0) {
+					pr_err("Can't set last_pid %ld/%s\n", ret, last_pid_buf);
+					sys_close(fd);
+					mutex_unlock(&task_entries_local->last_pid_mutex);
+					goto core_restore_end;
+				}
 
-			pr_debug("clone for pid %d last_pid %s\n",
-				 thread_args[i].pid, s);
+				pr_debug("clone for pid %d last_pid %s\n",
+					 thread_args[i].pid[0], s);
+			} else {
+				int k;
+
+				for (k = 0; k < args->level; k++) {
+					BUG_ON(thread_args[i].pid[k] == 0);
+
+					if (request_set_next_pid(args->pid_ns_id[k], thread_args[i].pid[k], args->transport_fd) < 0) {
+						pr_err("Can't request to set pid\n");
+						mutex_unlock(&task_entries_local->last_pid_mutex);
+						goto core_restore_end;
+					}
+				}
+			}
+			new_sp = restorer_stack(thread_args[i].mz);
 
 			/*
 			 * To achieve functionality like libc's clone()
@@ -1878,15 +1895,17 @@ long __export_restore_task(struct task_restore_args *args)
 			 * have any additional instructions... oh, dear...
 			 */
 			RUN_CLONE_RESTORE_FN(ret, clone_flags, new_sp, parent_tid, thread_args, args->clone_restore_fn);
-			if (ret != thread_args[i].pid) {
-				pr_err("Unable to create a thread %d: %ld\n", thread_args[i].pid, ret);
-				sys_lseek(fd, 0, SEEK_SET);
-				last_pid_len = sys_read(fd, last_pid_buf, sizeof(last_pid_buf));
-				if (last_pid_len > 0) {
-					last_pid_buf[last_pid_len-1] = '\0';
-					pr_err("Reread last_pid %s\n", last_pid_buf);
+			if (ret != thread_args[i].pid[args->level-1]) {
+				pr_err("Unable to create a thread %d: %ld\n", thread_args[i].pid[args->level-1], ret);
+				if (fd >= 0) {
+					sys_lseek(fd, 0, SEEK_SET);
+					last_pid_len = sys_read(fd, last_pid_buf, sizeof(last_pid_buf));
+					if (last_pid_len > 0) {
+						last_pid_buf[last_pid_len-1] = '\0';
+						pr_err("Reread last_pid %s\n", last_pid_buf);
+					}
+					sys_close(fd);
 				}
-				sys_close(fd);
 				mutex_unlock(&task_entries_local->last_pid_mutex);
 				goto core_restore_end;
 			}
