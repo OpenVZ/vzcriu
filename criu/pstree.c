@@ -1314,6 +1314,8 @@ int prepare_pstree(void)
 		 * pstree with properly injected helper tasks.
 		 */
 		ret = prepare_pstree_ids(pid);
+	if (!ret)
+		ret = reserve_pid_ns_helpers();
 
 	return ret;
 }
