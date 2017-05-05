@@ -612,6 +612,11 @@ static inline bool child_collected(struct pstree_item *i, pid_t pid)
 	return false;
 }
 
+static int parse_task_status(int pid, struct seize_task_status *ss, void *item)
+{
+	return parse_pid_status(pid, ss, item, NULL);
+}
+
 static int collect_task(struct pstree_item *item);
 static int collect_children(struct pstree_item *item)
 {
@@ -651,7 +656,7 @@ static int collect_children(struct pstree_item *item)
 			/* fails when meets a zombie */
 			compel_interrupt_task(pid);
 
-		ret = compel_wait_task(pid, item->pid->real, parse_pid_status, NULL, &creds.s, NULL);
+		ret = compel_wait_task(pid, item->pid->real, parse_task_status, NULL, &creds.s, c);
 		if (ret < 0) {
 			/*
 			 * Here is a race window between parse_children() and seize(),
@@ -789,6 +794,11 @@ static inline bool thread_collected(struct pstree_item *i, pid_t tid)
 	return false;
 }
 
+static int parse_thread_status(int pid, struct seize_task_status *ss, void *thread)
+{
+	return parse_pid_status(pid, ss, NULL, thread);
+}
+
 static int collect_threads(struct pstree_item *item)
 {
 	struct seccomp_entry *task_seccomp_entry;
@@ -861,7 +871,8 @@ static int collect_threads(struct pstree_item *item)
 			rb_init_node(&item->threads[id]->ns[j].node);
 		}
 
-		ret = compel_wait_task(pid, item_ppid(item), parse_pid_status, NULL, &t_creds.s, NULL);
+		ret = compel_wait_task(pid, item_ppid(item), parse_thread_status, NULL,
+				       &t_creds.s, &item->threads[id]);
 		if (ret < 0) {
 			/*
 			 * Here is a race window between parse_threads() and seize(),
@@ -1002,7 +1013,7 @@ int collect_pstree(void)
 		goto err;
 	}
 
-	ret = compel_wait_task(pid, -1, parse_pid_status, NULL, &creds.s, NULL);
+	ret = compel_wait_task(pid, -1, parse_task_status, NULL, &creds.s, root_item);
 	if (ret < 0)
 		goto err;
 
