@@ -804,7 +804,7 @@ static int collect_threads(struct pstree_item *item)
 	struct seccomp_entry *task_seccomp_entry;
 	struct pid **threads = NULL;
 	int nr_threads = 0, i = 0, ret, nr_inprogress, nr_stopped = 0;
-	int level = item->pid->level;
+	int level = item->pid->level, id;
 
 	task_seccomp_entry = seccomp_find_entry(item->pid->real);
 	if (!task_seccomp_entry)
@@ -850,8 +850,18 @@ static int collect_threads(struct pstree_item *item)
 		if (!opts.freeze_cgroup && compel_interrupt_task(pid))
 			continue;
 
+		id = item->nr_threads;
+		BUG_ON(id >= nr_threads);
+		item->threads[id] = xmalloc(PID_SIZE(level));
+		if (!item->threads[id])
+			goto err;
+		item->threads[id]->real = pid;
+		item->threads[id]->item = NULL;
+		item->threads[id]->state = TASK_THREAD;
+		item->threads[id]->level = level;
+
 		ret = compel_wait_task(pid, item_ppid(item), parse_thread_status, NULL,
-				       &t_creds.s, &item->threads[item->nr_threads]);
+				       &t_creds.s, &item->threads[id]);
 		if (ret < 0) {
 			/*
 			 * Here is a race window between parse_threads() and seize(),
@@ -860,6 +870,7 @@ static int collect_threads(struct pstree_item *item)
 			 * of attempts is restricted, so it will exit if something
 			 * really wrong.
 			 */
+			xfree(item->threads[id]);
 			continue;
 		}
 
@@ -868,14 +879,6 @@ static int collect_threads(struct pstree_item *item)
 		else
 			processes_to_wait--;
 
-		BUG_ON(item->nr_threads + 1 > nr_threads);
-		item->threads[item->nr_threads] = xmalloc(PID_SIZE(level));
-		if (!item->threads[item->nr_threads])
-			goto err;
-		item->threads[item->nr_threads]->real = pid;
-		item->threads[item->nr_threads]->item = NULL;
-		item->threads[item->nr_threads].state = TASK_THREAD;
-		item->threads[item->nr_threads]->level = level;
 		item->nr_threads++;
 
 		if (ret == TASK_DEAD) {
