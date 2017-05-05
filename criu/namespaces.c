@@ -1723,7 +1723,7 @@ static int start_usernsd(void)
 	int sk[2];
 	int one = 1;
 
-	if (!(root_ns_mask & CLONE_NEWUSER))
+	if (!(root_ns_mask & (CLONE_NEWUSER|CLONE_NEWPID)))
 		return 0;
 
 	/*
