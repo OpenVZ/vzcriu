@@ -313,6 +313,7 @@ static struct ns_id *rst_new_ns_id(unsigned int id, pid_t pid,
 			nsid->net.netns = NULL;
 		} else if (nd == &pid_ns_desc) {
 			nsid->pid.rb_root = RB_ROOT;
+			nsid->pid.nsfd_id = -1;
 		}
 
 		INIT_LIST_HEAD(&nsid->children);
