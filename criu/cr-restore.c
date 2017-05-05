@@ -1498,6 +1498,122 @@ static int set_next_pid(struct ns_id *ns, struct pid *pid)
 	return __set_next_pid(pid->ns[0].virt);
 }
 
+static int call_clone_fn(void *arg)
+{
+	struct cr_clone_arg *ca = arg;
+	struct ns_id *pid_ns;
+	pid_t pid;
+	int fd;
+
+	pid_ns = lookup_ns_by_id(ca->item->ids->pid_ns_id, &pid_ns_desc);
+	BUG_ON(!pid_ns);
+
+	if (set_next_pid(pid_ns, ca->item->pid) < 0) {
+		pr_err("Can't set next pid\n");
+		return -1;
+	}
+
+	fd = fdstore_get(pid_ns->user_ns->user.nsfd_id);
+	if (fd < 0) {
+		pr_err("Can't get ns fd\n");
+		return -1;
+	}
+
+	if (setns(fd, CLONE_NEWUSER) < 0) {
+		pr_perror("Can't set user ns");
+		close(fd);
+		return -1;
+	}
+	close(fd);
+
+	if (ca->clone_flags & CLONE_FILES)
+		close_pid_proc();
+
+	pid = clone_noasan(restore_task_with_children, ca->clone_flags | CLONE_PARENT | SIGCHLD, ca);
+	return pid > 0 ? 0 : -1;
+}
+
+static int do_fork_with_pid(struct pstree_item *item, struct ns_id *pid_ns, struct cr_clone_arg *ca)
+{
+	int status, i, ret;
+	struct pid *hlp_pid;
+	sigset_t sig_mask;
+	pid_t pid;
+
+	BUG_ON(current && (!item->parent || (current != item->parent)));
+	BUG_ON(!current && (item != root_item));
+
+	if (!(ca->clone_flags & CLONE_NEWPID) || !current || current->user_ns == pid_ns->user_ns) {
+		if (!current && pid_ns->ext_key) {
+			/*
+			 * Restoring into another namespace requires a helper
+			 * to write to LAST_PID_PATH. Using clone3() this is
+			 * so much easier and simpler. As long as CRIU supports
+			 * clone() this is needed.
+			 */
+			ret = call_in_child_process(call_set_next_pid, (void *)&vpid(item));
+		} else {
+			if (set_next_pid(pid_ns, item->pid) < 0) {
+				pr_err("Can't set next pid\n");
+				return -1;
+			}
+		}
+		close_pid_proc();
+		pid = clone_noasan(restore_task_with_children, ca->clone_flags | SIGCHLD, ca);
+		if (item == root_item) {
+			item->pid->real = pid;
+			pr_debug("PID: real %d virt %d\n", pid, vpid(item));
+		}
+		return pid > 0 ? 0 : -1;
+	}
+
+	hlp_pid = xmalloc(PID_SIZE(item->pid->level - 1));
+	if (!hlp_pid)
+		return -1;
+	hlp_pid->level = item->pid->level - 1;
+
+	for (i = 0; i < hlp_pid->level; i++) {
+		/*
+		 * Choose helper's pid[] as child's pid[] + 1.
+		 * This should guarantee the helper will not
+		 * occupy child's pids.
+		 */
+		hlp_pid->ns[i].virt = item->pid->ns[i].virt + 1;
+		if (hlp_pid->ns[i].virt < 0)
+			hlp_pid->ns[i].virt = INIT_PID + 1;
+	}
+	ret = set_next_pid(pid_ns->parent, hlp_pid);
+	xfree(hlp_pid);
+	if (ret) {
+		pr_err("Can't set next pid\n");
+		return -1;
+	}
+
+	close_pid_proc();
+
+	if (block_sigmask(&sig_mask, SIGCHLD) < 0)
+		return -1;
+
+	pid = clone_noasan(call_clone_fn, SIGCHLD, ca);
+	if (pid < 0) {
+		pr_perror("Can't clone()");
+		ret = -1;
+		goto unblock;
+	}
+
+	errno = 0;
+	if (waitpid(pid, &status, 0) < 0 || !WIFEXITED(status) || WEXITSTATUS(status)) {
+		pr_perror("Child process waiting: %d", status);
+		ret = -1;
+		goto unblock;
+	}
+
+unblock:
+	if (restore_sigmask(&sig_mask))
+		ret = -1;
+	return ret;
+}
+
 static inline int fork_with_pid(struct pstree_item *item)
 {
 	struct cr_clone_arg ca;
@@ -1506,14 +1622,17 @@ static inline int fork_with_pid(struct pstree_item *item)
 	int ret = -1;
 	pid_t pid = vpid(item);
 
-	if (item != root_item)
-		item->user_ns = current->user_ns;
-	else
-		item->user_ns = root_user_ns;
-
 	pid_ns = lookup_ns_by_id(item->ids->pid_ns_id, &pid_ns_desc);
 	BUG_ON(!pid_ns);
 	item->pid_for_children_ns = pid_ns;
+
+	if (item != root_item) {
+		if (last_level_pid(item->pid) == INIT_PID)
+			item->user_ns = pid_ns->user_ns;
+		else
+			item->user_ns = current->user_ns;
+	} else
+		item->user_ns = root_user_ns;
 
 	if (item->pid->state != TASK_HELPER) {
 		if (open_core(pid, &ca.core))
@@ -1612,35 +1731,12 @@ static inline int fork_with_pid(struct pstree_item *item)
 
 	lock_last_pid();
 
-	if (external_pidns) {
-		/*
-		 * Restoring into another namespace requires a helper
-		 * to write to LAST_PID_PATH. Using clone3() this is
-		 * so much easier and simpler. As long as CRIU supports
-		 * clone() this is needed.
-		 */
-		ret = call_in_child_process(call_set_next_pid, (void *)&pid);
-	} else {
-		ret = set_next_pid(pid_ns, item->pid);
-	}
-	if (ret != 0) {
-		pr_err("Setting PID failed\n");
-		goto err_unlock;
-	}
-
-	close_pid_proc();
-	ret = clone_noasan(restore_task_with_children, ca.clone_flags | SIGCHLD, &ca);
-
+	ret = do_fork_with_pid(item, pid_ns, &ca);
 	if (ret < 0) {
 		pr_perror("Can't fork for %d", pid);
 		if (errno == EEXIST)
 			set_cr_errno(EEXIST);
 		goto err_unlock;
-	}
-
-	if (item == root_item) {
-		item->pid->real = ret;
-		pr_debug("PID: real %d virt %d\n", item->pid->real, vpid(item));
 	}
 
 err_unlock:
