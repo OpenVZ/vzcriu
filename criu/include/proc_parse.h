@@ -3,6 +3,8 @@
 
 #include <sys/types.h>
 
+#include "pid.h"
+#include "pstree.h"
 #include "compel/infect.h"
 
 #define PROC_TASK_COMM_LEN     32
@@ -89,7 +91,8 @@ extern int parse_pid_stat(pid_t pid, struct proc_pid_stat *s);
 extern unsigned int parse_pid_loginuid(pid_t pid, int *err, bool ignore_noent);
 extern int parse_pid_oom_score_adj(pid_t pid, int *err);
 extern int prepare_loginuid(unsigned int value);
-extern int parse_pid_status(pid_t pid, struct seize_task_status *, void *data);
+extern int parse_pid_status(pid_t pid, struct seize_task_status *,
+			    struct pstree_item *, struct pid **);
 extern int parse_file_locks(void);
 extern int get_fd_mntid(int fd, int *mnt_id);
 
