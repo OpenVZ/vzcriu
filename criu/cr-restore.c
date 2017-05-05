@@ -4276,13 +4276,13 @@ static int sigreturn_restore(pid_t pid, struct task_restore_args *task_args, uns
 	sfds_protected = false;
 	close_image_dir();
 	close_proc();
-	close_service_fd(TRANSPORT_FD_OFF);
 	close_service_fd(CR_PROC_FD_OFF);
 	close_service_fd(ROOT_FD_OFF);
 	close_service_fd(USERNSD_SK);
 	close_service_fd(FDSTORE_SK_OFF);
 	close_service_fd(RPC_SK_OFF);
 	close_service_fd(SPFS_MNGR_SK);
+	task_args->transport_fd = get_service_fd(TRANSPORT_FD_OFF);
 
 	__gcov_flush();
 
