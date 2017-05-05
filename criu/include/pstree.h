@@ -40,6 +40,8 @@ static inline pid_t vpid(const struct pstree_item *i)
 	return i->pid->ns[0].virt;
 }
 
+#define PID_SIZE(level) (sizeof(struct pid) + (level - 1) * sizeof(((struct pid *)NULL)->ns[0]))
+
 enum {
 	FDS_EVENT_BIT = 0,
 };
