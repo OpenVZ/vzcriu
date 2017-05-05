@@ -804,6 +804,7 @@ static int collect_threads(struct pstree_item *item)
 	struct seccomp_entry *task_seccomp_entry;
 	struct pid **threads = NULL;
 	int nr_threads = 0, i = 0, ret, nr_inprogress, nr_stopped = 0;
+	int level = item->pid->level;
 
 	task_seccomp_entry = seccomp_find_entry(item->pid->real);
 	if (!task_seccomp_entry)
@@ -824,13 +825,13 @@ static int collect_threads(struct pstree_item *item)
 		return -1;
 
 	if (item->nr_threads == 0) {
-		item->threads[0] = xmalloc(sizeof(struct pid));
+		item->threads[0] = xmalloc(PID_SIZE(level));
 		if (!item->threads[0])
 			return -1;
 		item->threads[0]->real = item->pid->real;
 		item->nr_threads = 1;
 		item->threads[0]->item = NULL;
-		item->threads[0]->level = 1;
+		item->threads[0]->level = level;
 	}
 
 	nr_inprogress = 0;
@@ -868,13 +869,13 @@ static int collect_threads(struct pstree_item *item)
 			processes_to_wait--;
 
 		BUG_ON(item->nr_threads + 1 > nr_threads);
-		item->threads[item->nr_threads] = xmalloc(sizeof(struct pid));
+		item->threads[item->nr_threads] = xmalloc(PID_SIZE(level));
 		if (!item->threads[item->nr_threads])
 			goto err;
 		item->threads[item->nr_threads]->real = pid;
 		item->threads[item->nr_threads]->item = NULL;
 		item->threads[item->nr_threads].state = TASK_THREAD;
-		item->threads[item->nr_threads]->level = 1;
+		item->threads[item->nr_threads]->level = level;
 		item->nr_threads++;
 
 		if (ret == TASK_DEAD) {
