@@ -1375,12 +1375,17 @@ static int move_veth_cb(void *arg, int fd, pid_t pid)
 	struct move_req *mvreq = arg;
 	struct newlink_req *req = &mvreq->req;
 	int ifindex, nlsk;
+	int ns_fd;
 
-	if (!(root_ns_mask & CLONE_NEWUSER)) {
-		int fd_ns;
-
-		fd_ns = get_service_fd(NS_FD_OFF);
-		if (switch_ns_by_fd(fd_ns, &net_ns_desc, &fd_ns_old))
+	/*
+	 * Note: NS_FD_OFF is set in netns_keep_nsfd to remember 'host' netns,
+	 * and it happens after start_usernsd, so the sfd remains unset in
+	 * scope of usernsd, but usernsd has 'host' netns anyway so we should
+	 * not have a need to switch to it.
+	 */
+	ns_fd = get_service_fd(NS_FD_OFF);
+	if (ns_fd >= 0) {
+		if (switch_ns_by_fd(ns_fd, &net_ns_desc, &fd_ns_old))
 			return -1;
 	}
 
@@ -1628,9 +1633,10 @@ static int userns_restore_one_link(void *arg, int fd, pid_t pid)
 {
 	int nlsk, ret;
 	struct newlink_req *req = arg;
-	int ns_fd = get_service_fd(NS_FD_OFF), rst = -1;
+	int ns_fd, rst = -1;
 
-	if (!(root_ns_mask & CLONE_NEWUSER)) {
+	ns_fd = get_service_fd(NS_FD_OFF);
+	if (ns_fd >= 0) {
 		if (switch_ns_by_fd(ns_fd, &net_ns_desc, &rst))
 			return -1;
 	}
