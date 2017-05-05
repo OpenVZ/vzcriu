@@ -1200,6 +1200,9 @@ skip_sessions:
 		group_leader = pstree_item_by_virt(vpgid(item));
 		BUG_ON(group_leader == NULL);
 
+		if (!is_session_leader(group_leader))
+			futex_inc(&rsti(group_leader)->pgrp_member_cnt);
+
 		/* Only the item with full pgid has full info of leader's pidns */
 		if (!equal_pid(item->pgid, group_leader->pid))
 			continue;
@@ -1576,30 +1579,6 @@ static int prepare_pstree_ids(void)
 				return -1;
 			}
 		}
-	}
-
-	/* Add a process group leader if it is absent  */
-	for_each_pstree_item(item) {
-		struct pid *pgid;
-
-		if (is_group_leader(item))
-			continue;
-
-		/*
-		 * If the PGID is eq to current one -- this
-		 * means we're inheriting group from the current
-		 * or setpgid group to some already created group,
-		 * so we do not need to wait leaders's creation.
-		 */
-		if (opts.shell_job && !is_session_leader(root_item) &&
-		    vpgid(root_item) == vpgid(item))
-			continue;
-
-		pgid = pstree_pid_by_virt(vpgid(item));
-		BUG_ON(pgid == NULL || pgid->state == TASK_UNDEF);
-		BUG_ON(pgid->state == TASK_THREAD);
-		rsti(item)->pgrp_leader = pgid->item;
-		continue;
 	}
 
 	return 0;

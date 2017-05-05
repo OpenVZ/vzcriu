@@ -52,11 +52,6 @@ struct rst_info {
 
 	u32 cg_set;
 
-	union {
-		struct pstree_item *pgrp_leader;
-		futex_t pgrp_set;
-	};
-
 	struct file_desc *cwd;
 	struct file_desc *root;
 	bool has_umask;
@@ -83,6 +78,8 @@ struct rst_info {
 	int curr_sid;
 	int curr_pgid;
 	int forked;
+	futex_t pgrp_set;
+	futex_t pgrp_member_cnt;
 };
 
 extern struct task_entries *task_entries;
