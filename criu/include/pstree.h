@@ -33,6 +33,7 @@ struct pstree_item {
 		unsigned long task_st_le_bits;
 	};
 	struct ns_id *user_ns;
+	struct ns_id *pid_for_children_ns;
 
 	bool shmalloced;
 };
