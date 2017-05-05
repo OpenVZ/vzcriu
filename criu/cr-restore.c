@@ -418,6 +418,31 @@ static int populate_pid_proc(void)
 	return 0;
 }
 
+int __set_next_pid(pid_t pid)
+{
+	char buf[32];
+	int len, fd;
+
+	fd = open_proc_rw(PROC_GEN, LAST_PID_PATH);
+	if (fd < 0)
+		return -1;
+
+	len = snprintf(buf, sizeof(buf), "%d", pid - 1);
+	len -= write(fd, buf, len);
+	if (len)
+		pr_perror("%d: Write %s to %s", pid, buf, LAST_PID_PATH);
+	close(fd);
+
+	return len ? -1 : 0;
+}
+
+static int set_next_pid(struct ns_id *ns, struct pid *pid)
+{
+	if (pid->ns[0].virt == INIT_PID)
+		return 0;
+	return __set_next_pid(pid->ns[0].virt);
+}
+
 static rt_sigaction_t sigchld_act;
 /*
  * If parent's sigaction has blocked SIGKILL (which is non-sense),
@@ -1479,11 +1504,15 @@ static inline int fork_with_pid(struct pstree_item *item)
 	struct cr_clone_arg ca;
 	int ret = -1;
 	pid_t pid = vpid(item);
+	struct ns_id *pid_ns;
 
 	if (item != root_item)
 		item->user_ns = current->user_ns;
 	else
 		item->user_ns = root_user_ns;
+
+	pid_ns = lookup_ns_by_id(item->ids->pid_ns_id, &pid_ns_desc);
+	BUG_ON(!pid_ns);
 
 	if (item->pid->state != TASK_HELPER) {
 		if (open_core(pid, &ca.core))
@@ -1533,23 +1562,12 @@ static inline int fork_with_pid(struct pstree_item *item)
 	pr_info("Forking task with %d pid (flags 0x%lx)\n", pid, ca.clone_flags);
 
 	if (!(ca.clone_flags & CLONE_NEWPID)) {
-		char buf[32];
-		int len;
-		int fd;
-
-		fd = open_proc_rw(PROC_GEN, LAST_PID_PATH);
-		if (fd < 0)
-			goto err;
-
 		lock_last_pid();
 
-		len = snprintf(buf, sizeof(buf), "%d", pid - 1);
-		if (write(fd, buf, len) != len) {
-			pr_perror("%d: Write %s to %s", pid, buf, LAST_PID_PATH);
-			close(fd);
+		if (set_next_pid(pid_ns, item->pid) < 0) {
+			pr_err("Can't set next pid\n");
 			goto err_unlock;
 		}
-		close(fd);
 	} else {
 		BUG_ON(pid != INIT_PID);
 	}
@@ -1572,7 +1590,6 @@ static inline int fork_with_pid(struct pstree_item *item)
 err_unlock:
 	if (!(ca.clone_flags & CLONE_NEWPID))
 		unlock_last_pid();
-err:
 	if (ca.core)
 		core_entry__free_unpacked(ca.core, NULL);
 	return ret;
