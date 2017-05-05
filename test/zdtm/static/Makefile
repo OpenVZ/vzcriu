@@ -281,6 +281,7 @@ TST_NOFILE	:=				\
 		userns01			\
 		userns02			\
 		pidns00				\
+		pidns01				\
 #		jobctl00			\
 
 PKG_CONFIG ?= pkg-config
