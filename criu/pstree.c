@@ -919,6 +919,8 @@ static int prepare_pstree_ids(pid_t pid)
 	LIST_HEAD(helpers);
 
 	pid_t current_pgid = getpgid(pid);
+	if (!list_empty(&top_pid_ns->children))
+		return 0;
 
 	/*
 	 * Some task can be reparented to init. A helper task should be added
@@ -1286,6 +1288,9 @@ int prepare_dummy_pstree(void)
 bool restore_before_setsid(struct pstree_item *child)
 {
 	int csid = child->born_sid == -1 ? vsid(child) : child->born_sid;
+
+	if (!list_empty(&top_pid_ns->children))
+		return false;
 
 	if (child->parent->born_sid == csid)
 		return true;

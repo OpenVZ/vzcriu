@@ -1840,6 +1840,8 @@ static void restore_sid(void)
 {
 	pid_t sid;
 
+	if (!list_empty(&top_pid_ns->children))
+		return;
 	/*
 	 * SID can only be reset to pid or inherited from parent.
 	 * Thus we restore it right here to let our kids inherit
@@ -1882,6 +1884,9 @@ static void restore_pgid(void)
 	 */
 
 	pid_t pgid, my_pgid = last_level_pid(current->pgid);
+
+	if (!list_empty(&top_pid_ns->children))
+		return;
 
 	pr_info("Restoring %d to %d pgid\n", vpid(current), my_pgid);
 
