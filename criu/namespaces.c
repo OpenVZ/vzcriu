@@ -15,6 +15,7 @@
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/ptrace.h>
+#include <sys/file.h>
 
 #include "page.h"
 #include "rst-malloc.h"
@@ -42,6 +43,11 @@
 #include "fdstore.h"
 #include "clone-noasan.h"
 #include "proc_parse.h"
+
+#define __sys(foo)     foo
+#define __sys_err(ret) (-errno)
+
+#include "ns-common.c"
 
 static struct ns_desc *ns_desc_array[] = {
 	&net_ns_desc,  &uts_ns_desc, &ipc_ns_desc,  &pid_ns_desc,
@@ -1606,12 +1612,26 @@ void unsc_msg_pid_fd(struct unsc_msg *um, pid_t *pid, int *fd)
 static void usernsd_handler(int signal, siginfo_t *siginfo, void *data)
 {
 	pid_t pid = siginfo->si_pid;
+	struct ns_id *ns;
+	struct pid *tpid;
 	int status;
 
 	while (pid) {
 		pid = waitpid(-1, &status, WNOHANG);
 		if (pid <= 0)
 			return;
+		for (ns = ns_ids; ns; ns = ns->next) {
+			if (ns->nd != &pid_ns_desc)
+				continue;
+			tpid = pstree_pid_by_virt(ns->ns_pid);
+			if (tpid->real == pid) {
+				tpid->real = -1;
+				break;
+			}
+		}
+
+		if (!ns)
+			pr_err("Spurious pid ns helper: pid=%d\n", pid);
 
 		pr_err("%d finished unexpected: status=%d\n", pid, status);
 		futex_abort_and_wake(&task_entries->nr_in_progress);
@@ -2702,6 +2722,223 @@ int reserve_pid_ns_helpers(void)
 		return 0;
 
 	return walk_namespaces(&pid_ns_desc, do_reserve_pid_ns_helpers, NULL);
+}
+
+static int pid_ns_helper_sock(struct ns_id *ns)
+{
+	struct sockaddr_un addr;
+	socklen_t len;
+	int sk;
+
+	sk = socket(AF_UNIX, SOCK_DGRAM, 0);
+	if (sk < 0) {
+		pr_perror("Can't create helper socket");
+		return -1;
+	}
+	pid_ns_helper_socket_name(&addr, &len, ns->id);
+
+	if (bind(sk, (struct sockaddr *)&addr, len) < 0) {
+		pr_perror("Can't bind pid_ns sock");
+		close(sk);
+		return -1;
+	}
+
+	return sk;
+}
+
+static int pid_ns_helper(struct ns_id *ns, int sk)
+{
+	struct sockaddr_un addr;
+	struct msghdr msg = { 0 };
+	struct iovec iov;
+	pid_t pid;
+
+	msg.msg_name = &addr;
+	msg.msg_iov = &iov;
+	msg.msg_iovlen = 1;
+
+	while (1) {
+		int answer = 0;
+		msg.msg_namelen = sizeof(addr);
+		iov.iov_base = &pid;
+		iov.iov_len = sizeof(pid);
+
+		if (recvmsg(sk, &msg, 0) < 0) {
+			pr_perror("recv() failed to read pid");
+			break;
+		}
+
+		if (__set_next_pid(pid) < 0) {
+			pr_err("Can't set next pid\n");
+			answer = -1;
+		}
+
+		iov.iov_base = &answer;
+		iov.iov_len = sizeof(answer);
+		if (sendmsg(sk, &msg, 0) < 0) {
+			pr_perror("Can't send answer");
+			break;
+		}
+	}
+
+	return -1;
+}
+
+static int do_create_pid_ns_helper(void *arg, int sk, pid_t unused_pid)
+{
+	int pid_ns_fd, i, transport_fd, saved_errno, ret = -1;
+	struct pstree_item *ns_reaper;
+	struct ns_id *ns, *tmp;
+	struct pid *pid;
+	pid_t child;
+
+	ns_reaper = *(struct pstree_item **)arg;
+	ns = lookup_ns_by_id(ns_reaper->ids->pid_ns_id, &pid_ns_desc);
+
+	pid = pstree_pid_by_virt(ns->ns_pid);
+	if (!pid) {
+		pr_err("Can't find helper reserved pid\n");
+		return -1;
+	}
+
+	if (switch_ns(ns_reaper->pid->real, &pid_ns_desc, &pid_ns_fd) < 0)
+		return -1;
+
+	lock_last_pid();
+
+	transport_fd = get_service_fd(TRANSPORT_FD_OFF);
+	BUG_ON(transport_fd < 0);
+	/*
+	 * Starting not from pid->level - 1, as it's helper has not created yet
+	 * (we're creating it in the moment), and the true pid for this level
+	 * is set by the task, who does close(CLONE_NEWPID) (this task is sender of fd).
+	 */
+	for (i = pid->level - 2, tmp = ns->parent; i >= 0; i--, tmp = tmp->parent)
+		if (request_set_next_pid(tmp->id, pid->ns[i].virt, transport_fd)) {
+			unlock_last_pid();
+			goto restore_ns;
+		}
+	child = fork();
+	if (!child)
+		exit(pid_ns_helper(ns, sk));
+	saved_errno = errno;
+	unlock_last_pid();
+	if (child < 0) {
+		errno = saved_errno;
+		pr_perror("Can't fork");
+		goto restore_ns;
+	}
+	futex_set_and_wake(&ns->pid.helper_created, 1);
+	pid->real = child;
+
+	ret = 0;
+restore_ns:
+	if (restore_ns(pid_ns_fd, &pid_ns_desc) < 0)
+		ret = -1;
+	return ret;
+}
+
+/*
+ * Task may set last_pid only for its active pid namespace,
+ * so if NSpid of a child contains more then one level, we
+ * need external help to populate the whole pid hierarhy
+ * (pid in parent pid_ns, pid in grand parent etc). Pid ns
+ * helpers are used for that.
+ *
+ * We need a task or tasks to be a parent of pid_ns helpers.
+ * To live in common hierarhy and to be a TASK_HELPER is not
+ * possible, because it introduces circular dependencies.
+ * The same is to be children of criu main task, because
+ * we already have dependencies between it and root_item
+ * (NO more dependencies!). So, we choose usernsd for that:
+ * it always exists and have command interface.
+ */
+int create_pid_ns_helper(struct ns_id *ns)
+{
+	struct pid *pid;
+	int sk;
+
+	BUG_ON(getpid() != INIT_PID);
+	BUG_ON(ns->parent && !futex_get(&ns->parent->pid.helper_created));
+
+	pid = pstree_pid_by_virt(ns->ns_pid);
+	if (pid == NULL) {
+		pr_err("Can't get pid for %d\n", ns->ns_pid);
+		return -1;
+	}
+	if (__set_next_pid(last_level_pid(pid)) < 0) {
+		pr_err("Can't set next fd\n");
+		return -1;
+	}
+
+	sk = pid_ns_helper_sock(ns);
+	if (sk < 0)
+		return -1;
+
+	if (userns_call(do_create_pid_ns_helper, 0, &current, sizeof(current), sk) < 0) {
+		pr_err("Can't create pid_ns helper\n");
+		close(sk);
+		return -1;
+	}
+
+	close(sk);
+	return 0;
+}
+
+static int do_destroy_pid_ns_helpers(void *arg, int fd, pid_t unused)
+{
+	int status, sig_blocked = true, ret = 0;
+	sigset_t sig_mask;
+	struct ns_id *ns;
+	struct pid *pid;
+
+	if (block_sigmask(&sig_mask, SIGCHLD)) {
+		sig_blocked = false;
+		ret = -1;
+	}
+
+	for (ns = ns_ids; ns; ns = ns->next) {
+		if (ns->nd != &pid_ns_desc)
+			continue;
+		pid = pstree_pid_by_virt(ns->ns_pid);
+		if (!pid) {
+			pr_err("Can't find pid_ns helper\n");
+			ret = -1;
+			continue;
+		}
+		if (pid->real <= 0)
+			continue;
+
+		if (kill(pid->real, SIGKILL) < 0) {
+			pr_perror("Can't kill");
+			ret = -1;
+			continue;
+		}
+
+		if (waitpid(pid->real, &status, 0) != pid->real) {
+			pr_perror("Error during waiting pid_ns helper");
+			ret = -1;
+			continue;
+		}
+		pid->real = -1;
+	}
+
+	if (sig_blocked && restore_sigmask(&sig_mask))
+		ret = -1;
+
+	return ret;
+}
+
+int destroy_pid_ns_helpers(void)
+{
+	if (!(root_ns_mask & CLONE_NEWPID))
+		return 0;
+
+	if (userns_call(do_destroy_pid_ns_helpers, 0, NULL, 0, -1) < 0) {
+		pr_err("Can't create pid_ns helper\n");
+		return -1;
+	}
+	return 0;
 }
 
 struct ns_desc pid_ns_desc = NS_DESC_ENTRY(CLONE_NEWPID, "pid");
