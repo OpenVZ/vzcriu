@@ -1384,6 +1384,8 @@ int prepare_pstree(void)
 		 */
 		ret = prepare_pstree_ids(pid);
 	if (!ret)
+		ret = reserve_pid_ns_helpers();
+	if (!ret)
 		/*
 		 * We need to alloc shared buffers for RseqEntry'es
 		 * arrays (one RseqEntry per pstree item thread).
