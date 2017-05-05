@@ -211,6 +211,8 @@ struct task_restore_args {
 	 */
 	int				proc_fd;
 
+	int				transport_fd;
+
 	int				seccomp_mode;
 
 	bool				compatible_mode;
