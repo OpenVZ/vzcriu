@@ -1557,35 +1557,26 @@ static inline int fork_with_pid(struct pstree_item *item)
 	ca.clone_flags = rsti(item)->clone_flags;
 
 	BUG_ON(ca.clone_flags & CLONE_VM);
+	BUG_ON(!!(ca.clone_flags & CLONE_NEWPID) != (last_level_pid(item->pid) == INIT_PID));
 
 	pr_info("Forking task with %d pid (flags 0x%lx)\n", pid, ca.clone_flags);
 
-	if (!(ca.clone_flags & CLONE_NEWPID)) {
-		lock_last_pid();
+	lock_last_pid();
 
-		if (external_pidns) {
-			/*
-			 * Restoring into another namespace requires a helper
-			 * to write to LAST_PID_PATH. Using clone3() this is
-			 * so much easier and simpler. As long as CRIU supports
-			 * clone() this is needed.
-			 */
-			ret = call_in_child_process(call_set_next_pid, (void *)&pid);
-		} else {
-			ret = set_next_pid(pid_ns, item->pid);
-		}
-		if (ret != 0) {
-			pr_err("Setting PID failed");
-			goto err_unlock;
-		}
+	if (external_pidns) {
+		/*
+		 * Restoring into another namespace requires a helper
+		 * to write to LAST_PID_PATH. Using clone3() this is
+		 * so much easier and simpler. As long as CRIU supports
+		 * clone() this is needed.
+		 */
+		ret = call_in_child_process(call_set_next_pid, (void *)&pid);
 	} else {
-		if (!external_pidns) {
-			if (pid != INIT_PID) {
-				pr_err("First PID in a PID namespace needs to be %d and not %d\n",
-					pid, INIT_PID);
-				return -1;
-			}
-		}
+		ret = set_next_pid(pid_ns, item->pid);
+	}
+	if (ret != 0) {
+		pr_err("Setting PID failed");
+		goto err_unlock;
 	}
 
 	close_pid_proc();
@@ -1607,8 +1598,7 @@ static inline int fork_with_pid(struct pstree_item *item)
 	}
 
 err_unlock:
-	if (!(ca.clone_flags & CLONE_NEWPID))
-		unlock_last_pid();
+	unlock_last_pid();
 
 	if (ca.core)
 		core_entry__free_unpacked(ca.core, NULL);
