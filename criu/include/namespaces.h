@@ -206,6 +206,7 @@ extern int prepare_userns(pid_t real_pid, UsernsEntry *e);
 extern int __set_user_ns(struct ns_id *ns);
 extern int set_user_ns(u32 id);
 extern int stop_usernsd(void);
+extern int prep_usernsd_transport(void);
 
 extern uid_t userns_uid(uid_t uid);
 extern gid_t userns_gid(gid_t gid);

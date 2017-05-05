@@ -1887,6 +1887,11 @@ static int restore_task_with_children(void *_arg)
 	if (needs_prep_creds(current) && (prepare_userns_creds()))
 		goto err;
 
+	if (current->parent == NULL) {
+		if (prep_usernsd_transport())
+			goto err;
+	}
+
 	/*
 	 * Call this _before_ forking to optimize cgroups
 	 * restore -- if all tasks live in one set of cgroups
