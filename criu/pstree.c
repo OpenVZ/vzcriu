@@ -969,25 +969,30 @@ static int read_pstree_image(pid_t *pid_max)
 }
 
 #define RESERVED_PIDS 300
-static int get_free_pid(void)
-{
-	static struct pid *prev, *next;
 
-	if (prev == NULL)
-		prev = rb_entry(rb_first(&top_pid_ns->pid.rb_root), struct pid, ns[0].node);
+int get_free_pid(struct ns_id *ns)
+{
+	struct pid *prev, *next;
+	struct ns_id *i = ns;
+	int level = 0;
+
+	while ((i = i->parent) != NULL)
+		level++;
+
+	prev = rb_entry(rb_first(&ns->pid.rb_root), struct pid, ns[level].node);
 
 	while (1) {
 		struct rb_node *node;
 		pid_t pid;
 
-		pid = prev->ns[0].virt + 1;
+		pid = prev->ns[level].virt + 1;
 		pid = pid < RESERVED_PIDS ? RESERVED_PIDS + 1 : pid;
 
-		node = rb_next(&prev->ns[0].node);
+		node = rb_next(&prev->ns[level].node);
 		if (node == NULL)
 			return pid;
-		next = rb_entry(node, struct pid, ns[0].node);
-		if (next->ns[0].virt > pid)
+		next = rb_entry(node, struct pid, ns[level].node);
+		if (next->ns[level].virt > pid)
 			return pid;
 		prev = next;
 	}
@@ -1024,7 +1029,7 @@ static int prepare_pstree_ids(pid_t pid)
 		if (leader->pid->state != TASK_UNDEF) {
 			pid_t helper_pid;
 
-			helper_pid = get_free_pid();
+			helper_pid = get_free_pid(top_pid_ns);
 			if (helper_pid < 0)
 				break;
 			helper = lookup_create_item(&helper_pid, 1, item->ids->pid_ns_id);
