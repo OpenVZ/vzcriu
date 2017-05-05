@@ -586,10 +586,14 @@ long __export_restore_thread(struct thread_restore_args *args)
 	k_rtsigset_t to_block;
 	unsigned long new_sp;
 	int my_pid = sys_gettid();
-	int ret;
+	int i, ret;
 
-	if (my_pid != args->pid) {
-		pr_err("Thread pid mismatch %d/%d\n", my_pid, args->pid);
+	for (i = 0; i < MAX_NS_NESTING; i++)
+		if (args->pid[i] == 0)
+			break;
+
+	if (my_pid != args->pid[i-1]) {
+		pr_err("Thread pid mismatch %d/%d\n", my_pid, args->pid[i-1]);
 		goto core_restore_end;
 	}
 
@@ -1448,7 +1452,7 @@ next:
 long __export_restore_task(struct task_restore_args *args)
 {
 	long ret = -1;
-	int i;
+	int i, k;
 	VmaEntry *vma_entry;
 	unsigned long va;
 	struct restore_vma_io *rio;
@@ -1831,24 +1835,40 @@ long __export_restore_task(struct task_restore_args *args)
 
 		for (i = 0; i < args->nr_threads; i++) {
 			char last_pid_buf[16], *s;
-
 			/* skip self */
-			if (thread_args[i].pid == args->t->pid)
+			if (thread_args[i].pid[0] == args->t->pid[0])
 				continue;
 
-			new_sp = restorer_stack(thread_args[i].mz);
-			last_pid_len = std_vprint_num(last_pid_buf, sizeof(last_pid_buf), thread_args[i].pid - 1, &s);
-			sys_lseek(fd, 0, SEEK_SET);
-			ret = sys_write(fd, s, last_pid_len);
-			if (ret < 0) {
-				pr_err("Can't set last_pid %ld/%s\n", ret, last_pid_buf);
-				sys_close(fd);
-				mutex_unlock(&task_entries_local->last_pid_mutex);
-				goto core_restore_end;
-			}
+			if (thread_args[i].pid[1] == 0) {
+				BUG_ON(args->level != 1);
+				/* One level pid ns hierarhy */
+				last_pid_len = std_vprint_num(last_pid_buf, sizeof(last_pid_buf), thread_args[i].pid[0] - 1, &s);
+				sys_lseek(fd, 0, SEEK_SET);
+				ret = sys_write(fd, s, last_pid_len);
+				if (ret < 0) {
+					pr_err("Can't set last_pid %ld/%s\n", ret, last_pid_buf);
+					sys_close(fd);
+					mutex_unlock(&task_entries_local->last_pid_mutex);
+					goto core_restore_end;
+				}
 
-			pr_debug("clone for pid %d last_pid %s\n",
-				 thread_args[i].pid, s);
+				pr_debug("clone for pid %d last_pid %s\n",
+					 thread_args[i].pid[0], s);
+			} else {
+				for (k = 0; k < MAX_NS_NESTING; k++) {
+					if (thread_args[i].pid[k] == 0) {
+						BUG_ON(args->level != k);
+						break;
+					}
+					if (request_set_next_pid(args->pid_ns_id[k], thread_args[i].pid[k], args->transport_fd) < 0) {
+						pr_err("Can't request to set pid\n");
+						sys_close(fd);
+						mutex_unlock(&task_entries_local->last_pid_mutex);
+						goto core_restore_end;
+					}
+				}
+			}
+			new_sp = restorer_stack(thread_args[i].mz);
 
 			/*
 			 * To achieve functionality like libc's clone()
@@ -1858,8 +1878,8 @@ long __export_restore_task(struct task_restore_args *args)
 			 */
 
 			RUN_CLONE_RESTORE_FN(ret, clone_flags, new_sp, parent_tid, thread_args, args->clone_restore_fn);
-			if (ret != thread_args[i].pid) {
-				pr_err("Unable to create a thread %d: %ld\n", thread_args[i].pid, ret);
+			if (ret != thread_args[i].pid[args->level-1]) {
+				pr_err("Unable to create a thread %d: %ld\n", thread_args[i].pid[args->level-1], ret);
 				sys_lseek(fd, 0, SEEK_SET);
 				last_pid_len = sys_read(fd, last_pid_buf, sizeof(last_pid_buf));
 				if (last_pid_len > 0) {
