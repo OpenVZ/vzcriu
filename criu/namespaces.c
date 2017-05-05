@@ -1798,7 +1798,7 @@ static int start_usernsd(void)
 {
 	int sk;
 
-	if (!(root_ns_mask & CLONE_NEWUSER))
+	if (!(root_ns_mask & (CLONE_NEWUSER | CLONE_NEWPID)))
 		return 0;
 
 	sk = start_unix_cred_daemon(&usernsd_pid, usernsd);
