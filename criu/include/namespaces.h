@@ -269,6 +269,7 @@ static inline int pid_ns_root_off(void)
 		return 1;
 	return 0;
 }
+extern int reserve_pid_ns_helpers(void);
 
 struct unsc_msg {
 	struct msghdr h;
