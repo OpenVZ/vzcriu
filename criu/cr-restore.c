@@ -1437,10 +1437,9 @@ static bool needs_prep_creds(struct pstree_item *item)
 	return (!item->parent && ((root_ns_mask & CLONE_NEWUSER) || getuid()));
 }
 
-static int set_next_pid(void *arg)
+int __set_next_pid(pid_t pid)
 {
 	char buf[32];
-	pid_t *pid = arg;
 	int len;
 	int fd;
 
@@ -1448,7 +1447,7 @@ static int set_next_pid(void *arg)
 	if (fd < 0)
 		return -1;
 
-	len = snprintf(buf, sizeof(buf), "%d", *pid - 1);
+	len = snprintf(buf, sizeof(buf), "%d", pid - 1);
 	if (write(fd, buf, len) != len) {
 		pr_perror("Failed to write %s to /proc/%s",
 			buf, LAST_PID_PATH);
@@ -1457,6 +1456,19 @@ static int set_next_pid(void *arg)
 	}
 	close(fd);
 	return 0;
+}
+
+static int call_set_next_pid(void *arg)
+{
+	pid_t pid = *(pid_t *)arg;
+	return __set_next_pid(pid);
+}
+
+static int set_next_pid(struct ns_id *ns, struct pid *pid)
+{
+	if (pid->ns[0].virt == INIT_PID)
+		return 0;
+	return __set_next_pid(pid->ns[0].virt);
 }
 
 static inline int fork_with_pid(struct pstree_item *item)
@@ -1471,6 +1483,9 @@ static inline int fork_with_pid(struct pstree_item *item)
 		item->user_ns = current->user_ns;
 	else
 		item->user_ns = root_user_ns;
+
+	pid_ns = lookup_ns_by_id(item->ids->pid_ns_id, &pid_ns_desc);
+	BUG_ON(!pid_ns);
 
 	if (item->pid->state != TASK_HELPER) {
 		if (open_core(pid, &ca.core))
@@ -1509,9 +1524,6 @@ static inline int fork_with_pid(struct pstree_item *item)
 		rsti(item)->cg_set = rsti(item->parent)->cg_set;
 		ca.core = NULL;
 	}
-
-	if (item->ids)
-		pid_ns = lookup_ns_by_id(item->ids->pid_ns_id, &pid_ns_desc);
 
 	if (!current && pid_ns && pid_ns->ext_key)
 		external_pidns = true;
@@ -1558,9 +1570,9 @@ static inline int fork_with_pid(struct pstree_item *item)
 			 * so much easier and simpler. As long as CRIU supports
 			 * clone() this is needed.
 			 */
-			ret = call_in_child_process(set_next_pid, (void *)&pid);
+			ret = call_in_child_process(call_set_next_pid, (void *)&pid);
 		} else {
-			ret = set_next_pid((void *)&pid);
+			ret = set_next_pid(pid_ns, item->pid);
 		}
 		if (ret != 0) {
 			pr_err("Setting PID failed");
