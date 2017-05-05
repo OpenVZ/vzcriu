@@ -2006,51 +2006,62 @@ static void restore_sid(void)
 	BUG_ON(rsti(current)->curr_sid != vsid(current));
 }
 
-static void restore_pgid(void)
+/*
+ * Leader of process group should be alive to setpgrp to it's pgrp
+ * so we do restore_pgid when all task are already forked. We also
+ * need from our group leader to be setpgid to it's group pgid. As
+ * it is absolutely valid to have process group with it's leader
+ * living in a different group.
+ *
+ * FIXME
+ * We have a simple realization of pgid restore which works only
+ * if all processes which belong to a process group can "see" pgid
+ * leader. Cases where process with it's parent is in pidns from
+ * which one can't "see" the group leader and can only inherit pgid
+ * same as sid are not considered as for one process to get pgid in
+ * worst case we need to lock states of 3 more processes(e.g.: parent,
+ * grand parent and group leader should be in same session) that can
+ * lead to deadlocks.
+ */
+
+static int restore_pgid(void)
 {
-	/*
-	 * Unlike sessions, process groups (a.k.a. pgids) can be joined
-	 * by any task, provided the task with pid == pgid (group leader)
-	 * exists. Thus, in order to restore pgid we must make sure that
-	 * group leader was born and created the group, then join one.
-	 *
-	 * We do this _before_ finishing the forking stage to make sure
-	 * helpers are still with us.
-	 */
+	struct pstree_item *leader;
 
-	pid_t pgid, my_pgid = last_level_pid(current->pgid);
-
-	pr_info("Restoring %d to %d pgid\n", vpid(current), my_pgid);
-
-	pgid = getpgrp();
-	if (my_pgid == pgid)
-		return;
-
-	if (my_pgid != last_level_pid(current->pid)) {
-		struct pstree_item *leader;
-
-		/*
-		 * Wait for leader to become such.
-		 * Missing leader means we're going to crtools
-		 * group (-j option).
-		 */
-
-		leader = rsti(current)->pgrp_leader;
-		if (leader) {
-			BUG_ON(vpgid(current) != vpid(leader));
-			futex_wait_until(&rsti(leader)->pgrp_set, 1);
-		}
+	/* inheriting external process group */
+	if (opts.shell_job && !is_session_leader(root_item) &&
+	    !is_group_leader(root_item) &&
+	    vpgid(root_item) == vpgid(current)) {
+		BUG_ON(rsti(current)->curr_pgid != vpgid(current));
+		return 0;
 	}
 
-	pr_info("\twill call setpgid, mine pgid is %d\n", pgid);
-	if (set_pgid(current, vpgid(current))) {
-		pr_perror("Can't restore pgid (%d/%d->%d)", vpid(current), pgid, vpgid(current));
-		exit(1);
-	}
-	rsti(current)->curr_pgid = vpid(current);
-
-	if (my_pgid == last_level_pid(current->pid))
+	/* Setup the leader to be a leader */
+	if (futex_get(&rsti(current)->pgrp_member_cnt)) {
+		if (rsti(current)->curr_pgid != vpid(current))
+			if (set_pgid(current, vpid(current)))
+				return 1;
 		futex_set_and_wake(&rsti(current)->pgrp_set, 1);
+		futex_wait_until(&rsti(current)->pgrp_member_cnt, 0);
+	}
+
+	leader = pstree_item_by_virt(vpgid(current));
+	BUG_ON(!leader || leader->pid->state == TASK_UNDEF);
+
+	/* Set the right pgid */
+	if (rsti(current)->curr_pgid != vpgid(current)) {
+		if (current != leader)
+			futex_wait_until(&rsti(leader)->pgrp_set, 1);
+		if (set_pgid(current, vpgid(current)))
+			return 1;
+	}
+
+	if (current != leader && !is_session_leader(leader)) {
+		futex_dec_and_wake(&rsti(leader)->pgrp_member_cnt);
+		BUG_ON(futex_get(&rsti(leader)->pgrp_member_cnt) < 0);
+	}
+
+	return 0;
 }
 
 static int __legacy_mount_proc(void)
@@ -2392,7 +2403,8 @@ static int restore_task_with_children(void *_arg)
 	if (unmap_guard_pages(current))
 		goto err;
 
-	restore_pgid();
+	if (restore_pgid())
+		goto err;
 
 	if (current->parent == NULL) {
 		/*
