@@ -33,6 +33,7 @@
 
 #include "protobuf.h"
 #include "util.h"
+#include "util-pie.h"
 #include "images/ns.pb-c.h"
 #include "images/pidns.pb-c.h"
 #include "common/scm.h"
@@ -1598,6 +1599,50 @@ void unsc_msg_pid_fd(struct unsc_msg *um, pid_t *pid, int *fd)
 	} else {
 		*fd = -1;
 	}
+}
+
+static int usernsd_recv_transport(void *arg, int fd, pid_t pid)
+{
+	fd = dup(fd);
+	if (fd < 0) {
+		pr_perror("Unable to duplicate a file descriptor");
+		return -1;
+	}
+
+	if (install_service_fd(TRANSPORT_FD_OFF, fd) < 0) {
+		pr_perror("Can't install transport fd");
+		close(fd);
+		return -1;
+	}
+
+	return 0;
+}
+
+int prep_usernsd_transport()
+{
+	struct sockaddr_un addr;
+	int transport_fd, ret;
+	socklen_t len;
+
+	transport_fd = socket(AF_UNIX, SOCK_DGRAM, 0);
+	if (transport_fd < 0) {
+		pr_perror("Can't create transport socket");
+		return -1;
+	}
+
+	addr.sun_family = AF_UNIX;
+	snprintf(addr.sun_path, UNIX_PATH_MAX, "x/criu-usernsd");
+	len = SUN_LEN(&addr);
+	*addr.sun_path = '\0';
+
+	if (bind(transport_fd, (struct sockaddr *)&addr, len) < 0) {
+		pr_perror("Can't bind transport sock");
+		close(transport_fd);
+		return -1;
+	}
+	ret = userns_call(usernsd_recv_transport, 0, NULL, 0, transport_fd);
+	close(transport_fd);
+	return ret;
 }
 
 static int usernsd(int sk)
