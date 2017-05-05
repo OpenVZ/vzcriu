@@ -1558,18 +1558,15 @@ static inline int fork_with_pid(struct pstree_item *item)
 	ca.clone_flags = rsti(item)->clone_flags;
 
 	BUG_ON(ca.clone_flags & CLONE_VM);
+	BUG_ON(!!(ca.clone_flags & CLONE_NEWPID) != (last_level_pid(item->pid) == INIT_PID));
 
 	pr_info("Forking task with %d pid (flags 0x%lx)\n", pid, ca.clone_flags);
 
-	if (!(ca.clone_flags & CLONE_NEWPID)) {
-		lock_last_pid();
+	lock_last_pid();
 
-		if (set_next_pid(pid_ns, item->pid) < 0) {
-			pr_err("Can't set next pid\n");
-			goto err_unlock;
-		}
-	} else {
-		BUG_ON(pid != INIT_PID);
+	if (set_next_pid(pid_ns, item->pid) < 0) {
+		pr_err("Can't set next pid\n");
+		goto err_unlock;
 	}
 
 	close_pid_proc();
@@ -1588,8 +1585,7 @@ static inline int fork_with_pid(struct pstree_item *item)
 	}
 
 err_unlock:
-	if (!(ca.clone_flags & CLONE_NEWPID))
-		unlock_last_pid();
+	unlock_last_pid();
 	if (ca.core)
 		core_entry__free_unpacked(ca.core, NULL);
 	return ret;
