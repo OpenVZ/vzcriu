@@ -15,6 +15,7 @@
 #include <errno.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <sys/ptrace.h>
 
 #include "page.h"
 #include "rst-malloc.h"
@@ -25,6 +26,7 @@
 #include "mount.h"
 #include "pstree.h"
 #include "namespaces.h"
+#include "restore.h"
 #include "net.h"
 #include "cgroup.h"
 #include "fdstore.h"
@@ -1510,6 +1512,27 @@ static void unsc_msg_pid_fd(struct unsc_msg *um, pid_t *pid, int *fd)
 	}
 }
 
+static void usernsd_handler(int signal, siginfo_t *siginfo, void *data)
+{
+	pid_t pid = siginfo->si_pid;
+	int status;
+	int exit;
+
+	while (pid) {
+		pid = waitpid(-1, &status, WNOHANG);
+		if (pid <= 0)
+			return;
+
+		exit = WIFEXITED(status);
+		status = exit ? WEXITSTATUS(status) : WTERMSIG(status);
+		if (status) {
+			futex_abort_and_wake(&task_entries->nr_in_progress);
+			pr_err("%d finished abnormal\n", pid);
+		} else
+			pr_info("%d exited normally\n", pid);
+	}
+}
+
 static int usernsd(int sk)
 {
 	struct sockaddr_un addr;
@@ -1536,6 +1559,11 @@ static int usernsd(int sk)
 
 	if (install_service_fd(TRANSPORT_FD_OFF, transport_fd) < 0) {
 		pr_perror("Can't install transport fd\n");
+		return -1;
+	}
+
+	if (criu_signals_setup(usernsd_handler) < 0) {
+		pr_err("Can't setup handler\n");
 		return -1;
 	}
 
