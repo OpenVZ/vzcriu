@@ -15,6 +15,7 @@
 #include <errno.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <sys/ptrace.h>
 
 #include "page.h"
 #include "rst-malloc.h"
@@ -26,6 +27,7 @@
 #include "mount.h"
 #include "pstree.h"
 #include "namespaces.h"
+#include "restore.h"
 #include "net.h"
 #include "cgroup.h"
 #include "fdstore.h"
@@ -1580,6 +1582,20 @@ static void unsc_msg_pid_fd(struct unsc_msg *um, pid_t *pid, int *fd)
 	}
 }
 
+static void usernsd_handler(int signal, siginfo_t *siginfo, void *data)
+{
+	pid_t pid = siginfo->si_pid;
+	int status;
+
+	while (pid) {
+		pid = waitpid(-1, &status, WNOHANG);
+		if (pid <= 0)
+			return;
+
+		pr_err("%d finished unexpected: status=%d\n", pid, status);
+		futex_abort_and_wake(&task_entries->nr_in_progress);
+	}
+}
 
 static int usernsd_recv_transport(void *arg, int fd, pid_t pid)
 {
@@ -1628,6 +1644,11 @@ int prep_usernsd_transport()
 static int usernsd(int sk)
 {
 	pr_info("uns: Daemon started\n");
+
+	if (criu_signals_setup(usernsd_handler) < 0) {
+		pr_err("Can't setup handler\n");
+		return -1;
+	}
 
 	while (1) {
 		struct unsc_msg um;
