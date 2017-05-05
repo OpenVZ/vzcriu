@@ -1425,7 +1425,7 @@ struct unsc_msg {
 	char c[CMSG_SPACE(sizeof(struct ucred)) + CMSG_SPACE(sizeof(int))];
 };
 
-static int usernsd_pid;
+int usernsd_pid;
 
 static inline void unsc_msg_init(struct unsc_msg *m, uns_call_t *c,
 		int *x, void *arg, size_t asize, int fd)
@@ -1653,7 +1653,7 @@ static int start_usernsd(void)
 	int sk[2];
 	int one = 1;
 
-	if (!(root_ns_mask & CLONE_NEWUSER))
+	if (!(root_ns_mask & (CLONE_NEWUSER|CLONE_NEWPID)))
 		return 0;
 
 	/*
