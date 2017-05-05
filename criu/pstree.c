@@ -1240,7 +1240,7 @@ static int prepare_pstree_kobj_ids(void)
 		/**
 		 * Only child reaper can clone with CLONE_NEWPID
 		 */
-		if (vpid(item) != INIT_PID)
+		if (last_level_pid(item->pid) != INIT_PID)
 			rsti(item)->clone_flags &= ~CLONE_NEWPID;
 
 		cflags &= CLONE_ALLNS;
