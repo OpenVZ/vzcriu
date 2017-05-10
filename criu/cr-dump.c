@@ -22,6 +22,9 @@
 #include <sched.h>
 #include <sys/resource.h>
 
+#include <sys/time.h>
+#include <sys/resource.h>
+
 #include "types.h"
 #include "protobuf.h"
 #include "images/fdinfo.pb-c.h"
@@ -83,6 +86,42 @@
 #include "seize.h"
 #include "fault-injection.h"
 #include "dump.h"
+
+struct rlim_ctl {
+	struct rlimit		old_rlimit;
+	struct rlimit		new_rlimit;
+	bool			unlimited;
+};
+
+static int rlimit_unlimit_nofile(pid_t pid, struct rlim_ctl *ctl)
+{
+	ctl->new_rlimit.rlim_cur = kdat.sysctl_nr_open;
+	ctl->new_rlimit.rlim_max = kdat.sysctl_nr_open;
+
+	if (prlimit(pid, RLIMIT_NOFILE, &ctl->new_rlimit, &ctl->old_rlimit)) {
+		pr_perror("rlimir: Can't setup RLIMIT_NOFILE for %d", pid);
+		return -1;
+	} else
+		pr_debug("rlimit: RLIMIT_NOFILE unlimited for %d\n", pid);
+
+	ctl->unlimited = true;
+	return 0;
+}
+
+static int rlimit_limit_nofile(pid_t pid, struct rlim_ctl *ctl)
+{
+	if (!ctl->unlimited)
+		return 0;
+
+	if (prlimit(pid, RLIMIT_NOFILE, &ctl->old_rlimit, NULL)) {
+		pr_perror("rlimir: Can't restore RLIMIT_NOFILE for %d", pid);
+		return -1;
+	} else
+		pr_debug("rlimit: RLIMIT_NOFILE restored for %d\n", pid);
+
+	ctl->unlimited = false;
+	return 0;
+}
 
 typedef struct {
 	const char	*name;
@@ -1415,6 +1454,8 @@ static int pre_dump_one_task(struct pstree_item *item, InventoryEntry *parent_ie
 	struct parasite_dump_misc misc;
 	struct mem_dump_ctl mdc;
 
+	struct rlim_ctl rlim_ctl = { };
+
 	INIT_LIST_HEAD(&vmas.h);
 	vmas.nr = 0;
 
@@ -1435,6 +1476,8 @@ static int pre_dump_one_task(struct pstree_item *item, InventoryEntry *parent_ie
 		pr_err("Collect mappings (pid: %d) failed with %d\n", pid, ret);
 		goto err;
 	}
+
+	rlimit_unlimit_nofile(pid, &rlim_ctl);
 
 	ret = -1;
 	parasite_ctl = parasite_infect_seized(pid, item, &vmas);
@@ -1477,6 +1520,7 @@ static int pre_dump_one_task(struct pstree_item *item, InventoryEntry *parent_ie
 err_free:
 	free_mappings(&vmas);
 err:
+	rlimit_limit_nofile(pid, &rlim_ctl);
 	return ret;
 
 err_cure:
@@ -1496,6 +1540,8 @@ static int dump_one_task(struct pstree_item *item, InventoryEntry *parent_ie)
 	struct parasite_drain_fd *dfds = NULL;
 	struct proc_posix_timers_stat proc_args;
 	struct mem_dump_ctl mdc;
+
+	struct rlim_ctl rlim_ctl = { };
 
 	INIT_LIST_HEAD(&vmas.h);
 	vmas.nr = 0;
@@ -1548,6 +1594,8 @@ static int dump_one_task(struct pstree_item *item, InventoryEntry *parent_ie)
 		pr_err("Dump %d signals failed %d\n", pid, ret);
 		goto err;
 	}
+
+	rlimit_unlimit_nofile(pid, &rlim_ctl);
 
 	parasite_ctl = parasite_infect_seized(pid, item, &vmas);
 	if (!parasite_ctl) {
@@ -1652,6 +1700,8 @@ static int dump_one_task(struct pstree_item *item, InventoryEntry *parent_ie)
 		goto err_cure;
 	}
 
+	rlimit_limit_nofile(pid, &rlim_ctl);
+
 	ret = dump_task_core_all(parasite_ctl, item, &pps_buf, cr_imgset);
 	if (ret) {
 		pr_err("Dump core (pid: %d) failed with %d\n", pid, ret);
@@ -1697,6 +1747,7 @@ err:
 	close_pid_proc();
 	free_mappings(&vmas);
 	xfree(dfds);
+	rlimit_limit_nofile(pid, &rlim_ctl);
 	return exit_code;
 
 err_cure:
