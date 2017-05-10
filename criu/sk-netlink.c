@@ -178,7 +178,7 @@ static int dump_one_netlink_fd(int lfd, u32 id, const struct fd_parms *p)
 	if (dump_socket_opts(lfd, &skopts))
 		goto err;
 
-	if (kdat.has_nl_repair && dump_sk_queue(lfd, id, true))
+	if (kdat.has_nl_repair && dump_sk_queue(lfd, id, SK_QUEUE_DUMP_ADDR))
 		goto err;
 
 	if (pb_write_one(img_from_set(glob_imgset, CR_FD_NETLINK_SK), &ne, PB_NETLINK_SK))
