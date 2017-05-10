@@ -9,6 +9,7 @@
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/sendfile.h>
+#include <linux/socket.h>
 
 #include "common/list.h"
 #include "imgset.h"
@@ -82,7 +83,7 @@ static int dump_packet_cmsg(struct msghdr *mh, SkPacketEntry *pe)
 	return 0;
 }
 
-int dump_sk_queue(int sock_fd, int sock_id)
+int dump_sk_queue(int sock_fd, int sock_id, bool dump_addr)
 {
 	SkPacketEntry pe = SK_PACKET_ENTRY__INIT;
 	int ret, size, orig_peek_off;
@@ -133,6 +134,7 @@ int dump_sk_queue(int sock_fd, int sock_id)
 
 	while (1) {
 		char cmsg[CMSG_MAX_SIZE];
+		unsigned char addr[_K_SS_MAXSIZE];
 		struct iovec iov = {
 			.iov_base	= data,
 			.iov_len	= size,
@@ -143,6 +145,11 @@ int dump_sk_queue(int sock_fd, int sock_id)
 			.msg_control	= &cmsg,
 			.msg_controllen	= sizeof(cmsg),
 		};
+
+		if (dump_addr) {
+			msg.msg_name	= addr;
+			msg.msg_namelen	= _K_SS_MAXSIZE;
+		}
 
 		ret = pe.length = recvmsg(sock_fd, &msg, MSG_DONTWAIT | MSG_PEEK);
 		if (!ret)
@@ -169,6 +176,12 @@ int dump_sk_queue(int sock_fd, int sock_id)
 
 		if (dump_packet_cmsg(&msg, &pe))
 			goto err_set_sock;
+
+		if (msg.msg_namelen) {
+			pe.has_addr = true;
+			pe.addr.data = addr;
+			pe.addr.len = msg.msg_namelen;
+		}
 
 		ret = pb_write_one(img_from_set(glob_imgset, CR_FD_SK_QUEUES), &pe, PB_SK_QUEUES);
 		if (ret < 0) {
@@ -214,6 +227,14 @@ int restore_sk_queue(int fd, unsigned int peer_id)
 
 	list_for_each_entry_safe(pkt, tmp, &packets_list, list) {
 		SkPacketEntry *entry = pkt->entry;
+		struct iovec iov = {
+			.iov_base	= pkt->data,
+			.iov_len	= entry->length,
+		};
+		struct msghdr msg = {
+			.msg_iov	= &iov,
+			.msg_iovlen	= 1,
+		};
 
 		if (entry->id_for != peer_id)
 			continue;
@@ -229,8 +250,12 @@ int restore_sk_queue(int fd, unsigned int peer_id)
 		 * boundaries messages should be saved.
 		 */
 
-		ret = write(fd, pkt->data, entry->length);
-		xfree(pkt->data);
+		if (entry->has_addr) {
+			msg.msg_name = entry->addr.data;
+			msg.msg_namelen = entry->addr.len;
+		}
+
+		ret = sendmsg(fd, &msg, 0);
 		if (ret < 0) {
 			pr_perror("Failed to send packet");
 			goto err;
