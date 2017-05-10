@@ -34,13 +34,12 @@ if [ ! -x $NS_ENTER ]; then
 	exit 2
 fi
 
-JOIN_CT="$NS_ENTER -t $CRTOOLS_INIT_PID -m -u -p -n"
+JOIN_CT="$NS_ENTER -t $CRTOOLS_INIT_PID -m -u -p"
 
 # Skip container, if it's not systemd based
 [ "$($JOIN_CT basename -- $($JOIN_CT readlink /proc/1/exe))" == "systemd" ] || exit 0
 
-AUTOFS_SERVICES="$($JOIN_CT systemctl --no-legend  -t automount \
-	 --state=active list-units | awk '{ print $1 }')"
+AUTOFS_SERVICES="proc-sys-fs-binfmt_misc.automount"
 
 bindmount=""
 
@@ -164,7 +163,13 @@ function restart_service {
 }
 
 for service in $AUTOFS_SERVICES; do
-	restart_service $service
+	status=$($JOIN_CT systemctl is-active $service)
+
+	if [ $status == "active" ]; then
+		restart_service $service
+	else
+		echo "$service skipped ($status)"
+	fi
 done
 
 exit 0

@@ -12,7 +12,6 @@
 #include <stdint.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>  /* for sockaddr_in and inet_ntoa() */
-#include <linux/netlink.h>
 
 #include "int.h"
 #include "log.h"
@@ -27,9 +26,9 @@
 #include "lsm.h"
 #include "proc_parse.h"
 #include "config.h"
-#include "syscall-codes.h"
 #include "sk-inet.h"
-#include "sockets.h"
+#include <compel/plugins/std/syscall-codes.h>
+#include <compel/compel.h>
 
 struct kerndat_s kdat = {
 };
@@ -144,40 +143,6 @@ static void kerndat_mmap_min_addr(void)
 
 	pr_debug("Found mmap_min_addr %#lx\n",
 		 (unsigned long)kdat.mmap_min_addr);
-}
-
-static int kerndat_files_stat(void)
-{
-	uint64_t max_files;
-	uint32_t nr_open;
-
-	struct sysctl_req req[] = {
-		{
-			.name	= "fs/file-max",
-			.arg	= &max_files,
-			.type	= CTL_U64,
-		},
-		{
-			.name	= "fs/nr_open",
-			.arg	= &nr_open,
-			.type	= CTL_U32,
-		},
-	};
-
-	if (sysctl_op(req, ARRAY_SIZE(req), CTL_READ, 0)) {
-		pr_warn("Can't fetch file_stat, using kernel defaults\n");
-		nr_open = 1024 * 1024;
-		max_files = 8192;
-	}
-
-	kdat.sysctl_nr_open = nr_open;
-	kdat.files_stat_max_files = max_files;
-
-	pr_debug("files stat: %s %lu, %s %u\n",
-		 req[0].name, kdat.files_stat_max_files,
-		 req[1].name, kdat.sysctl_nr_open);
-
-	return 0;
 }
 
 static int kerndat_get_shmemdev(void)
@@ -329,9 +294,8 @@ int kerndat_get_dirty_track(void)
 		goto no_dt;
 
 	ret = -1;
-	pm2 = open("/proc/self/pagemap", O_RDONLY);
+	pm2 = open_proc(PROC_SELF, "pagemap");
 	if (pm2 < 0) {
-		pr_perror("Can't open pagemap file");
 		munmap(map, PAGE_SIZE);
 		return ret;
 	}
@@ -422,7 +386,7 @@ static bool kerndat_has_memfd_create(void)
 
 static int get_task_size(void)
 {
-	kdat.task_size = task_size();
+	kdat.task_size = compel_task_size();
 	pr_debug("Found task size of %lx\n", kdat.task_size);
 	return 0;
 }
@@ -432,11 +396,9 @@ int kerndat_fdinfo_has_lock()
 	int fd, pfd = -1, exit_code = -1, len;
 	char buf[PAGE_SIZE];
 
-	fd = open("/proc/locks", O_RDONLY);
-	if (fd < 0) {
-		pr_perror("Unable to open /proc/locks");
+	fd = open_proc(PROC_GEN, "locks");
+	if (fd < 0)
 		return -1;
-	}
 
 	if (flock(fd, LOCK_SH)) {
 		pr_perror("Can't take a lock");
@@ -593,27 +555,13 @@ err:
 	return exit_code;
 }
 
-int kerndat_nl_repair()
+static int kerndat_compat_restore(void)
 {
-	int sk, val = 1;
+	int ret = kdat_compat_sigreturn_test();
 
-	sk = socket(AF_NETLINK, SOCK_DGRAM, 0);
-	if (sk < 0) {
-		pr_perror("Unable to create a netlink socket");
-		return -1;
-	}
-
-	if (setsockopt(sk, SOL_NETLINK, NETLINK_REPAIR, &val, sizeof(val))) {
-		if (errno != ENOPROTOOPT) {
-			pr_perror("Unable to set NETLINK_REPAIR");
-			close(sk);
-			return -1;
-		}
-		kdat.has_nl_repair = false;
-	} else
-		kdat.has_nl_repair = true;
-	close(sk);
-
+	if (ret < 0) /* failure */
+		return ret;
+	kdat.has_compat_sigreturn = !!ret;
 	return 0;
 }
 
@@ -643,11 +591,10 @@ int kerndat_init(void)
 	if (!ret)
 		ret = kerndat_tcp_repair();
 	if (!ret)
-		ret = kerndat_nl_repair();
+		ret = kerndat_compat_restore();
 
 	kerndat_lsm();
 	kerndat_mmap_min_addr();
-	kerndat_files_stat();
 
 	return ret;
 }
@@ -678,11 +625,10 @@ int kerndat_init_rst(void)
 	if (!ret)
 		ret = kerndat_tcp_repair();
 	if (!ret)
-		ret = kerndat_nl_repair();
+		ret = kerndat_compat_restore();
 
 	kerndat_lsm();
 	kerndat_mmap_min_addr();
-	kerndat_files_stat();
 
 	return ret;
 }
@@ -692,6 +638,8 @@ int kerndat_init_cr_exec(void)
 	int ret;
 
 	ret = get_task_size();
+	if (!ret)
+		ret = kerndat_compat_restore();
 
 	return ret;
 }

@@ -66,6 +66,16 @@ int log_get_fd(void)
 	return fd < 0 ? DEFAULT_LOGFD : fd;
 }
 
+void log_get_logstart(struct timeval *s)
+{
+	if (current_loglevel >= LOG_TIMESTAMP)
+		*s = start;
+	else {
+		s->tv_sec = 0;
+		s->tv_usec = 0;
+	}
+}
+
 static void reset_buf_off(void)
 {
 	if (current_loglevel >= LOG_TIMESTAMP)
@@ -191,10 +201,7 @@ void log_fini(void)
 
 void log_set_loglevel(unsigned int level)
 {
-	if (level == LOG_UNSET)
-		current_loglevel = DEFAULT_LOGLEVEL;
-	else
-		current_loglevel = level;
+	current_loglevel = level;
 }
 
 unsigned int log_get_loglevel(void)
@@ -202,7 +209,7 @@ unsigned int log_get_loglevel(void)
 	return current_loglevel;
 }
 
-static void __print_on_level(unsigned int loglevel, const char *format, va_list params)
+void vprint_on_level(unsigned int loglevel, const char *format, va_list params)
 {
 	int fd, size, ret, off = 0;
 	int __errno = errno;
@@ -239,7 +246,7 @@ void print_on_level(unsigned int loglevel, const char *format, ...)
 	va_list params;
 
 	va_start(params, format);
-	__print_on_level(loglevel, format, params);
+	vprint_on_level(loglevel, format, params);
 	va_end(params);
 }
 

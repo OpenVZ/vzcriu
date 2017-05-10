@@ -20,7 +20,6 @@ struct file_desc;
 struct cr_imgset;
 struct rst_info;
 struct parasite_ctl;
-struct parasite_drain_fd;
 
 struct fd_link {
 	union {
@@ -51,7 +50,6 @@ struct fd_parms {
 	int		mnt_id;
 
 	struct parasite_ctl *fd_ctl;
-	struct parasite_drain_fd *dfds;
 };
 
 #define FD_PARMS_INIT			\
@@ -76,7 +74,6 @@ struct fdinfo_list_entry {
 	struct list_head	desc_list;	/* To chain on  @fd_info_head */
 	struct file_desc	*desc;		/* Associated file descriptor */
 	struct list_head	ps_list;	/* To chain  per-task files */
-	struct list_head	used_list;	/* To chain per-task used fds */
 	int			pid;
 	FdinfoEntry		*fe;
 	u8			received:1;
@@ -119,8 +116,8 @@ struct file_desc_ops {
 
 void collect_task_fd(struct fdinfo_list_entry *new_fle, struct rst_info *ri);
 
-unsigned int find_unused_fd(struct list_head *head, int hint_fd);
-struct fdinfo_list_entry *find_used_fd(struct list_head *head, int fd);
+unsigned int find_unused_fd(struct pstree_item *, int hint_fd);
+struct fdinfo_list_entry *find_used_fd(struct pstree_item *, int fd);
 
 struct file_desc {
 	u32			id;		/* File id, unique */

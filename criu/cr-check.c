@@ -38,7 +38,7 @@
 #include "proc_parse.h"
 #include "mount.h"
 #include "tty.h"
-#include "ptrace.h"
+#include <compel/ptrace.h>
 #include "ptrace-compat.h"
 #include "kerndat.h"
 #include "timerfd.h"
@@ -49,6 +49,7 @@
 #include "cr_options.h"
 #include "libnetlink.h"
 #include "net.h"
+#include "restorer.h"
 
 static char *feature_name(int (*func)());
 
@@ -243,11 +244,9 @@ static int check_fcntl(void)
 	u32 v[2];
 	int fd;
 
-	fd = open("/proc/self/comm", O_RDONLY);
-	if (fd < 0) {
-		pr_perror("Can't open self comm file");
+	fd = open_proc(PROC_SELF, "comm");
+	if (fd < 0)
 		return -1;
-	}
 
 	if (fcntl(fd, F_GETOWNER_UIDS, (long)v)) {
 		pr_perror("Can'r fetch file owner UIDs");
@@ -725,11 +724,9 @@ static unsigned long get_ring_len(unsigned long addr)
 	FILE *maps;
 	char buf[256];
 
-	maps = fopen("/proc/self/maps", "r");
-	if (!maps) {
-		pr_perror("No maps proc file");
+	maps = fopen_proc(PROC_SELF, "maps");
+	if (!maps)
 		return 0;
-	}
 
 	while (fgets(buf, sizeof(buf), maps)) {
 		unsigned long start, end;
@@ -1025,17 +1022,45 @@ static int check_tcp_window(void)
 	return 0;
 }
 
-static int check_nl_repair(void)
+static int check_userns(void)
 {
-	if (kerndat_nl_repair() < 0)
-		return -1;
+	int ret;
+	unsigned long size = 0;
 
-	if (!kdat.has_nl_repair) {
-		pr_warn("NETLINK_REPAIR isn't supported.\n");
+	ret = access("/proc/self/ns/user", F_OK);
+	if (ret) {
+		pr_perror("No userns proc file");
+		return -1;
+	}
+
+	ret = prctl(PR_SET_MM, PR_SET_MM_MAP_SIZE, (unsigned long)&size, 0, 0);
+	if (ret < 0) {
+		pr_perror("prctl: PR_SET_MM_MAP_SIZE is not supported");
 		return -1;
 	}
 
 	return 0;
+}
+
+static int check_loginuid(void)
+{
+	if (kerndat_loginuid(false) < 0)
+		return -1;
+
+	if (!kdat.has_loginuid) {
+		pr_warn("Loginuid restore is OFF.\n");
+		return -1;
+	}
+
+	return 0;
+}
+
+static int check_compat_cr(void)
+{
+	if (kdat_compat_sigreturn_test())
+		return 0;
+	pr_warn("compat_cr is not supported. Requires kernel >= v4.9\n");
+	return -1;
 }
 
 static int (*chk_feature)(void);
@@ -1075,7 +1100,7 @@ int cr_check(void)
 	if (root_item == NULL)
 		return -1;
 
-	root_item->pid.real = getpid();
+	root_item->pid->real = getpid();
 
 	if (collect_pstree_ids())
 		return -1;
@@ -1139,6 +1164,8 @@ int cr_check(void)
 		ret |= check_cgroupns();
 		ret |= check_tcp_window();
 		ret |= check_tcp_halt_closed();
+		ret |= check_userns();
+		ret |= check_loginuid();
 	}
 
 	/*
@@ -1146,7 +1173,7 @@ int cr_check(void)
 	 */
 	if (opts.check_experimental_features) {
 		ret |= check_autofs();
-		ret |= check_nl_repair();
+		ret |= check_compat_cr();
 	}
 
 	print_on_level(DEFAULT_LOGLEVEL, "%s\n", ret ? CHECK_MAYBE : CHECK_GOOD);
@@ -1168,39 +1195,6 @@ static int check_tun(void)
 	return check_tun_cr(-1);
 }
 
-static int check_userns(void)
-{
-	int ret;
-	unsigned long size = 0;
-
-	ret = access("/proc/self/ns/user", F_OK);
-	if (ret) {
-		pr_perror("No userns proc file");
-		return -1;
-	}
-
-	ret = prctl(PR_SET_MM, PR_SET_MM_MAP_SIZE, (unsigned long)&size, 0, 0);
-	if (ret < 0) {
-		pr_perror("prctl: PR_SET_MM_MAP_SIZE is not supported");
-		return -1;
-	}
-
-	return 0;
-}
-
-static int check_loginuid(void)
-{
-	if (kerndat_loginuid(false) < 0)
-		return -1;
-
-	if (!kdat.has_loginuid) {
-		pr_warn("Loginuid restore is OFF.\n");
-		return -1;
-	}
-
-	return 0;
-}
-
 struct feature_list {
 	char *name;
 	int (*func)();
@@ -1220,7 +1214,7 @@ static struct feature_list feature_list[] = {
 	{ "cgroupns", check_cgroupns },
 	{ "autofs", check_autofs },
 	{ "tcp_half_closed", check_tcp_halt_closed },
-	{ "nl_repair", check_nl_repair },
+	{ "compat_cr", check_compat_cr },
 	{ NULL, NULL },
 };
 

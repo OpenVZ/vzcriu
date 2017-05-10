@@ -4,14 +4,6 @@ import "opts.proto";
 import "fown.proto";
 import "sk-opts.proto";
 
-message nl_sk_opts_entry {
-	required bool			pktinfo		= 1;
-	required bool			broadcast_error = 2;
-	required bool			no_enobufs	= 3;
-	required bool			listen_all_nsid	= 4;
-	required bool			cap_ack		= 5;
-}
-
 message netlink_sk_entry {
 	required uint32			id		=  1;
 	required uint32			ino		=  2;
@@ -24,5 +16,4 @@ message netlink_sk_entry {
 	required uint32			dst_group	=  10;
 	required fown_entry		fown		=  11;
 	required sk_opts_entry		opts		=  12;
-	optional nl_sk_opts_entry	nl_opts		=  14;
 }

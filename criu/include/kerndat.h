@@ -1,6 +1,8 @@
 #ifndef __CR_KERNDAT_H__
 #define __CR_KERNDAT_H__
 
+#include "int.h"
+
 struct stat;
 
 /*
@@ -29,16 +31,14 @@ struct kerndat_s {
 	bool has_dirty_track;
 	bool has_memfd;
 	bool has_fdinfo_lock;
-	bool has_nl_repair;
 	unsigned long task_size;
 	bool ipv6;
 	bool has_loginuid;
+	bool has_compat_sigreturn;
 	enum pagemap_func pmap;
 	unsigned int has_xtlocks;
 	unsigned long mmap_min_addr;
 	bool has_tcp_half_closed;
-	unsigned int sysctl_nr_open;
-	unsigned long files_stat_max_files;
 };
 
 extern struct kerndat_s kdat;
@@ -60,6 +60,5 @@ enum {
 extern int kerndat_fs_virtualized(unsigned int which, u32 kdev);
 
 extern int kerndat_tcp_repair();
-extern int kerndat_nl_repair();
 
 #endif /* __CR_KERNDAT_H__ */

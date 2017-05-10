@@ -34,7 +34,6 @@
 #include <netinet/tcp.h>
 #include <sched.h>
 #include <ctype.h>
-#include <libgen.h>
 
 #include "bitops.h"
 #include "page.h"
@@ -691,6 +690,21 @@ out:
 	return ret;
 }
 
+int close_status_fd(void)
+{
+	char c = 0;
+
+	if (opts.status_fd < 0)
+		return 0;
+
+	if (write(opts.status_fd, &c, 1) != 1) {
+		pr_perror("Unable to write into the status fd");
+		return -1;
+	}
+
+	return close_safe(&opts.status_fd);
+}
+
 int cr_daemon(int nochdir, int noclose, int *keep_fd, int close_fd)
 {
 	int pid;
@@ -845,66 +859,6 @@ int mkdirpat(int fd, const char *path, int mode)
 	}
 
 	return 0;
-}
-
-/*
- * Remove directory @path together with parents,
- * keeping @keep len of path if provided. Directories
- * must be empty of course.
- */
-int rmdirp(const char *path, size_t keep)
-{
-	char made_path[PATH_MAX], *pos;
-	size_t len = strlen(path);
-	int ret;
-
-	if (len >= PATH_MAX) {
-		pr_err("path %s is longer than PATH_MAX\n", path);
-		return -ENOSPC;
-	}
-
-	/* Nothing to do */
-	if (len <= keep)
-		return 0;
-
-	strcpy(made_path, path);
-
-	for (pos = strrchr(made_path, '/');
-	     pos && (pos - made_path) >= keep;
-	     pos = strrchr(made_path, '/')) {
-		ret = rmdir(made_path);
-
-		if (ret < 0 && errno != ENOENT) {
-			ret = -errno;
-			pr_perror("Can't delete %s", made_path);
-			goto out;
-		}
-		*pos = '\0';
-	}
-
-	ret = 0;
-out:
-	return ret;
-}
-
-int mkdirname(const char *path, int mode)
-{
-	int err;
-	char *dpath, *dirc;
-
-	dirc = strdup(path);
-	if (!dirc) {
-		pr_err("failed to duplicate string\n");
-		return -ENOMEM;
-	}
-
-	dpath = dirname(dirc);
-
-	err = mkdirpat(AT_FDCWD, dpath, mode);
-
-	free(dirc);
-
-	return err;
 }
 
 bool is_path_prefix(const char *path, const char *prefix)
@@ -1216,6 +1170,9 @@ int run_tcp_server(bool daemon_mode, int *ask, int cfd, int sk)
 		}
 	}
 
+	if (close_status_fd())
+		return -1;
+
 	if (sk >= 0) {
 		ret = *ask = accept(sk, (struct sockaddr *)&caddr, &clen);
 		if (*ask < 0)
@@ -1256,69 +1213,4 @@ int setup_tcp_client(char *addr)
 	}
 
 	return sk;
-}
-
-/*
- * When reading symlinks via /proc/$pid/root/
- * we should make sure the path resolving is done
- * via root as toplevel root, otherwive path
- * may be screwed.
- *
- * IOW, for any path resolving via /proc/$pid/root
- * use this helper, and call cr_restore_root once
- * you're done.
- */
-int cr_set_root(int fd, int *old_root)
-{
-	int errno_save = errno;
-	int cwd = -1, old = -1;
-
-	if (old_root) {
-		old = open("/", O_PATH);
-		if (old < 0) {
-			pr_perror("Unable to open /");
-			return -1;
-		}
-	}
-
-	cwd = open(".", O_PATH);
-	if (cwd < 0)
-		goto err;
-
-	/* implement fchroot() */
-	if (fchdir(fd)) {
-		pr_perror("Unable to chdir");
-		goto err;
-	}
-	if (chroot(".")) {
-		pr_perror("Unable to chroot");
-		goto err;
-	}
-	if (fchdir(cwd)) {
-		pr_perror("Unable to restore cwd\n");
-		goto err;
-	}
-
-	close(cwd);
-
-	if (old_root)
-		*old_root = old;
-
-	errno = errno_save;
-	return 0;
-err:
-	close_safe(&cwd);
-	close_safe(&old);
-	errno = errno_save;
-	return -1;
-}
-
-int cr_restore_root(int root)
-{
-	int ret;
-
-	ret = cr_set_root(root, NULL);
-	close(root);
-
-	return ret;
 }

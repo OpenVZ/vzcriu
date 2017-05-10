@@ -11,13 +11,13 @@
 #include "pipes.h"
 #include "util-pie.h"
 #include "autofs.h"
-#include "namespaces.h"
 
 #include "protobuf.h"
 #include "util.h"
 #include "images/pipe.pb-c.h"
 #include "images/pipe-data.pb-c.h"
 #include "fcntl.h"
+#include "namespaces.h"
 
 static LIST_HEAD(pipes);
 
@@ -143,25 +143,6 @@ static int mark_pipe_master(void *unused)
 
 static struct pipe_data_rst *pd_hash_pipes[PIPE_DATA_HASH_SIZE];
 
-typedef struct {
-	unsigned int	pipe_id;
-	size_t		size;
-} pipe_set_size_arg_t;
-
-static int pipe_set_size(void *arg, int fd, int pid)
-{
-	pipe_set_size_arg_t *p = arg;
-
-	pr_info("Restoring size %#zx for %#x\n", p->size, p->pipe_id);
-
-	if (fcntl(fd, F_SETPIPE_SZ, p->size) < 0) {
-		pr_perror("Can't restore pipe size");
-		return -1;
-	}
-
-	return 0;
-}
-
 int restore_pipe_data(int img_type, int pfd, u32 id, struct pipe_data_rst **hash)
 {
 	int ret;
@@ -221,13 +202,29 @@ int restore_pipe_data(int img_type, int pfd, u32 id, struct pipe_data_rst **hash
 out:
 	ret = 0;
 	if (pd->pde->has_size) {
-		pipe_set_size_arg_t args = {
-			.pipe_id	= pd->pde->pipe_id,
-			.size		= (size_t)pd->pde->size,
-		};
-		ret = userns_call(pipe_set_size, UNS_ASYNC, &args, sizeof(args), pfd);
+		pr_info("Restoring size %#x for %#x\n",
+				pd->pde->size, pd->pde->pipe_id);
+		ret = fcntl(pfd, F_SETPIPE_SZ, pd->pde->size);
+		if (ret < 0)
+			pr_perror("Can't restore pipe size");
+		else
+			ret = 0;
 	}
 err:
+	return ret;
+}
+
+static int userns_reopen(void *_arg, int fd, pid_t pid)
+{
+	char path[PSFDS];
+	int ret, flags = *(int*)_arg;
+
+	sprintf(path, "/proc/self/fd/%d", fd);
+	ret = open(path, flags);
+	if (ret < 0)
+		pr_perror("Unable to reopen the pipe %s", path);
+	close(fd);
+
 	return ret;
 }
 
@@ -238,8 +235,14 @@ static int reopen_pipe(int fd, int flags)
 
 	sprintf(path, "/proc/self/fd/%d", fd);
 	ret = open(path, flags);
-	if (ret < 0)
-		pr_perror("Unable to reopen the pipe %s", path);
+	if (ret < 0) {
+		if (errno == EACCES) {
+			/* It may be an external pipe from an another userns */
+			ret = userns_call(userns_reopen, UNS_FDOUT,
+						&flags, sizeof(flags), fd);
+		} else
+			pr_perror("Unable to reopen the pipe %s", path);
+	}
 	close(fd);
 
 	return ret;
@@ -369,8 +372,9 @@ int collect_one_pipe_ops(void *o, ProtobufCMessage *base, struct file_desc_ops *
 			list_add(&pi->pipe_list, &tmp->pipe_list);
 	}
 
-	if (add_post_prepare_cb_once(mark_pipe_master, NULL))
-		return -1;
+	if (list_empty(&pipes))
+		if (add_post_prepare_cb(mark_pipe_master, NULL))
+			return -1;
 
 	list_add_tail(&pi->list, &pipes);
 

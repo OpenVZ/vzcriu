@@ -24,9 +24,10 @@
 #include <sys/sendfile.h>
 
 #include "types.h"
-#include "ptrace.h"
+#include <compel/ptrace.h>
 #include "common/compiler.h"
 
+#include "clone-noasan.h"
 #include "cr_options.h"
 #include "servicefd.h"
 #include "image.h"
@@ -46,7 +47,7 @@
 #include "eventpoll.h"
 #include "signalfd.h"
 #include "proc_parse.h"
-#include "restorer-blob.h"
+#include "pie/restorer-blob.h"
 #include "crtools.h"
 #include "namespaces.h"
 #include "mem.h"
@@ -69,16 +70,19 @@
 #include "file-lock.h"
 #include "action-scripts.h"
 #include "shmem.h"
+#include <compel/compel.h>
 #include "aio.h"
 #include "lsm.h"
 #include "seccomp.h"
 #include "fault-injection.h"
 #include "sk-queue.h"
 #include "sigframe.h"
-#include "spfs.h"
+#include "fdstore.h"
 
 #include "parasite-syscall.h"
 #include "files-reg.h"
+#include <compel/plugins/std/syscall-codes.h>
+#include "compel/include/asm/syscall.h"
 
 #include "protobuf.h"
 #include "images/sa.pb-c.h"
@@ -104,6 +108,7 @@
 
 #ifndef arch_export_unmap
 #define arch_export_unmap		__export_unmap
+#define arch_export_unmap_compat	__export_unmap_compat
 #endif
 
 struct pstree_item *current;
@@ -170,9 +175,6 @@ static struct collect_image_info *cinfos[] = {
 	&inotify_mark_cinfo,
 	&fanotify_cinfo,
 	&fanotify_mark_cinfo,
-	&tty_info_cinfo,
-	&tty_cinfo,
-	&tty_cdata,
 	&tunfile_cinfo,
 	&ext_file_cinfo,
 	&timerfd_cinfo,
@@ -180,6 +182,13 @@ static struct collect_image_info *cinfos[] = {
 	&pipe_data_cinfo,
 	&fifo_data_cinfo,
 	&sk_queues_cinfo,
+};
+
+/* These images are requered to restore namespaces */
+static struct collect_image_info *before_ns_cinfos[] = {
+	&tty_info_cinfo, /* Restore devpts content */
+	&tty_cinfo,
+	&tty_cdata,
 };
 
 struct post_prepare_cb {
@@ -222,9 +231,6 @@ static int root_prepare_shared(void)
 
 	pr_info("Preparing info about shared resources\n");
 
-	if (prepare_shared_tty())
-		return -1;
-
 	if (prepare_shared_reg_files())
 		return -1;
 
@@ -241,7 +247,7 @@ static int root_prepare_shared(void)
 	}
 
 	for_each_pstree_item(pi) {
-		if (pi->pid.state == TASK_HELPER)
+		if (pi->pid->state == TASK_HELPER)
 			continue;
 
 		ret = prepare_mm_pid(pi);
@@ -274,7 +280,15 @@ err:
 }
 
 static rt_sigaction_t sigchld_act;
+/*
+ * If parent's sigaction has blocked SIGKILL (which is non-sence),
+ * this parent action is non-valid and shouldn't be inherited.
+ * Used to mark parent_act* no more valid.
+ */
 static rt_sigaction_t parent_act[SIGMAX];
+#ifdef CONFIG_COMPAT
+static rt_sigaction_t_compat parent_act_compat[SIGMAX];
+#endif
 
 static bool sa_inherited(int sig, rt_sigaction_t *sa)
 {
@@ -286,6 +300,10 @@ static bool sa_inherited(int sig, rt_sigaction_t *sa)
 
 	pa = &parent_act[sig];
 
+	/* Omitting non-valid sigaction */
+	if (pa->rt_sa_mask.sig[0] & (1 << SIGKILL))
+		return false;
+
 	for (i = 0; i < _KNSIG_WORDS; i++)
 		if (pa->rt_sa_mask.sig[i] != sa->rt_sa_mask.sig[i])
 			return false;
@@ -295,34 +313,16 @@ static bool sa_inherited(int sig, rt_sigaction_t *sa)
 		pa->rt_sa_restorer == sa->rt_sa_restorer;
 }
 
-/* Returns number of restored signals, -1 or negative errno on fail */
-static int restore_one_sigaction(int sig, struct cr_img *img, int pid)
+static int restore_native_sigaction(int sig, SaEntry *e)
 {
 	rt_sigaction_t act;
-	SaEntry *e;
-	int ret = 0;
-
-	BUG_ON(sig == SIGKILL || sig == SIGSTOP);
-
-	ret = pb_read_one_eof(img, &e, PB_SIGACT);
-	if (ret == 0) {
-		if (sig != SIGMAX_OLD + 1) { /* backward compatibility */
-			pr_err("Unexpected EOF %d\n", sig);
-			return -1;
-		}
-		pr_warn("This format of sigacts-%d.img is deprecated\n", pid);
-		return -1;
-	}
-	if (ret < 0)
-		return ret;
+	int ret;
 
 	ASSIGN_TYPED(act.rt_sa_handler, decode_pointer(e->sigaction));
 	ASSIGN_TYPED(act.rt_sa_flags, e->flags);
 	ASSIGN_TYPED(act.rt_sa_restorer, decode_pointer(e->restorer));
 	BUILD_BUG_ON(sizeof(e->mask) != sizeof(act.rt_sa_mask.sig));
 	memcpy(act.rt_sa_mask.sig, &e->mask, sizeof(act.rt_sa_mask.sig));
-
-	sa_entry__free_unpacked(e, NULL);
 
 	if (sig == SIGCHLD) {
 		sigchld_act = act;
@@ -343,13 +343,119 @@ static int restore_one_sigaction(int sig, struct cr_img *img, int pid)
 	}
 
 	parent_act[sig - 1] = act;
+	/* Mark SIGKILL blocked which makes compat sigaction non-valid */
+#ifdef CONFIG_COMPAT
+	parent_act_compat[sig - 1].rt_sa_mask.sig[0] |= 1 << SIGKILL;
+#endif
 
 	return 1;
 }
 
+static void *stack32;
+
+#ifdef CONFIG_COMPAT
+static bool sa_compat_inherited(int sig, rt_sigaction_t_compat *sa)
+{
+	rt_sigaction_t_compat *pa;
+	int i;
+
+	if (current == root_item)
+		return false;
+
+	pa = &parent_act_compat[sig];
+
+	/* Omitting non-valid sigaction */
+	if (pa->rt_sa_mask.sig[0] & (1 << SIGKILL))
+		return false;
+
+	for (i = 0; i < _KNSIG_WORDS; i++)
+		if (pa->rt_sa_mask.sig[i] != sa->rt_sa_mask.sig[i])
+			return false;
+
+	return pa->rt_sa_handler == sa->rt_sa_handler &&
+		pa->rt_sa_flags == sa->rt_sa_flags &&
+		pa->rt_sa_restorer == sa->rt_sa_restorer;
+}
+
+static int restore_compat_sigaction(int sig, SaEntry *e)
+{
+	rt_sigaction_t_compat act;
+	int ret;
+
+	ASSIGN_TYPED(act.rt_sa_handler, (u32)e->sigaction);
+	ASSIGN_TYPED(act.rt_sa_flags, e->flags);
+	ASSIGN_TYPED(act.rt_sa_restorer, (u32)e->restorer);
+	BUILD_BUG_ON(sizeof(e->mask) != sizeof(act.rt_sa_mask.sig));
+	memcpy(act.rt_sa_mask.sig, &e->mask, sizeof(act.rt_sa_mask.sig));
+
+	if (sig == SIGCHLD) {
+		memcpy(&sigchld_act, &act, sizeof(rt_sigaction_t_compat));
+		return 0;
+	}
+
+	if (sa_compat_inherited(sig - 1, &act))
+		return 1;
+
+	if (!stack32) {
+		stack32 = alloc_compat_syscall_stack();
+		if (!stack32)
+			return -1;
+	}
+
+	ret = arch_compat_rt_sigaction(stack32, sig, &act);
+	if (ret < 0) {
+		pr_err("Can't restore compat sigaction: %d\n", ret);
+		return ret;
+	}
+
+	parent_act_compat[sig - 1] = act;
+	/* Mark SIGKILL blocked which makes native sigaction non-valid */
+	parent_act[sig - 1].rt_sa_mask.sig[0] |= 1 << SIGKILL;
+
+	return 1;
+}
+#else
+static int restore_compat_sigaction(int sig, SaEntry *e)
+{
+	return -1;
+}
+#endif
+
+/* Returns number of restored signals, -1 or negative errno on fail */
+static int restore_one_sigaction(int sig, struct cr_img *img, int pid)
+{
+	bool sigaction_is_compat;
+	SaEntry *e;
+	int ret = 0;
+
+	BUG_ON(sig == SIGKILL || sig == SIGSTOP);
+
+	ret = pb_read_one_eof(img, &e, PB_SIGACT);
+	if (ret == 0) {
+		if (sig != SIGMAX_OLD + 1) { /* backward compatibility */
+			pr_err("Unexpected EOF %d\n", sig);
+			return -1;
+		}
+		pr_warn("This format of sigacts-%d.img is deprecated\n", pid);
+		return -1;
+	}
+	if (ret < 0)
+		return ret;
+
+	sigaction_is_compat = e->has_compat_sigaction && e->compat_sigaction;
+	if (sigaction_is_compat)
+		ret = restore_compat_sigaction(sig, e);
+	else
+		ret = restore_native_sigaction(sig, e);
+
+	sa_entry__free_unpacked(e, NULL);
+
+	return ret;
+}
+
 static int prepare_sigactions(void)
 {
-	int pid = current->pid.virt;
+	int pid = vpid(current);
 	struct cr_img *img;
 	int sig, rst = 0;
 	int ret = 0;
@@ -378,6 +484,10 @@ static int prepare_sigactions(void)
 			SIGMAX - 3 /* KILL, STOP and CHLD */);
 
 	close_image(img);
+	if (stack32) {
+		free_compat_syscall_stack(stack32);
+		stack32 = NULL;
+	}
 	return ret;
 }
 
@@ -388,7 +498,7 @@ static int __collect_child_pids(struct pstree_item *p, int state, unsigned int *
 	list_for_each_entry(pi, &p->children, sibling) {
 		pid_t *child;
 
-		if (pi->pid.state != state)
+		if (pi->pid->state != state)
 			continue;
 
 		child = rst_mem_alloc(sizeof(*child), RM_PRIVATE);
@@ -396,7 +506,7 @@ static int __collect_child_pids(struct pstree_item *p, int state, unsigned int *
 			return -1;
 
 		(*n)++;
-		*child = pi->pid.virt;
+		*child = vpid(pi);
 	}
 
 	return 0;
@@ -415,8 +525,8 @@ static int collect_child_pids(int state, unsigned int *n)
 
 	if (current == root_item) {
 		for_each_pstree_item(pi) {
-			if (pi->pid.state != TASK_HELPER &&
-			    pi->pid.state != TASK_DEAD)
+			if (pi->pid->state != TASK_HELPER &&
+			    pi->pid->state != TASK_DEAD)
 				continue;
 			if (__collect_child_pids(pi, state, n))
 				return -1;
@@ -445,7 +555,7 @@ static int open_core(int pid, CoreEntry **pcore)
 
 	img = open_image(CR_FD_CORE, O_RSTR, pid);
 	if (!img) {
-		pr_err("Can't open core data for %d", pid);
+		pr_err("Can't open core data for %d\n", pid);
 		return -1;
 	}
 
@@ -465,7 +575,7 @@ static int open_cores(int pid, CoreEntry *leader_core)
 		goto err;
 
 	for (i = 0; i < current->nr_threads; i++) {
-		tpid = current->threads[i].virt;
+		tpid = current->threads[i].ns[0].virt;
 
 		if (tpid == pid)
 			cores[i] = leader_core;
@@ -665,10 +775,10 @@ static int wait_on_helpers_zombies(void)
 	struct pstree_item *pi;
 
 	list_for_each_entry(pi, &current->children, sibling) {
-		pid_t pid = pi->pid.virt;
+		pid_t pid = vpid(pi);
 		int status;
 
-		switch (pi->pid.state) {
+		switch (pi->pid->state) {
 		case TASK_DEAD:
 			if (waitid(P_PID, pid, NULL, WNOWAIT | WEXITED) < 0) {
 				pr_perror("Wait on %d zombie failed", pid);
@@ -716,7 +826,7 @@ static int restore_one_zombie(CoreEntry *core)
 			signr = SIGABRT;
 		}
 
-		if (kill(current->pid.virt, signr) < 0)
+		if (kill(vpid(current), signr) < 0)
 			pr_perror("Can't kill myself, will just exit");
 
 		exit_code = 0;
@@ -768,9 +878,9 @@ static int restore_one_task(int pid, CoreEntry *core)
 
 	if (task_alive(current))
 		ret = restore_one_alive_task(pid, core);
-	else if (current->pid.state == TASK_DEAD)
+	else if (current->pid->state == TASK_DEAD)
 		ret = restore_one_zombie(core);
-	else if (current->pid.state == TASK_HELPER) {
+	else if (current->pid->state == TASK_HELPER) {
 		sigset_t blockmask, oldmask;
 
 		sigemptyset(&blockmask);
@@ -800,12 +910,6 @@ static int restore_one_task(int pid, CoreEntry *core)
 
 /* All arguments should be above stack, because it grows down */
 struct cr_clone_arg {
-	/*
-	 * Reserve some space for clone() to locate arguments
-	 * and retcode in this place
-	 */
-	char stack[128] __stack_aligned__;
-	char stack_ptr[0];
 	struct pstree_item *item;
 	unsigned long clone_flags;
 	int fd;
@@ -853,22 +957,22 @@ static inline int fork_with_pid(struct pstree_item *item)
 {
 	struct cr_clone_arg ca;
 	int ret = -1;
-	pid_t pid = item->pid.virt;
+	pid_t pid = vpid(item);
 
-	if (item->pid.state != TASK_HELPER) {
+	if (item->pid->state != TASK_HELPER) {
 		if (open_core(pid, &ca.core))
 			return -1;
 
 		if (check_core(ca.core, item))
 			return -1;
 
-		item->pid.state = ca.core->tc->task_state;
+		item->pid->state = ca.core->tc->task_state;
 		rsti(item)->cg_set = ca.core->tc->cg_set;
 
 		rsti(item)->has_seccomp = ca.core->tc->seccomp_mode != SECCOMP_MODE_DISABLED;
 
-		if (item->pid.state != TASK_DEAD && !task_alive(item)) {
-			pr_err("Unknown task state %d\n", item->pid.state);
+		if (item->pid->state != TASK_DEAD && !task_alive(item)) {
+			pr_err("Unknown task state %d\n", item->pid->state);
 			return -1;
 		}
 
@@ -928,9 +1032,8 @@ static inline int fork_with_pid(struct pstree_item *item)
 	 * The cgroup namespace is also unshared explicitly in the
 	 * move_in_cgroup(), so drop this flag here as well.
 	 */
-	ret = clone(restore_task_with_children, ca.stack_ptr,
-		    (ca.clone_flags & ~(CLONE_NEWNET | CLONE_NEWCGROUP)) | SIGCHLD, &ca);
-
+	ret = clone_noasan(restore_task_with_children,
+			(ca.clone_flags & ~(CLONE_NEWNET | CLONE_NEWCGROUP)) | SIGCHLD, &ca);
 	if (ret < 0) {
 		pr_perror("Can't fork for %d", pid);
 		goto err_unlock;
@@ -938,9 +1041,9 @@ static inline int fork_with_pid(struct pstree_item *item)
 
 
 	if (item == root_item) {
-		item->pid.real = ret;
+		item->pid->real = ret;
 		pr_debug("PID: real %d virt %d\n",
-				item->pid.real, item->pid.virt);
+				item->pid->real, vpid(item));
 	}
 
 err_unlock:
@@ -967,8 +1070,8 @@ static void sigchld_handler(int signal, siginfo_t *siginfo, void *data)
 	status = siginfo->si_status;
 
 	/* skip scripts */
-	if (!current && root_item->pid.real != pid) {
-		pid = waitpid(root_item->pid.real, &status, WNOHANG);
+	if (!current && root_item->pid->real != pid) {
+		pid = waitpid(root_item->pid->real, &status, WNOHANG);
 		if (pid <= 0)
 			return;
 		exit = WIFEXITED(status);
@@ -997,11 +1100,11 @@ static void sigchld_handler(int signal, siginfo_t *siginfo, void *data)
 
 		/* Exited (with zero code) helpers are OK */
 		list_for_each_entry(pi, &current->children, sibling)
-			if (pi->pid.virt == siginfo->si_pid)
+			if (vpid(pi) == siginfo->si_pid)
 				break;
 
 		BUG_ON(&pi->sibling == &current->children);
-		if (pi->pid.state != TASK_HELPER)
+		if (pi->pid->state != TASK_HELPER)
 			break;
 	}
 
@@ -1075,8 +1178,8 @@ static void restore_sid(void)
 	 * we can call setpgid() on custom values.
 	 */
 
-	if (current->pid.virt == current->sid) {
-		pr_info("Restoring %d to %d sid\n", current->pid.virt, current->sid);
+	if (vpid(current) == current->sid) {
+		pr_info("Restoring %d to %d sid\n", vpid(current), current->sid);
 		sid = setsid();
 		if (sid != current->sid) {
 			pr_perror("Can't restore sid (%d)", sid);
@@ -1086,7 +1189,7 @@ static void restore_sid(void)
 		sid = getsid(getpid());
 		if (sid != current->sid) {
 			/* Skip the root task if it's not init */
-			if (current == root_item && root_item->pid.virt != INIT_PID)
+			if (current == root_item && vpid(root_item) != INIT_PID)
 				return;
 			pr_err("Requested sid %d doesn't match inherited %d\n",
 					current->sid, sid);
@@ -1109,13 +1212,13 @@ static void restore_pgid(void)
 
 	pid_t pgid, my_pgid = current->pgid;
 
-	pr_info("Restoring %d to %d pgid\n", current->pid.virt, my_pgid);
+	pr_info("Restoring %d to %d pgid\n", vpid(current), my_pgid);
 
 	pgid = getpgrp();
 	if (my_pgid == pgid)
 		return;
 
-	if (my_pgid != current->pid.virt) {
+	if (my_pgid != vpid(current)) {
 		struct pstree_item *leader;
 
 		/*
@@ -1126,18 +1229,18 @@ static void restore_pgid(void)
 
 		leader = rsti(current)->pgrp_leader;
 		if (leader) {
-			BUG_ON(my_pgid != leader->pid.virt);
+			BUG_ON(my_pgid != vpid(leader));
 			futex_wait_until(&rsti(leader)->pgrp_set, 1);
 		}
 	}
 
 	pr_info("\twill call setpgid, mine pgid is %d\n", pgid);
 	if (setpgid(0, my_pgid) != 0) {
-		pr_perror("Can't restore pgid (%d/%d->%d)", current->pid.virt, pgid, current->pgid);
+		pr_perror("Can't restore pgid (%d/%d->%d)", vpid(current), pgid, current->pgid);
 		exit(1);
 	}
 
-	if (my_pgid == current->pid.virt)
+	if (my_pgid == vpid(current))
 		futex_set_and_wake(&rsti(current)->pgrp_set, 1);
 }
 
@@ -1230,23 +1333,23 @@ static int restore_task_with_children(void *_arg)
 		}
 		buf[ret] = '\0';
 
-		current->pid.real = atoi(buf);
+		current->pid->real = atoi(buf);
 		pr_debug("PID: real %d virt %d\n",
-				current->pid.real, current->pid.virt);
+				current->pid->real, vpid(current));
 	}
 
 	if ( !(ca->clone_flags & CLONE_FILES))
 		close_safe(&ca->fd);
 
-	if (current->pid.state != TASK_HELPER) {
+	if (current->pid->state != TASK_HELPER) {
 		ret = clone_service_fd(rsti(current)->service_fd_id);
 		if (ret)
 			goto err;
 	}
 
 	pid = getpid();
-	if (current->pid.virt != pid) {
-		pr_err("Pid %d do not match expected %d\n", pid, current->pid.virt);
+	if (vpid(current) != pid) {
+		pr_err("Pid %d do not match expected %d\n", pid, vpid(current));
 		set_task_cr_err(EEXIST);
 		goto err;
 	}
@@ -1285,6 +1388,13 @@ static int restore_task_with_children(void *_arg)
 
 	/* Restore root task */
 	if (current->parent == NULL) {
+		int i;
+
+		if (prepare_shared_tty())
+			goto err;
+
+		if (fdstore_init())
+			goto err;
 		if (join_namespaces()) {
 			pr_perror("Join namespaces failed");
 			goto err;
@@ -1301,7 +1411,17 @@ static int restore_task_with_children(void *_arg)
 		if (mount_proc())
 			goto err;
 
+		for (i = 0; i < ARRAY_SIZE(before_ns_cinfos); i++) {
+			ret = collect_image(before_ns_cinfos[i]);
+			if (ret)
+				return -1;
+		}
+
+
 		if (prepare_namespace(current, ca->clone_flags))
+			goto err;
+
+		if (restore_finish_stage(task_entries, CR_STATE_POST_RESTORE_NS) < 0)
 			goto err;
 
 		if (root_prepare_shared())
@@ -1350,7 +1470,7 @@ static int restore_task_with_children(void *_arg)
 	if (restore_finish_stage(task_entries, CR_STATE_FORKING) < 0)
 		goto err;
 
-	if (restore_one_task(current->pid.virt, ca->core))
+	if (restore_one_task(vpid(current), ca->core))
 		goto err;
 
 	return 0;
@@ -1367,6 +1487,7 @@ static inline int stage_participants(int next_stage)
 	case CR_STATE_FAIL:
 		return 0;
 	case CR_STATE_RESTORE_NS:
+	case CR_STATE_POST_RESTORE_NS:
 	case CR_STATE_RESTORE_SHARED:
 		return 1;
 	case CR_STATE_FORKING:
@@ -1421,7 +1542,7 @@ static int attach_to_tasks(bool root_seized)
 		if (!task_alive(item))
 			continue;
 
-		if (parse_threads(item->pid.real, &item->threads, &item->nr_threads))
+		if (parse_threads(item->pid->real, &item->threads, &item->nr_threads))
 			return -1;
 
 		for (i = 0; i < item->nr_threads; i++) {
@@ -1451,7 +1572,7 @@ static int attach_to_tasks(bool root_seized)
 			 * doing an munmap in the process, which may be blocked by
 			 * seccomp and cause the task to be killed.
 			 */
-			if (rsti(item)->has_seccomp && suspend_seccomp(pid) < 0)
+			if (rsti(item)->has_seccomp && ptrace_suspend_seccomp(pid) < 0)
 				pr_err("failed to suspend seccomp, restore will probably fail...\n");
 
 			if (ptrace(PTRACE_CONT, pid, NULL, NULL) ) {
@@ -1474,7 +1595,7 @@ static int catch_tasks(bool root_seized, enum trace_flags *flag)
 		if (!task_alive(item))
 			continue;
 
-		if (parse_threads(item->pid.real, &item->threads, &item->nr_threads))
+		if (parse_threads(item->pid->real, &item->threads, &item->nr_threads))
 			return -1;
 
 		for (i = 0; i < item->nr_threads; i++) {
@@ -1490,7 +1611,8 @@ static int catch_tasks(bool root_seized, enum trace_flags *flag)
 				return -1;
 			}
 
-			ret = ptrace_stop_pie(pid, rsti(item)->breakpoint, flag);
+			ret = compel_stop_pie(pid, rsti(item)->breakpoint,
+					flag, fault_injected(FI_NO_BREAKPOINTS));
 			if (ret < 0)
 				return -1;
 		}
@@ -1522,24 +1644,24 @@ static void finalize_restore(void)
 	struct pstree_item *item;
 
 	for_each_pstree_item(item) {
-		pid_t pid = item->pid.real;
+		pid_t pid = item->pid->real;
 		struct parasite_ctl *ctl;
 
 		if (!task_alive(item))
 			continue;
 
 		/* Unmap the restorer blob */
-		ctl = parasite_prep_ctl(pid, 0);
+		ctl = compel_prepare_noctx(pid);
 		if (ctl == NULL)
 			continue;
 
-		parasite_unmap(ctl, (unsigned long)rsti(item)->munmap_restorer);
+		compel_unmap(ctl, (unsigned long)rsti(item)->munmap_restorer);
 
 		xfree(ctl);
 
-		if ((item->pid.state == TASK_STOPPED) ||
+		if ((item->pid->state == TASK_STOPPED) ||
 				(opts.final_state == TASK_STOPPED))
-			kill(item->pid.real, SIGSTOP);
+			kill(item->pid->real, SIGSTOP);
 	}
 }
 
@@ -1595,7 +1717,7 @@ static int prepare_userns_hook(void)
 		return -1;
 
 	if (prepare_loginuid(INVALID_UID, LOG_ERROR) < 0) {
-		pr_err("Setting loginuid for CT init task failed, CAP_AUDIT_CONTROL?");
+		pr_err("Setting loginuid for CT init task failed, CAP_AUDIT_CONTROL?\n");
 		return -1;
 	}
 	return 0;
@@ -1608,7 +1730,7 @@ static void restore_origin_ns_hook(void)
 
 	/* not critical: it does not affect CT in any way */
 	if (prepare_loginuid(saved_loginuid, LOG_ERROR) < 0)
-		pr_err("Restore original /proc/self/loginuid failed");
+		pr_err("Restore original /proc/self/loginuid failed\n");
 }
 
 static int write_restored_pid(void)
@@ -1618,7 +1740,7 @@ static int write_restored_pid(void)
 	if (!opts.pidfile)
 		return 0;
 
-	pid = root_item->pid.real;
+	pid = root_item->pid->real;
 
 	if (write_pidfile(pid) < 0) {
 		pr_perror("Can't write pidfile");
@@ -1628,75 +1750,12 @@ static int write_restored_pid(void)
 	return 0;
 }
 
-extern char *get_dumpee_veid(pid_t pid_real);
-
-#define join_veX(pid)	join_ve(pid, true)
-#define join_ve0(pid)	join_ve(pid, false)
-
-/*
- * To eliminate overhead we don't parse VE cgroup mountpoint
- * but presume to find it in known place. Otherwise simply
- * don't enter into veX with one warning.
- */
-static int join_ve(pid_t pid, bool veX)
-{
-	static const char ve0_tasks_path[] = "/sys/fs/cgroup/ve/tasks";
-	static bool may_join_ve = false;
-	int ret, veX_fd, len;
-	char buf[PATH_MAX];
-	char *veid;
-
-	if (!may_join_ve) {
-		if (access(ve0_tasks_path, F_OK)) {
-			pr_warn_once("ve: Can't access %s, non VZ kernel?\n",
-				     ve0_tasks_path);
-			return 0;
-		}
-		may_join_ve = true;
-	}
-
-	if (veX) {
-		veid = get_dumpee_veid(pid);
-		if (IS_ERR_OR_NULL(veid)) {
-			pr_err("ve: Can't fetch VEID of pid %d\n", pid);
-			ret = -1;
-			goto out;
-		}
-	} else
-		veid = "0";
-
-	if (veX)
-		snprintf(buf, PATH_MAX, "/sys/fs/cgroup/ve/%s/tasks", veid);
-	else
-		strcpy(buf, ve0_tasks_path);
-	ret = veX_fd = open(buf, O_WRONLY);
-	if (ret < 0) {
-		pr_perror("ve: Can't open %s", buf);
-		goto out;
-	}
-
-	len = sprintf(buf, "%d", getpid());
-	if (len <= 0 || write(veX_fd, buf, len) != len) {
-		pr_perror("ve: Can't enter VE cgroup (len=%d)", len);
-		ret = -1;
-		goto out;
-	}
-
-	pr_debug("ve: Pid %d entered VE %s via %s\n", getpid(), veid, buf);
-	close(veX_fd);
-	ret = 0;
-out:
-	return ret;
-}
-
 static int restore_root_task(struct pstree_item *init)
 {
 	enum trace_flags flag = TRACE_ALL;
 	int ret, fd, mnt_ns_fd = -1;
 	int root_seized = 0;
 	struct pstree_item *item;
-	bool spfs_is_running = false;
-	int spfs_sock = -1;
 
 	ret = run_scripts(ACT_PRE_RESTORE);
 	if (ret != 0) {
@@ -1722,7 +1781,7 @@ static int restore_root_task(struct pstree_item *init)
 	 * this later.
 	 */
 
-	if (init->pid.virt == INIT_PID) {
+	if (vpid(init) == INIT_PID) {
 		if (!(root_ns_mask & CLONE_NEWPID)) {
 			pr_err("This process tree can only be restored "
 				"in a new pid namespace.\n"
@@ -1743,25 +1802,6 @@ static int restore_root_task(struct pstree_item *init)
 
 	futex_set(&task_entries->nr_in_progress,
 			stage_participants(CR_STATE_RESTORE_NS));
-
-	/*
-	 * Userns daemon is started now in ve0, so we
-	 * should jump into destination VE cgroups so that
-	 * clone/unshare and etc would see us as running inside
-	 * container with all in-kernel restrictions applied.
-	 *
-	 * The main reason for running in veX is that there is
-	 * a number of ve_is_super() calls inside kernel for sake
-	 * of better isolation and virtualization (devtmpfs, mounting,
-	 * procfs filtering, sysfs and sysctl filtering, VTTY console
-	 * virtualization, owner_ve in net management).
-	 *
-	 * For privileged operations we should use userns_call.
-	 * For example to manipulate user beancounter.
-	 */
-	ret = join_veX(root_item->pid.real);
-	if (ret)
-		goto out;
 
 	ret = fork_with_pid(init);
 	if (ret < 0)
@@ -1786,7 +1826,7 @@ static int restore_root_task(struct pstree_item *init)
 		act.sa_flags &= ~SA_NOCLDSTOP;
 		sigaction(SIGCHLD, &act, NULL);
 
-		if (ptrace(PTRACE_SEIZE, init->pid.real, 0, 0)) {
+		if (ptrace(PTRACE_SEIZE, init->pid->real, 0, 0)) {
 			pr_perror("Can't attach to init");
 			goto out_kill;
 		}
@@ -1804,15 +1844,24 @@ static int restore_root_task(struct pstree_item *init)
 	if (ret)
 		goto out_kill;
 
-	if (root_ns_mask & CLONE_NEWNS) {
-		mnt_ns_fd = open_proc(init->pid.real, "ns/mnt");
-		if (mnt_ns_fd < 0)
-			goto out_kill;
-	}
-
 	ret = run_scripts(ACT_SETUP_NS);
 	if (ret)
 		goto out_kill;
+
+	ret = restore_switch_stage(CR_STATE_POST_RESTORE_NS);
+	if (ret < 0)
+		goto out_kill;
+
+	pr_info("Wait until namespaces are created\n");
+	ret = restore_wait_inprogress_tasks();
+	if (ret)
+		goto out_kill;
+
+	if (root_ns_mask & CLONE_NEWNS) {
+		mnt_ns_fd = open_proc(init->pid->real, "ns/mnt");
+		if (mnt_ns_fd < 0)
+			goto out_kill;
+	}
 
 	if (opts.empty_ns & CLONE_NEWNET) {
 		/*
@@ -1848,24 +1897,13 @@ static int restore_root_task(struct pstree_item *init)
 
 	/* Zombies die after CR_STATE_RESTORE */
 	for_each_pstree_item(item) {
-		if (item->pid.state == TASK_DEAD)
+		if (item->pid->state == TASK_DEAD)
 			task_entries->nr_threads--;
 	}
 
 	ret = restore_switch_stage(CR_STATE_RESTORE_SIGCHLD);
 	if (ret < 0)
 		goto out_kill;
-
-
-	ret = spfs_mngr_status(&spfs_is_running);
-	if (ret < 0)
-		goto out_kill;
-
-	if (spfs_is_running) {
-		spfs_sock = spfs_mngr_sock();
-		if (spfs_sock < 0)
-			goto out_kill;
-	}
 
 	ret = stop_usernsd();
 	if (ret < 0)
@@ -1878,12 +1916,6 @@ static int restore_root_task(struct pstree_item *init)
 	ret = prepare_cgroup_properties();
 	if (ret < 0)
 		goto out_kill;
-
-	if (spfs_is_running) {
-		ret = spfs_set_mode(spfs_sock, SPFS_MODE_STUB);
-		if (ret < 0)
-			goto out_kill;
-	}
 
 	if (fault_injected(FI_POST_RESTORE))
 		goto out_kill;
@@ -1933,11 +1965,9 @@ static int restore_root_task(struct pstree_item *init)
 	pr_info("Restore finished successfully. Resuming tasks.\n");
 	futex_set_and_wake(&task_entries->start, CR_STATE_COMPLETE);
 
-	join_ve0(getpid());
-
 	if (ret == 0)
-		ret = parasite_stop_on_syscall(task_entries->nr_threads,
-						__NR_rt_sigreturn, flag);
+		ret = compel_stop_on_syscall(task_entries->nr_threads,
+			__NR(rt_sigreturn, 0), __NR(rt_sigreturn, 1), flag);
 
 	if (clear_breakpoints())
 		pr_err("Unable to flush breakpoints\n");
@@ -1963,14 +1993,6 @@ static int restore_root_task(struct pstree_item *init)
 	if (ret != 0)
 		pr_err("Post-resume script ret code %d\n", ret);
 
-	if (spfs_is_running) {
-		ret = spfs_release_replace(spfs_sock);
-		if (ret < 0)
-			goto out_kill;
-	}
-
-	close_safe(&spfs_sock);
-
 	if (!opts.restore_detach && !opts.exec_cmd)
 		wait(NULL);
 
@@ -1985,18 +2007,18 @@ out_kill:
 		int status;
 
 		/* Kill init */
-		if (root_item->pid.real > 0)
-			kill(root_item->pid.real, SIGKILL);
+		if (root_item->pid->real > 0)
+			kill(root_item->pid->real, SIGKILL);
 
-		if (waitpid(root_item->pid.real, &status, 0) < 0)
+		if (waitpid(root_item->pid->real, &status, 0) < 0)
 			pr_warn("Unable to wait %d: %s",
-				root_item->pid.real, strerror(errno));
+				root_item->pid->real, strerror(errno));
 	} else {
 		struct pstree_item *pi;
 
 		for_each_pstree_item(pi)
-			if (pi->pid.virt > 0)
-				kill(pi->pid.virt, SIGKILL);
+			if (vpid(pi) > 0)
+				kill(vpid(pi), SIGKILL);
 	}
 
 out:
@@ -2041,8 +2063,6 @@ int cr_restore_tasks(void)
 
 	if (kerndat_init_rst())
 		goto err;
-
-	rlimit_limit_nofile_self();
 
 	timing_start(TIME_RESTORE);
 
@@ -2409,7 +2429,7 @@ static int prepare_restorer_blob(void)
 	 * in turn will lead to set-exe-file prctl to fail with EBUSY.
 	 */
 
-	restorer_len = pie_size(restorer_blob);
+	restorer_len = pie_size(restorer);
 	restorer = mmap(NULL, restorer_len,
 			PROT_READ | PROT_WRITE | PROT_EXEC,
 			MAP_PRIVATE | MAP_ANON, 0, 0);
@@ -2433,7 +2453,9 @@ static int remap_restorer_blob(void *addr)
 		return -1;
 	}
 
-	ELF_RELOCS_APPLY_RESTORER(addr, addr);
+	compel_relocs_apply(addr, addr, sizeof(restorer_blob),
+			restorer_relocs, ARRAY_SIZE(restorer_relocs));
+
 	return 0;
 }
 
@@ -2651,7 +2673,7 @@ static int prepare_signals(int pid, struct task_restore_args *ta, CoreEntry *lea
 	for (i = 0; i < current->nr_threads; i++) {
 		if (!current->core[i]->thread_core->signals_p)/*backward compatibility*/
 			ret = open_signal_image(CR_FD_PSIGNAL,
-					current->threads[i].virt, &siginfo_priv_nr[i]);
+					current->threads[i].ns[0].virt, &siginfo_priv_nr[i]);
 		else
 			ret = prepare_one_signal_queue(current->core[i]->thread_core->signals_p,
 										&siginfo_priv_nr[i]);
@@ -2864,6 +2886,7 @@ static int sigreturn_restore(pid_t pid, struct task_restore_args *task_args, uns
 	struct restore_mem_zone *mz;
 
 #ifdef CONFIG_VDSO
+	struct vdso_symtable vdso_symtab_rt;
 	unsigned long vdso_rt_size = 0;
 #endif
 
@@ -2908,12 +2931,16 @@ static int sigreturn_restore(pid_t pid, struct task_restore_args *task_args, uns
 			current->nr_threads, KBYTES(task_args->bootstrap_len));
 
 #ifdef CONFIG_VDSO
+	if (core_is_compat(core))
+		vdso_symtab_rt = vdso_compat_rt;
+	else
+		vdso_symtab_rt = vdso_sym_rt;
 	/*
 	 * Figure out how much memory runtime vdso and vvar will need.
 	 */
-	vdso_rt_size = vdso_vma_size(&vdso_sym_rt);
-	if (vdso_rt_size && vvar_vma_size(&vdso_sym_rt))
-		vdso_rt_size += ALIGN(vvar_vma_size(&vdso_sym_rt), PAGE_SIZE);
+	vdso_rt_size = vdso_vma_size(&vdso_symtab_rt);
+	if (vdso_rt_size && vvar_vma_size(&vdso_symtab_rt))
+		vdso_rt_size += ALIGN(vvar_vma_size(&vdso_symtab_rt), PAGE_SIZE);
 	task_args->bootstrap_len += vdso_rt_size;
 #endif
 
@@ -2949,7 +2976,12 @@ static int sigreturn_restore(pid_t pid, struct task_restore_args *task_args, uns
 	 */
 	task_args->clone_restore_fn	= restorer_sym(mem, arch_export_restore_thread);
 	restore_task_exec_start		= restorer_sym(mem, arch_export_restore_task);
-	rsti(current)->munmap_restorer	= restorer_sym(mem, arch_export_unmap);
+	if (core_is_compat(core))
+		rsti(current)->munmap_restorer =
+			restorer_sym(mem, arch_export_unmap_compat);
+	else
+		rsti(current)->munmap_restorer =
+			restorer_sym(mem, arch_export_unmap);
 
 	task_args->bootstrap_start = mem;
 	mem += restorer_len;
@@ -3003,6 +3035,7 @@ static int sigreturn_restore(pid_t pid, struct task_restore_args *task_args, uns
 	}
 
 	task_args->breakpoint = &rsti(current)->breakpoint;
+	task_args->fault_strategy = fi_strategy;
 
 	sigemptyset(&blockmask);
 	sigaddset(&blockmask, SIGCHLD);
@@ -3033,6 +3066,7 @@ static int sigreturn_restore(pid_t pid, struct task_restore_args *task_args, uns
 	if (core->tc->has_seccomp_mode)
 		task_args->seccomp_mode = core->tc->seccomp_mode;
 
+	task_args->compatible_mode = core_is_compat(core);
 	/*
 	 * Arguments for task restoration.
 	 */
@@ -3041,6 +3075,7 @@ static int sigreturn_restore(pid_t pid, struct task_restore_args *task_args, uns
 
 	task_args->logfd	= log_get_fd();
 	task_args->loglevel	= log_get_loglevel();
+	log_get_logstart(&task_args->logstart);
 	task_args->sigchld_act	= sigchld_act;
 
 	strncpy(task_args->comm, core->tc->comm, sizeof(task_args->comm));
@@ -3056,7 +3091,7 @@ static int sigreturn_restore(pid_t pid, struct task_restore_args *task_args, uns
 		struct rt_sigframe *sigframe;
 		k_rtsigset_t *blkset = NULL;
 
-		thread_args[i].pid = current->threads[i].virt;
+		thread_args[i].pid = current->threads[i].ns[0].virt;
 		thread_args[i].siginfo_n = siginfo_priv_nr[i];
 		thread_args[i].siginfo = task_args->siginfo;
 		thread_args[i].siginfo += siginfo_n;
@@ -3128,7 +3163,7 @@ static int sigreturn_restore(pid_t pid, struct task_restore_args *task_args, uns
 	 */
 	mem += rst_mem_size;
 	task_args->vdso_rt_parked_at = (unsigned long)mem;
-	task_args->vdso_sym_rt = vdso_sym_rt;
+	task_args->vdso_sym_rt = vdso_symtab_rt;
 	task_args->vdso_rt_size = vdso_rt_size;
 #endif
 
@@ -3156,7 +3191,8 @@ static int sigreturn_restore(pid_t pid, struct task_restore_args *task_args, uns
 	close_proc();
 	close_service_fd(ROOT_FD_OFF);
 	close_service_fd(USERNSD_SK);
-	close_service_fd(SPFS_MNGR_SK);
+	close_service_fd(FDSTORE_SK_OFF);
+	close_service_fd(RPC_SK_OFF);
 
 	__gcov_flush();
 

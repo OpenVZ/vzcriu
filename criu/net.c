@@ -373,7 +373,7 @@ static int dump_one_netdev(int type, struct ifinfomsg *ifi,
 	SysctlEntry *confs6 = NULL;
 	int size6 = ARRAY_SIZE(devconfs6);
 	char stable_secret[MAX_STR_CONF_LEN + 1] = {};
-	struct nlattr *info[IFLA_INFO_MAX], **arg = NULL;
+	struct nlattr *info[IFLA_INFO_MAX + 1], **arg = NULL;
 
 	if (!tb[IFLA_IFNAME]) {
 		pr_err("No name for link %d\n", ifi->ifi_index);
@@ -1634,14 +1634,10 @@ static int mount_ns_sysfs(void)
 	return ns_sysfs_fd >= 0 ? 0 : -1;
 }
 
-int dump_net_ns(struct ns_id *ns)
+int dump_net_ns(int ns_id)
 {
 	struct cr_imgset *fds;
-	int ns_id = ns->id;
 	int ret;
-
-	if (fini_dump_sockets(ns))
-		return -1;
 
 	fds = cr_imgset_open(ns_id, NETNS, O_DUMP);
 	if (fds == NULL)
@@ -1719,11 +1715,9 @@ int netns_keep_nsfd(void)
 	 * that before we leave the existing namespaces.
 	 */
 
-	ns_fd = open("/proc/self/ns/net", O_RDONLY | O_CLOEXEC);
-	if (ns_fd < 0) {
-		pr_perror("Can't cache net fd");
+	ns_fd = __open_proc(PROC_SELF, 0, O_RDONLY | O_CLOEXEC, "ns/net");
+	if (ns_fd < 0)
 		return -1;
-	}
 
 	ret = install_service_fd(NS_FD_OFF, ns_fd);
 	if (ret < 0)
@@ -1778,7 +1772,7 @@ int network_lock_internal()
 				"COMMIT\n";
 	int ret = 0, nsret;
 
-	if (switch_ns(root_item->pid.real, &net_ns_desc, &nsret))
+	if (switch_ns(root_item->pid->real, &net_ns_desc, &nsret))
 		return -1;
 
 
@@ -1802,7 +1796,7 @@ static int network_unlock_internal()
 			"COMMIT\n";
 	int ret = 0, nsret;
 
-	if (switch_ns(root_item->pid.real, &net_ns_desc, &nsret))
+	if (switch_ns(root_item->pid->real, &net_ns_desc, &nsret))
 		return -1;
 
 
@@ -1827,9 +1821,7 @@ int network_lock(void)
 	if (run_scripts(ACT_NET_LOCK))
 		return -1;
 
-	if (network_lock_internal())
-		return -1;
-	return run_scripts(ACT_POST_NET_LOCK);
+	return network_lock_internal();
 }
 
 void network_unlock(void)

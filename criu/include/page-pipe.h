@@ -116,7 +116,6 @@ struct page_pipe {
 
 #define PP_CHUNK_MODE	0x1	/* Restrict the maximum buffer size of pipes
 				   and dump memory for a few iterations */
-#define PP_COMPAT	0x2	/* Use compatible iovs (struct compat_iovec) */
 #define PP_OWN_IOVS	0x4	/* create_page_pipe allocated IOVs memory */
 
 struct page_pipe *create_page_pipe(unsigned int nr_segs, struct iovec *iovs, unsigned flags);

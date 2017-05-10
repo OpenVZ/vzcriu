@@ -10,7 +10,6 @@
 #include <ctype.h>
 #include <linux/fs.h>
 #include <sys/sysmacros.h>
-#include <sys/vfs.h>
 
 #include "types.h"
 #include "common/list.h"
@@ -40,7 +39,6 @@
 #include "cgroup-props.h"
 #include "timerfd.h"
 #include "path.h"
-#include "fs-magic.h"
 
 #include "protobuf.h"
 #include "images/fdinfo.pb-c.h"
@@ -210,7 +208,121 @@ static int vma_get_mapfile_flags(struct vma_area *vma, DIR *mfd, char *path)
 	return 0;
 }
 
-static int vma_get_mapfile(char *fname, struct vma_area *vma, DIR *mfd,
+static int vma_stat(struct vma_area *vma, int fd)
+{
+	vma->vmst = xmalloc(sizeof(struct stat));
+	if (!vma->vmst)
+		return -1;
+
+	/*
+	 * For AUFS support, we need to check if the symbolic link
+	 * points to a branch.  If it does, we cannot fstat() its file
+	 * descriptor because it would return a different dev/ino than
+	 * the real file.  If fixup_aufs_vma_fd() returns positive,
+	 * it means that it has stat()'ed using the full pathname.
+	 * Zero return means that the symbolic link does not point to
+	 * a branch and we can do fstat() below.
+	 */
+	if (opts.aufs) {
+		int ret;
+
+		ret = fixup_aufs_vma_fd(vma, fd);
+		if (ret < 0)
+			return -1;
+		if (ret > 0)
+			return 0;
+	}
+
+	if (fstat(fd, vma->vmst) < 0) {
+		pr_perror("Failed fstat on map %"PRIx64"", vma->e->start);
+		return -1;
+	}
+
+	return 0;
+}
+
+static int vma_get_mapfile_user(const char *fname, struct vma_area *vma,
+			   struct vma_file_info *vfi, int *vm_file_fd,
+			   const char *path)
+{
+	int fd;
+	dev_t vfi_dev;
+
+	/*
+	 * Kernel prohibits reading map_files for users. The
+	 * best we can do here is fill stat using the information
+	 * from smaps file and ... hope for the better :\
+	 *
+	 * Here we'll miss AIO-s and sockets :(
+	 */
+
+	if (fname[0] == '\0') {
+		/*
+		 * Another bad thing is that kernel first checks
+		 * for permission access to ANY map_files link,
+		 * then checks for its existence. So we have to
+		 * check for file path being empty to "emulate"
+		 * the ENOENT case.
+		 */
+
+		if (vfi->dev_maj != 0 || vfi->dev_min != 0 || vfi->ino != 0) {
+			pr_err("Strange file mapped at %lx [%s]:%d.%d.%ld\n",
+			       (unsigned long)vma->e->start, fname,
+			       vfi->dev_maj, vfi->dev_min, vfi->ino);
+			return -1;
+		}
+
+		return 0;
+	} else if (fname[0] != '/') {
+		/*
+		 * This should be some kind of
+		 * special mapping like [heap], [vdso]
+		 * and such, the caller should take care
+		 * of the @fname and vma status.
+		 */
+		return 0;
+	}
+
+	vfi_dev = makedev(vfi->dev_maj, vfi->dev_min);
+	if (is_anon_shmem_map(vfi_dev)) {
+		if (!(vma->e->flags & MAP_SHARED))
+			return -1;
+
+		vma->e->flags  |= MAP_ANONYMOUS;
+		vma->e->status |= VMA_ANON_SHARED;
+		vma->e->shmid = vfi->ino;
+
+		if (!strncmp(fname, "/SYSV", 5))
+			vma->e->status |= VMA_AREA_SYSVIPC;
+
+		return 0;
+	}
+
+	pr_info("Failed to open map_files/%s, try to go via [%s] path\n", path, fname);
+	fd = open(fname, O_RDONLY);
+	if (fd < 0) {
+		pr_perror("Can't open mapped [%s]", fname);
+		return -1;
+	}
+
+	if (vma_stat(vma, fd)) {
+		close(fd);
+		return -1;
+	}
+
+	if (vma->vmst->st_dev != vfi_dev ||
+			vma->vmst->st_ino != vfi->ino) {
+		pr_err("Failed to resolve mapping %lx filename\n",
+		       (unsigned long)vma->e->start);
+		close(fd);
+		return -1;
+	}
+
+	*vm_file_fd = fd;
+	return 0;
+}
+
+static int vma_get_mapfile(const char *fname, struct vma_area *vma, DIR *mfd,
 			   struct vma_file_info *vfi,
 			   struct vma_file_info *prev_vfi,
 			   int *vm_file_fd)
@@ -298,124 +410,14 @@ static int vma_get_mapfile(char *fname, struct vma_area *vma, DIR *mfd,
 			return -1;
 		}
 
-		if (errno == EPERM && !opts.aufs) {
-			int fd;
-			dev_t vfi_dev;
-
-			/*
-			 * Kernel prohibits reading map_files for users. The
-			 * best we can do here is fill stat using the information
-			 * from smaps file and ... hope for the better :\
-			 *
-			 * Here we'll miss AIO-s and sockets :(
-			 */
-
-			if (fname[0] == '\0') {
-				/*
-				 * Another bad thing is that kernel first checks
-				 * for permission access to ANY map_files link,
-				 * then checks for its existence. So we have to
-				 * check for file path being empty to "emulate"
-				 * the ENOENT case.
-				 */
-
-				if (vfi->dev_maj != 0 || vfi->dev_min != 0 || vfi->ino != 0) {
-					pr_err("Strange file mapped at %lx [%s]:%d.%d.%ld\n",
-					       (unsigned long)vma->e->start, fname,
-					       vfi->dev_maj, vfi->dev_min, vfi->ino);
-					return -1;
-				}
-
-				return 0;
-			} else if (fname[0] != '/') {
-				/*
-				 * This should be some kind of
-				 * special mapping like [heap], [vdso]
-				 * and such, the caller should take care
-				 * of the @fname and vma status.
-				 */
-				return 0;
-			}
-
-			vfi_dev = makedev(vfi->dev_maj, vfi->dev_min);
-			if (is_anon_shmem_map(vfi_dev)) {
-				if (!(vma->e->flags & MAP_SHARED))
-					return -1;
-
-				vma->e->flags  |= MAP_ANONYMOUS;
-				vma->e->status |= VMA_ANON_SHARED;
-				vma->e->shmid = vfi->ino;
-
-				if (!strncmp(fname, "/SYSV", 5))
-					vma->e->status |= VMA_AREA_SYSVIPC;
-
-				return 0;
-			}
-
-			pr_info("Failed to open map_files/%s, try to go via [%s] path\n", path, fname);
-			fd = open(fname, O_RDONLY);
-			if (fd < 0) {
-				pr_perror("Can't open mapped [%s]", fname);
-				return -1;
-			}
-
-			vma->vmst = xmalloc(sizeof(struct stat));
-			if (!vma->vmst) {
-				close(fd);
-				return -1;
-			}
-
-			if (fstat(fd, vma->vmst) < 0) {
-				pr_perror("Can't stat [%s]", fname);
-				close(fd);
-				return -1;
-			}
-
-			if (vma->vmst->st_dev != vfi_dev ||
-					vma->vmst->st_ino != vfi->ino) {
-				pr_err("Failed to resolve mapping %lx filename\n",
-				       (unsigned long)vma->e->start);
-				close(fd);
-				return -1;
-			}
-
-			*vm_file_fd = fd;
-			return 0;
-		}
+		if (errno == EPERM && !opts.aufs)
+			return vma_get_mapfile_user(fname, vma, vfi, vm_file_fd, path);
 
 		pr_perror("Can't open map_files");
 		return -1;
 	}
 
-	vma->vmst = xmalloc(sizeof(struct stat));
-	if (!vma->vmst)
-		return -1;
-
-	/*
-	 * For AUFS support, we need to check if the symbolic link
-	 * points to a branch.  If it does, we cannot fstat() its file
-	 * descriptor because it would return a different dev/ino than
-	 * the real file.  If fixup_aufs_vma_fd() returns positive,
-	 * it means that it has stat()'ed using the full pathname.
-	 * Zero return means that the symbolic link does not point to
-	 * a branch and we can do fstat() below.
-	 */
-	if (opts.aufs) {
-		int ret;
-
-		ret = fixup_aufs_vma_fd(vma, *vm_file_fd);
-		if (ret < 0)
-			return -1;
-		if (ret > 0)
-			return 0;
-	}
-
-	if (fstat(*vm_file_fd, vma->vmst) < 0) {
-		pr_perror("Failed fstat on map %"PRIx64"", vma->e->start);
-		return -1;
-	}
-
-	return 0;
+	return vma_stat(vma, *vm_file_fd);
 }
 
 int parse_self_maps_lite(struct vm_area_list *vms)
@@ -496,21 +498,19 @@ static inline int handle_vvar_vma(struct vma_area *vma)
 #endif
 
 static int handle_vma(pid_t pid, struct vma_area *vma_area,
-			char *file_path, DIR *map_files_dir,
+			const char *file_path, DIR *map_files_dir,
 			struct vma_file_info *vfi,
 			struct vma_file_info *prev_vfi,
-			struct vm_area_list *vma_area_list,
 			int *vm_file_fd)
 {
 	if (vma_get_mapfile(file_path, vma_area, map_files_dir,
 					vfi, prev_vfi, vm_file_fd))
 		goto err_bogus_mapfile;
 
-	if (vma_area->e->status != 0) {
-		if (vma_area->e->status & VMA_AREA_AIORING)
-			vma_area_list->nr_aios++;
+	if (vma_area->e->status != 0)
 		return 0;
-	} else if (!strcmp(file_path, "[vsyscall]") ||
+
+	if (!strcmp(file_path, "[vsyscall]") ||
 		   !strcmp(file_path, "[vectors]")) {
 		vma_area->e->status |= VMA_AREA_VSYSCALL;
 	} else if (!strcmp(file_path, "[vdso]")) {
@@ -754,14 +754,15 @@ int parse_smaps(pid_t pid, struct vm_area_list *vma_area_list,
 		}
 
 		if (handle_vma(pid, vma_area, str + path_off, map_files_dir,
-				&vfi, &prev_vfi, vma_area_list, &vm_file_fd))
+				&vfi, &prev_vfi, &vm_file_fd))
 			goto err;
 
 		if (vma_entry_is(vma_area->e, VMA_FILE_PRIVATE) ||
 				vma_entry_is(vma_area->e, VMA_FILE_SHARED)) {
 			if (dump_filemap && dump_filemap(vma_area, vm_file_fd))
 				goto err;
-		}
+		} else if (vma_entry_is(vma_area->e, VMA_AREA_AIORING))
+			vma_area_list->nr_aios++;
 	}
 
 	vma_area = NULL;
@@ -980,8 +981,9 @@ static int cap_parse(char *str, unsigned int *res)
 	return 0;
 }
 
-int parse_pid_status(pid_t pid, struct proc_status_creds *cr)
+int parse_pid_status(pid_t pid, struct seize_task_status *ss)
 {
+	struct proc_status_creds *cr = container_of(ss, struct proc_status_creds, s);
 	struct bfd f;
 	int done = 0;
 	int ret = -1;
@@ -992,8 +994,8 @@ int parse_pid_status(pid_t pid, struct proc_status_creds *cr)
 	if (f.fd < 0)
 		return -1;
 
-	cr->sigpnd = 0;
-	cr->shdpnd = 0;
+	cr->s.sigpnd = 0;
+	cr->s.shdpnd = 0;
 
 	if (bfdopenr(&f))
 		return -1;
@@ -1006,13 +1008,13 @@ int parse_pid_status(pid_t pid, struct proc_status_creds *cr)
 			goto err_parse;
 
 		if (!strncmp(str, "State:", 6)) {
-			cr->state = str[7];
+			cr->s.state = str[7];
 			done++;
 			continue;
 		}
 
 		if (!strncmp(str, "PPid:", 5)) {
-			if (sscanf(str, "PPid:\t%d", &cr->ppid) != 1) {
+			if (sscanf(str, "PPid:\t%d", &cr->s.ppid) != 1) {
 				pr_err("Unable to parse: %s\n", str);
 				goto err_parse;
 			}
@@ -1069,7 +1071,7 @@ int parse_pid_status(pid_t pid, struct proc_status_creds *cr)
 		}
 
 		if (!strncmp(str, "Seccomp:", 8)) {
-			if (sscanf(str + 9, "%d", &cr->seccomp_mode) != 1) {
+			if (sscanf(str + 9, "%d", &cr->s.seccomp_mode) != 1) {
 				goto err_parse;
 			}
 
@@ -1083,7 +1085,7 @@ int parse_pid_status(pid_t pid, struct proc_status_creds *cr)
 
 			if (sscanf(str + 7, "%llx", &sigpnd) != 1)
 				goto err_parse;
-			cr->shdpnd |= sigpnd;
+			cr->s.shdpnd |= sigpnd;
 
 			done++;
 			continue;
@@ -1093,7 +1095,7 @@ int parse_pid_status(pid_t pid, struct proc_status_creds *cr)
 
 			if (sscanf(str + 7, "%llx", &sigpnd) != 1)
 				goto err_parse;
-			cr->sigpnd |= sigpnd;
+			cr->s.sigpnd |= sigpnd;
 
 			done++;
 			continue;
@@ -1451,7 +1453,7 @@ struct mount_info *parse_mountinfo(pid_t pid, struct ns_id *nsid, bool for_dump)
 				new->flags, new->options);
 
 		if (new->fstype->parse) {
-			ret = new->fstype->parse(new, for_dump);
+			ret = new->fstype->parse(new);
 			if (ret < 0) {
 				pr_err("Failed to parse FS specific data on %s\n",
 						new->mountpoint);
@@ -1614,55 +1616,6 @@ nodata:
 
 static int parse_file_lock_buf(char *buf, struct file_lock *fl,
 				bool is_blocked);
-
-static bool unsupported_nfs_lock(pid_t pid, int remote_fd, int mnt_id,
-				 int fl_kind)
-{
-	struct statfs buf;
-	int fd;
-	char path[PATH_MAX];
-	struct mount_info *mi;
-	char local_lock[32], *ptr;
-
-	sprintf(path, "/proc/%d/fd/%d", pid, remote_fd);
-	fd = open(path, O_RDONLY);
-	if (fd < 0) {
-		pr_perror("failed to open %s", path);
-		return false;
-	}
-
-	if (fstatfs(fd, &buf)) {
-		pr_perror("failed to statfs /proc/self/fd/%d", fd);
-		close(fd);
-		return false;
-	}
-	close(fd);
-
-	if (buf.f_type != NFS_SUPER_MAGIC)
-		return false;
-
-	mi = lookup_mnt_id(mnt_id);
-	if (!mi)
-		return false;
-
-	ptr = strstr(mi->options, "local_lock=");
-	if (!ptr)
-		return false;
-
-	if (sscanf(ptr, "local_lock=%[^,],%*s", local_lock) != 1)
-		return false;
-
-	if (!strcmp(local_lock, "all"))
-		return false;
-	if ((fl_kind == FL_POSIX) && !strcmp(local_lock, "posix"))
-		return false;
-	if ((fl_kind == FL_FLOCK) && !strcmp(local_lock, "flock"))
-		return false;
-
-	pr_err("remote %s on NFS are not supported yet: /proc/%d/fd/%d\n", (fl_kind == FL_FLOCK) ? "flocks" : "posix locks", pid, remote_fd);
-	return true;
-}
-
 static int parse_fdinfo_pid_s(int pid, int fd, int type,
 		int (*cb)(union fdinfo_entries *e, void *arg), void *arg)
 {
@@ -1736,12 +1689,6 @@ static int parse_fdinfo_pid_s(int pid, int fd, int type,
 
 			if (fl->fl_kind == FL_UNKNOWN) {
 				pr_err("Unknown file lock!\n");
-				xfree(fl);
-				goto out;
-			}
-
-			if (unsupported_nfs_lock(pid, fd, fdinfo->mnt_id,
-						 fl->fl_kind)) {
 				xfree(fl);
 				goto out;
 			}
@@ -2030,6 +1977,8 @@ static int parse_file_lock_buf(char *buf, struct file_lock *fl,
 		fl->fl_kind = FL_POSIX;
 	else if (!strcmp(fl_flag, "FLOCK"))
 		fl->fl_kind = FL_FLOCK;
+	else if (!strcmp(fl_flag, "OFDLCK"))
+		fl->fl_kind = FL_OFD;
 	else
 		fl->fl_kind = FL_UNKNOWN;
 
@@ -2275,7 +2224,7 @@ int parse_threads(int pid, struct pid **_t, int *_n)
 				return -1;
 			}
 			t = tmp;
-			t[nr - 1].virt = -1;
+			t[nr - 1].ns[0].virt = -1;
 		}
 		t[nr - 1].real = atoi(de->d_name);
 		t[nr - 1].state = TASK_THREAD;
@@ -2534,7 +2483,7 @@ err:
  *
  * See fixup_overlayfs for details.
  */
-int overlayfs_parse(struct mount_info *new, bool for_dump)
+int overlayfs_parse(struct mount_info *new)
 {
 	opts.overlayfs = true;
 	return 0;
@@ -2544,7 +2493,7 @@ int overlayfs_parse(struct mount_info *new, bool for_dump)
  * AUFS callback function to "fix up" the root pathname.
  * See sysfs_parse.c for details.
  */
-int aufs_parse(struct mount_info *new, bool for_dump)
+int aufs_parse(struct mount_info *new)
 {
 	int ret = 0;
 

@@ -9,6 +9,7 @@ prep
 ./test/zdtm.py run -t zdtm/static/inotify_irmap --fault 128 --keep-going --pre 2 -f uns || fail
 ./test/zdtm.py run -t zdtm/static/env00 --fault 129 -f uns || fail
 ./test/zdtm.py run -t zdtm/transition/fork --fault 130 -f h || fail
+./test/zdtm.py run -t zdtm/static/vdso01 --fault 127 || fail
 
 ./test/zdtm.py run -t zdtm/static/mntns_ghost --fault 2 --keep-going --report report || fail
 ./test/zdtm.py run -t zdtm/static/mntns_ghost --fault 4 --keep-going --report report || fail
@@ -18,3 +19,5 @@ prep
 ./test/zdtm.py run -t zdtm/static/unlink_fstat03 --fault 6 --report report || fail
 
 ./test/zdtm.py run -t zdtm/static/env00 --fault 5 --keep-going --report report || fail
+./test/zdtm.py run -t zdtm/static/maps04 --fault 131 --keep-going --report report --pre 2:1 || fail
+./test/zdtm.py run -t zdtm/transition/maps008 --fault 131 --keep-going --report report --pre 2:1 || fail

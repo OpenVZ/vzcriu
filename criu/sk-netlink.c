@@ -1,6 +1,5 @@
 #include <unistd.h>
 #include <linux/netlink.h>
-#include <linux/socket.h>
 #include <linux/rtnetlink.h>
 #include <libnl3/netlink/msg.h>
 
@@ -13,50 +12,17 @@
 #include "images/sk-netlink.pb-c.h"
 #include "netlink_diag.h"
 #include "libnetlink.h"
-#include "sk-queue.h"
-#include "kerndat.h"
-
-#ifndef SOL_NETLINK
-#define SOL_NETLINK 270
-#endif
 
 struct netlink_sk_desc {
 	struct socket_desc	sd;
-	u32                     portid;
+	u32			portid;
 	u32			*groups;
 	u32			gsize;
-	u32                     dst_portid;
+	u32			dst_portid;
 	u32			dst_group;
-	u32			nl_flags;
 	u8			state;
 	u8			protocol;
 };
-
-int netlink_final_check_one(struct nlmsghdr *hdr, void *arg)
-{
-	struct nlattr *tb[NETLINK_DIAG_MAX+1];
-	struct netlink_diag_msg *m;
-	unsigned long nl_ino = (unsigned long)arg;
-	u64 flags;
-	
-	m = NLMSG_DATA(hdr);
-
-	if (m->ndiag_ino == nl_ino)
-		return 0;
-
-	nlmsg_parse(hdr, sizeof(struct netlink_diag_msg), tb, NETLINK_DIAG_MAX, NULL);
-
-	flags = NDIAG_FLAG_CB_RUNNING;
-	if (tb[NETLINK_DIAG_FLAGS])
-		flags = nla_get_u32(tb[NETLINK_DIAG_FLAGS]);
-
-	if (flags & NDIAG_FLAG_CB_RUNNING) {
-		pr_err("The netlink socket 0x%x has undumped data\n", m->ndiag_ino);
-		return -1;
-	}
-
-	return 0;
-}
 
 int netlink_receive_one(struct nlmsghdr *hdr, void *arg)
 {
@@ -95,77 +61,18 @@ int netlink_receive_one(struct nlmsghdr *hdr, void *arg)
 		sd->gsize = 0;
 	}
 
-	/*
-	 * It's imossible to dump a socket queue if a callback is running now.
-	 * We have to set NDIAG_FLAG_CB_RUNNING, if a kernel doesn't report
-	 * real flags.
-	 */
-	sd->nl_flags = NDIAG_FLAG_CB_RUNNING;
-
-	if (tb[NETLINK_DIAG_FLAGS]) {
-		u64 flags = nla_get_u32(tb[NETLINK_DIAG_FLAGS]);
-
-		sd->nl_flags = flags;
-	}
-
 	return sk_collect_one(m->ndiag_ino, PF_NETLINK, &sd->sd);
 }
 
-static bool can_dump_netlink_sk(int lfd, struct netlink_sk_desc *sk)
+static bool can_dump_netlink_sk(int lfd)
 {
 	int ret;
 
 	ret = fd_has_data(lfd);
-	if (ret < 0)
-		return false;
+	if (ret == 1)
+		pr_err("The socket has data to read\n");
 
-	return true;
-}
-
-static int dump_nl_opts(int sk, NlSkOptsEntry *e)
-{
-	int ret = 0;
-	socklen_t len;
-
-	ret |= dump_opt(sk, SOL_NETLINK, NETLINK_PKTINFO, &e->pktinfo);
-	ret |= dump_opt(sk, SOL_NETLINK, NETLINK_BROADCAST_ERROR, &e->broadcast_error);
-	ret |= dump_opt(sk, SOL_NETLINK, NETLINK_NO_ENOBUFS, &e->no_enobufs);
-
-	len = sizeof(e->listen_all_nsid);
-	if (getsockopt(sk, SOL_NETLINK, NETLINK_LISTEN_ALL_NSID, &e->listen_all_nsid, &len)) {
-		if (errno == ENOPROTOOPT) {
-			pr_warn("Unable to get NETLINK_LISTEN_ALL_NSID");
-		} else {
-			pr_perror("Can't get NETLINK_LISTEN_ALL_NSID opt");
-			ret = -1;
-		}
-	}
-
-	len = sizeof(e->cap_ack);
-	if (getsockopt(sk, SOL_NETLINK, NETLINK_CAP_ACK, &e->cap_ack, &len) &&
-	    errno != ENOPROTOOPT) {
-		pr_perror("Can't get NETLINK_CAP_ACK opt");
-		ret = -1;
-	}
-
-	return ret;
-}
-
-static int dump_nl_queue(int sk, int id) {
-	int ret, old_val, on = 1;
-
-	if (dump_opt(sk, SOL_NETLINK, NETLINK_NO_ENOBUFS, &old_val))
-		return -1;
-
-	if (!old_val && restore_opt(sk, SOL_NETLINK, NETLINK_NO_ENOBUFS, &on))
-		return -1;
-
-	ret = dump_sk_queue(sk, id, SK_QUEUE_DUMP_ADDR);
-
-	if (!old_val && restore_opt(sk, SOL_NETLINK, NETLINK_NO_ENOBUFS, &old_val))
-		return -1;
-
-	return ret;
+	return ret == 0;
 }
 
 static int dump_one_netlink_fd(int lfd, u32 id, const struct fd_parms *p)
@@ -173,7 +80,6 @@ static int dump_one_netlink_fd(int lfd, u32 id, const struct fd_parms *p)
 	struct netlink_sk_desc *sk;
 	NetlinkSkEntry ne = NETLINK_SK_ENTRY__INIT;
 	SkOptsEntry skopts = SK_OPTS_ENTRY__INIT;
-	NlSkOptsEntry nlopts = NL_SK_OPTS_ENTRY__INIT;
 
 	sk = (struct netlink_sk_desc *)lookup_socket(p->stat.st_ino, PF_NETLINK, 0);
 	if (IS_ERR(sk))
@@ -182,7 +88,7 @@ static int dump_one_netlink_fd(int lfd, u32 id, const struct fd_parms *p)
 	ne.id = id;
 	ne.ino = p->stat.st_ino;
 
-	if (!can_dump_netlink_sk(lfd, sk))
+	if (!can_dump_netlink_sk(lfd))
 		goto err;
 
 	if (sk) {
@@ -202,6 +108,7 @@ static int dump_one_netlink_fd(int lfd, u32 id, const struct fd_parms *p)
 			ne.n_groups -= 1;
 
 		if (ne.n_groups > 1) {
+			pr_err("%d %x\n", sk->gsize, sk->groups[1]);
 			pr_err("The netlink socket 0x%x has more than 32 groups\n", ne.ino);
 			return -1;
 		}
@@ -226,15 +133,8 @@ static int dump_one_netlink_fd(int lfd, u32 id, const struct fd_parms *p)
 
 	ne.fown = (FownEntry *)&p->fown;
 	ne.opts	= &skopts;
-	ne.nl_opts = &nlopts;
-
-	if (dump_nl_opts(lfd, &nlopts))
-		goto err;
 
 	if (dump_socket_opts(lfd, &skopts))
-		goto err;
-
-	if (kdat.has_nl_repair && dump_nl_queue(lfd, id))
 		goto err;
 
 	if (pb_write_one(img_from_set(glob_imgset, CR_FD_NETLINK_SK), &ne, PB_NETLINK_SK))
@@ -254,47 +154,6 @@ struct netlink_sock_info {
 	NetlinkSkEntry *nse;
 	struct file_desc d;
 };
-
-static int restore_netlink_queue(int sk, int id)
-{
-	int val;
-
-	if (!kdat.has_nl_repair)
-		return 0;
-
-	val = 1;
-	if (setsockopt(sk, SOL_NETLINK, NETLINK_REPAIR, &val, sizeof(val))) {
-		pr_perror("Unable to set NETLINK_REPAIR");
-		return -1;
-	}
-
-	if (restore_sk_queue(sk, id))
-		return -1;
-
-	val = 0;
-	if (setsockopt(sk, SOL_NETLINK, NETLINK_REPAIR, &val, sizeof(val)))
-		return -1;
-
-	return 0;
-}
-
-static int restore_nl_opts(int sk, NlSkOptsEntry *e)
-{
-	int yes = 1, ret = 0;
-
-	if (e->pktinfo)
-		ret |= restore_opt(sk, SOL_NETLINK, NETLINK_PKTINFO, &yes);
-	if (e->broadcast_error)
-		ret |= restore_opt(sk, SOL_NETLINK, NETLINK_BROADCAST_ERROR, &yes);
-	if (e->no_enobufs)
-		ret |= restore_opt(sk, SOL_NETLINK, NETLINK_NO_ENOBUFS, &yes);
-	if (e->listen_all_nsid)
-		ret |= restore_opt(sk, SOL_NETLINK, NETLINK_LISTEN_ALL_NSID, &yes);
-	if (e->cap_ack)
-		ret |= restore_opt(sk, SOL_NETLINK, NETLINK_CAP_ACK, &yes);
-
-	return ret;
-}
 
 static int open_netlink_sk(struct file_desc *d, int *new_fd)
 {
@@ -342,12 +201,6 @@ static int open_netlink_sk(struct file_desc *d, int *new_fd)
 	}
 
 	if (rst_file_params(sk, nse->fown, nse->flags))
-		goto err;
-
-	if (restore_netlink_queue(sk, nse->id))
-		goto err;
-
-	if (nse->nl_opts && restore_nl_opts(sk, nse->nl_opts))
 		goto err;
 
 	if (restore_socket_opts(sk, nse->opts))

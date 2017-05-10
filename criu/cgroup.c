@@ -7,6 +7,7 @@
 #include <sys/stat.h>
 #include <ftw.h>
 #include <libgen.h>
+#include <sched.h>
 #include "common/list.h"
 #include "xmalloc.h"
 #include "cgroup.h"
@@ -19,7 +20,6 @@
 #include "util-pie.h"
 #include "namespaces.h"
 #include "seize.h"
-#include "syscall-types.h"
 #include "protobuf.h"
 #include "images/core.pb-c.h"
 #include "images/cgroup.pb-c.h"
@@ -422,12 +422,12 @@ static int add_cgroup_properties(const char *fpath, struct cgroup_dir *ncd,
 		const cgp_t *cgp = cgp_get_props(controller->controllers[i]);
 
 		if (dump_cg_props_array(fpath, ncd, cgp) < 0) {
-			pr_err("dumping known properties failed");
+			pr_err("dumping known properties failed\n");
 			return -1;
 		}
 
 		if (dump_cg_props_array(fpath, ncd, &cgp_global) < 0) {
-			pr_err("dumping global properties failed");
+			pr_err("dumping global properties failed\n");
 			return -1;
 		}
 	}
@@ -640,7 +640,7 @@ int dump_task_cgroup(struct pstree_item *item, u32 *cg_id, struct parasite_dump_
 	struct cg_set *cs;
 
 	if (item)
-		pid = item->pid.real;
+		pid = item->pid->real;
 	else
 		pid = getpid();
 
@@ -1069,7 +1069,7 @@ static int move_in_cgroup(CgSetEntry *se, bool setup_cgns)
 	pr_info("Move into %d\n", se->id);
 
 	if (setup_cgns && prepare_cgns(se) < 0) {
-		pr_err("failed preparing cgns");
+		pr_err("failed preparing cgns\n");
 		return -1;
 	}
 
@@ -1782,79 +1782,6 @@ static int rewrite_cgroup_roots(CgroupEntry *cge)
 	return 0;
 }
 
-static int vz_rewrite_net_cls(CgroupEntry *cge)
-{
-	static const char sysfs_ctl_net_cls_prio[] = "/sys/fs/cgroup/net_cls,net_prio";
-	static const char ctl_net_prio_cls[] = "net_prio,net_cls";
-	static const char ctl_net_cls[] = "net_cls";
-	bool rewrote = false;
-	char *prev;
-	int i, j;
-
-	if (access(sysfs_ctl_net_cls_prio, F_OK)) {
-		pr_debug("No %s accessable, skipping rewrite\n",
-			 sysfs_ctl_net_cls_prio);
-		return 0;
-	}
-
-	/*
-	 * The transition should fit the following algo:
-	 *
-	 *  - only one "net_cls" controller present in the
-	 *    system, ie n_cnames = 1, this is a main key
-	 *    for transition, for new kernels there is
-	 *    a merge of net_cls controller into
-	 *    "net_prio,net_cls" where n_cnames = 2
-	 *
-	 *  - once found nothing else is allowed (remember
-	 *    we read data from image so it might be corrupted)
-	 */
-	for (i = 0; i < cge->n_controllers; i++) {
-		CgControllerEntry *ce = cge->controllers[i];
-
-		if (ce->n_cnames != 1 || strcmp(ctl_net_cls, ce->cnames[0]))
-			continue;
-
-		pr_warn_once("rewriting controller entry %s -> %s\n",
-			     ctl_net_cls, ctl_net_prio_cls);
-		prev = ce->cnames[0];
-		ce->cnames[0] = xstrdup(ctl_net_prio_cls);
-		if (!ce->cnames[0]) {
-			ce->cnames[0] = prev;
-			return -ENOMEM;
-		}
-		xfree(prev);
-		if (!rewrote)
-			rewrote = true;
-	}
-
-	if (!rewrote) {
-		pr_debug("No %s -> %s transition detected, skipping rewrite\n",
-			 ctl_net_cls, ctl_net_prio_cls);
-		return 0;
-	}
-
-	for (i = 0; i < cge->n_sets; i++) {
-		CgSetEntry *se = cge->sets[i];
-
-		for (j = 0; j < se->n_ctls; j++) {
-			if (strcmp(ctl_net_cls, se->ctls[j]->name))
-				continue;
-			pr_warn_once("rewriting controller set entry entry %s -> %s\n",
-				     ctl_net_cls, ctl_net_prio_cls);
-			prev = se->ctls[j]->name;
-			se->ctls[j]->name = xstrdup(ctl_net_prio_cls);
-			if (!se->ctls[j]->name) {
-				se->ctls[j]->name = prev;
-				return -ENOMEM;
-			}
-			xfree(prev);
-		}
-	}
-
-	return 0;
-}
-
 int prepare_cgroup(void)
 {
 	int ret;
@@ -1871,14 +1798,6 @@ int prepare_cgroup(void)
 		return ret;
 
 	if (rewrite_cgroup_roots(ce))
-		return -1;
-
-	/*
-	 * FIXME: Temporary solution, need to implement
-	 * intelligent merging denepding on controllers
-	 * present on the node.
-	 */
-	if (vz_rewrite_net_cls(ce))
 		return -1;
 
 	n_sets = ce->n_sets;
@@ -1916,22 +1835,6 @@ int new_cg_root_add(char *controller, char *newroot)
 	o->newroot = newroot;
 	list_add(&o->node, &opts.new_cgroup_roots);
 	return 0;
-}
-
-int new_cg_root_get(const char *controller, char **root)
-{
-	struct cg_root_opt *o;
-
-	if (!controller)
-		return -EINVAL;
-
-	list_for_each_entry(o, &opts.new_cgroup_roots, node) {
-		if (!strcmp(o->controller, controller)) {
-			*root = o->newroot;
-			return 0;
-		}
-	}
-	return -ENOENT;
 }
 
 struct ns_desc cgroup_ns_desc = NS_DESC_ENTRY(CLONE_NEWCGROUP, "cgroup");

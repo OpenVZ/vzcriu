@@ -20,7 +20,8 @@ enum sfd_type {
 	USERNSD_SK,	/* Socket for usernsd */
 	NS_FD_OFF,	/* Node's net namespace fd */
 	TRANSPORT_FD_OFF, /* to transfer file descriptors */
-	SPFS_MNGR_SK,   /* Spfs manager socket */
+	RPC_SK_OFF,
+	FDSTORE_SK_OFF,
 
 	SERVICE_FD_MAX
 };

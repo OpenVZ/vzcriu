@@ -3,7 +3,8 @@ set -x -e
 
 TRAVIS_PKGS="protobuf-c-compiler libprotobuf-c0-dev libaio-dev
 		libprotobuf-dev protobuf-compiler python-ipaddr libcap-dev
-		libnl-3-dev gdb bash python-protobuf libnet-dev util-linux"
+		libnl-3-dev gcc-multilib libc6-dev-i386 gdb bash python-protobuf
+		libnet-dev util-linux asciidoc"
 
 travis_prep () {
 	[ -n "$SKIP_TRAVIS_PREP" ] && return
@@ -12,12 +13,25 @@ travis_prep () {
 
 	service apport stop
 
+	CC=gcc
+	# clang support
+	if [ "$CLANG" = "1" ]; then
+		TRAVIS_PKGS="$TRAVIS_PKGS clang"
+		CC=clang
+	fi
+
+	# ccache support, only enable for non-GCOV case
+	if [ "$CCACHE" = "1" -a -z "$GCOV" ]; then
+		# ccache is installed by default, need to set it up
+		export CCACHE_DIR=$HOME/.ccache
+		[ "$CC" = "clang" ] && export CCACHE_CPP2=yes
+		# uncomment the following to get detailed ccache logs
+		#export CCACHE_LOGFILE=$HOME/ccache.log
+		CC="ccache $CC"
+	fi
+
 	apt-get update -qq
 	apt-get install -qq $TRAVIS_PKGS
-		if [ "$CLANG" = "1" ]; then
-			apt-get install -qq clang
-			MAKE_VARS=CC=clang
-		fi
 	chmod a+x $HOME
 }
 
@@ -27,8 +41,10 @@ ulimit -c unlimited
 echo "|`pwd`/test/abrt.sh %P %p %s %e" > /proc/sys/kernel/core_pattern
 
 export GCOV
-make ${MAKE_VARS}
-make ${MAKE_VARS} -C test/zdtm
+time make CC="$CC" -j4
+time make CC="$CC" -j4 -C test/zdtm
+
+[ -f "$CCACHE_LOGFILE" ] && cat $CCACHE_LOGFILE
 
 ./criu/criu check
 ./criu/criu check --all || echo $?
@@ -53,7 +69,8 @@ bash ./test/jenkins/criu-fcg.sh
 bash ./test/jenkins/criu-inhfd.sh
 
 make -C test/others/mnt-ext-dev/ run
-make -C test/others/exec/ run
+#make -C test/others/exec/ run
+make -C test/others/make/ run
 
 ./test/zdtm.py run -t zdtm/static/env00 --sibling
 

@@ -11,6 +11,7 @@
 #include "servicefd.h"
 #include "pagemap.h"
 
+#include "fault-injection.h"
 #include "xmalloc.h"
 #include "protobuf.h"
 #include "images/pagemap.pb-c.h"
@@ -247,7 +248,8 @@ static int read_local_page(struct page_read *pr, unsigned long vaddr,
 			   unsigned long len, void *buf)
 {
 	int fd = img_raw_fd(pr->pi);
-	ssize_t ret;
+	int ret;
+	size_t curr = 0;
 
 	/*
 	 * Flush any pending async requests if any not to break the
@@ -257,10 +259,15 @@ static int read_local_page(struct page_read *pr, unsigned long vaddr,
 		return -1;
 
 	pr_debug("\tpr%u Read page from self %lx/%"PRIx64"\n", pr->id, pr->cvaddr, pr->pi_off);
-	ret = pread(fd, buf, len, pr->pi_off);
-	if (ret != len) {
-		pr_perror("Can't read mapping page %li", (long)ret);
-		return -1;
+	while (1) {
+		ret = pread(fd, buf + curr, len - curr, pr->pi_off + curr);
+		if (ret < 1) {
+			pr_perror("Can't read mapping page %d", ret);
+			return -1;
+		}
+		curr += ret;
+		if (curr == len)
+			break;
 	}
 
 	if (opts.auto_dedup) {
@@ -438,6 +445,18 @@ static int process_async_reads(struct page_read *pr)
 				piov->to->iov_base, piov->to->iov_len);
 more:
 		ret = preadv(fd, piov->to, piov->nr, piov->from);
+		if (fault_injected(FI_PARTIAL_PAGES)) {
+			/*
+			 * We might have read everything, but for debug
+			 * purposes let's try to force the advance_piov()
+			 * and re-read tail.
+			 */
+			if (ret > 0 && piov->nr >= 2) {
+				pr_debug("`- trim preadv %zu\n", ret);
+				ret /= 2;
+			}
+		}
+
 		if (ret != piov->end - piov->from) {
 			if (ret < 0) {
 				pr_err("Can't read async pr bytes (%zd / %ju read, %ju off, %d iovs)\n",
@@ -545,7 +564,7 @@ err_cl:
 static int init_pagemaps(struct page_read *pr)
 {
 	off_t fsize;
-	ssize_t nr_pmes, nr_realloc;
+	int nr_pmes, nr_realloc;
 
 	fsize = img_raw_size(pr->pmi);
 	if (fsize < 0)

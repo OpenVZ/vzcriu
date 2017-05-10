@@ -58,7 +58,7 @@ static int autofs_gather_pipe(unsigned long inode)
 	return 0;
 }
 
-int autofs_parse(struct mount_info *pm, bool for_dump)
+int autofs_parse(struct mount_info *pm)
 {
 	long pipe_ino = AUTOFS_OPT_UNKNOWN;
 	char **opts;
@@ -359,11 +359,9 @@ static int access_autofs_mount(struct mount_info *pm)
 	if (new_pid_ns < 0)
 		return -1;
 
-	old_pid_ns = open("/proc/self/ns/pid", O_RDONLY);
-	if (old_pid_ns < 0) {
-		pr_perror("Can't open /proc/self/ns/pid");
+	old_pid_ns = open_proc(PROC_SELF, "ns/pid");
+	if (old_pid_ns < 0)
 		goto close_new_pid_ns;
-	}
 
 	if (switch_ns(pm->nsid->ns_pid, &mnt_ns_desc, &old_mnt_ns)) {
 		pr_err("failed to switch to mount namespace\n");
@@ -569,7 +567,7 @@ static int autofs_dup_pipe(struct pstree_item *task,
 	struct pipe_info *pi = container_of(ple->desc, struct pipe_info, d);
 	unsigned flags = O_WRONLY;
 
-	new_fd = find_unused_fd(&rsti(task)->used, new_fd);
+	new_fd = find_unused_fd(task, new_fd);
 
 	if (dup_pipe_info(pi, flags, pi->d.ops) < 0) {
 		pr_err("Failed to dup pipe entry ID %#x PIPE_ID %#x\n",
@@ -579,12 +577,12 @@ static int autofs_dup_pipe(struct pstree_item *task,
 
 	if (dup_fle(task, ple, new_fd, flags) < 0) {
 		pr_err("Failed to add fd %d to process %d\n",
-				new_fd, task->pid.virt);
+				new_fd, vpid(task));
 		return -1;
 	}
 
 	pr_info("autofs: added pipe fd %d, flags %#x to %d\n",
-			new_fd, flags, task->pid.virt);
+			new_fd, flags, vpid(task));
 	return new_fd;
 }
 
@@ -828,17 +826,6 @@ static autofs_info_t *autofs_create_info(const struct mount_info *mi,
 	return i;
 }
 
-static struct fdinfo_list_entry *find_fle_by_fd(struct list_head *head, int fd)
-{
-	struct fdinfo_list_entry *fle;
-
-	list_for_each_entry(fle, head, used_list) {
-		if (fle->fe->fd == fd)
-			return fle;
-	}
-	return NULL;
-}
-
 static struct fdinfo_list_entry *autofs_pipe_le(struct pstree_item *master,
 						AutofsEntry *entry)
 {
@@ -848,15 +835,15 @@ static struct fdinfo_list_entry *autofs_pipe_le(struct pstree_item *master,
 	if (entry->has_read_fd)
 		pipe_fd = entry->read_fd;
 
-	ple = find_fle_by_fd(&rsti(master)->used, pipe_fd);
+	ple = find_used_fd(master, pipe_fd);
 	if (!ple) {
 		pr_err("Failed to find pipe fd %d in process %d\n",
-				pipe_fd, master->pid.virt);
+				pipe_fd, vpid(master));
 		return NULL;
 	}
 	if (ple->fe->type != FD_TYPES__PIPE) {
 		pr_err("Fd %d in process %d is not a pipe: %d\n", pipe_fd,
-				master->pid.virt, ple->fe->type);
+				vpid(master), ple->fe->type);
 		return NULL;
 	}
 	return ple;
@@ -873,7 +860,7 @@ static int autofs_create_fle(struct pstree_item *task, FdinfoEntry *fe,
 		return -1;
 	le = (void *)ALIGN((long)le, sizeof(int));
 
-	fle_init(le, task->pid.virt, fe);
+	fle_init(le, vpid(task), fe);
 
 	collect_task_fd(le, rst_info);
 
@@ -911,7 +898,7 @@ static int autofs_create_pipe(struct pstree_item *task, autofs_info_t *i,
 	struct file_desc_ops *ops;
 	PipeEntry *pe;
 
-	fd = find_unused_fd(&rsti(task)->used, fd);
+	fd = find_unused_fd(task, fd);
 
 	ops = shmalloc(sizeof(*ops));
 	if (!ops)
@@ -967,7 +954,7 @@ static int autofs_add_mount_info(void *data)
 		entry->fd = autofs_dup_pipe(master, ple, entry->fd);
 		if (entry->fd < 0) {
 			pr_err("Failed to find free fd in process %d\n",
-					master->pid.virt);
+					vpid(master));
 			return -1;
 		}
 	}

@@ -1,5 +1,5 @@
 #!/usr/bin/env python2
-# vim: noet
+# vim: noet ts=8 sw=8 sts=8
 import argparse
 import glob
 import os
@@ -291,10 +291,10 @@ def encode_flav(f):
 
 
 def decode_flav(i):
-	i = i - 128
-	if i in flavors:
+	try:
 		return flavors.keys()[i - 128]
-	return "unknown"
+	except:
+		return "unknown"
 
 
 def tail(path):
@@ -675,12 +675,16 @@ join_ns_file = '/run/netns/zdtm_netns'
 
 class criu_cli:
 	@staticmethod
-	def run(action, args, fault = None, strace = [], preexec = None):
-		env = None
+	def run(action, args, fault = None, strace = [], preexec = None, nowait = False):
+		env = dict(os.environ, ASAN_OPTIONS = "log_path=asan.log:disable_coredump=0:detect_leaks=0")
+
 		if fault:
 			print "Forcing %s fault" % fault
-			env = dict(os.environ, CRIU_FAULT = fault)
+			env['CRIU_FAULT'] = fault
+
 		cr = subprocess.Popen(strace + [criu_bin, action] + args, env = env, preexec_fn = preexec)
+		if nowait:
+			return cr
 		return cr.wait()
 
 
@@ -722,13 +726,15 @@ class criu_rpc:
 			raise test_fail_exc('RPC for %s required' % arg)
 
 	@staticmethod
-	def run(action, args, fault = None, strace = [], preexec = None):
+	def run(action, args, fault = None, strace = [], preexec = None, nowait = False):
 		if fault:
 			raise test_fail_exc('RPC and FAULT not supported')
 		if strace:
 			raise test_fail_exc('RPC and SAT not supported')
 		if preexec:
 			raise test_fail_exc('RPC and PREEXEC not supported')
+		if nowait:
+			raise test_fail_exc("RPC and status-fd not supported")
 
 		ctx = {}  # Object used to keep info untill action is done
 		criu = crpc.criu()
@@ -778,6 +784,8 @@ class criu:
 		self.__user = (opts['user'] and True or False)
 		self.__leave_stopped = (opts['stop'] and True or False)
 		self.__criu = (opts['rpc'] and criu_rpc or criu_cli)
+		self.__lazy_pages_p = None
+		self.__page_server_p = None
 
 	def logs(self):
 		return self.__dump_path
@@ -809,7 +817,7 @@ class criu:
 		os.setresgid(58467, 58467, 58467)
 		os.setresuid(18943, 18943, 18943)
 
-	def __criu_act(self, action, opts, log = None):
+	def __criu_act(self, action, opts = [], log = None, nowait = False):
 		if not log:
 			log = action + ".log"
 
@@ -838,7 +846,21 @@ class criu:
 
 		__ddir = self.__ddir()
 
-		ret = self.__criu.run(action, s_args, self.__fault, strace, preexec)
+		status_fds = None
+		if nowait:
+			status_fds = os.pipe()
+			s_args += ["--status-fd", str(status_fds[1])]
+
+		ret = self.__criu.run(action, s_args, self.__fault, strace, preexec, nowait)
+
+		if nowait:
+			os.close(status_fds[1])
+			if os.read(status_fds[0], 1) != '\0':
+				ret = ret.wait()
+				raise test_fail_exc("criu %s exited with %s" % (action, ret))
+			os.close(status_fds[0])
+			return ret
+
 		grep_errors(os.path.join(__ddir, log))
 		if ret != 0:
 			if self.__fault and int(self.__fault) < 128:
@@ -875,11 +897,11 @@ class criu:
 		if self.__page_server:
 			print "Adding page server"
 
-			ps_opts = ["--port", "12345", "--daemon", "--pidfile", "ps.pid"]
+			ps_opts = ["--port", "12345"]
 			if self.__dedup:
 				ps_opts += ["--auto-dedup"]
 
-			self.__criu_act("page-server", opts = ps_opts)
+			self.__page_server_p = self.__criu_act("page-server", opts = ps_opts, nowait = True)
 			a_opts += ["--page-server", "--address", "127.0.0.1", "--port", "12345"]
 
 		a_opts += self.__test.getdopts()
@@ -907,8 +929,11 @@ class criu:
 			pstree_check_stopped(self.__test.getpid())
 			pstree_signal(self.__test.getpid(), signal.SIGKILL)
 
-		if self.__page_server:
-			wait_pid_die(int(rpidfile(self.__ddir() + "/ps.pid")), "page server")
+		if self.__page_server_p:
+			ret = self.__page_server_p.wait()
+			self.__page_server_p = None
+			if ret:
+				raise test_fail_exc("criu page-server exited with %d" % ret)
 
 	def restore(self):
 		r_opts = []
@@ -934,6 +959,18 @@ class criu:
 
 		self.__criu_act("restore", opts = r_opts + ["--restore-detached"])
 
+		if self.__lazy_pages_p:
+			ret = self.__lazy_pages_p.wait()
+			self.__lazy_pages_p = None
+			if ret:
+				raise test_fail_exc("criu lazy-pages exited with %s" % ret)
+
+		if self.__page_server_p:
+			ret = self.__page_server_p.wait()
+			self.__page_server_p = None
+			if ret:
+				raise test_fail_exc("criu page-server exited with %s" % ret)
+
 		if self.__leave_stopped:
 			pstree_check_stopped(self.__test.getpid())
 			pstree_signal(self.__test.getpid(), signal.SIGCONT)
@@ -947,6 +984,16 @@ class criu:
 		if not os.access(criu_bin, os.X_OK):
 			print "CRIU binary not built"
 			sys.exit(1)
+
+	def kill(self):
+		if self.__lazy_pages_p:
+			self.__lazy_pages_p.terminate()
+			print "criu lazy-pages exited with %s" & self.wait()
+			self.__lazy_pages_p = None
+		if self.__page_server_p:
+			self.__page_server_p.terminate()
+			print "criu page-server exited with %s" & self.wait()
+			self.__page_server_p = None
 
 
 def try_run_hook(test, args):
@@ -1288,6 +1335,7 @@ def do_run_test(tname, tdesc, flavs, opts):
 			print_sep("Test %s FAIL at %s" % (tname, e.step), '#')
 			t.print_output()
 			t.kill()
+			cr_api.kill()
 			try_run_hook(t, ["--clean"])
 			if cr_api.logs():
 				add_to_report(cr_api.logs(), tname.replace('/', '_') + "_" + f + "/images")
@@ -1433,12 +1481,18 @@ class launcher:
 			self.__fail = True
 		if self.__file_report:
 			self.__file_report.close()
-		if self.__fail:
-			if opts['keep_going']:
+
+		if opts['keep_going']:
+			if self.__fail:
 				print_sep("%d TEST(S) FAILED (TOTAL %d/SKIPPED %d)"
 						% (len(self.__failed), self.__total, self.__nr_skip), "#")
 				for failed in self.__failed:
 					print " * %s(%s)" % (failed[0], failed[1])
+			else:
+				print_sep("ALL TEST(S) PASSED (TOTAL %d/SKIPPED %d)"
+						% (self.__total, self.__nr_skip), "#")
+
+		if self.__fail:
 			print_sep("FAIL", "#")
 			sys.exit(1)
 
@@ -1464,7 +1518,7 @@ default_test = {}
 
 def get_test_desc(tname):
 	d_path = tname + '.desc'
-	if os.access(d_path, os.F_OK):
+	if os.access(d_path, os.F_OK) and os.path.getsize(d_path) > 0:
 		return eval(open(d_path).read())
 
 	return default_test
@@ -1498,13 +1552,19 @@ def print_error(line):
 def grep_errors(fname):
 	first = True
 	print_next = False
+	before = []
 	for l in open(fname):
+		before.append(l)
+		if len(before) > 5:
+			before.pop(0)
 		if "Error" in l:
 			if first:
 				print_fname(fname, 'log')
 				print_sep("grep Error", "-", 60)
 				first = False
-			print_next = print_error(l)
+			for i in before:
+				print_next = print_error(i)
+			before = []
 		else:
 			if print_next:
 				print_next = print_error(l)

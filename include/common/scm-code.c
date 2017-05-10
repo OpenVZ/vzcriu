@@ -2,10 +2,6 @@
 #error "The __sys macro is required"
 #endif
 
-#ifndef __memcpy
-#error "The __memcpy macro is required"
-#endif
-
 static void scm_fdset_init_chunk(struct scm_fdset *fdset, int nr_fds,
 		void *data, unsigned ch_size)
 {
@@ -54,7 +50,8 @@ static int *scm_fdset_init(struct scm_fdset *fdset, struct sockaddr_un *saddr,
 int send_fds(int sock, struct sockaddr_un *saddr, int len,
 		int *fds, int nr_fds, void *data, unsigned ch_size)
 {
-	struct scm_fdset fdset;
+	/* In musl_libc the msghdr structure has pads which has to be zeroed */
+	struct scm_fdset fdset = {};
 	int *cmsg_data;
 	int i, min_fd, ret;
 
@@ -62,7 +59,7 @@ int send_fds(int sock, struct sockaddr_un *saddr, int len,
 	for (i = 0; i < nr_fds; i += min_fd) {
 		min_fd = min(CR_SCM_MAX_FD, nr_fds - i);
 		scm_fdset_init_chunk(&fdset, min_fd, data, ch_size);
-		__memcpy(cmsg_data, &fds[i], sizeof(int) * min_fd);
+		memcpy(cmsg_data, &fds[i], sizeof(int) * min_fd);
 
 		ret = __sys(sendmsg)(sock, &fdset.hdr, 0);
 		if (ret <= 0)
@@ -75,9 +72,10 @@ int send_fds(int sock, struct sockaddr_un *saddr, int len,
 	return 0;
 }
 
-int recv_fds(int sock, int *fds, int nr_fds, void *data, unsigned ch_size)
+int __recv_fds(int sock, int *fds, int nr_fds, void *data, unsigned ch_size, int flags)
 {
-	struct scm_fdset fdset;
+	/* In musl_libc the msghdr structure has pads which has to be zeroed */
+	struct scm_fdset fdset = {};
 	struct cmsghdr *cmsg;
 	int *cmsg_data;
 	int ret;
@@ -88,9 +86,9 @@ int recv_fds(int sock, int *fds, int nr_fds, void *data, unsigned ch_size)
 		min_fd = min(CR_SCM_MAX_FD, nr_fds - i);
 		scm_fdset_init_chunk(&fdset, min_fd, data, ch_size);
 
-		ret = __sys(recvmsg)(sock, &fdset.hdr, 0);
+		ret = __sys(recvmsg)(sock, &fdset.hdr, flags);
 		if (ret <= 0)
-			return ret ? : -1;
+			return ret ? __sys_err(ret) : -ENOMSG;
 
 		cmsg = CMSG_FIRSTHDR(&fdset.hdr);
 		if (!cmsg || cmsg->cmsg_type != SCM_RIGHTS)
@@ -111,9 +109,9 @@ int recv_fds(int sock, int *fds, int nr_fds, void *data, unsigned ch_size)
 		BUG_ON(min_fd > CR_SCM_MAX_FD);
 
 		if (unlikely(min_fd <= 0))
-			return -1;
+			return -EBADFD;
 
-		__memcpy(&fds[i], cmsg_data, sizeof(int) * min_fd);
+		memcpy(&fds[i], cmsg_data, sizeof(int) * min_fd);
 		if (data)
 			data += ch_size * min_fd;
 	}

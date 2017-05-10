@@ -84,6 +84,7 @@ static int ppb_resize_pipe(struct page_pipe_buf *ppb, unsigned long new_size)
 static int page_pipe_grow(struct page_pipe *pp)
 {
 	struct page_pipe_buf *ppb;
+	struct iovec *free_iov;
 
 	pr_debug("Will grow page pipe (iov off is %u)\n", pp->free_iov);
 
@@ -101,7 +102,8 @@ static int page_pipe_grow(struct page_pipe *pp)
 		return -1;
 
 out:
-	ppb_init(ppb, 0, 0, &pp->iovs[pp->free_iov]);
+	free_iov = &pp->iovs[pp->free_iov];
+	ppb_init(ppb, 0, 0, free_iov);
 
 	return 0;
 }
@@ -257,6 +259,7 @@ int page_pipe_add_hole(struct page_pipe *pp, unsigned long addr)
 		goto out;
 
 	iov_init(&pp->holes[pp->free_hole++], addr);
+
 out:
 	return 0;
 }
@@ -278,7 +281,8 @@ void debug_show_page_pipe(struct page_pipe *pp)
 				ppb->pages_in, ppb->nr_segs);
 		for (i = 0; i < ppb->nr_segs; i++) {
 			iov = &ppb->iov[i];
-			pr_debug("\t\t%p %lu\n", iov->iov_base, iov->iov_len / PAGE_SIZE);
+			pr_debug("\t\t%p %lu\n", iov->iov_base,
+					iov->iov_len / PAGE_SIZE);
 		}
 	}
 

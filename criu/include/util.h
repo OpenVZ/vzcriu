@@ -40,7 +40,6 @@ struct list_head;
 extern void pr_vma(unsigned int loglevel, const struct vma_area *vma_area);
 
 #define pr_info_vma(vma_area)	pr_vma(LOG_INFO, vma_area)
-#define pr_msg_vma(vma_area)	pr_vma(LOG_MSG, vma_area)
 
 #define pr_vma_list(level, head)				\
 	do {							\
@@ -73,7 +72,8 @@ extern int set_proc_fd(int fd);
 #define PROC_GEN	-1
 #define PROC_NONE	-2
 
-extern int do_open_proc(pid_t pid, int flags, const char *fmt, ...);
+extern int do_open_proc(pid_t pid, int flags, const char *fmt, ...)
+	__attribute__ ((__format__ (__printf__, 3, 4)));
 
 #define __open_proc(pid, ier, flags, fmt, ...)				\
 	({								\
@@ -172,6 +172,7 @@ extern int cr_system(int in, int out, int err, char *cmd, char *const argv[], un
 extern int cr_system_userns(int in, int out, int err, char *cmd,
 				char *const argv[], unsigned flags, int userns_pid);
 extern int cr_daemon(int nochdir, int noclose, int *keep_fd, int close_fd);
+extern int close_status_fd(void);
 extern int is_root_user(void);
 
 static inline bool dir_dots(const struct dirent *de)
@@ -250,12 +251,6 @@ static inline bool issubpath(const char *path, const char *sub_path)
  * mkdir -p
  */
 int mkdirpat(int fd, const char *path, int mode);
-/*
- * mkdir -p `dirname $path`
- */
-int mkdirname(const char *path, int mode);
-
-int rmdirp(const char *path, size_t keep);
 
 /*
  * Tests whether a path is a prefix of another path. This is different than
@@ -291,8 +286,6 @@ void print_data(unsigned long addr, unsigned char *data, size_t size);
 int setup_tcp_server(char *type);
 int run_tcp_server(bool daemon_mode, int *ask, int cfd, int sk);
 int setup_tcp_client(char *addr);
-int cr_set_root(int fd, int *old_root);
-int cr_restore_root(int fd);
 
 #define LAST_PID_PATH		"sys/kernel/ns_last_pid"
 #define PID_MAX_PATH		"sys/kernel/pid_max"

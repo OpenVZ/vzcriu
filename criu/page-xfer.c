@@ -95,19 +95,11 @@ static int write_pagemap_to_server(struct page_xfer *xfer,
 static int write_pages_to_server(struct page_xfer *xfer,
 		int p, unsigned long len)
 {
-	ssize_t ret, left = len;
-
 	pr_debug("Splicing %lu bytes / %lu pages into socket\n", len, len / PAGE_SIZE);
 
-	while (left > 0) {
-		ret = splice(p, NULL, xfer->sk, NULL, left, SPLICE_F_MOVE);
-		if (ret < 0) {
-			pr_perror("Can't write pages to socket");
-			return -1;
-		}
-
-		pr_debug("\tSpliced: %lu bytes sent\n", (unsigned long)ret);
-		left -= ret;
+	if (splice(p, NULL, xfer->sk, NULL, len, SPLICE_F_MOVE) != len) {
+		pr_perror("Can't write pages to socket");
+		return -1;
 	}
 
 	return 0;
@@ -178,15 +170,17 @@ static int write_pages_loc(struct page_xfer *xfer,
 		int p, unsigned long len)
 {
 	ssize_t ret;
+	ssize_t curr = 0;
 
-	ret = splice(p, NULL, img_raw_fd(xfer->pi), NULL, len, SPLICE_F_MOVE);
-	if (ret == -1) {
-		pr_perror("Unable to spice data");
-		return -1;
-	}
-	if (ret != len) {
-		pr_err("Only %zu of %lu bytes have been spliced\n", ret, len);
-		return -1;
+	while (1) {
+		ret = splice(p, NULL, img_raw_fd(xfer->pi), NULL, len, SPLICE_F_MOVE);
+		if (ret == -1) {
+			pr_perror("Unable to spice data");
+			return -1;
+		}
+		curr += ret;
+		if (curr == len)
+			break;
 	}
 
 	return 0;
@@ -347,18 +341,13 @@ static int page_xfer_dump_hole(struct page_xfer *xfer,
 	return 0;
 }
 
-static struct iovec get_iov(struct iovec *iovs, unsigned int n)
-{
-	return iovs[n];
-}
-
 static int dump_holes(struct page_xfer *xfer, struct page_pipe *pp,
 		      unsigned int *cur_hole, void *limit, unsigned long off)
 {
 	int ret;
 
 	for (; *cur_hole < pp->free_hole ; (*cur_hole)++) {
-		struct iovec hole = get_iov(pp->holes, *cur_hole);
+		struct iovec hole = pp->holes[*cur_hole];
 
 		if (limit && hole.iov_base >= limit)
 			break;
@@ -386,7 +375,7 @@ int page_xfer_dump_pages(struct page_xfer *xfer, struct page_pipe *pp,
 		pr_debug("\tbuf %d/%d\n", ppb->pages_in, ppb->nr_segs);
 
 		for (i = 0; i < ppb->nr_segs; i++) {
-			struct iovec iov = get_iov(ppb->iov, i);
+			struct iovec iov = ppb->iov[i];
 
 			ret = dump_holes(xfer, pp, &cur_hole, iov.iov_base, off);
 			if (ret)
@@ -739,7 +728,7 @@ int cr_page_server(bool daemon_mode, int cfd)
 no_server:
 	ret = run_tcp_server(daemon_mode, &ask, cfd, sk);
 	if (ret != 0)
-		return ret;
+		return ret > 0 ? 0 : -1;
 
 	if (ask >= 0)
 		ret = page_server_serve(ask);
