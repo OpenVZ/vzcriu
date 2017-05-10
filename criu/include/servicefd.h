@@ -22,6 +22,7 @@ enum sfd_type {
 	TRANSPORT_FD_OFF, /* to transfer file descriptors */
 	RPC_SK_OFF,
 	FDSTORE_SK_OFF,
+	SPFS_MNGR_SK,   /* Spfs manager socket */
 
 	SERVICE_FD_MAX
 };

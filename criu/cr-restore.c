@@ -3193,6 +3193,7 @@ static int sigreturn_restore(pid_t pid, struct task_restore_args *task_args, uns
 	close_service_fd(USERNSD_SK);
 	close_service_fd(FDSTORE_SK_OFF);
 	close_service_fd(RPC_SK_OFF);
+	close_service_fd(SPFS_MNGR_SK);
 
 	__gcov_flush();
 
