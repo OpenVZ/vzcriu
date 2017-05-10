@@ -12,6 +12,7 @@
 #include <stdint.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>  /* for sockaddr_in and inet_ntoa() */
+#include <linux/netlink.h>
 
 #include "int.h"
 #include "log.h"
@@ -29,6 +30,7 @@
 #include "sk-inet.h"
 #include <compel/plugins/std/syscall-codes.h>
 #include <compel/compel.h>
+#include "sockets.h"
 
 struct kerndat_s kdat = {
 };
@@ -565,6 +567,30 @@ static int kerndat_compat_restore(void)
 	return 0;
 }
 
+int kerndat_nl_repair()
+{
+	int sk, val = 1;
+
+	sk = socket(AF_NETLINK, SOCK_DGRAM, 0);
+	if (sk < 0) {
+		pr_perror("Unable to create a netlink socket");
+		return -1;
+	}
+
+	if (setsockopt(sk, SOL_NETLINK, NETLINK_REPAIR, &val, sizeof(val))) {
+		if (errno != ENOPROTOOPT) {
+			pr_perror("Unable to set NETLINK_REPAIR");
+			close(sk);
+			return -1;
+		}
+		kdat.has_nl_repair = false;
+	} else
+		kdat.has_nl_repair = true;
+	close(sk);
+
+	return 0;
+}
+
 int kerndat_init(void)
 {
 	int ret;
@@ -592,6 +618,8 @@ int kerndat_init(void)
 		ret = kerndat_tcp_repair();
 	if (!ret)
 		ret = kerndat_compat_restore();
+	if (!ret)
+		ret = kerndat_nl_repair();
 
 	kerndat_lsm();
 	kerndat_mmap_min_addr();
@@ -626,6 +654,8 @@ int kerndat_init_rst(void)
 		ret = kerndat_tcp_repair();
 	if (!ret)
 		ret = kerndat_compat_restore();
+	if (!ret)
+		ret = kerndat_nl_repair();
 
 	kerndat_lsm();
 	kerndat_mmap_min_addr();

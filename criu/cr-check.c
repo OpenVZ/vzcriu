@@ -1055,6 +1055,19 @@ static int check_loginuid(void)
 	return 0;
 }
 
+static int check_nl_repair(void)
+{
+	if (kerndat_nl_repair() < 0)
+		return -1;
+
+	if (!kdat.has_nl_repair) {
+		pr_warn("NETLINK_REPAIR isn't supported.\n");
+		return -1;
+	}
+
+	return 0;
+}
+
 static int check_compat_cr(void)
 {
 	if (kdat_compat_sigreturn_test())
@@ -1174,6 +1187,7 @@ int cr_check(void)
 	if (opts.check_experimental_features) {
 		ret |= check_autofs();
 		ret |= check_compat_cr();
+		ret |= check_nl_repair();
 	}
 
 	print_on_level(DEFAULT_LOGLEVEL, "%s\n", ret ? CHECK_MAYBE : CHECK_GOOD);
@@ -1215,6 +1229,7 @@ static struct feature_list feature_list[] = {
 	{ "autofs", check_autofs },
 	{ "tcp_half_closed", check_tcp_halt_closed },
 	{ "compat_cr", check_compat_cr },
+	{ "nl_repair", check_nl_repair },
 	{ NULL, NULL },
 };
 
