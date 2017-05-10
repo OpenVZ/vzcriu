@@ -31,6 +31,9 @@ static compel_cpuinfo_t rt_cpu_info;
 
 int cpu_init(void)
 {
+	if (vz_cpu_parse_cpuid_override())
+		return -1;
+
 	if (compel_cpuid(&rt_cpu_info))
 		return -1;
 
