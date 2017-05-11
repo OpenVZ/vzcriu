@@ -89,16 +89,7 @@ static char *spfs_manager_work_dir(void)
 {
 	static char work_dir[PATH_MAX] = { };
 
-	if (strlen(work_dir) == 0) {
-		char *veid = getenv("VEID");
-
-		if (veid)
-			snprintf(work_dir, PATH_MAX, VE_SPFS_MANAGER_WORK_DIR,
-					veid, root_item->pid->real);
-		else
-			snprintf(work_dir, PATH_MAX, SPFS_MANAGER_WORK_DIR,
-					root_item->pid->real);
-	}
+	snprintf(work_dir, PATH_MAX, SPFS_MANAGER_WORK_DIR, root_item->pid->real);
 	return work_dir;
 }
 
@@ -113,6 +104,23 @@ char *spfs_manager_socket_path(void)
 	return socket_path;
 }
 
+static char *spfs_manager_log_dir(void)
+{
+	static char work_dir[PATH_MAX] = { };
+
+	if (strlen(work_dir) == 0) {
+		char *veid = getenv("VEID");
+
+		if (veid)
+			snprintf(work_dir, PATH_MAX, VE_SPFS_MANAGER_WORK_DIR,
+					veid, root_item->pid->real);
+		else
+			snprintf(work_dir, PATH_MAX, SPFS_MANAGER_WORK_DIR,
+					root_item->pid->real);
+	}
+	return work_dir;
+}
+
 static int start_spfs_manager(void)
 {
 	char *spfs_manager = "spfs-manager";
@@ -124,6 +132,7 @@ static int start_spfs_manager(void)
 				 "-d",
 				 "--socket-path", socket_path,
 				 "--work-dir", spfs_manager_work_dir(),
+				 "--log-dir", spfs_manager_log_dir(),
 				 "--exit-with-spfs", NULL },
 			0);
 	pr_info("%s: spfs manager start result: %d\n", __func__, err);
