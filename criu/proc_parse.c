@@ -1561,7 +1561,7 @@ struct mount_info *parse_mountinfo(pid_t pid, struct ns_id *nsid, bool for_dump)
 				new->flags, new->options);
 
 		if (new->fstype->parse) {
-			ret = new->fstype->parse(new);
+			ret = new->fstype->parse(new, for_dump);
 			if (ret < 0) {
 				pr_err("Failed to parse FS specific data on %s\n",
 						new->mountpoint);
@@ -2730,7 +2730,7 @@ err:
  *
  * See fixup_overlayfs for details.
  */
-int overlayfs_parse(struct mount_info *new)
+int overlayfs_parse(struct mount_info *new, bool for_dump)
 {
 	opts.overlayfs = true;
 	return 0;
@@ -2740,7 +2740,7 @@ int overlayfs_parse(struct mount_info *new)
  * AUFS callback function to "fix up" the root pathname.
  * See sysfs_parse.c for details.
  */
-int aufs_parse(struct mount_info *new)
+int aufs_parse(struct mount_info *new, bool for_dump)
 {
 	int ret = 0;
 
