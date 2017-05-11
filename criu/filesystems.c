@@ -41,7 +41,15 @@ struct binfmt_misc_info {
 
 LIST_HEAD(binfmt_misc_list);
 
-static int binfmt_misc_parse_or_collect(struct mount_info *pm)
+static int binfmt_misc_parse(struct mount_info *pm, bool for_dump)
+{
+	if (for_dump)
+		opts.has_binfmt_misc = true;
+	return 0;
+
+}
+
+static int binfmt_misc_collect(struct mount_info *pm)
 {
 	opts.has_binfmt_misc = true;
 	return 0;
@@ -380,7 +388,8 @@ int collect_binfmt_misc(void)
 #else
 #define binfmt_misc_dump	NULL
 #define binfmt_misc_restore	NULL
-#define binfmt_misc_parse_or_collect NULL
+#define binfmt_misc_parse NULL
+#define binfmt_misc_collect NULL
 #endif
 
 static int tmpfs_dump(struct mount_info *pm)
@@ -504,7 +513,7 @@ static int devtmpfs_restore(struct mount_info *pm)
 }
 
 /* Is it mounted w or w/o the newinstance option */
-static int devpts_parse(struct mount_info *pm)
+static int devpts_parse(struct mount_info *pm, bool for_dump)
 {
 	int ret;
 
@@ -563,7 +572,7 @@ out:
 	return ret;
 }
 
-static int debugfs_parse(struct mount_info *pm)
+static int debugfs_parse(struct mount_info *pm, bool for_dump)
 {
 	/* tracefs is automounted underneath debugfs sometimes, and the
 	 * kernel's overmounting protection prevents us from mounting debugfs
@@ -574,7 +583,7 @@ static int debugfs_parse(struct mount_info *pm)
 	return 0;
 }
 
-static int tracefs_parse(struct mount_info *pm)
+static int tracefs_parse(struct mount_info *pm, bool for_dump)
 {
 	return 1;
 }
@@ -590,7 +599,7 @@ static bool cgroup_sb_equal(struct mount_info *a, struct mount_info *b)
 	return true;
 }
 
-static int cgroup_parse(struct mount_info *pm)
+static int cgroup_parse(struct mount_info *pm, bool for_dump)
 {
 	if (!(root_ns_mask & CLONE_NEWCGROUP))
 		return 0;
@@ -689,8 +698,8 @@ static struct fstype fstypes[] = {
 		.restore = devtmpfs_restore,
 	}, {
 		.name = "binfmt_misc",
-		.parse = binfmt_misc_parse_or_collect,
-		.collect = binfmt_misc_parse_or_collect,
+		.parse = binfmt_misc_parse,
+		.collect = binfmt_misc_collect,
 		.code = FSTYPE__BINFMT_MISC,
 		.dump = binfmt_misc_dump,
 		.restore = binfmt_misc_restore,
