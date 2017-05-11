@@ -249,7 +249,7 @@ static int read_local_page(struct page_read *pr, unsigned long vaddr,
 			   unsigned long len, void *buf)
 {
 	int fd = img_raw_fd(pr->pi);
-	int ret;
+	ssize_t ret;
 	size_t curr = 0;
 
 	/*
@@ -263,7 +263,7 @@ static int read_local_page(struct page_read *pr, unsigned long vaddr,
 	while (1) {
 		ret = pread(fd, buf + curr, len - curr, pr->pi_off + curr);
 		if (ret < 1) {
-			pr_perror("Can't read mapping page %d", ret);
+			pr_perror("Can't read mapping page %zd", ret);
 			return -1;
 		}
 		curr += ret;
