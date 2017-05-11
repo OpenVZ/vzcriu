@@ -722,15 +722,24 @@ static int read_pstree_ids(pid_t pid, TaskKobjIdsEntry **ids)
 	ADD_OR_COPY_ID(ids, time);
 #undef ADD_OR_COPY_ID
 
-	if (!ret && (*ids)->has_pid_ns_id) {
-		if (!top_pid_ns) {
-			/*
-			 * If top_pid_ns is not set, this means that here is old dump,
-			 * which does not contain ns.img. It can have only one pid_ns,
-			 * so we set it here.
-			 */
-			top_pid_ns = lookup_ns_by_id((*ids)->pid_ns_id, &pid_ns_desc);
-		}
+	if (!ret && (!(*ids)->has_pid_ns_id || !(*ids)->has_net_ns_id ||
+		     !(*ids)->ipc_ns_id || !(*ids)->uts_ns_id || !(*ids)->mnt_ns_id)) {
+		/*
+		 * At least root_item must have the fields,
+		 * implemented before the img format became
+		 * stable (commit 2105e18eee70).
+		 */
+		pr_err("No task ids or always dumped ns ids\n");
+		ret = -1;
+	}
+
+	if (!ret && !top_pid_ns) {
+		/*
+		 * If top_pid_ns is not set, this means that here is old dump,
+		 * which does not contain ns.img. It can have only one pid_ns,
+		 * so we set it here.
+		 */
+		top_pid_ns = lookup_ns_by_id((*ids)->pid_ns_id, &pid_ns_desc);
 	}
 
 	return ret;
@@ -859,15 +868,6 @@ static int read_one_pstree_item(struct cr_img *img, pid_t *pid_max)
 		ids = dup_ns_ids(parent->ids);
 		if (!ids)
 			goto err;
-	}
-
-	if (!ids->has_pid_ns_id) {
-		/*
-		 * At least root_item must have ids, and pid_ns_id field
-		 * was populated since ids are introduced.
-		 */
-		pr_err("No pid_ns id\n");
-		goto err;
 	}
 
 	pi = lookup_create_item((pid_t *)e->ns_pid, e->n_ns_pid, ids->pid_ns_id);
