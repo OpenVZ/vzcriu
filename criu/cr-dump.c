@@ -1689,6 +1689,8 @@ static int dump_one_task(struct pstree_item *item)
 		goto err_cure;
 	}
 
+	rlimit_limit_nofile(pid, &rlim_ctl);
+
 	ret = dump_task_core_all(parasite_ctl, item, &pps_buf, cr_imgset);
 	if (ret) {
 		pr_err("Dump core (pid: %d) failed with %d\n", pid, ret);
