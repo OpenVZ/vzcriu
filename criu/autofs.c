@@ -58,7 +58,7 @@ static int autofs_gather_pipe(unsigned long inode)
 	return 0;
 }
 
-int autofs_parse(struct mount_info *pm)
+int autofs_parse(struct mount_info *pm, bool for_dump)
 {
 	long pipe_ino = AUTOFS_OPT_UNKNOWN;
 	char **opts;
