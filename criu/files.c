@@ -468,7 +468,8 @@ static int check_blkdev(struct fd_parms *p, int lfd)
 }
 
 static int dump_one_file(struct pid *pid, int fd, int lfd, struct fd_opts *opts,
-		       struct cr_img *img, struct parasite_ctl *ctl)
+		       struct cr_img *img, struct parasite_ctl *ctl,
+		       struct parasite_drain_fd *dfds)
 {
 	struct fd_parms p = FD_PARMS_INIT;
 	const struct fdtype_ops *ops;
@@ -483,6 +484,7 @@ static int dump_one_file(struct pid *pid, int fd, int lfd, struct fd_opts *opts,
 		return -1;
 
 	p.fd_ctl = ctl; /* Some dump_opts require this to talk to parasite */
+	p.dfds = dfds; /* epoll needs to verify if target fd exist */
 
 	if (S_ISSOCK(p.stat.st_mode))
 		return dump_socket(&p, lfd, img);
@@ -593,7 +595,8 @@ int dump_task_files_seized(struct parasite_ctl *ctl, struct pstree_item *item,
 
 		for (i = 0; i < nr_fds; i++) {
 			ret = dump_one_file(item->pid, dfds->fds[i + off],
-						lfds[i], opts + i, img, ctl);
+						lfds[i], opts + i, img, ctl,
+						dfds);
 			close(lfds[i]);
 			if (ret)
 				break;
