@@ -3705,36 +3705,30 @@ static int do_restore_task_mnt_ns(struct ns_id *nsid)
 
 int restore_task_mnt_ns(struct pstree_item *current)
 {
+	struct pstree_item *parent = current->parent;
+	unsigned int id = current->ids->mnt_ns_id;
+	struct ns_id *nsid;
+
 	if ((root_ns_mask & CLONE_NEWNS) == 0)
 		return 0;
 
-	if (current->ids && current->ids->has_mnt_ns_id) {
-		struct pstree_item *parent = current->parent;
-		unsigned int id = current->ids->mnt_ns_id;
-		struct ns_id *nsid;
+	/*
+	 * Parent already restored it's mntns so we either already
+	 * inherited the right mntns or need to setns now.
+	 */
+	if (parent && id == parent->ids->mnt_ns_id)
+		return 0;
 
-		/* Zombies and helpers can have ids == 0 so we skip them */
-		while (parent && !parent->ids)
-			parent = parent->parent;
-
-		/**
-		 * Our parent had restored the mount namespace before forking
-		 * us and if we have the same mntns we just stay there.
-		 */
-		if (parent && id == parent->ids->mnt_ns_id)
-			return 0;
-
-		nsid = lookup_ns_by_id(id, &mnt_ns_desc);
-		if (nsid == NULL) {
-			pr_err("Can't find mount namespace %d\n", id);
-			return -1;
-		}
-
-		BUG_ON(nsid->type == NS_CRIU);
-
-		if (do_restore_task_mnt_ns(nsid))
-			return -1;
+	nsid = lookup_ns_by_id(id, &mnt_ns_desc);
+	if (nsid == NULL) {
+		pr_err("Can't find mount namespace %d\n", id);
+		return -1;
 	}
+
+	BUG_ON(nsid->type == NS_CRIU);
+
+	if (do_restore_task_mnt_ns(nsid))
+		return -1;
 
 	return 0;
 }
