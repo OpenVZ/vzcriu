@@ -1,4 +1,3 @@
-#define _GNU_SOURCE
 #include <unistd.h>
 #include <linux/netlink.h>
 #include <sys/socket.h>
