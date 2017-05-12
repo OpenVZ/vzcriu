@@ -143,11 +143,6 @@ function restart_service {
 	local service=$1
 	local mountpoint=$($JOIN_CT systemctl show $service -p Where | sed 's/.*=//g')
 
-	if [ -z "$mountpoint" ]; then
-		echo "Failed to discover $service mountpoint"
-		return
-	fi
-
 	# Try to move restored bind-mount aside and exit if Failed
 	# Nothing to do, if we Failed
 	save_mountpoint $mountpoint || return
@@ -165,6 +160,12 @@ function restart_service {
 
 function skip_service {
 	local service=$1
+	local mountpoint=$($JOIN_CT systemctl show $service -p Where | sed 's/.*=//g')
+
+	if [ -z "$mountpoint" ]; then
+		echo "Failed to discover $service mountpoint"
+		return 1
+	fi
 
 	return 0
 }
