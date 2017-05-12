@@ -167,6 +167,13 @@ function skip_service {
 		return 1
 	fi
 
+	local top_mount_fs_type=$(get_fs_type $mountpoint)
+	# This is SPFS mount point in "Stub" mode. It can't be moved.
+	if [ "$top_mount_fs_type" == "fuse.spfs" ]; then
+		echo "spfs mount"
+		return 1
+	fi
+
 	return 0
 }
 
