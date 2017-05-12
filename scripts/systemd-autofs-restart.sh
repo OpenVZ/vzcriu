@@ -163,8 +163,20 @@ function restart_service {
 	restore_mountpoint $mountpoint
 }
 
+function skip_service {
+	local service=$1
+
+	return 0
+}
+
 for service in $AUTOFS_SERVICES; do
-	restart_service $service
+	skip_message=$(skip_service $service)
+
+	if [ $? -eq 1 ]; then
+		echo "$service skipped ($skip_message)"
+	else
+		restart_service $service
+	fi
 done
 
 exit 0
