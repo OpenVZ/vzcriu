@@ -162,10 +162,19 @@ function restart_service {
 function skip_service {
 	local service=$1
 	local mountpoint
+	local top_mount_fs_type
+
 	mountpoint=$($JOIN_CT systemctl show "$service" -p Where | sed 's/.*=//g')
 
 	if [ -z "$mountpoint" ]; then
 		echo "Failed to discover $service mountpoint"
+		return 1
+	fi
+
+	top_mount_fs_type=$(get_fs_type "$mountpoint")
+	# This is SPFS mount point in "Stub" mode. It can't be moved.
+	if [ "$top_mount_fs_type" == "fuse.spfs" ]; then
+		echo "spfs mount"
 		return 1
 	fi
 
