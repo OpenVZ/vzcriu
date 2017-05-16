@@ -1535,6 +1535,15 @@ int getpid()
        return syscall(__NR_getpid);
 }
 
+/*
+ * In glibc 2.24, fork() may fail when parent and child are
+ * from different pid namespaces and have the same pid.
+ */
+pid_t fork()
+{
+	return (pid_t)syscall(__NR_clone, SIGCHLD, 0, NULL, 0, NULL);
+}
+
 void rlimit_unlimit_nofile(void)
 {
 	struct rlimit new;
