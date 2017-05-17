@@ -1116,6 +1116,17 @@ static int check_ns_pid(void)
 	return 0;
 }
 
+static int check_ns_get_userns(void)
+{
+	if (kerndat_has_ns_get_userns() < 0)
+		return -1;
+
+	if (!kdat.has_ns_get_userns)
+		return -1;
+
+	return 0;
+}
+
 static int (*chk_feature)(void);
 
 /*
@@ -1226,6 +1237,7 @@ int cr_check(void)
 		ret |= check_kcmp_epoll();
 		ret |= check_net_diag_raw();
 		ret |= check_ns_pid();
+		ret |= check_ns_get_userns();
 	}
 
 	/*
@@ -1332,6 +1344,7 @@ static struct feature_list feature_list[] = {
 	{ "external_net_ns", check_external_net_ns},
 	{ "nl_repair", check_nl_repair },
 	{ "ns_pid", check_ns_pid},
+	{ "ns_get_userns", check_ns_get_userns },
 	{ NULL, NULL },
 };
 
