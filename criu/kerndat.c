@@ -899,6 +899,26 @@ int kerndat_has_ns_get_userns(void)
 	return 0;
 }
 
+int kerndat_has_ns_get_parent(void)
+{
+	int ns, p_ns;
+
+	ns = open("/proc/self/ns/user", O_RDONLY);
+	if (ns < 0) {
+		perror("Can't open user ns");
+		return -1;
+	}
+
+	p_ns = ioctl(ns, NS_GET_PARENT);
+	if (p_ns >= 0 || errno == EPERM) {
+		kdat.has_ns_get_parent = true;
+		close(p_ns);
+	}
+
+	close(ns);
+	return 0;
+}
+
 #define KERNDAT_CACHE_FILE	KDAT_RUNDIR"/criu.kdat"
 #define KERNDAT_CACHE_FILE_TMP	KDAT_RUNDIR"/.criu.kdat"
 
@@ -1341,6 +1361,10 @@ int kerndat_init(void)
 	}
 	if (!ret && kerndat_has_ns_get_userns()) {
 		pr_err("kerndat_has_ns_get_userns failed when initializing kerndat.\n");
+		ret = -1;
+	}
+	if (!ret && kerndat_has_ns_get_parent()) {
+		pr_err("kerndat_has_ns_get_parent failed when initializing kerndat.\n");
 		ret = -1;
 	}
 

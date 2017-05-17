@@ -1318,6 +1318,18 @@ static int check_ns_get_userns(void)
 	return 0;
 }
 
+static int check_ns_get_parent(void)
+{
+	if (kerndat_has_ns_get_parent() < 0)
+		return -1;
+
+	if (!kdat.has_ns_get_parent)
+		return -1;
+
+	return 0;
+}
+
+
 static int (*chk_feature)(void);
 
 /*
@@ -1431,6 +1443,7 @@ int cr_check(void)
 		ret |= check_time_namespace();
 		ret |= check_ns_pid();
 		ret |= check_ns_get_userns();
+		ret |= check_ns_get_parent();
 	}
 
 	/*
@@ -1540,6 +1553,7 @@ static struct feature_list feature_list[] = {
 	{ "nl_repair", check_nl_repair },
 	{ "ns_pid", check_ns_pid},
 	{ "ns_get_userns", check_ns_get_userns },
+	{ "ns_get_parent", check_ns_get_parent },
 	{ NULL, NULL },
 };
 
