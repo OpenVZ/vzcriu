@@ -1135,6 +1135,26 @@ static int kerndat_task_ct_fields_supported(void)
 	return 0;
 }
 
+int kerndat_has_ns_get_userns(void)
+{
+	int pid_fd, user_fd;
+
+	pid_fd = open("/proc/self/ns/pid", O_RDONLY);
+	if (pid_fd < 0) {
+		perror("Can't open pid ns");
+		return -1;
+	}
+
+	user_fd = ioctl(pid_fd, NS_GET_USERNS);
+	if (user_fd >= 0) {
+		kdat.has_ns_get_userns = true;
+		close(user_fd);
+	}
+
+	close(pid_fd);
+	return 0;
+}
+
 #define KERNDAT_CACHE_NAME "criu.kdat"
 #define KERNDAT_CACHE_FILE KDAT_RUNDIR "/" KERNDAT_CACHE_NAME
 
@@ -1919,6 +1939,10 @@ int kerndat_init(void)
 
 	if (!ret && kerndat_task_ct_fields_supported()) {
 		pr_err("kerndat_task_ct_fields_supported failed when initializing kerndat.\n");
+		ret = -1;
+	}
+	if (!ret && kerndat_has_ns_get_userns()) {
+		pr_err("kerndat_has_ns_get_userns failed when initializing kerndat.\n");
 		ret = -1;
 	}
 

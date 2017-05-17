@@ -90,6 +90,7 @@ struct kerndat_s {
 	bool has_ve_ctty;
 	bool has_beancounters;
 	bool task_ct_fields_supported;
+	bool has_ns_get_userns;
 };
 
 extern struct kerndat_s kdat;
@@ -111,6 +112,7 @@ enum {
 extern int kerndat_fs_virtualized(unsigned int which, u32 kdev);
 
 extern int kerndat_has_nspid(void);
+extern int kerndat_has_ns_get_userns(void);
 
 extern int kerndat_nl_repair(void);
 extern int kerndat_has_beancounters(void);
