@@ -70,6 +70,7 @@ FixNamespaceComments: false # Unknown to clang-format-4.0
 #   | sed "s,^#define \([^[:space:]]*for_each[^[:space:]]*\)(.*$,  - '\1'," \
 #   | sort | uniq
 ForEachMacros:
+  - 'for_each_pssubtree_item'
   - 'for_each_pstree_item'
   - 'for_each_bit'
   - 'apei_estatus_for_each_section'
