@@ -107,8 +107,12 @@ extern int pstree_pid_cmp(pid_t a, pid_t b);
 
 extern struct pstree_item *root_item;
 extern struct pstree_item *pstree_item_next(struct pstree_item *item);
+extern struct pstree_item *pssubtree_item_next(struct pstree_item *item,
+		struct pstree_item *root, bool skip_descendants);
 #define for_each_pstree_item(pi) \
 	for (pi = root_item; pi != NULL; pi = pstree_item_next(pi))
+#define for_each_pssubtree_item(pi, root) \
+	for (pi = root; pi != NULL; pi = pssubtree_item_next(pi, root, false))
 
 extern bool restore_before_setsid(struct pstree_item *child);
 extern int prepare_pstree(void);
