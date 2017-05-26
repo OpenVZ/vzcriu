@@ -1598,7 +1598,7 @@ out:
 		 * checkpoint complete process tree together with
 		 * the process which keeps the master peer.
 		 */
-		if (!equal_pid(root_item->sid, root_item->pid)) {
+		if (!is_session_leader(root_item)) {
 			if (!equal_pid(root_item->pgid, root_item->pid)) {
 				if (tty_set_prgp(fd, root_item->pgid))
 					goto err;
@@ -1792,7 +1792,7 @@ static struct pstree_item *find_session_leader(pid_t sid)
 
 	for_each_pstree_item(item) {
 		if (vsid(item) == sid &&
-		    equal_pid(item->pid, item->sid))
+		    is_session_leader(item))
 			return item;
 	}
 
