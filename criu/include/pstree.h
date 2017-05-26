@@ -90,6 +90,7 @@ static inline bool task_alive(struct pstree_item *i)
 	return is_alive_state(i->pid->state);
 }
 
+extern int is_session_leader(struct pstree_item *item);
 extern pid_t *get_free_pids(struct ns_id *ns, pid_t *pids, int *level);
 extern void free_pstree_item(struct pstree_item *item);
 extern void free_pstree(struct pstree_item *root_item);
