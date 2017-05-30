@@ -1012,7 +1012,7 @@ static int read_pstree_image(pid_t *pid_max)
 
 #define RESERVED_PIDS 300
 
-int get_free_pid(struct ns_id *ns)
+static int get_free_pid(struct ns_id *ns)
 {
 	struct pid *prev, *next;
 	struct ns_id *i = ns;
@@ -1040,6 +1040,30 @@ int get_free_pid(struct ns_id *ns)
 	}
 
 	return -1;
+}
+
+pid_t *get_free_pids(struct ns_id *ns, pid_t *pids, int *level)
+{
+	int i;
+
+	for (i = MAX_NS_NESTING - 1; ns && i >= 0; i--, ns = ns->parent) {
+		pids[i] = get_free_pid(ns);
+		if (pids[i] < 0) {
+			pr_err("Can't find free pid\n");
+			return NULL;
+		}
+	}
+
+	if (ns) {
+		pr_err("Too many pid levels\n");
+		return NULL;
+	}
+
+	*level = MAX_NS_NESTING - (++i);
+	if (*level == 0)
+		return NULL;
+
+	return &pids[i];
 }
 
 static int prepare_pstree_ids(pid_t pid)
