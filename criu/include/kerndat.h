@@ -1,6 +1,7 @@
 #ifndef __CR_KERNDAT_H__
 #define __CR_KERNDAT_H__
 
+#include <stdbool.h>
 #include "int.h"
 
 struct stat;
@@ -16,6 +17,7 @@ extern int kerndat_init_cr_exec(void);
 extern int kerndat_get_dirty_track(void);
 extern int kerndat_fdinfo_has_lock(void);
 extern int kerndat_loginuid(bool only_dump);
+extern int kerndat_files_stat(bool early);
 
 enum pagemap_func {
 	PM_UNKNOWN,

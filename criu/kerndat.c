@@ -147,8 +147,10 @@ static void kerndat_mmap_min_addr(void)
 		 (unsigned long)kdat.mmap_min_addr);
 }
 
-static int kerndat_files_stat(void)
+int kerndat_files_stat(bool early)
 {
+	static const uint32_t NR_OPEN_DEFAULT = 1024 * 1024;
+	static const uint64_t MAX_FILES_DEFAULT = 8192;
 	uint64_t max_files;
 	uint32_t nr_open;
 
@@ -165,10 +167,42 @@ static int kerndat_files_stat(void)
 		},
 	};
 
-	if (sysctl_op(req, ARRAY_SIZE(req), CTL_READ, 0)) {
-		pr_warn("Can't fetch file_stat, using kernel defaults\n");
-		nr_open = 1024 * 1024;
-		max_files = 8192;
+	if (!early) {
+		if (sysctl_op(req, ARRAY_SIZE(req), CTL_READ, 0)) {
+			pr_warn("Can't fetch file_stat, using kernel defaults\n");
+			nr_open = NR_OPEN_DEFAULT;
+			max_files = MAX_FILES_DEFAULT;
+		}
+	} else {
+		char buf[64];
+		int fd1, fd2;
+		ssize_t ret;
+
+		fd1 = open("/proc/sys/fs/file-max", O_RDONLY);
+		fd2 = open("/proc/sys/fs/nr_open", O_RDONLY);
+
+		nr_open = NR_OPEN_DEFAULT;
+		max_files = MAX_FILES_DEFAULT;
+
+		if (fd1 < 0 || fd2 < 0) {
+			pr_warn("Can't fetch file_stat, using kernel defaults\n");
+		} else {
+			ret = read(fd1, buf, sizeof(buf) - 1);
+			if (ret > 0) {
+				buf[ret] = '\0';
+				max_files = atol(buf);
+			}
+			ret = read(fd2, buf, sizeof(buf));
+			if (ret > 0) {
+				buf[ret] = '\0';
+				nr_open = atol(buf);
+			}
+		}
+
+		if (fd1 >= 0)
+			close(fd1);
+		if (fd2 >= 0)
+			close(fd2);
 	}
 
 	kdat.sysctl_nr_open = nr_open;
@@ -657,7 +691,7 @@ int kerndat_init(void)
 
 	kerndat_lsm();
 	kerndat_mmap_min_addr();
-	kerndat_files_stat();
+	kerndat_files_stat(false);
 
 	return ret;
 }
@@ -694,7 +728,7 @@ int kerndat_init_rst(void)
 
 	kerndat_lsm();
 	kerndat_mmap_min_addr();
-	kerndat_files_stat();
+	kerndat_files_stat(false);
 
 	return ret;
 }
