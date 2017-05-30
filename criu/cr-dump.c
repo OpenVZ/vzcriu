@@ -385,7 +385,7 @@ static void __maybe_unused ve_bc_finish(bc_set_t *bc_set)
 	pr_debug("ubc: restored %s\n", bc_set->veid);
 }
 
-void rlimit_limit_nofile_self(void)
+static void rlimit_limit_nofile_self(void)
 {
 	struct rlimit new;
 

@@ -2158,8 +2158,6 @@ static int prepare_task_entries(void)
 	return 0;
 }
 
-extern void rlimit_limit_nofile_self(void);
-
 int cr_restore_tasks(void)
 {
 	int ret = -1;
@@ -2175,8 +2173,6 @@ int cr_restore_tasks(void)
 
 	if (kerndat_init_rst())
 		goto err;
-
-	rlimit_limit_nofile_self();
 
 	timing_start(TIME_RESTORE);
 
