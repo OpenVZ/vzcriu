@@ -385,20 +385,6 @@ static void __maybe_unused ve_bc_finish(bc_set_t *bc_set)
 	pr_debug("ubc: restored %s\n", bc_set->veid);
 }
 
-static void rlimit_limit_nofile_self(void)
-{
-	struct rlimit new;
-
-	new.rlim_cur = kdat.sysctl_nr_open;
-	new.rlim_max = kdat.sysctl_nr_open;
-
-	if (prlimit(getpid(), RLIMIT_NOFILE, &new, NULL)) {
-		pr_perror("rlimir: Can't setup RLIMIT_NOFILE for self");
-		return;
-	} else
-		pr_debug("rlimit: RLIMIT_NOFILE unlimited for self\n");
-}
-
 static char loc_buf[PAGE_SIZE];
 
 void free_mappings(struct vm_area_list *vma_area_list)
@@ -1911,7 +1897,6 @@ int cr_pre_dump_tasks(pid_t pid)
 		goto err;
 
 	ve_bc_unlimit(&bc_set);
-	rlimit_limit_nofile_self();
 
 	for_each_pstree_item(item)
 		if (pre_dump_one_task(item))
@@ -2102,7 +2087,6 @@ int cr_dump_tasks(pid_t pid)
 		goto err;
 
 	ve_bc_unlimit(&bc_set);
-	rlimit_limit_nofile_self();
 
 	for_each_pstree_item(item) {
 		if (dump_one_task(item))
