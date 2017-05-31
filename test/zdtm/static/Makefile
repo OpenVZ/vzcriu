@@ -283,6 +283,7 @@ TST_NOFILE	:=				\
 		pidns00				\
 		pidns01				\
 		pidns02				\
+		pidns03				\
 #		jobctl00			\
 
 PKG_CONFIG ?= pkg-config
@@ -719,6 +720,9 @@ cgroupv2_01:		LDLIBS += -pthread
 sk-netlink02: 		CFLAGS += -DZDTM_NETLINK_DATA
 
 mntns_deleted01: 	CFLAGS += -DZDTM_RM_MID
+
+pidns03:		CFLAGS += -pthread
+pidns03:		LDFLAGS += -pthread
 
 $(LIB):	force
 	$(Q) $(MAKE) -C $(LIBDIR)
