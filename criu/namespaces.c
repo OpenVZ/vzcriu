@@ -414,7 +414,7 @@ int walk_namespaces(struct ns_desc *nd, int (*cb)(struct ns_id *, void *), void 
 }
 
 static unsigned int generate_ns_id(int pid, unsigned int kid, struct ns_desc *nd,
-		struct ns_id **ns_ret)
+		struct ns_id **ns_ret, bool alternative)
 {
 	struct ns_id *nsid;
 	enum ns_type type;
@@ -425,7 +425,7 @@ static unsigned int generate_ns_id(int pid, unsigned int kid, struct ns_desc *nd
 
 	if (pid != getpid()) {
 		type = NS_OTHER;
-		if (pid == root_item->pid->real) {
+		if (pid == root_item->pid->real && !alternative) {
 			BUG_ON(root_ns_mask & nd->cflag);
 			pr_info("Will take %s namespace in the image\n", nd->str);
 			root_ns_mask |= nd->cflag;
@@ -447,6 +447,7 @@ static unsigned int generate_ns_id(int pid, unsigned int kid, struct ns_desc *nd
 	nsid->ns_populated = true;
 	INIT_LIST_HEAD(&nsid->children);
 	INIT_LIST_HEAD(&nsid->siblings);
+	nsid->alternative = alternative;
 	nsid_add(nsid, nd, ns_next_id++, pid);
 
 	if (nd == &net_ns_desc) {
@@ -460,21 +461,22 @@ found:
 	return nsid->id;
 }
 
-static unsigned int __get_ns_id(int pid, struct ns_desc *nd, protobuf_c_boolean *supported, struct ns_id **ns)
+static unsigned int __get_ns_id(int pid, struct ns_desc *nd, bool alternative,
+				protobuf_c_boolean *supported, struct ns_id **ns)
 {
 	int proc_dir;
 	unsigned int kid;
-	char ns_path[10];
+	char ns_path[32];
 	struct stat st;
 
 	proc_dir = open_pid_proc(pid);
 	if (proc_dir < 0)
 		return 0;
 
-	snprintf(ns_path, sizeof(ns_path), "ns/%s", nd->str);
+	snprintf(ns_path, sizeof(ns_path), "ns/%s", !alternative ? nd->str : nd->alt_str);
 
 	if (fstatat(proc_dir, ns_path, &st, 0)) {
-		if (errno == ENOENT) {
+		if (errno == ENOENT && !alternative) {
 			/* The namespace is unsupported */
 			kid = 0;
 			goto out;
@@ -488,12 +490,12 @@ static unsigned int __get_ns_id(int pid, struct ns_desc *nd, protobuf_c_boolean 
 out:
 	if (supported)
 		*supported = kid != 0;
-	return generate_ns_id(pid, kid, nd, ns);
+	return generate_ns_id(pid, kid, nd, ns, alternative);
 }
 
 static unsigned int get_ns_id(int pid, struct ns_desc *nd, protobuf_c_boolean *supported)
 {
-	return __get_ns_id(pid, nd, supported, NULL);
+	return __get_ns_id(pid, nd, false, supported, NULL);
 }
 
 int dump_one_ns_file(int lfd, u32 id, const struct fd_parms *p)
@@ -709,7 +711,8 @@ int predump_task_ns_ids(struct pstree_item *item)
 {
 	int pid = item->pid->real;
 
-	if (!__get_ns_id(pid, &net_ns_desc, NULL, &dmpi(item)->netns))
+	if (!__get_ns_id(pid, &net_ns_desc, false,
+			 NULL, &dmpi(item)->netns))
 		return -1;
 
 	if (!get_ns_id(pid, &mnt_ns_desc, NULL))
@@ -745,7 +748,8 @@ int dump_task_ns_ids(struct pstree_item *item)
 		return 0;
 
 	ids->has_net_ns_id = true;
-	ids->net_ns_id = __get_ns_id(pid, &net_ns_desc, NULL, &dmpi(item)->netns);
+	ids->net_ns_id = __get_ns_id(pid, &net_ns_desc, false,
+				     NULL, &dmpi(item)->netns);
 	if (!ids->net_ns_id) {
 		pr_err("Can't make netns id\n");
 		return -1;
@@ -814,7 +818,7 @@ static int set_ns_hookups(struct ns_id *ns)
 	struct ns_id *u_ns;
 	int fd, ret = -1;
 
-	fd = open_proc(ns->ns_pid, "ns/%s", nd->str);
+	fd = open_proc(ns->ns_pid, "ns/%s", !ns->alternative ? nd->str : nd->alt_str);
 	if (fd < 0) {
 		pr_perror("Can't open %s, pid %d", nd->str, ns->ns_pid);
 		return -1;
