@@ -92,6 +92,7 @@ struct kerndat_s {
 	bool task_ct_fields_supported;
 	bool has_ns_get_userns;
 	bool has_ns_get_parent;
+	bool has_pid_for_children_ns;
 };
 
 extern struct kerndat_s kdat;
@@ -115,6 +116,7 @@ extern int kerndat_fs_virtualized(unsigned int which, u32 kdev);
 extern int kerndat_has_nspid(void);
 extern int kerndat_has_ns_get_userns(void);
 extern int kerndat_has_ns_get_parent(void);
+extern int kerndat_has_pid_for_children_ns(void);
 
 extern int kerndat_nl_repair(void);
 extern int kerndat_has_beancounters(void);
