@@ -4307,7 +4307,7 @@ void clean_cr_time_mounts(void)
 	}
 }
 
-struct ns_desc mnt_ns_desc = NS_DESC_ENTRY(CLONE_NEWNS, "mnt");
+struct ns_desc mnt_ns_desc = NS_DESC_ENTRY(CLONE_NEWNS, "mnt", NULL);
 
 static int call_helper_process(int (*call)(void *), void *arg)
 {
