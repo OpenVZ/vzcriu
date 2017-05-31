@@ -456,6 +456,7 @@ socket-tcp-last-ack:	CFLAGS += -D ZDTM_TCP_LAST_ACK
 socket-tcp6-last-ack:	CFLAGS += -D ZDTM_TCP_LAST_ACK -D ZDTM_IPV6
 socket-tcp6-closing:	CFLAGS += -D ZDTM_IPV6
 socket-tcp6-unconn:	CFLAGS += -D ZDTM_IPV6
+shm-unaligned:		CFLAGS += -DZDTM_SHM_UNALIGNED
 
 pty-console:		CFLAGS += -D ZDTM_DEV_CONSOLE
 
