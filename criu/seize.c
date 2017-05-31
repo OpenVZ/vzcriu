@@ -678,7 +678,7 @@ static int collect_children(struct pstree_item *item)
 		c->pid->real = pid;
 		c->parent = item;
 		c->pid->state = ret;
-		list_add_tail(&c->sibling, &item->children);
+		add_child_task(c, item);
 
 		ret = seccomp_collect_entry(pid, creds.s.seccomp_mode);
 		if (ret < 0)
