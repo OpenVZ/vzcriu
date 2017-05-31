@@ -829,7 +829,8 @@ int dump_task_ns_ids(struct pstree_item *item)
 	if (ids->has_time_ns_id) {
 		unsigned int id;
 		protobuf_c_boolean supported = false;
-		id = get_ns_id(pid, &time_for_children_ns_desc, &supported);
+		id = __get_ns_id(pid, &time_ns_desc, true,
+				 &supported, NULL);
 		if (!supported || !id) {
 			pr_err("Can't make timens id\n");
 			return -1;
@@ -2943,8 +2944,8 @@ int destroy_pid_ns_helpers(void)
 	return 0;
 }
 
-struct ns_desc pid_ns_desc = NS_DESC_ENTRY(CLONE_NEWPID, "pid");
-struct ns_desc user_ns_desc = NS_DESC_ENTRY(CLONE_NEWUSER, "user");
+struct ns_desc pid_ns_desc = NS_DESC_ENTRY(CLONE_NEWPID, "pid", "pid_for_children");
+struct ns_desc user_ns_desc = NS_DESC_ENTRY(CLONE_NEWUSER, "user", NULL);
 
 static int collect_pid_ns(struct ns_id *ns, void *oarg)
 {

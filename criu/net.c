@@ -3833,7 +3833,7 @@ int collect_net_namespaces(bool for_dump)
 	return walk_namespaces(&net_ns_desc, collect_net_ns, (void *)(for_dump ? 1UL : 0));
 }
 
-struct ns_desc net_ns_desc = NS_DESC_ENTRY(CLONE_NEWNET, "net");
+struct ns_desc net_ns_desc = NS_DESC_ENTRY(CLONE_NEWNET, "net", NULL);
 
 struct ns_id *net_get_root_ns(void)
 {
