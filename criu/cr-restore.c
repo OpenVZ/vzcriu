@@ -503,6 +503,33 @@ static int set_pid_for_children_ns(struct ns_id *pid_ns)
 	return ret;
 }
 
+static int setup_child_task_namespaces(struct pstree_item *item, struct ns_id **ret_pid_ns)
+{
+	struct ns_id *pid_ns;
+
+	pid_ns = lookup_ns_by_id(item->ids->pid_ns_id, &pid_ns_desc);
+	BUG_ON(!pid_ns);
+	item->pid_for_children_ns = pid_ns;
+
+	if (item != root_item) {
+		if (last_level_pid(item->pid) == INIT_PID)
+			item->user_ns = pid_ns->user_ns;
+		else
+			item->user_ns = current->user_ns;
+	} else
+		item->user_ns = root_user_ns;
+
+	wait_pid_ns_helper_prepared(pid_ns, item->pid);
+
+	if (last_level_pid(item->pid) != INIT_PID &&
+	    set_pid_for_children_ns(pid_ns) < 0)
+		return -1;
+
+	*ret_pid_ns = pid_ns;
+
+	return 0;
+}
+
 static rt_sigaction_t sigchld_act;
 /*
  * If parent's sigaction has blocked SIGKILL (which is non-sense),
@@ -1686,18 +1713,6 @@ static inline int fork_with_pid(struct pstree_item *item)
 	pid_t pid = vpid(item);
 	struct ns_id *pid_ns;
 
-	pid_ns = lookup_ns_by_id(item->ids->pid_ns_id, &pid_ns_desc);
-	BUG_ON(!pid_ns);
-	item->pid_for_children_ns = pid_ns;
-
-	if (item != root_item) {
-		if (last_level_pid(item->pid) == INIT_PID)
-			item->user_ns = pid_ns->user_ns;
-		else
-			item->user_ns = current->user_ns;
-	} else
-		item->user_ns = root_user_ns;
-
 	if (item->pid->state != TASK_HELPER) {
 		if (open_core(pid, &ca.core))
 			return -1;
@@ -1746,10 +1761,7 @@ static inline int fork_with_pid(struct pstree_item *item)
 
 	pr_info("Forking task with %d pid (flags 0x%lx)\n", pid, ca.clone_flags);
 
-	wait_pid_ns_helper_prepared(pid_ns, item->pid);
-
-	if (last_level_pid(item->pid) != INIT_PID &&
-	    set_pid_for_children_ns(pid_ns) < 0)
+	if (setup_child_task_namespaces(item, &pid_ns))
 		return -1;
 
 	lock_last_pid();
