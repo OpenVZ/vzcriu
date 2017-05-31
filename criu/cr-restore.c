@@ -767,6 +767,7 @@ static int prepare_sigactions(CoreEntry *core)
 
 static int __collect_child_pids(struct pstree_item *p, int state, unsigned int *n)
 {
+	int level = current->pid->level;
 	struct pstree_item *pi;
 
 	list_for_each_entry(pi, &p->children, sibling) {
@@ -780,7 +781,7 @@ static int __collect_child_pids(struct pstree_item *p, int state, unsigned int *
 			return -1;
 
 		(*n)++;
-		*child = vpid(pi);
+		*child = pi->pid->ns[level-1].virt;
 	}
 
 	return 0;
