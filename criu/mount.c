@@ -4303,7 +4303,7 @@ void clean_cr_time_mounts(void)
 	}
 }
 
-struct ns_desc mnt_ns_desc = NS_DESC_ENTRY(CLONE_NEWNS, "mnt");
+struct ns_desc mnt_ns_desc = NS_DESC_ENTRY(CLONE_NEWNS, "mnt", NULL);
 
 static int ns_remount_writable(void *arg)
 {
