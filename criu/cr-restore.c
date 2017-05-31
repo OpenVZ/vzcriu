@@ -3625,6 +3625,25 @@ out:
 	return ret;
 }
 
+static int get_thread_pid_ns_fd(uint32_t pid_ns_id)
+{
+	struct ns_id *ns;
+	int fd;
+
+	if (current->pid_for_children_ns->id == pid_ns_id)
+		return -2;
+
+	ns = lookup_ns_by_id(pid_ns_id, &pid_ns_desc);
+	BUG_ON(!ns);
+
+	fd = fdstore_get(ns->pid.nsfd_id);
+	if (fd < 0) {
+		pr_err("Can't get pid_ns fd\n");
+		return -1;
+	}
+	return fd;
+}
+
 extern void __gcov_flush(void) __attribute__((weak));
 void __gcov_flush(void) {}
 
@@ -4197,6 +4216,7 @@ static int sigreturn_restore(pid_t pid, struct task_restore_args *task_args, uns
 #else
 			blkset = (void *)&tcore->tc->blk_sigset;
 #endif
+			thread_args[i].pfc_ns_fd = get_thread_pid_ns_fd(current->ids->pid_for_children_ns_id);
 		} else {
 			tcore = current->core[i];
 			if (tcore->thread_core->has_blk_sigset) {
@@ -4207,7 +4227,11 @@ static int sigreturn_restore(pid_t pid, struct task_restore_args *task_args, uns
 				blkset = (void *)&tcore->thread_core->blk_sigset;
 #endif
 			}
+			thread_args[i].pfc_ns_fd = get_thread_pid_ns_fd(tcore->ids->pid_for_children_ns_id);
 		}
+
+		if (thread_args[i].pfc_ns_fd == -1)
+			goto err;
 
 		if ((tcore->tc) && thread_args[i].pid[0] != pid) {
 			pr_err("Thread has optional fields present %d\n",

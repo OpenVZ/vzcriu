@@ -619,7 +619,7 @@ long __export_restore_thread(struct thread_restore_args *args)
 	k_rtsigset_t to_block;
 	unsigned long new_sp;
 	int my_pid = sys_gettid();
-	int ret;
+	int fd, ret;
 
 	if (my_pid != args->pid[args->level-1]) {
 		pr_err("Thread pid mismatch %d/%d\n", my_pid, args->pid[args->level-1]);
@@ -643,6 +643,16 @@ long __export_restore_thread(struct thread_restore_args *args)
 	if (ret) {
 		pr_err("Unable to set a thread name: %d\n", ret);
 		goto core_restore_end;
+	}
+
+	fd = args->pfc_ns_fd;
+	if (fd >= 0) {
+		ret = sys_setns(fd, CLONE_NEWPID);
+		if (ret) {
+			pr_err("Can't setns: ret=%d\n", ret);
+			goto core_restore_end;
+		}
+		sys_close(fd);
 	}
 
 	pr_info("%ld: Restored\n", sys_gettid());
@@ -1455,7 +1465,7 @@ int cleanup_current_inotify_events(struct task_restore_args *task_args)
 long __export_restore_task(struct task_restore_args *args)
 {
 	long ret = -1;
-	int i;
+	int i, fd, self_thread;
 	VmaEntry *vma_entry;
 	unsigned long va;
 	struct restore_vma_io *rio;
@@ -1832,15 +1842,16 @@ long __export_restore_task(struct task_restore_args *args)
 	 * | thread restore proc | thread1 stack | thread1 rt_sigframe |
 	 * +--------------------------------------------------------------------------+
 	 */
-
+	self_thread = 0;
 	if (args->nr_threads > 1) {
 		struct thread_restore_args *thread_args = args->thread_args;
 		long clone_flags = CLONE_VM | CLONE_FILES | CLONE_SIGHAND	|
 				   CLONE_THREAD | CLONE_SYSVSEM | CLONE_FS;
 		long last_pid_len;
 		long parent_tid;
-		int i, fd = -1;
+		int i;
 
+		fd = -1;
 		if (thread_args[0].pid[1] == 0) {
 			BUG_ON(args->level != 1);
 			/* One level pid ns hierarhy */
@@ -1856,8 +1867,10 @@ long __export_restore_task(struct task_restore_args *args)
 		for (i = 0; i < args->nr_threads; i++) {
 			char last_pid_buf[16], *s;
 			/* skip self */
-			if (thread_args[i].pid[0] == args->t->pid[0])
+			if (thread_args[i].pid[0] == args->t->pid[0]) {
+				self_thread = i;
 				continue;
+			}
 
 			if (fd >= 0) {
 				/* One level pid ns hierarhy */
@@ -1979,6 +1992,16 @@ long __export_restore_task(struct task_restore_args *args)
 	restore_finish_stage(task_entries_local, CR_STATE_RESTORE_SIGCHLD);
 
 	rst_tcp_socks_all(args);
+
+	fd = args->thread_args[self_thread].pfc_ns_fd;
+	if (fd >= 0) {
+		ret = sys_setns(fd, CLONE_NEWPID);
+		if (ret) {
+			pr_err("Can't setns: ret=%d\n", (int)ret);
+			goto core_restore_end;
+		}
+		sys_close(fd);
+	}
 
 	/*
 	 * Make sure it's before creds, since it's privileged
