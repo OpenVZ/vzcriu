@@ -246,6 +246,7 @@ TST_NOFILE	:=				\
 		userns02			\
 		pidns00				\
 		pidns01				\
+		pidns02				\
 #		jobctl00			\
 
 pkg-config-check = $(shell sh -c 'pkg-config $(1) && echo y')
