@@ -919,6 +919,21 @@ int kerndat_has_ns_get_parent(void)
 	return 0;
 }
 
+int kerndat_has_pid_for_children_ns(void)
+{
+	if (access("/proc/self/ns/pid_for_children", F_OK) < 0) {
+		if (errno == ENOENT) {
+			pr_debug("No /proc/self/ns/pid_for_children\n");
+			kdat.has_pid_for_children_ns = false;
+			return 0;
+		}
+		pr_perror("Unable to access /proc/self/ns/pid_for_children");
+		return -1;
+	}
+	kdat.has_pid_for_children_ns = true;
+	return 0;
+}
+
 #define KERNDAT_CACHE_FILE	KDAT_RUNDIR"/criu.kdat"
 #define KERNDAT_CACHE_FILE_TMP	KDAT_RUNDIR"/.criu.kdat"
 
@@ -1365,6 +1380,10 @@ int kerndat_init(void)
 	}
 	if (!ret && kerndat_has_ns_get_parent()) {
 		pr_err("kerndat_has_ns_get_parent failed when initializing kerndat.\n");
+		ret = -1;
+	}
+	if (!ret && kerndat_has_pid_for_children_ns()) {
+		pr_err("kerndat_has_pid_for_children_ns failed when initializing kerndat.\n");
 		ret = -1;
 	}
 
