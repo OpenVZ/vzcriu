@@ -62,6 +62,7 @@
 struct ns_desc {
 	unsigned int	cflag;
 	char		*str;
+	char		*alt_str;
 	size_t		len;
 };
 
@@ -106,6 +107,7 @@ struct ns_id {
 	unsigned int kid;
 	unsigned int id;
 	pid_t ns_pid;
+	bool alternative;
 	struct ns_desc *nd;
 	struct ns_id *parent;
 	struct list_head children;
