@@ -2563,7 +2563,7 @@ static int restore_root_task(struct pstree_item *init)
 
 		if (ptrace(PTRACE_SEIZE, init->pid->real, 0, 0)) {
 			pr_perror("Can't attach to init");
-			goto out_kill;
+			goto out_destroy;
 		}
 	}
 
@@ -2575,25 +2575,25 @@ static int restore_root_task(struct pstree_item *init)
 	 * prepare_userns_creds() must be called after filling mappings.
 	 */
 	if ((root_ns_mask & CLONE_NEWUSER) && prepare_userns(init->pid->real, userns_entry))
-		goto out_kill;
+		goto out_destroy;
 
 	pr_info("Wait until namespaces are created\n");
 	ret = restore_wait_inprogress_tasks();
 	if (ret)
-		goto out_kill;
+		goto out_destroy;
 
 	ret = run_scripts(ACT_SETUP_NS);
 	if (ret)
-		goto out_kill;
+		goto out_destroy;
 
 	ret = restore_switch_stage(CR_STATE_PREPARE_NAMESPACES);
 	if (ret)
-		goto out_kill;
+		goto out_destroy;
 
 	if (root_ns_mask & CLONE_NEWNS) {
 		mnt_ns_fd = open_proc(init->pid->real, "ns/mnt");
 		if (mnt_ns_fd < 0)
-			goto out_kill;
+			goto out_destroy;
 	}
 
 	if (root_ns_mask & opts.empty_ns & CLONE_NEWNET) {
@@ -2606,12 +2606,12 @@ static int restore_root_task(struct pstree_item *init)
 		 */
 		ret = network_lock_internal();
 		if (ret)
-			goto out_kill;
+			goto out_destroy;
 	}
 
 	ret = run_scripts(ACT_POST_SETUP_NS);
 	if (ret)
-		goto out_kill;
+		goto out_destroy;
 
 	__restore_switch_stage(CR_STATE_FORKING);
 
@@ -2619,7 +2619,7 @@ skip_ns_bouncing:
 
 	ret = restore_wait_inprogress_tasks();
 	if (ret < 0)
-		goto out_kill;
+		goto out_destroy;
 
 	/*
 	 * Zombies die after CR_STATE_RESTORE which is switched
@@ -2770,10 +2770,11 @@ skip_ns_bouncing:
 
 	return 0;
 
+out_destroy:
+	destroy_pid_ns_helpers();
 out_kill_network_unlocked:
 	pr_err("Killing processes because of failure on restore.\nThe Network was unlocked so some data or a connection may have been lost.\n");
 out_kill:
-	destroy_pid_ns_helpers();
 	/*
 	 * The processes can be killed only when all of them have been created,
 	 * otherwise an external processes can be killed.
