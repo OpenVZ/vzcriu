@@ -180,5 +180,4 @@ err:
 	close_safe(&fd);
 	return exit_code;
 }
-struct ns_desc time_ns_desc = NS_DESC_ENTRY(CLONE_NEWTIME, "time");
-struct ns_desc time_for_children_ns_desc = NS_DESC_ENTRY(CLONE_NEWTIME, "time_for_children");
+struct ns_desc time_ns_desc = NS_DESC_ENTRY(CLONE_NEWTIME, "time", "time_for_children");
