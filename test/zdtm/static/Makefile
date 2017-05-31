@@ -247,6 +247,7 @@ TST_NOFILE	:=				\
 		pidns00				\
 		pidns01				\
 		pidns02				\
+		pidns03				\
 #		jobctl00			\
 
 pkg-config-check = $(shell sh -c 'pkg-config $(1) && echo y')
@@ -614,6 +615,9 @@ thread_different_uid_gid:	LDLIBS += -pthread -lcap
 
 bpf_hash:		LDLIBS += -lbpf
 bpf_array:		LDLIBS += -lbpf
+
+pidns03:		CFLAGS += -pthread
+pidns03:		LDFLAGS += -pthread
 
 $(LIB):	force
 	$(Q) $(MAKE) -C $(LIBDIR)
