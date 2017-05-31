@@ -643,7 +643,7 @@ static int collect_remap_dead_process(struct reg_file_info *rfi,
 		pr_err("Can't init helper\n");
 		return -1;
 	}
-	list_add_tail(&helper->sibling, &root_item->children);
+	add_child_task(helper, root_item);
 
 	pr_info("Added a helper for restoring /proc/%d\n", vpid(helper));
 
