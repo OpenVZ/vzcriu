@@ -81,6 +81,7 @@ struct kerndat_s {
 	bool has_nspid;
 	bool has_ns_get_userns;
 	bool has_ns_get_parent;
+	bool has_pid_for_children_ns;
 };
 
 extern struct kerndat_s kdat;
@@ -108,5 +109,6 @@ extern bool is_zdtm_run(void);
 extern int kerndat_has_nspid(void);
 extern int kerndat_has_ns_get_userns(void);
 extern int kerndat_has_ns_get_parent(void);
+extern int kerndat_has_pid_for_children_ns(void);
 
 #endif /* __CR_KERNDAT_H__ */
