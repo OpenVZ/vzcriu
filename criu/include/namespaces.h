@@ -8,6 +8,7 @@
 #include "common/list.h"
 #include "images/netdev.pb-c.h"
 #include "images/ns.pb-c.h"
+#include "images/core.pb-c.h"
 
 #ifndef CLONE_NEWNS
 #define CLONE_NEWNS	0x00020000
@@ -200,6 +201,7 @@ extern int restore_ns(int rst, struct ns_desc *nd);
 
 extern int dump_task_ns_ids(struct pstree_item *);
 extern int predump_task_ns_ids(struct pstree_item *);
+extern int dump_thread_ids(pid_t pid, TaskKobjIdsEntry *ids);
 extern int rst_add_ns_id(unsigned int id, pid_t pid, struct ns_desc *nd);
 extern struct ns_id *lookup_ns_by_id(unsigned int id, struct ns_desc *nd);
 extern int store_self_ns(struct ns_id *ns);
