@@ -2042,4 +2042,4 @@ int new_cg_root_get(const char *controller, char **root)
 	return -ENOENT;
 }
 
-struct ns_desc cgroup_ns_desc = NS_DESC_ENTRY(CLONE_NEWCGROUP, "cgroup");
+struct ns_desc cgroup_ns_desc = NS_DESC_ENTRY(CLONE_NEWCGROUP, "cgroup", NULL);
