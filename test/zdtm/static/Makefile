@@ -223,6 +223,7 @@ TST_NOFILE	:=				\
 		pidns00				\
 		pidns01				\
 		pidns02				\
+		pidns03				\
 #		jobctl00			\
 
 ifneq ($(SRCARCH),arm)
@@ -573,6 +574,9 @@ s390x_regs_check:	LDFLAGS += -pthread
 s390x_gs_threads:	LDFLAGS += -pthread
 
 thread_different_uid_gid:	LDLIBS += -pthread -lcap
+
+pidns03:		CFLAGS += -pthread
+pidns03:		LDFLAGS += -pthread
 
 $(LIB):	force
 	$(Q) $(MAKE) -C $(LIBDIR)
