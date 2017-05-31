@@ -448,6 +448,7 @@ static unsigned int generate_ns_id(int pid, unsigned int kid, struct ns_desc *nd
 	INIT_LIST_HEAD(&nsid->children);
 	INIT_LIST_HEAD(&nsid->siblings);
 	nsid->alternative = alternative;
+	BUG_ON(ns_next_id == UINT_MAX);
 	nsid_add(nsid, nd, ns_next_id++, pid);
 
 	if (nd == &net_ns_desc) {
