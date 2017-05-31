@@ -710,6 +710,18 @@ int pstree_pid_cmp(pid_t a, pid_t b)
 	return 3;
 }
 
+int fixup_pid_for_children_ns(TaskKobjIdsEntry *ids)
+{
+	if (!ids->has_vz_pid_for_children_ns_id) {
+		ids->has_vz_pid_for_children_ns_id = true;
+		ids->vz_pid_for_children_ns_id = ids->pid_ns_id;
+	} else if (!lookup_ns_by_id(ids->vz_pid_for_children_ns_id, &pid_ns_desc)) {
+		pr_err("Can't find pid_for_children ns linked\n");
+		return -1;
+	}
+	return 0;
+}
+
 static int read_pstree_ids(pid_t pid, TaskKobjIdsEntry **ids)
 {
 	struct cr_img *img;
@@ -754,6 +766,9 @@ static int read_pstree_ids(pid_t pid, TaskKobjIdsEntry **ids)
 		pr_err("No task ids or always dumped ns ids\n");
 		ret = -1;
 	}
+
+	if (!ret)
+		ret = fixup_pid_for_children_ns(*ids);
 
 	if (!ret && !top_pid_ns) {
 		/*
