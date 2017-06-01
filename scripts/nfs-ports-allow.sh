@@ -25,7 +25,10 @@ JOIN_CT="${NS_ENTER} -t $CRTOOLS_INIT_PID -m -u -p -n"
 
 ${JOIN_CT} test -e /proc/self/net/nfsfs || exit 0
 
-servers=$($JOIN_CT cat /proc/self/net/nfsfs/servers | sed -e '1d' | awk '{ printf $5" ";}')
+IPTABLES=/sbin/iptables
+CAT=/bin/cat
+
+servers=$($JOIN_CT ${CAT} /proc/self/net/nfsfs/servers | sed -e '1d' | awk '{ printf $5" ";}')
 
 [ -n "$servers" ] || exit 0
 
@@ -33,10 +36,10 @@ function add_accept_rules {
 	local server=$1
 	local port=$2
 
-	${JOIN_CT} iptables -I ${CRTOOLS_IPTABLES_TABLE} -p tcp -s $server --sport $port -j ACCEPT &&
-	${JOIN_CT} iptables -I ${CRTOOLS_IPTABLES_TABLE} -p tcp -d $server --dport $port -j ACCEPT &&
-	${JOIN_CT} iptables -I ${CRTOOLS_IPTABLES_TABLE} -p udp -s $server --sport $port -j ACCEPT &&
-	${JOIN_CT} iptables -I ${CRTOOLS_IPTABLES_TABLE} -p udp -d $server --dport $port -j ACCEPT 
+	${JOIN_CT} ${IPTABLES} -I ${CRTOOLS_IPTABLES_TABLE} -p tcp -s $server --sport $port -j ACCEPT &&
+	${JOIN_CT} ${IPTABLES} -I ${CRTOOLS_IPTABLES_TABLE} -p tcp -d $server --dport $port -j ACCEPT &&
+	${JOIN_CT} ${IPTABLES} -I ${CRTOOLS_IPTABLES_TABLE} -p udp -s $server --sport $port -j ACCEPT &&
+	${JOIN_CT} ${IPTABLES} -I ${CRTOOLS_IPTABLES_TABLE} -p udp -d $server --dport $port -j ACCEPT 
 }
 
 function iptables_allow_nfs_ports {
@@ -60,10 +63,10 @@ function allow_portmapper_port {
 	local server=$1
 	local port=111
 
-	${JOIN_CT} iptables -I ${CRTOOLS_IPTABLES_TABLE} -p udp -s $server --sport $port -j ACCEPT &&
-	${JOIN_CT} iptables -I ${CRTOOLS_IPTABLES_TABLE} -p udp -d $server --dport $port -j ACCEPT &&
-	${JOIN_CT} iptables -I ${CRTOOLS_IPTABLES_TABLE} -p tcp -s $server --sport $port -j ACCEPT &&
-	${JOIN_CT} iptables -I ${CRTOOLS_IPTABLES_TABLE} -p tcp -d $server --dport $port -j ACCEPT 
+	${JOIN_CT} ${IPTABLES} -I ${CRTOOLS_IPTABLES_TABLE} -p udp -s $server --sport $port -j ACCEPT &&
+	${JOIN_CT} ${IPTABLES} -I ${CRTOOLS_IPTABLES_TABLE} -p udp -d $server --dport $port -j ACCEPT &&
+	${JOIN_CT} ${IPTABLES} -I ${CRTOOLS_IPTABLES_TABLE} -p tcp -s $server --sport $port -j ACCEPT &&
+	${JOIN_CT} ${IPTABLES} -I ${CRTOOLS_IPTABLES_TABLE} -p tcp -d $server --dport $port -j ACCEPT 
 }
 
 for s in $servers; do
