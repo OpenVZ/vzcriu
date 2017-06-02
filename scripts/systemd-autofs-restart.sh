@@ -36,18 +36,26 @@ fi
 
 JOIN_CT="$NS_ENTER -t $CRTOOLS_INIT_PID -m -u -p -n"
 
-# Skip container, if it's not systemd based
-[ "$($JOIN_CT basename -- $($JOIN_CT readlink /proc/1/exe))" == "systemd" ] || exit 0
+BASENAME=/usr/bin/basename
+READLINK=/bin/readlink
+UMOUNT=/bin/umount
+MOUNT=/bin/mount
+RM=/bin/rm
+SYSTEMCTL=/bin/systemctl
+MKTEMP=/bin/mktemp
 
-AUTOFS_SERVICES="$($JOIN_CT systemctl --no-legend  -t automount \
+# Skip container, if it's not systemd based
+[ "$($JOIN_CT $BASENAME -- $($JOIN_CT $READLINK /proc/1/exe))" == "systemd" ] || exit 0
+
+AUTOFS_SERVICES="$($JOIN_CT $SYSTEMCTL --no-legend  -t automount \
 	 --state=active list-units | awk '{ print $1 }')"
 
 bindmount=""
 
 function remove_bindmount {
 	if [ -n "$bindmount" ]; then
-		$JOIN_CT umount $bindmount
-		$JOIN_CT rm -rf $bindmount
+		$JOIN_CT $UMOUNT $bindmount
+		$JOIN_CT $RM -rf $bindmount
 		bindmount=""
 	fi
 }
@@ -87,7 +95,7 @@ function bind_mount {
 	local from=$1
 	local to=$2
 
-	$JOIN_CT mount --bind $from $to && return 0
+	$JOIN_CT $MOUNT --bind $from $to && return 0
 
 	echo "Failed to bind mount $from to $to"
 	return 1
@@ -106,7 +114,7 @@ function save_mountpoint {
 	# Nothing to do, if no file system is on top of autofs
 	[ "$top_mount_fs_type" = "autofs" ] && return
 
-	bindmount=$($JOIN_CT mktemp -d)
+	bindmount=$($JOIN_CT $MKTEMP -d)
 	if [ -z "$bindmount" ]; then
 		echo "Failed to create temporary directory"
 		return 1
@@ -114,7 +122,7 @@ function save_mountpoint {
 
 	# No need to unmount fs on top of autofs:
 	# systemd will does it for us on service restart
-	bind_mount $mountpoint $bindmount || $JOIN_CT rm -rf $bindmount
+	bind_mount $mountpoint $bindmount || $JOIN_CT $RM -rf $bindmount
 }
 
 function restore_mountpoint {
@@ -141,13 +149,13 @@ function restore_mountpoint {
 
 function restart_service {
 	local service=$1
-	local mountpoint=$($JOIN_CT systemctl show $service -p Where | sed 's/.*=//g')
+	local mountpoint=$($JOIN_CT $SYSTEMCTL show $service -p Where | sed 's/.*=//g')
 
 	# Try to move restored bind-mount aside and exit if Failed
 	# Nothing to do, if we Failed
 	save_mountpoint $mountpoint || return
 
-	$JOIN_CT systemctl restart $service
+	$JOIN_CT $SYSTEMCTL restart $service
 	if [ $? -ne 0 ]; then
 		echo "Failed to restart $service service"
 		return
@@ -160,7 +168,7 @@ function restart_service {
 
 function skip_service {
 	local service=$1
-	local mountpoint=$($JOIN_CT systemctl show $service -p Where | sed 's/.*=//g')
+	local mountpoint=$($JOIN_CT $SYSTEMCTL show $service -p Where | sed 's/.*=//g')
 
 	if [ -z "$mountpoint" ]; then
 		echo "Failed to discover $service mountpoint"
