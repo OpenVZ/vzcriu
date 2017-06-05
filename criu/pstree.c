@@ -1147,9 +1147,6 @@ static int prepare_pstree_ids(pid_t pid)
 	struct pstree_item *item, *helper;
 	pid_t current_pgid = getpgid(pid);
 
-	if (!list_empty(&top_pid_ns->children))
-		return 0;
-
 	/*
 	 * Some task can be reparented to init. A helper task should be added
 	 * for restoring sid of such tasks. The helper tasks will be exited
@@ -1205,6 +1202,23 @@ static int prepare_pstree_ids(pid_t pid)
 			}
 		}
 	}
+
+	/*
+	 * FIXME
+	 * Skip process group restore preparation in case of nested pidns.
+	 * As pgid restore is not yet reworked, will do it in a next seriess,
+	 * see corresponding if-check in restore_pgid.
+	 *
+	 * Problem here is that to do setpgid(pid, pgid) a) one should be
+	 * in a same thread group with pid or in a same thread group with
+	 * pid's parent; b) one should be in same pid ns (or it's predecessor)
+	 * with pgid. So if we entered pidns, forked again to have parent in
+	 * same pidns and the grouop leader is outside, we can only get the
+	 * right pgid by inheriting it, so same thing as we do with sessions
+	 * should be done.
+	 */
+	if (!list_empty(&top_pid_ns->children))
+		return 0;
 
 	/* Add a process group leader if it is absent  */
 	for_each_pstree_item(item) {
@@ -1457,9 +1471,6 @@ int prepare_dummy_pstree(void)
 bool restore_before_setsid(struct pstree_item *child)
 {
 	int csid = child->born_sid == -1 ? vsid(child) : child->born_sid;
-
-	if (!list_empty(&top_pid_ns->children))
-		return false;
 
 	if (child->parent->born_sid == csid)
 		return true;
