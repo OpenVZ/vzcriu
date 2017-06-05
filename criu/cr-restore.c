@@ -821,12 +821,31 @@ static int collect_child_pids(int state, unsigned int *n)
 	*n = 0;
 
 	/*
-	 * All children of helpers and zombies will be reparented to the init
-	 * process and they have to be collected too.
+	 * Helpers do not reparent, they will be collected by parent in:
+	 *   restore_one_task
+	 *     restore_one_helper/restore_one_zombie
+	 *       wait_exiting_children
+	 *         wait_on_helpers_zombies
+	 *
+	 * Zombies may be re-parented to init when their parent (zombie or
+	 * helper) dies - we want to wait until they do reparent, so collect
+	 * them for this purpose.
+	 *
+	 * If item has non-ancestor pidns to current's pidns we can skip it and
+	 * it's subtree from search as it can't fork processes from current's
+	 * pidns. (see kernel pidns_install())
 	 */
-
-	if (current == root_item) {
+	if (last_level_pid(current->pid) == INIT_PID &&
+	    !(state == TASK_HELPER)) {
 		for_each_pstree_item(pi) {
+			/* Skip items from unrelated pid namespaces */
+			while (pi && !have_nested_pidns(pi, current))
+				pi = pssubtree_item_next(pi, NULL, true);
+			if (!pi)
+				break;
+			if (pi->ids->pid_ns_id != current->ids->pid_ns_id)
+				continue;
+
 			if (pi->pid->state != TASK_HELPER &&
 			    pi->pid->state != TASK_DEAD)
 				continue;
