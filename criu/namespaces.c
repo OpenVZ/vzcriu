@@ -3023,8 +3023,8 @@ struct ns_id *get_pidns_on_level(struct pstree_item *item, int level)
 	return pid_ns;
 }
 
-struct ns_id __maybe_unused *have_nested_pidns(struct pstree_item *ancestor,
-					       struct pstree_item *descendant)
+struct ns_id *have_nested_pidns(struct pstree_item *ancestor,
+				struct pstree_item *descendant)
 {
 	struct ns_id *pid_ns;
 
