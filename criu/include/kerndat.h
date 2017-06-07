@@ -45,6 +45,7 @@ struct kerndat_s {
 	unsigned int sysctl_nr_open;
 	unsigned long files_stat_max_files;
 	bool stack_guard_gap_hidden;
+	bool can_map_vdso;
 };
 
 extern struct kerndat_s kdat;
