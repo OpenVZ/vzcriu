@@ -171,12 +171,6 @@ int clone_service_fd(int id)
 		ret = fcntl(old, F_DUPFD, new);
 		if (ret < 0 || ret != new) {
 			if (ret < 0) {
-				/*
-				 * The source fd might be reserved
-				 * and not yet created.
-				 */
-				if (errno == EBADF)
-					continue;
 				pr_perror("clone %d/%d -> %d/%d (%s) transition failed",
 					  service_fd_id, old, id, new, type_str[i]);
 			} else {
