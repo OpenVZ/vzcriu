@@ -595,7 +595,7 @@ static int open_remap_spfs_linked(struct reg_file_info *rfi,
 	}
 	strcpy(link_remap, path);
 
-	snprintf(path + root_len, sizeof(path) - root_len, "%s", rfi->path);
+	snprintf(path + root_len, sizeof(path) - root_len, "/%s", rfi->path);
 
 	rdesc = find_file_desc_raw(FD_TYPES__REG, rfe->remap_id);
 	if (!rdesc) {
@@ -605,7 +605,7 @@ static int open_remap_spfs_linked(struct reg_file_info *rfi,
 
 	rrfi = container_of(rdesc, struct reg_file_info, d);
 
-	snprintf(link_remap + root_len, sizeof(link_remap) - root_len, "%s", rrfi->path);
+	snprintf(link_remap + root_len, sizeof(link_remap) - root_len, "/%s", rrfi->path);
 
 	pr_info("Creating spfs link %s for %s\n", link_remap, path);
 
@@ -617,7 +617,7 @@ static int open_remap_spfs_linked(struct reg_file_info *rfi,
 
 	mi = lookup_mnt_id(rfi->rfe->mnt_id);
 
-	err = spfs_remap_path(path, link_remap + root_len + strlen(mi->ns_mountpoint) - 1);
+	err = spfs_remap_path(path, link_remap + root_len + strlen(mi->ns_mountpoint));
 	if (err) {
 		pr_err("failed to remap SPFS %s to %s\n", path, link_remap);
 		return -errno;
