@@ -54,17 +54,16 @@ static enum vdso_check_t get_vdso_check_type(struct parasite_ctl *ctl)
 	 * hint stays in /proc/../maps file and is correct.
 	 */
 	if (!compel_mode_native(ctl)) {
-		pr_info("Don't check vdso\n");
+		pr_info("Don't check vdso for compat task\n");
 		return VDSO_NO_CHECK;
 	}
 
-	if (kdat.pmap == PM_FULL) {
-		pr_info("Check vdso by pfn from pagemap\n");
-		return VDSO_CHECK_PFN;
-	}
-
-	pr_info("Pagemap is unavailable, check vdso by filling symtable\n");
-	return VDSO_CHECK_SYMS;
+	/*
+	 * vzkernel-specific, since
+	 * commit eb3def2e36b6 ("x86/mm: Support mremap()'ing vdso vma")
+	 */
+	pr_info("vDSO hint is reliable - omit checking\n");
+	return VDSO_NO_CHECK;
 }
 
 /*
