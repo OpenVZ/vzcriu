@@ -751,8 +751,13 @@ static bool unsupported_mount(const struct mount_info *m)
 	struct mount_info *parent = m->parent;
 
 	if (parent && nfs_mount(parent)) {
-		pr_err("overmounted NFS (%s) is not supported yet:\n",
+		pr_err("overmounted NFS (%s) is not supported yet. Nested mount:\n",
 				parent->mountpoint);
+		pr_err("\ttype %s source %s mnt_id %d s_dev %#x %s @ %s flags %#x options %s\n",
+				m->fsname, m->source,
+				m->mnt_id, m->s_dev, m->root, m->mountpoint,
+				m->flags, m->options);
+
 		return true;
 	}
 	return false;
