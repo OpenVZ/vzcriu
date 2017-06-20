@@ -665,6 +665,25 @@ static int validate_children_collision(struct mount_info *mnt)
 	return 0;
 }
 
+static bool nfs_mount(const struct mount_info *m)
+{
+	return !strcmp(m->fstype->name, "nfs") ||
+	       !strcmp(m->fstype->name, "nfs4");
+
+}
+
+static bool unsupported_mount(const struct mount_info *m)
+{
+	struct mount_info *parent = m->parent;
+
+	if (parent && nfs_mount(parent)) {
+		pr_err("overmounted NFS (%s) is not supported yet:\n",
+				parent->mountpoint);
+		return true;
+	}
+	return false;
+}
+
 static int validate_mounts(struct mount_info *info, bool for_dump)
 {
 	struct mount_info *m, *t;
@@ -729,10 +748,8 @@ static int validate_mounts(struct mount_info *info, bool for_dump)
 			}
 		}
 
-		if (!strcmp(m->fstype->name, "nfs") && !list_empty(&m->children)) {
-			pr_err("overmounted NFS (%s) is not supported yet\n", m->mountpoint);
+		if (unsupported_mount(m))
 			return -1;
-		}
 	}
 
 	return 0;
