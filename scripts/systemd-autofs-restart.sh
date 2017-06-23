@@ -151,6 +151,16 @@ function restart_service {
 	local service=$1
 	local mountpoint=$($JOIN_CT $SYSTEMCTL show $service -p Where | sed 's/.*=//g')
 
+	if [ $? -ne 0 ]; then
+		echo "Failed to get mountpoint for $service service"
+		return 1
+	fi
+
+	if [ -z "$mountpoint" ]; then
+		echo "$service service mountpoint string is empty"
+		return 1
+	fi
+
 	# Try to move restored bind-mount aside and exit if Failed
 	# Nothing to do, if we Failed
 	save_mountpoint $mountpoint || return
