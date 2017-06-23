@@ -163,13 +163,10 @@ function restart_service {
 
 	# Try to move restored bind-mount aside and exit if Failed
 	# Nothing to do, if we Failed
-	save_mountpoint $mountpoint || return
+	save_mountpoint $mountpoint || return 1
 
-	$JOIN_CT $SYSTEMCTL restart $service
-	if [ $? -ne 0 ]; then
-		echo "Failed to restart $service service"
-		return
-	fi
+	$JOIN_CT $SYSTEMCTL restart $service || return 1
+
 	echo "$service restarted"
 
 	# Try to move saved monutpoint back on top of autofs
@@ -201,7 +198,7 @@ for service in $AUTOFS_SERVICES; do
 	if [ $? -eq 1 ]; then
 		echo "$service skipped ($skip_message)"
 	else
-		restart_service $service
+		restart_service $service || echo "Failed to restart $service service"
 	fi
 done
 
