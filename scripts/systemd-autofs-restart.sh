@@ -151,7 +151,15 @@ function restore_mountpoint {
 function restart_service {
 	local service=$1
 	local mountpoint
-	mountpoint=$($JOIN_CT "$SYSTEMCTL" show "$service" -p Where | sed 's/.*=//g')
+	if mountpoint=$($JOIN_CT "$SYSTEMCTL" show "$service" -p Where | sed 's/.*=//g'); then
+		echo "Failed to get mountpoint for $service service"
+		return 1
+	fi
+
+	if [ -z "$mountpoint" ]; then
+		echo "$service service mountpoint string is empty"
+		return 1
+	fi
 
 	# Try to move restored bind-mount aside and exit if Failed
 	# Nothing to do, if we Failed
