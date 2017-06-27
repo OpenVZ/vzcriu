@@ -548,7 +548,8 @@ static struct pid *find_pid_or_place_in_hier(struct rb_node **root, pid_t pid, i
  * it is not there yet. If pid_node isn't set, pstree_item
  * is inserted.
  */
-static struct pid *lookup_create_pid(pid_t *pid, int level, struct pid *pid_node, int ns_id)
+static struct pid *__lookup_create_pid(pid_t *pid, int level, struct pid
+				       *pid_node, int ns_id, bool replaceable)
 {
 	struct rb_node **new = NULL, *parent = NULL;
 	struct pid *found;
@@ -583,16 +584,42 @@ static struct pid *lookup_create_pid(pid_t *pid, int level, struct pid *pid_node
 		if (item == NULL)
 			return NULL;
 
+		if (replaceable)
+			item->replaceable = true;
+
 		for (i = 0; i < level; i++)
 			item->pid->ns[i].virt = pid[i];
 		pid_node = item->pid;
 	}
 
 	for (i = level-1; i >= 0; i--) {
+
+again:
 		found = find_pid_or_place_in_hier(&ns->pid.rb_root.rb_node, pid[i], i, &parent, &new);
 		if (found) {
-			pr_err("pid is already linked\n");
-			return NULL;
+			if (found->item->replaceable) {
+				int j;
+				struct ns_id *tmp = ns;
+
+				pr_info("%d: Removing old (short cut) pid on all lower levels", found->ns[0].virt);
+				for (j = i; j >= 0; j--) {
+					BUG_ON(pid_node->ns[j].virt != found->ns[j].virt);
+					rb_erase(&found->ns[j].node, &tmp->pid.rb_root);
+					tmp = tmp->parent;
+					if (!tmp && j) {
+						pr_err("tmp ns has no parent\n");
+						return NULL;
+					}
+				}
+				/*
+				 * Just leave these pid and found item unlinked and unused,
+				 * it seems that we can't do anything with it here.
+				 */
+				goto again;
+			} else {
+				pr_err("pid is already linked\n");
+				return NULL;
+			}
 		}
 		if (!pid[i]) {
 			pr_err("Zero pid level\n");
@@ -606,6 +633,11 @@ static struct pid *lookup_create_pid(pid_t *pid, int level, struct pid *pid_node
 		}
 	}
 	return pid_node;
+}
+
+static struct pid *lookup_create_pid(pid_t *pid, int level, struct pid *pid_node, int ns_id)
+{
+	return __lookup_create_pid(pid, level, pid_node, ns_id, false);
 }
 
 void pstree_insert_pid(struct pid *pid_node, uint32_t ns_id)
@@ -623,11 +655,11 @@ void pstree_insert_pid(struct pid *pid_node, uint32_t ns_id)
 	BUG_ON(n != pid_node);
 }
 
-struct pstree_item *lookup_create_item(pid_t *pid, int level, uint32_t ns_id)
+struct pstree_item *__lookup_create_item(pid_t *pid, int level, uint32_t ns_id, int replaceable)
 {
 	struct pid *node;
 
-	node = lookup_create_pid(pid, level, NULL, ns_id);
+	node = __lookup_create_pid(pid, level, NULL, ns_id, replaceable);
 	if (!node)
 		return NULL;
 
@@ -637,6 +669,16 @@ struct pstree_item *lookup_create_item(pid_t *pid, int level, uint32_t ns_id)
 	}
 
 	return node->item;
+}
+
+struct pstree_item *lookup_create_item(pid_t *pid, int level, uint32_t ns_id)
+{
+	return __lookup_create_item(pid, level, ns_id, false);
+}
+
+struct pstree_item *lookup_replaceable_item(pid_t *pid, int level, uint32_t ns_id)
+{
+	return __lookup_create_item(pid, level, ns_id, true);
 }
 
 struct pid *__pstree_pid_by_virt(struct ns_id *ns, pid_t pid)
@@ -902,9 +944,14 @@ static int read_one_pstree_item(struct cr_img *img, pid_t *pid_max)
 	 * be initialized when we meet PstreeEntry with this pid or
 	 * we will create helpers for them.
 	 */
-	if (lookup_create_item((pid_t *)e->ns_pgid, e->n_ns_pgid, ids->pid_ns_id) == NULL)
-		goto err;
 	if (lookup_create_item((pid_t *)e->ns_sid, e->n_ns_sid, ids->pid_ns_id) == NULL)
+		goto err;
+	/*
+	 * Pgid can be cut by level of current task
+	 * when process group leader is in several
+	 * nested pidns'es so mark it as replaceable.
+	 */
+	if (lookup_replaceable_item((pid_t *)e->ns_pgid, e->n_ns_pgid, ids->pid_ns_id) == NULL)
 		goto err;
 
 	BUG_ON(vpid(pi) != e->ns_pid[0]);
