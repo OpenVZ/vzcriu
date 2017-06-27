@@ -36,6 +36,7 @@ struct pstree_item {
 	struct ns_id *pid_for_children_ns;
 
 	bool shmalloced;
+	bool replaceable;
 };
 
 #define vpid(item)    (item->pid->ns[0].virt)
