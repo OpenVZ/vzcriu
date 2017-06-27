@@ -2798,5 +2798,16 @@ int destroy_pid_ns_helpers(void)
 	return 0;
 }
 
+/* Search ancestor(n-th parent) namespace of ns */
+struct ns_id *ns_nth_parent(struct ns_id *ns, int n)
+{
+	while(n && ns) {
+		ns = ns->parent;
+		n--;
+	}
+
+	return ns;
+}
+
 struct ns_desc pid_ns_desc = NS_DESC_ENTRY(CLONE_NEWPID, "pid", "pid_for_children");
 struct ns_desc user_ns_desc = NS_DESC_ENTRY(CLONE_NEWUSER, "user", NULL);

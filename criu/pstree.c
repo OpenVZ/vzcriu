@@ -1035,6 +1035,131 @@ int get_free_pids(struct ns_id *ns, pid_t *pids)
 	return MAX_NS_NESTING - i - 1;
 }
 
+int is_group_leader(struct pstree_item *item)
+{
+	if (vpid(item) == vpgid(item)) {
+		BUG_ON(!equal_pid(item->pid, item->pgid));
+		return 1;
+	}
+	return 0;
+}
+
+/* Add session and process group leader helpers to proper namespaces */
+static void prepare_pstree_leaders(void) {
+	struct pstree_item *item;
+
+	for_each_pstree_item(item) {
+		struct pstree_item *session_leader, *group_leader;
+
+		if (item->pid->state == TASK_UNDEF)
+			continue;
+		/* item->sid item->pgid should be allocated/initialized here */
+
+		if (is_session_leader(item))
+			continue;
+
+		session_leader = pstree_item_by_virt(vsid(item));
+		BUG_ON(session_leader == NULL);
+
+		if (session_leader->pid->state == TASK_UNDEF) {
+			struct ns_id *pidns;
+			struct pstree_item *init;
+
+			pidns = lookup_ns_by_id(item->ids->pid_ns_id, &pid_ns_desc);
+			BUG_ON(!pidns);
+			pidns = ns_nth_parent(pidns, item->pid->level - session_leader->pid->level);
+			BUG_ON(!pidns);
+
+			/* For shell job we have no init */
+			if (!opts.shell_job || is_session_leader(root_item)
+					|| vsid(root_item) != vpid(session_leader)) {
+				init = __pstree_item_by_virt(pidns, INIT_PID);
+				BUG_ON(!init);
+			} else {
+				init = root_item;
+			}
+
+			/*
+			 * Session leader has pid==sid==pgid==item->sid with
+			 * ending zeroes cut, and corresponding shift in pidnses
+			 * is needed, put the leader in init's children.
+			 */
+			memcpy(session_leader->sid, item->sid, PID_SIZE(session_leader->sid->level));
+			memcpy(session_leader->pgid, item->sid, PID_SIZE(session_leader->pgid->level));
+			session_leader->ids = init->ids;
+
+			/*
+			 * Skip adding fake helper for external sid
+			 * for shell_job to tree, as it already exists
+			 * somwhere outside
+			 */
+			if (!opts.shell_job || is_session_leader(root_item)
+					|| vsid(root_item) != vpid(session_leader)) {
+				session_leader->parent = init;
+				add_child_task(session_leader, session_leader->parent);
+			}
+			init_pstree_helper(session_leader);
+
+			pr_info("Add a helper %d for restoring SID %d\n",
+					vpid(session_leader), vsid(session_leader));
+		}
+
+		if (is_group_leader(item))
+			continue;
+
+		group_leader = pstree_item_by_virt(vpgid(item));
+		BUG_ON(group_leader == NULL);
+
+		/* Only the item with full pgid has full info of leader's pidns */
+		if (!equal_pid(item->pgid, group_leader->pid))
+			continue;
+
+		if (group_leader->pid->state == TASK_UNDEF) {
+			struct ns_id *pidns;
+			struct pstree_item *init;
+
+			pidns = lookup_ns_by_id(item->ids->pid_ns_id, &pid_ns_desc);
+			BUG_ON(!pidns);
+			pidns = ns_nth_parent(pidns, item->pid->level - group_leader->pid->level);
+			BUG_ON(!pidns);
+
+			/* For shell job we have no init */
+			if (!opts.shell_job || is_session_leader(root_item)
+					|| vpgid(root_item) != vpid(group_leader)) {
+				init = __pstree_item_by_virt(pidns, INIT_PID);
+				BUG_ON(!init);
+			} else {
+				init = root_item;
+			}
+
+			/*
+			 * Process group leader has pid==pgid==item->pgid and
+			 * sid==item->sid with ending zeroes cut, and corresponding
+			 * shift in pidnses is needed, put the leader in session
+			 * leader's children to have sid inherited.
+			 */
+			memcpy(group_leader->sid, item->sid, PID_SIZE(group_leader->sid->level));
+			memcpy(group_leader->pgid, item->pgid, PID_SIZE(group_leader->pgid->level));
+			group_leader->ids = init->ids;
+
+			/*
+			 * Skip adding fake helper for external pgid
+			 * for shell_job to tree, as it already exists
+			 * somwhere outside
+			 */
+			if (!opts.shell_job || is_session_leader(root_item)
+					|| vpgid(root_item) != vpid(group_leader)) {
+				group_leader->parent = session_leader;
+				add_child_task(group_leader, group_leader->parent);
+			}
+			init_pstree_helper(group_leader);
+
+			pr_info("Add a helper %d for restoring PGID %d\n",
+					vpid(group_leader), vpgid(group_leader));
+		}
+	}
+}
+
 static int can_inherit_sid(struct pstree_item *item)
 {
 	struct pstree_item *parent;
@@ -1098,7 +1223,8 @@ skip:
 			int level;
 
 			leader = pstree_item_by_virt(vsid(item));
-			BUG_ON(leader == NULL);
+			BUG_ON(leader == NULL || leader->pid->state == TASK_UNDEF);
+			BUG_ON(!is_session_leader(leader));
 
 			if (leader->pid->level > init->pid->level)
 				/*
@@ -1110,37 +1236,6 @@ skip:
 				 * is doing CLONE_PARENT after entering pidns and setsid.
 				 */
 				goto skip_descendants;
-
-			if (leader->pid->state == TASK_UNDEF) {
-				struct ns_id *leader_pid_ns = ns;
-				struct pstree_item *linit;
-				int i;
-
-				/*
-				 * Search a proper pidns where session leader helper
-				 * can be created (using the fact that all processes
-				 * of some session should be in pidns of leader or
-				 * some ancestor pidns)
-				 */
-				for (i = 0; i < init->pid->level - leader->pid->level; i++) {
-					BUG_ON(!leader_pid_ns->parent);
-					leader_pid_ns = leader_pid_ns->parent;
-				}
-				BUG_ON(!leader_pid_ns);
-				linit = __pstree_item_by_virt(leader_pid_ns, INIT_PID);
-				BUG_ON(!linit);
-
-				pr_info("Add a session leader helper %d\n", vsid(item));
-
-				memcpy(leader->sid, item->sid, PID_SIZE(leader->sid->level));
-				memcpy(leader->pgid, item->sid, PID_SIZE(leader->pgid->level));
-				leader->ids = linit->ids;
-				leader->parent = linit;
-
-				add_child_task(leader, leader->parent);
-				init_pstree_helper(leader);
-			}
-			BUG_ON(!is_session_leader(leader));
 
 			level = get_free_pids(ns, pid);
 			if (level <= 0)
@@ -1190,10 +1285,11 @@ skip_descendants:
 	return 0;
 }
 
-static int prepare_pstree_ids(pid_t pid)
+static int prepare_pstree_ids(void)
 {
-	struct pstree_item *item, *helper;
-	pid_t current_pgid = getpgid(pid);
+	struct pstree_item *item;
+
+	prepare_pstree_leaders();
 
 	/*
 	 * Some task can be reparented to init. A helper task should be added
@@ -1268,44 +1364,28 @@ static int prepare_pstree_ids(pid_t pid)
 	if (!list_empty(&top_pid_ns->children))
 		return 0;
 
-	/* Add a process group leader if it is absent  */
+	/* Setup pgrp_leader to wait for it to became a real leader */
 	for_each_pstree_item(item) {
 		struct pid *pid;
 
-		if (!item->pgid || equal_pid(item->pid, item->pgid))
+		if (is_group_leader(item))
 			continue;
-
-		pid = pstree_pid_by_virt(vpgid(item));
-		if (pid->state != TASK_UNDEF) {
-			BUG_ON(pid->state == TASK_THREAD);
-			rsti(item)->pgrp_leader = pid->item;
-			continue;
-		}
 
 		/*
 		 * If the PGID is eq to current one -- this
 		 * means we're inheriting group from the current
-		 * task so we need to escape creating a helper here.
+		 * or setpgid group to some already created group,
+		 * so we do not need to wait leaders's creation.
 		 */
-		if (current_pgid == vpgid(item))
+		if (opts.shell_job && !is_session_leader(root_item)
+				&& vpgid(root_item) == vpgid(item))
 			continue;
 
-		helper = pid->item;
-
-		vsid(helper) = vsid(item);
-		vpgid(helper) = vpgid(item);
-		vpid(helper) = vpgid(item);
-		helper->parent = item;
-		helper->ids = item->ids;
-		if (init_pstree_helper(helper)) {
-			pr_err("Can't init helper\n");
-			return -1;
-		}
-		add_child_task(helper, item);
-		rsti(item)->pgrp_leader = helper;
-
-		pr_info("Add a helper %d for restoring PGID %d\n",
-				vpid(helper), vpgid(helper));
+		pid = pstree_pid_by_virt(vpgid(item));
+		BUG_ON(pid == NULL || pid->state == TASK_UNDEF);
+		BUG_ON(pid->state == TASK_THREAD);
+		rsti(item)->pgrp_leader = pid->item;
+		continue;
 	}
 
 	return 0;
@@ -1493,7 +1573,7 @@ int prepare_pstree(void)
 		 * Session/Group leaders might be dead. Need to fix
 		 * pstree with properly injected helper tasks.
 		 */
-		ret = prepare_pstree_ids(pid);
+		ret = prepare_pstree_ids();
 	if (!ret)
 		ret = reserve_pid_ns_helpers();
 
