@@ -1921,6 +1921,25 @@ static bool store_validation_data(RegFileEntry *rfe,
 	return true;
 }
 
+static bool unsupported_nfs_file(const struct fd_link *link,
+				 const struct fd_parms *parms)
+{
+	if (parms->fs_type != NFS_SUPER_MAGIC)
+		return false;
+
+	if (S_ISCHR(parms->stat.st_mode)) {
+		pr_err("Character devices ([%s]) migration on NFS are not supported\n", &link->name[1]);
+		return true;
+	}
+
+	if (S_ISBLK(parms->stat.st_mode)) {
+		pr_err("Block devices ([%s]) migration on NFS are not supported\n", &link->name[1]);
+		return true;
+	}
+
+	return false;
+}
+
 int dump_one_reg_file(int lfd, u32 id, const struct fd_parms *p)
 {
 	struct fd_link _link, *link;
@@ -1973,6 +1992,11 @@ int dump_one_reg_file(int lfd, u32 id, const struct fd_parms *p)
 	 * The regular path we can handle should start with slash.
 	 */
 	if (link->name[1] != '/') {
+		pr_err("The path [%s] is not supported\n", &link->name[1]);
+		return -1;
+	}
+
+	if (unsupported_nfs_file(link, p)) {
 		pr_err("The path [%s] is not supported\n", &link->name[1]);
 		return -1;
 	}
