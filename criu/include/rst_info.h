@@ -71,6 +71,9 @@ struct rst_info {
 	bool			has_thp_enabled;
 
 	void			*breakpoint;
+
+	int			curr_sid;
+	int			curr_pgid;
 };
 
 extern struct task_entries *task_entries;
