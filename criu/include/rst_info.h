@@ -79,6 +79,9 @@ struct rst_info {
 	struct rst_rseq *rseqe;
 
 	void *breakpoint;
+
+	int curr_sid;
+	int curr_pgid;
 };
 
 extern struct task_entries *task_entries;
