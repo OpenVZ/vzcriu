@@ -753,7 +753,7 @@ static int validate_mounts(struct mount_info *info, bool for_dump)
 			}
 		}
 
-		if (unsupported_mount(m))
+		if (for_dump && unsupported_mount(m))
 			return -1;
 	}
 
