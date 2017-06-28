@@ -834,7 +834,7 @@ skip_fstype:
 			return -1;
 		}
 
-		if (unsupported_mount(m))
+		if (for_dump && unsupported_mount(m))
 			return -1;
 	}
 
