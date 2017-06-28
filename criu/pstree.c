@@ -478,6 +478,7 @@ static int prepare_pstree_for_shell_job(pid_t pid)
 		old_sid, current_sid);
 
 	for_each_pstree_item(pi) {
+		BUG_ON(vsid(pi) == current_sid);
 		if (vsid(pi) == old_sid)
 			vsid(pi) = current_sid;
 	}
@@ -491,6 +492,7 @@ static int prepare_pstree_for_shell_job(pid_t pid)
 			old_gid, current_gid);
 
 		for_each_pstree_item(pi) {
+			BUG_ON(vpgid(pi) == current_gid);
 			if (vpgid(pi) == old_gid)
 				vpgid(pi) = current_gid;
 		}
