@@ -1733,6 +1733,39 @@ unblock:
 	return ret;
 }
 
+static inline int fork_update_curr(struct pstree_item *item)
+{
+	if (!item->parent) {
+		pid_t real_sid, real_pgid;
+
+		real_sid = getsid(0);
+		if (real_sid == -1) {
+			pr_perror("%d: Fail to getsid\n", vpid(item));
+			return -1;
+		}
+
+		real_pgid = getpgid(0);
+		if (real_pgid == -1) {
+			pr_perror("%d: Fail to getpgid\n", vpid(item));
+			return -1;
+		}
+
+		rsti(item)->curr_sid = real_sid;
+		rsti(item)->curr_pgid = real_pgid;
+	} else {
+		rsti(item)->curr_sid = rsti(item->parent)->curr_sid;
+		rsti(item)->curr_pgid = rsti(item->parent)->curr_pgid;
+	}
+
+	/* Check we are born with the right sid */
+	if (item->born_sid != -1)
+		BUG_ON(item->born_sid != rsti(item)->curr_sid);
+	else if (!is_session_leader(item))
+		BUG_ON(vsid(item) != rsti(item)->curr_sid);
+
+	return 0;
+}
+
 static inline int fork_with_pid(struct pstree_item *item)
 {
 	struct cr_clone_arg ca;
@@ -1740,6 +1773,9 @@ static inline int fork_with_pid(struct pstree_item *item)
 	bool external_pidns = false;
 	int ret = -1;
 	pid_t pid = vpid(item);
+
+	if (fork_update_curr(item) == -1)
+		return -1;
 
 	if (item->pid->state != TASK_HELPER) {
 		if (open_core(pid, &ca.core))
@@ -1935,6 +1971,8 @@ static void restore_sid(void)
 			pr_perror("Can't restore sid (%d)", sid);
 			exit(1);
 		}
+		rsti(current)->curr_sid = vpid(current);
+		rsti(current)->curr_pgid = vpid(current);
 	} else {
 		sid = getsid(0);
 		if (sid != last_level_pid(current->sid)) {
@@ -1946,6 +1984,8 @@ static void restore_sid(void)
 			exit(1);
 		}
 	}
+
+	BUG_ON(rsti(current)->curr_sid != vsid(current));
 }
 
 static void restore_pgid(void)
@@ -1989,6 +2029,7 @@ static void restore_pgid(void)
 		pr_perror("Can't restore pgid (%d/%d->%d)", vpid(current), pgid, vpgid(current));
 		exit(1);
 	}
+	rsti(current)->curr_pgid = vpid(current);
 
 	if (my_pgid == last_level_pid(current->pid))
 		futex_set_and_wake(&rsti(current)->pgrp_set, 1);
