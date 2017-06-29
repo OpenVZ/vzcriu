@@ -723,7 +723,8 @@ int cr_page_server(bool daemon_mode, int cfd)
 	int sk = -1;
 	int ret;
 
-	up_page_ids_base();
+	if (images_init(true))
+		return -1;
 
 	if (opts.ps_socket != -1) {
 		ret = 0;

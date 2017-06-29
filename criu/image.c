@@ -16,6 +16,7 @@
 #include "xmalloc.h"
 #include "images/inventory.pb-c.h"
 #include "images/pagemap.pb-c.h"
+#include "rst-malloc.h"
 
 bool ns_per_id = false;
 bool img_common_magic = true;
@@ -445,10 +446,21 @@ void close_image_dir(void)
 	close_service_fd(IMG_FD_OFF);
 }
 
-static unsigned long page_ids = 1;
+/*
+ * As we dump SysV shmem IPC into pages-<page_ids>.img,
+ * the keys should be shared in each dump ns-helpers and in criu.
+ */
+static atomic_t *page_ids;
 
-void up_page_ids_base(void)
+int images_init(bool page_server_mode)
 {
+	BUG_ON(page_ids);
+	page_ids = shmalloc(sizeof(*page_ids));
+	if (!page_ids) {
+		pr_err("Failed to shmalloc page_ids\n");
+		return -1;
+	}
+
 	/*
 	 * When page server and criu dump work on
 	 * the same dir, the shmem pagemaps and regular
@@ -456,9 +468,9 @@ void up_page_ids_base(void)
 	 * making page server produce page images with
 	 * higher IDs.
 	 */
+	atomic_set(page_ids, page_server_mode ? 0x10001 : 1);
 
-	BUG_ON(page_ids != 1);
-	page_ids += 0x10000;
+	return 0;
 }
 
 struct cr_img *open_pages_image_at(int dfd, unsigned long flags, struct cr_img *pmi, u32 *id)
@@ -471,7 +483,7 @@ struct cr_img *open_pages_image_at(int dfd, unsigned long flags, struct cr_img *
 		pagemap_head__free_unpacked(h, NULL);
 	} else {
 		PagemapHead h = PAGEMAP_HEAD__INIT;
-		*id = h.pages_id = page_ids++;
+		*id = h.pages_id = atomic_inc_return(page_ids);
 		if (pb_write_one(pmi, &h, PB_PAGEMAP_HEAD) < 0)
 			return NULL;
 	}
