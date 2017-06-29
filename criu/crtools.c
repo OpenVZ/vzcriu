@@ -87,6 +87,9 @@ int main(int argc, char *argv[], char *envp[])
 		return 1;
 	}
 
+	if (images_init())
+		return 1;
+
 	cr_pb_init();
 	setproctitle_init(argc, argv, envp);
 

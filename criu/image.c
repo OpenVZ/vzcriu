@@ -593,7 +593,7 @@ void close_image_dir(void)
  */
 static atomic_t *page_ids;
 
-int images_dump_init(void)
+int images_init(void)
 {
 	page_ids = shmalloc(sizeof(*page_ids));
 	if (!page_ids) {
