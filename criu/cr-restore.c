@@ -1954,7 +1954,7 @@ static void restore_pgid(void)
 
 		leader = rsti(current)->pgrp_leader;
 		if (leader) {
-			BUG_ON(my_pgid != vpid(leader));
+			BUG_ON(vpgid(current) != vpid(leader));
 			futex_wait_until(&rsti(leader)->pgrp_set, 1);
 		}
 	}
