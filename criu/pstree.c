@@ -1160,7 +1160,21 @@ static void prepare_pstree_leaders(void) {
 	}
 }
 
-static int can_inherit_sid(struct pstree_item *item)
+static int set_born_sid(struct pstree_item *item, int born_sid)
+{
+	if (item->born_sid != -1 && item->born_sid != born_sid) {
+		pr_err("Can't figure out which sid (%d or %d)"
+				"the process %d was born with\n",
+				item->born_sid, born_sid, vpid(item));
+		return -1;
+	}
+
+	item->born_sid = born_sid;
+	pr_info("%d was born with sid %d\n", vpid(item), born_sid);
+	return 0;
+}
+
+static int __can_inherit_sid(struct pstree_item *item, int set)
 {
 	struct pstree_item *parent;
 	parent = item->parent;
@@ -1171,10 +1185,17 @@ static int can_inherit_sid(struct pstree_item *item)
 		/* non-leader can't give children sid different from it's own */
 		if (!is_session_leader(parent))
 			break;
+		/* parent should have had sid == born_sid before setsid */
+		if (set && set_born_sid(parent, vsid(item)))
+			return 0;
 		/* some other ancestor can have the right pid for item */
 		parent = parent->parent;
 	}
 	return 0;
+}
+
+static int can_inherit_sid(struct pstree_item *item) {
+	return __can_inherit_sid(item, 0);
 }
 
 static struct pstree_item *get_helper(int sid, unsigned int id, struct list_head *helpers)
@@ -1308,39 +1329,7 @@ static int prepare_pstree_ids(void)
 			continue;
 
 		if (!is_session_leader(item)) {
-			struct pstree_item *parent;
-
-			/* Lookup the leader, it could fork a child before and after setsid() */
-			parent = item->parent;
-			while (parent) {
-				/* Found leader */
-				if (equal_pid(parent->pid, item->sid))
-					break;
-
-				/* Inherited sid from parent */
-				if (equal_pid(parent->sid, item->sid)) {
-					parent = parent->parent;
-					continue;
-				}
-
-				/* Non-leader parent has different sid */
-				if (!is_session_leader(parent)) {
-					pr_err("Can't find a session leader for %d\n", vsid(item));
-					return -1;
-				}
-
-				if (parent->born_sid != -1 && parent->born_sid != vsid(item)) {
-					pr_err("Can't figure out which sid (%d or %d)"
-						"the process %d was born with\n",
-						parent->born_sid, vsid(item), vpid(parent));
-					return -1;
-				}
-				parent->born_sid = vsid(item);
-				pr_info("%d was born with sid %d\n", vpid(parent), vsid(item));
-				parent = parent->parent;
-			}
-
-			if (parent == NULL) {
+			if (!__can_inherit_sid(item, 1)) {
 				pr_err("Can't find a session leader for %d\n", vsid(item));
 				return -1;
 			}
