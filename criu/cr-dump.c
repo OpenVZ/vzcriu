@@ -1848,6 +1848,9 @@ int cr_pre_dump_tasks(pid_t pid)
 
 	ve_bc_read(pid, &bc_set);
 
+	if (images_init(false))
+		goto err;
+
 	root_item = alloc_pstree_item();
 	if (!root_item)
 		goto err;
@@ -2006,6 +2009,9 @@ int cr_dump_tasks(pid_t pid)
 	pr_info("========================================\n");
 	pr_info("Dumping processes (pid: %d comm: %s)\n", pid, __task_comm_info(pid));
 	pr_info("========================================\n");
+
+	if (images_init(false))
+		goto err;
 
 	root_item = alloc_pstree_item();
 	if (!root_item)
