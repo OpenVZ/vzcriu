@@ -1836,6 +1836,7 @@ static inline int fork_with_pid(struct pstree_item *item)
 		pr_perror("Can't fork for %d", pid);
 		goto err_unlock;
 	}
+	rsti(item)->forked = 1;
 
 err_unlock:
 	unlock_last_pid();
@@ -2000,7 +2001,7 @@ static void restore_pgid(void)
 	}
 
 	pr_info("\twill call setpgid, mine pgid is %d\n", pgid);
-	if (setpgid(0, my_pgid) != 0) {
+	if (set_pgid(current, vpgid(current))) {
 		pr_perror("Can't restore pgid (%d/%d->%d)", vpid(current), pgid, vpgid(current));
 		exit(1);
 	}
