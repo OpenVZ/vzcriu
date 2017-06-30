@@ -1110,6 +1110,9 @@ static void prepare_pstree_leaders(void) {
 		group_leader = pstree_item_by_virt(vpgid(item));
 		BUG_ON(group_leader == NULL);
 
+		if (group_leader->pid->state == TASK_UNDEF || !is_session_leader(group_leader))
+			futex_inc(&rsti(group_leader)->pgrp_member_cnt);
+
 		/* Only the item with full pgid has full info of leader's pidns */
 		if (!equal_pid(item->pgid, group_leader->pid))
 			continue;
@@ -1130,6 +1133,7 @@ static void prepare_pstree_leaders(void) {
 				BUG_ON(!init);
 			} else {
 				init = root_item;
+				futex_set(&rsti(group_leader)->pgrp_set, 1);
 			}
 
 			/*
@@ -1484,47 +1488,6 @@ static int prepare_pstree_ids(void)
 				return -1;
 			}
 		}
-	}
-
-	/*
-	 * FIXME
-	 * Skip process group restore preparation in case of nested pidns.
-	 * As pgid restore is not yet reworked, will do it in a next seriess,
-	 * see corresponding if-check in restore_pgid.
-	 *
-	 * Problem here is that to do setpgid(pid, pgid) a) one should be
-	 * in a same thread group with pid or in a same thread group with
-	 * pid's parent; b) one should be in same pid ns (or it's predecessor)
-	 * with pgid. So if we entered pidns, forked again to have parent in
-	 * same pidns and the grouop leader is outside, we can only get the
-	 * right pgid by inheriting it, so same thing as we do with sessions
-	 * should be done.
-	 */
-	if (!list_empty(&top_pid_ns->children))
-		return 0;
-
-	/* Setup pgrp_leader to wait for it to became a real leader */
-	for_each_pstree_item(item) {
-		struct pid *pid;
-
-		if (is_group_leader(item))
-			continue;
-
-		/*
-		 * If the PGID is eq to current one -- this
-		 * means we're inheriting group from the current
-		 * or setpgid group to some already created group,
-		 * so we do not need to wait leaders's creation.
-		 */
-		if (opts.shell_job && !is_session_leader(root_item)
-				&& vpgid(root_item) == vpgid(item))
-			continue;
-
-		pid = pstree_pid_by_virt(vpgid(item));
-		BUG_ON(pid == NULL || pid->state == TASK_UNDEF);
-		BUG_ON(pid->state == TASK_THREAD);
-		rsti(item)->pgrp_leader = pid->item;
-		continue;
 	}
 
 	return 0;
