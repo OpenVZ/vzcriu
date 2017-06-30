@@ -1198,6 +1198,58 @@ static int can_inherit_sid(struct pstree_item *item) {
 	return __can_inherit_sid(item, 0);
 }
 
+/*
+ * Get pid of process item in pidns of process base,
+ * base and item should have ->ids initialized.
+ */
+static pid_t get_relative_pid(struct pstree_item *base, struct pstree_item *item)
+{
+	struct ns_id *item_pidns;
+
+	/* The pidns of an item is above */
+	if (item->pid->level < base->pid->level)
+		return 0;
+
+	/* Same level fast path */
+	if (item->pid->level == base->pid->level) {
+		if (base->ids->pid_ns_id == item->ids->pid_ns_id)
+			return last_level_pid(item->pid);
+		else
+			return 0;
+	}
+
+	item_pidns = lookup_ns_by_id(item->ids->pid_ns_id, &pid_ns_desc);
+	BUG_ON(!item_pidns);
+	item_pidns = ns_nth_parent(item_pidns, item->pid->level - base->pid->level);
+	BUG_ON(!item_pidns);
+
+	/* On base's level item & base have the same pidns */
+	if (base->ids->pid_ns_id == item_pidns->id)
+		return  item->pid->ns[base->pid->level-1].virt;
+	return 0;
+}
+
+static int can_receive_pgid(struct pstree_item *item)
+{
+	struct pstree_item *leader;
+	pid_t pgid = vpgid(item);
+
+	BUG_ON(pgid == 0);
+
+	leader = pstree_item_by_virt(pgid);
+	BUG_ON(!leader || leader->pid->state == TASK_UNDEF);
+
+	/* item inherited pgid with session */
+	if (is_session_leader(leader))
+		return 1;
+
+	/* item can see it's leader */
+	if (get_relative_pid(item, leader))
+		return 1;
+
+	return 0;
+}
+
 static struct pstree_item *get_helper(int sid, unsigned int id, struct list_head *helpers)
 {
 	struct pstree_item *helper;
@@ -1331,6 +1383,13 @@ static int prepare_pstree_ids(void)
 		if (!is_session_leader(item)) {
 			if (!__can_inherit_sid(item, 1)) {
 				pr_err("Can't find a session leader for %d\n", vsid(item));
+				return -1;
+			}
+		}
+
+		if (!is_group_leader(item)) {
+			if (!can_receive_pgid(item)) {
+				pr_err("Can't find a group leader for %d\n", vsid(item));
 				return -1;
 			}
 		}
