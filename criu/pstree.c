@@ -1305,6 +1305,97 @@ static int can_receive_pgid(struct pstree_item *item)
 	return 0;
 }
 
+static int check_set_pgid(struct pstree_item *curr, struct pstree_item *item,
+		pid_t pgid, pid_t *pitem_pid, pid_t *pnew_pgid)
+{
+	struct pstree_item *leader;
+	pid_t item_pid, new_pgid;
+
+	/* Invalid pgid */
+	if (pgid <= 0) {
+		pr_err("Can't setpgid %d: bad pgid %d\n", vpid(item), pgid);
+		return 1;
+	}
+
+	/* Pgid is already set */
+	if (pgid == rsti(item)->curr_pgid) {
+		pr_err("Can't setpgid %d: pgid %d is already set\n", vpid(item), pgid);
+		return 1;
+	}
+
+	leader = pstree_item_by_virt(pgid);
+	BUG_ON(!leader || leader->pid->state == TASK_UNDEF);
+
+	/* We must be item or parent of item */
+	if (item != curr && item->parent != curr) {
+		pr_err("Can't setpgid %d: item is not %d and not it's child\n", vpid(item), vpid(curr));
+		return 1;
+	}
+
+	item_pid = get_relative_pid(curr, item);
+	/* We always see item's pid from curr thanks to previous check */
+	BUG_ON(!item_pid);
+
+	/* We must see the leader in our pidns to setpgid to it's group */
+	new_pgid = get_relative_pid(curr, leader);
+	if (!new_pgid) {
+		pr_err("Can't setpgid %d: %d is not visible from %d\n", vpid(item), vpid(leader), vpid(curr));
+		return 1;
+	}
+
+	/* Item should not be session leader */
+	if (rsti(item)->curr_sid == vpid(item)) {
+		pr_err("Can't setpgid %d: item is session leader\n", vpid(item));
+		return 1;
+	}
+
+	/* Everybody should be already forked */
+	if (!rsti(item)->forked || !rsti(leader)->forked) {
+		pr_err("Can't setpgid %d: item or leader is not alive\n", vpid(item));
+		return 1;
+	}
+
+	/* Leader should be the group leader already */
+	if (item != leader && rsti(leader)->curr_pgid != pgid) {
+		pr_err("Can't setpgid %d: leader does not have the right pgid %d/%d\n",
+				vpid(item), rsti(leader)->curr_pgid, pgid);
+		return 1;
+	}
+
+	/* Everybody should be in a same session */
+	if (rsti(curr)->curr_sid != rsti(item)->curr_sid || rsti(item)->curr_sid != rsti(leader)->curr_sid) {
+		pr_err("Can't setpgid %d: sessions does not match %d/%d/%d\n", vpid(item),
+				rsti(item)->curr_sid, rsti(leader)->curr_sid, rsti(curr)->curr_sid);
+		return 1;
+	}
+
+	if (pitem_pid)
+		*pitem_pid = item_pid;
+	if (pnew_pgid)
+		*pnew_pgid = new_pgid;
+	return 0;
+}
+
+/* From current task try to setpgid task item to pgid */
+int set_pgid(struct pstree_item *item, pid_t pgid)
+{
+	pid_t item_pid, new_pgid, old_pgid;
+
+	BUG_ON(pgid == 0);
+
+	if (check_set_pgid(current, item, pgid, &item_pid, &new_pgid))
+		return 1;
+
+	old_pgid = getpgid(item_pid);
+	pr_info("\twill call setpgid for %d, old pgid is %d, new pgid is %d\n", vpid(item), old_pgid, new_pgid);
+	if (setpgid(item_pid, new_pgid) != 0) {
+		pr_perror("Can't restore pgid (%d/%d->%d)", vpid(item), rsti(item)->curr_pgid, vpgid(current));
+		return 1;
+	}
+	rsti(item)->curr_pgid = pgid;
+	return 0;
+}
+
 static struct pstree_item *get_helper(int sid, unsigned int id, struct list_head *helpers)
 {
 	struct pstree_item *helper;

@@ -75,6 +75,7 @@ struct rst_info {
 
 	int			curr_sid;
 	int			curr_pgid;
+	int			forked;
 };
 
 extern struct task_entries *task_entries;
