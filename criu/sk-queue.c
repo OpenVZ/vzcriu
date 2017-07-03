@@ -277,9 +277,9 @@ static int dump_sk_creds(struct ucred *ucred, SkPacketEntry *pe, int flags)
 			_errno = errno;
 		}
 		if (ret) {
-			errno = _errno;
-			pr_perror("ucred: Unable to dump ucred for a dead process %d,"
-				  "ignoring packet", ucred->pid);
+			pr_warn("ucred: Unable to dump ucred for a dead process %d, "
+				  "ignoring packet: %s\n", ucred->pid,
+				  strerror(_errno));
 			pe->ucred = NULL;
 			xfree(ent);
 			return 2;
