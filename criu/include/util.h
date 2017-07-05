@@ -302,6 +302,8 @@ int setup_tcp_client(char *hostname);
 /* path should be writable and no more than PATH_MAX long */
 int rmrf(char *path);
 
+extern int open_fd_of_real_pid(pid_t pid, int fd, int flags);
+
 #define LAST_PID_PATH "sys/kernel/ns_last_pid"
 #define PID_MAX_PATH  "sys/kernel/pid_max"
 
