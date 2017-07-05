@@ -1653,3 +1653,36 @@ int cr_restore_root(int root)
 
 	return ret;
 }
+
+struct open_proc_arg {
+	int pid;
+	int fd;
+	int flags;
+};
+
+static int fn_open_proc(void *arg, int fd, pid_t pid)
+{
+	struct open_proc_arg *opa = arg;
+	char path[64];
+	int ret;
+
+	ret = snprintf(path, sizeof(path), "%d/fd/%d", opa->pid, opa->fd);
+	if (ret >= sizeof(path))
+		return -1;
+
+	return openat(get_service_fd(CR_PROC_FD_OFF), path, opa->flags);
+}
+
+int open_fd_of_real_pid(pid_t pid, int fd, int flags)
+{
+	struct open_proc_arg opa = {
+		.pid = pid,
+		.fd = fd,
+		.flags = flags,
+	};
+
+	BUG_ON((flags != O_RDONLY) &&
+	       (flags != O_WRONLY) &&
+	       (flags != O_RDWR));
+	return userns_call(fn_open_proc, UNS_FDOUT, &opa, sizeof(opa), -1);
+}
