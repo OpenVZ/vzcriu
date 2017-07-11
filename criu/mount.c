@@ -673,6 +673,82 @@ static bool nfs_mount(const struct mount_info *m)
 
 }
 
+static char *mnt_mark(const struct mount_info *m)
+{
+	static char *shared = "shared";
+	static char *private = "private";
+	static char *slave = "slave";
+
+	if (m->flags & MS_SHARED)
+		return shared;
+
+	if (m->flags & MS_SLAVE)
+		return slave;
+
+	return private;
+}
+
+static bool unsupported_nfs_mount(const struct mount_info *m);
+
+static bool unsupported_nfs_bindmounts(const struct mount_info *m)
+{
+	const struct mount_info *bm;
+
+	list_for_each_entry(bm, &m->mnt_bind, mnt_bind) {
+		if (bm->shared_id != m->master_id) {
+			pr_err("Bind-mount %s has another shared "
+					"group, than %s: %d != %d\n",
+					bm->mountpoint, m->mountpoint,
+					bm->shared_id, m->master_id);
+			return true;
+		}
+		if (unsupported_nfs_mount(bm))
+			return true;
+	}
+	return false;
+}
+
+static bool unsupported_nfs_mount(const struct mount_info *m)
+{
+	switch (m->nsid->type) {
+		case NS_ROOT:
+			if (m->flags & MS_SHARED)
+				return false;
+
+			pr_err("NFS mount [%s] in init mount namespace "
+				"is marked as \"%s\".\n",
+				m->mountpoint, mnt_mark(m));
+			pr_err("Only shared NFS mounts in init mount "
+				"namespace are supported yet.\n");
+			break;
+		case NS_OTHER:
+			if (!(m->flags & MS_SLAVE)) {
+				pr_err("NFS mount [%s] in non-init mount "
+					"namespace is marked as \"%s\".\n",
+					m->mountpoint, mnt_mark(m));
+				pr_err("Only slave NFS mounts in non-init "
+					"mount namespace are supported yet.\n");
+				return true;
+			}
+			return unsupported_nfs_bindmounts(m);
+		case NS_CRIU:
+			pr_err("NFS mount [%s] in CRIU namespace is "
+					"unsupported.\n", m->mountpoint);
+			break;
+		case NS_UNKNOWN:
+			pr_err("Unknown NFS mount [%s] namespace type: %d\n",
+					m->mountpoint, m->nsid->type);
+			break;
+		default:
+			pr_err("Invalid NFS mount [%s] namespace type: %d\n",
+					m->mountpoint, m->nsid->type);
+			break;
+	}
+
+
+	return true;
+}
+
 static bool unsupported_mount(const struct mount_info *m)
 {
 	struct mount_info *parent = m->parent;
@@ -687,7 +763,8 @@ static bool unsupported_mount(const struct mount_info *m)
 
 		return true;
 	}
-	return false;
+
+	return nfs_mount(m) ? unsupported_nfs_mount(m) : false;
 }
 
 static int validate_mounts(struct mount_info *info, bool for_dump)
