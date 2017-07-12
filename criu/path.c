@@ -48,6 +48,10 @@ char *mnt_get_sibling_path(struct mount_info *m,
 	if (pa == NULL)
 		return NULL;
 
+	/* It's a bind-mount loop, don't search for siblings inside itself. */
+	if (!strcmp(p->mountpoint, m->mountpoint))
+		return NULL;
+
 	rpath = m->mountpoint + strlen(pa->mountpoint);
 	if (rpath[0] == '/')
 		rpath++;
