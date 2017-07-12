@@ -701,6 +701,9 @@ static struct fstype fstypes[] = {
 		.name = "proc",
 		.code = FSTYPE__PROC,
 	}, {
+		.name = "nsfs",
+		.code = FSTYPE__PROC,
+	}, {
 		.name = "sysfs",
 		.code = FSTYPE__SYSFS,
 	}, {
