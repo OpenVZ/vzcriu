@@ -2158,7 +2158,6 @@ again:
 				m->parent_mnt_id, m->root,
 				m->mountpoint, m->source);
 		}
-		return -1;
 	}
 
 	list_splice_init(&postpone2, &postpone);
@@ -2450,7 +2449,7 @@ static int do_new_mount(struct mount_info *mi)
 
 	if (do_mount(mi, src, mnt_fsname(mi), sflags) < 0) {
 		pr_perror("Can't mount at %s", mi->mountpoint);
-		return -1;
+		goto out;
 	}
 
 	if (tp->restore && tp->restore(mi))
@@ -2668,7 +2667,7 @@ static int do_bind_mount(struct mount_info *mi)
 	if (mount(mnt_path, mnt_clean_path, NULL, MS_BIND, NULL)) {
 		pr_perror("Unable to bind-mount %s to %s",
 			  mnt_path, mnt_clean_path);
-		return -1;
+		return 0;
 	}
 	mnt_path = mnt_clean_path;
 	umount_mnt_fd = open(mnt_clean_path, O_PATH);
@@ -3718,7 +3717,6 @@ static int merge_mount_trees(struct mount_info *root_yard)
 			       "roots %d (@%s %s) %d (@%s %s) are not supported yet\n",
 			       root->mnt_id, root->mountpoint, root->root,
 			       first->mnt_id, first->mountpoint, first->root);
-			return -1;
 		}
 
 		pr_debug("Mountpoint %d (@%s) moved to the root yard\n",
