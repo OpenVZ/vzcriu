@@ -1776,7 +1776,6 @@ static __maybe_unused int mount_cr_time_mount(struct ns_id *ns, unsigned int *s_
 	if (mount(source, target, type, 0, NULL)) {
 		switch (errno) {
 		case EPERM:
-		case EBUSY:
 		case ENODEV:
 		case ENOENT:
 			pr_debug("Skipping %s as was unable to mount it: %s\n", type, strerror(errno));
