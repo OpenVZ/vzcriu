@@ -1802,6 +1802,29 @@ out:
 	return exit_code;
 }
 
+static __maybe_unused int mount_and_collect_binfmt_misc(void)
+{
+	unsigned int s_dev = 0;
+	struct ns_id *ns;
+	int ret;
+
+	for (ns = ns_ids; ns != NULL; ns = ns->next) {
+		if (ns->type == NS_ROOT && ns->nd == &mnt_ns_desc)
+			break;
+	}
+	BUG_ON(!ns);
+
+	ret = mount_cr_time_mount(ns, &s_dev, "binfmt_misc", "/" BINFMT_MISC_HOME, "binfmt_misc");
+	if (ret == 1) {
+		ret = 0;
+	} else if (ret == 0 &&
+		   !add_cr_time_mount(ns->mnt.mntinfo_tree, "binfmt_misc", BINFMT_MISC_HOME, s_dev, false)) {
+		ret = -1;
+	}
+
+	return ret;
+}
+
 static int dump_one_fs(struct mount_info *mi)
 {
 	struct mount_info *pm = mi;
@@ -4013,24 +4036,9 @@ int collect_mnt_namespaces(bool for_dump)
 
 #ifdef CONFIG_BINFMT_MISC_VIRTUALIZED
 	if (for_dump && !opts.has_binfmt_misc) {
-		unsigned int s_dev = 0;
-		struct ns_id *ns;
-
-		for (ns = ns_ids; ns != NULL; ns = ns->next) {
-			if (ns->type == NS_ROOT && ns->nd == &mnt_ns_desc)
-				break;
-		}
-
-		if (ns) {
-			ret = mount_cr_time_mount(ns, &s_dev, "binfmt_misc", "/" BINFMT_MISC_HOME, "binfmt_misc");
-			if (ret == -1) {
-				goto err;
-			} else if (ret == 0 && !add_cr_time_mount(ns->mnt.mntinfo_tree, "binfmt_misc", BINFMT_MISC_HOME,
-								  s_dev, false)) {
-				ret = -1;
-				goto err;
-			}
-		}
+		ret = mount_and_collect_binfmt_misc();
+		if (ret)
+			goto err;
 	}
 #endif
 
