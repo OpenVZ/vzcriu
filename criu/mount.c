@@ -30,6 +30,7 @@
 #include "fdstore.h"
 #include "rst-malloc.h"
 #include "crtools.h"
+#include "kerndat.h"
 
 #include "images/mnt.pb-c.h"
 
@@ -1771,6 +1772,11 @@ static __maybe_unused int mount_cr_time_mount(struct ns_id *ns, unsigned int *s_
 	if (switch_ns(ns->ns_pid, &mnt_ns_desc, NULL)) {
 		pr_err("Can't switch mnt_ns\n");
 		return -1;
+	}
+
+	if (switch_ns(ns->ns_pid, &user_ns_desc, NULL)) {
+		pr_err("Can't switch user_ns\n");
+		goto out;
 	}
 
 	if (mount(source, target, type, 0, NULL)) {
