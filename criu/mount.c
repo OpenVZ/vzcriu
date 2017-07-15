@@ -1757,7 +1757,7 @@ err:
 static __maybe_unused int mount_cr_time_mount(struct ns_id *ns, unsigned int *s_dev, const char *source,
 					      const char *target, const char *type)
 {
-	int mnt_fd, cwd_fd, exit_code = -1;
+	int exit_code = -1;
 	struct stat st;
 
 	if (!opts.ve) {
@@ -1768,9 +1768,9 @@ static __maybe_unused int mount_cr_time_mount(struct ns_id *ns, unsigned int *s_
 	if (join_veX())
 		return -1;
 
-	if (switch_mnt_ns(ns->ns_pid, &mnt_fd, &cwd_fd)) {
+	if (switch_ns(ns->ns_pid, &mnt_ns_desc, NULL)) {
 		pr_err("Can't switch mnt_ns\n");
-		goto out;
+		return -1;
 	}
 
 	if (mount(source, target, type, 0, NULL)) {
@@ -1784,26 +1784,21 @@ static __maybe_unused int mount_cr_time_mount(struct ns_id *ns, unsigned int *s_
 		default:
 			pr_perror("Unable to mount %s %s %s", type, source, target);
 		}
-		goto restore_ns;
+		goto out;
 	}
 
 	if (stat(target, &st)) {
 		pr_perror("Can't stat %s", target);
-		goto restore_ns;
+		goto out;
 	}
 
 	*s_dev = MKKDEV(major(st.st_dev), minor(st.st_dev));
 	exit_code = 0;
-restore_ns:
-	if (restore_mnt_ns(mnt_fd, &cwd_fd))
-		exit_code = -1;
 out:
-	if (join_ve0())
-		exit_code = -1;
 	return exit_code;
 }
 
-static __maybe_unused int mount_and_collect_binfmt_misc(void)
+static __maybe_unused int mount_and_collect_binfmt_misc(void *unused)
 {
 	unsigned int s_dev = 0;
 	struct ns_id *ns;
@@ -4068,7 +4063,7 @@ int collect_mnt_namespaces(bool for_dump)
 
 #ifdef CONFIG_BINFMT_MISC_VIRTUALIZED
 	if (for_dump && !opts.has_binfmt_misc) {
-		ret = mount_and_collect_binfmt_misc();
+		ret = call_in_child_process(mount_and_collect_binfmt_misc, NULL);
 		if (ret)
 			goto err;
 	}
