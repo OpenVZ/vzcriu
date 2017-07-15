@@ -1679,18 +1679,11 @@ char *get_dumpee_veid(pid_t pid_real)
 static __maybe_unused int mount_cr_time_mount(struct ns_id *ns, unsigned int *s_dev, const char *source,
 			       const char *target, const char *type)
 {
-	int mnt_fd, ret, exit_code = 0;
+	int ret = -1, exit_code = 0;
 	struct stat st;
-	int ve0_fd = -1, veX_fd = -1, len = -1;
+	int veX_fd = -1, len = -1;
 	char buf[PATH_MAX];
 	char *veid;
-
-	snprintf(buf, PATH_MAX, "/sys/fs/cgroup/ve/tasks");
-	ret = ve0_fd = open(buf, O_WRONLY);
-	if (ret < 0) {
-		pr_perror("Can't open %s", buf);
-		goto out;
-	}
 
 	veid = get_dumpee_veid(root_item->pid->real);
 	if (IS_ERR_OR_NULL(veid)) {
@@ -1711,8 +1704,9 @@ static __maybe_unused int mount_cr_time_mount(struct ns_id *ns, unsigned int *s_
 		len = ret = -1;
 		goto out;
 	}
+	close(veX_fd);
 
-	ret = switch_ns(ns->ns_pid, &mnt_ns_desc, &mnt_fd);
+	ret = switch_ns(ns->ns_pid, &mnt_ns_desc, NULL);
 	if (ret < 0) {
 		pr_err("Can't switch mnt_ns\n");
 		goto out;
@@ -1722,7 +1716,7 @@ static __maybe_unused int mount_cr_time_mount(struct ns_id *ns, unsigned int *s_
 	if (ret < 0) {
 		pr_perror("Unable to mount %s %s", source, target);
 		exit_code = -errno;
-		goto restore_ns;
+		goto out;
 	} else {
 		if (stat(target, &st) < 0) {
 			 pr_perror("Can't stat %s", target);
@@ -1733,19 +1727,11 @@ static __maybe_unused int mount_cr_time_mount(struct ns_id *ns, unsigned int *s_
 		}
 	}
 
-restore_ns:
-	ret = restore_ns(mnt_fd, &mnt_ns_desc);
 out:
-	if (len > 0 && write(ve0_fd, buf, len) != len) {
-		pr_perror("Can't restore VE\n");
-		ret = -1;
-	}
-	close(ve0_fd);
-	close(veX_fd);
 	return ret < 0 ? 0 : exit_code;
 }
 
-static __maybe_unused int mount_and_collect_binfmt_misc(void)
+static __maybe_unused int mount_and_collect_binfmt_misc(void *unused)
 {
 	unsigned int s_dev = 0;
 	struct ns_id *ns;
@@ -3939,7 +3925,7 @@ int collect_mnt_namespaces(bool for_dump)
 
 #ifdef CONFIG_BINFMT_MISC_VIRTUALIZED
 	if (for_dump && !opts.has_binfmt_misc) {
-		ret = mount_and_collect_binfmt_misc();
+		ret = call_in_child_process(mount_and_collect_binfmt_misc, NULL);
 		if (ret)
 			goto err;
 	}
