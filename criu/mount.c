@@ -3919,7 +3919,7 @@ int collect_mnt_namespaces(bool for_dump)
 						  "binfmt_misc");
 			if (ret == -EPERM)
 				pr_info("Can't mount binfmt_misc: EPERM. Running in user_ns?\n");
-			else if (ret < 0 && ret != -EBUSY && ret != -ENODEV && ret != -ENOENT) {
+			else if (ret < 0 && ret != -ENODEV && ret != -ENOENT) {
 				pr_err("Can't mount binfmt_misc: %d %s\n", ret, strerror(-ret));
 				goto err;
 			} else if (ret == 0) {
