@@ -1745,7 +1745,40 @@ out:
 	return ret < 0 ? 0 : exit_code;
 }
 
+static __maybe_unused int mount_and_collect_binfmt_misc(void)
+{
+	unsigned int s_dev = 0;
+	struct ns_id *ns;
+	int ret;
 
+	for (ns = ns_ids; ns != NULL; ns = ns->next) {
+		if (ns->type == NS_ROOT && ns->nd == &mnt_ns_desc)
+			break;
+	}
+	BUG_ON(!ns);
+
+	ret = mount_cr_time_mount(ns, &s_dev, "binfmt_misc", "/" BINFMT_MISC_HOME,
+				  "binfmt_misc");
+	if (ret == -EPERM || ret == -ENODEV || ret == -ENOENT) {
+		/*
+		 * EPERM is returned when we're in !init_user_ns, ENODEV and ENOENT
+		 * when no binfmt_misc module is loaded.
+		 */
+		pr_info("Can't mount binfmt_misc: %d %s\n", ret, strerror(-ret));
+		ret = 0;
+	} else if (ret < 0) {
+		errno = -ret;
+		pr_perror("Can't mount binfmt_misc");
+	} else if (ret == 0) {
+		/* Error not connected with mount */
+		ret = -1;
+	} else if (ret > 0) {
+		ret = add_cr_time_mount(ns->mnt.mntinfo_tree, "binfmt_misc",
+					BINFMT_MISC_HOME, s_dev);
+	}
+
+	return ret;
+}
 
 static int dump_one_fs(struct mount_info *mi)
 {
@@ -3906,31 +3939,9 @@ int collect_mnt_namespaces(bool for_dump)
 
 #ifdef CONFIG_BINFMT_MISC_VIRTUALIZED
 	if (for_dump && !opts.has_binfmt_misc) {
-		unsigned int s_dev = 0;
-		struct ns_id *ns;
-
-		for (ns = ns_ids; ns != NULL; ns = ns->next) {
-			if (ns->type == NS_ROOT && ns->nd == &mnt_ns_desc)
-				break;
-		}
-
-		if (ns) {
-			ret = mount_cr_time_mount(ns, &s_dev, "binfmt_misc", "/" BINFMT_MISC_HOME,
-						  "binfmt_misc");
-			if (ret == -EPERM)
-				pr_info("Can't mount binfmt_misc: EPERM. Running in user_ns?\n");
-			else if (ret < 0 && ret != -ENODEV && ret != -ENOENT) {
-				pr_err("Can't mount binfmt_misc: %d %s\n", ret, strerror(-ret));
-				goto err;
-			} else if (ret == 0) {
-				ret = -1;
-				goto err;
-			} else if (ret > 0 && add_cr_time_mount(ns->mnt.mntinfo_tree, "binfmt_misc",
-								BINFMT_MISC_HOME, s_dev) < 0) {
-				ret = -1;
-				goto err;
-			}
-		}
+		ret = mount_and_collect_binfmt_misc();
+		if (ret)
+			goto err;
 	}
 #endif
 
