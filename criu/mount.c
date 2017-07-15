@@ -1714,6 +1714,12 @@ static __maybe_unused int mount_cr_time_mount(struct ns_id *ns, unsigned int *s_
 		goto out;
 	}
 
+	ret = switch_ns(ns->ns_pid, &user_ns_desc, NULL);
+	if (ret < 0) {
+		pr_err("Can't switch user_ns\n");
+		goto out;
+	}
+
 	ret = mount(source, target, type, 0, NULL);
 	if (ret < 0) {
 		exit_code = -errno;
