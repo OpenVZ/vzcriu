@@ -954,6 +954,7 @@ static int collect_threads(struct pstree_item *item)
 		BUG_ON(item->nr_threads + 1 > nr_threads);
 		item->threads[item->nr_threads].real = pid;
 		item->threads[item->nr_threads].item = NULL;
+		item->threads[item->nr_threads].state = TASK_THREAD;
 		item->nr_threads++;
 
 		if (ret == TASK_DEAD) {
