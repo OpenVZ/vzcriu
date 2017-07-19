@@ -695,11 +695,14 @@ static bool unsupported_nfs_bindmounts(const struct mount_info *m)
 	const struct mount_info *bm;
 
 	list_for_each_entry(bm, &m->mnt_bind, mnt_bind) {
-		if (bm->shared_id != m->master_id) {
-			pr_err("Bind-mount %s has another shared "
-					"group, than %s: %d != %d\n",
-					bm->mountpoint, m->mountpoint,
-					bm->shared_id, m->master_id);
+		if ((bm->shared_id != m->master_id) &&
+		    (bm->shared_id != m->shared_id)) {
+			pr_err("NFS bind-mount %s (id %d) has another shared "
+				"group, than %s (id %d): %d != %d (!= %d)\n",
+				bm->mountpoint, bm->mnt_id,
+				m->mountpoint, m->mnt_id,
+				bm->shared_id, m->master_id,
+				m->shared_id);
 			return true;
 		}
 		if (unsupported_nfs_mount(bm))
