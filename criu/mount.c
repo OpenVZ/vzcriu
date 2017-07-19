@@ -721,6 +721,8 @@ static bool unsupported_nfs_bindmounts(const struct mount_info *m)
 
 static bool unsupported_nfs_mount(const struct mount_info *m)
 {
+	return false;
+
 	switch (m->nsid->type) {
 		case NS_ROOT:
 			if (m->flags & MS_SHARED)
