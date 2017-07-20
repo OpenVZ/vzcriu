@@ -106,6 +106,11 @@ static int write_pages_to_server(struct page_xfer *xfer,
 			return -1;
 		}
 
+		if (ret == 0) {
+			pr_err("A pipe was closed unexpectedly\n");
+			return -1;
+		}
+
 		pr_debug("\tSpliced: %lu bytes sent\n", (unsigned long)ret);
 		left -= ret;
 	}
@@ -184,6 +189,10 @@ static int write_pages_loc(struct page_xfer *xfer,
 		ret = splice(p, NULL, img_raw_fd(xfer->pi), NULL, len, SPLICE_F_MOVE);
 		if (ret == -1) {
 			pr_perror("Unable to spice data");
+			return -1;
+		}
+		if (ret == 0) {
+			pr_err("A pipe was closed unexpectedly");
 			return -1;
 		}
 		curr += ret;
@@ -579,6 +588,10 @@ static int page_server_add(int sk, struct page_server_iov *pi)
 		chunk = splice(sk, NULL, cxfer.p[1], NULL, chunk, SPLICE_F_MOVE | SPLICE_F_NONBLOCK);
 		if (chunk < 0) {
 			pr_perror("Can't read from socket");
+			return -1;
+		}
+		if (chunk == 0) {
+			pr_err("The socket was closed unexpectedly\n");
 			return -1;
 		}
 
