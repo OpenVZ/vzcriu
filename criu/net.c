@@ -34,6 +34,7 @@
 #include "kerndat.h"
 #include "util.h"
 #include "external.h"
+#include "crtools.h"
 
 #include "protobuf.h"
 #include "images/netdev.pb-c.h"
@@ -1301,9 +1302,32 @@ static int run_iptables_tool(char *def_cmd, int fdin, int fdout)
 	return ret;
 }
 
+static int __iptables_tool_restore(char *def_cmd, int fdin)
+{
+	if (join_ve(root_item->pid->real, false))
+		return -1;
+
+	return run_iptables_tool(def_cmd, fdin, -1);
+}
+
 static int iptables_tool_restore(char *def_cmd, int fdin)
 {
-	return run_iptables_tool(def_cmd, fdin, -1);
+	int child, status;
+
+	child = fork();
+	if (child < 0) {
+		pr_perror("failed to fork");
+		return -1;
+	} else if (!child) {
+		_exit(__iptables_tool_restore(def_cmd, fdin));
+	}
+
+	if (waitpid(child, &status, 0) != child) {
+		pr_err("failed to collect child %d\n", child);
+		return -1;
+	}
+
+	return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
 }
 
 static int iptables_tool_dump(char *def_cmd, int fdout)
