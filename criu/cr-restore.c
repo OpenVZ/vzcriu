@@ -2186,7 +2186,7 @@ extern char *get_dumpee_veid(pid_t pid_real);
  * but presume to find it in known place. Otherwise simply
  * don't enter into veX with one warning.
  */
-static int join_ve(pid_t pid, bool veX)
+int join_ve(pid_t pid, bool veX)
 {
 	static const char ve0_tasks_path[] = "/sys/fs/cgroup/ve/tasks";
 	static bool may_join_ve = false;

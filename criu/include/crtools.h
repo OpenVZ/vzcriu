@@ -44,4 +44,6 @@ extern void pr_check_features(const char *offset, const char *sep, int width);
 			.actor = name##_cb,			\
 	}
 
+int join_ve(pid_t pid, bool veX);
+
 #endif /* __CR_CRTOOLS_H__ */
