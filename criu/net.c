@@ -1329,6 +1329,16 @@ static int run_iptables_tool(char *def_cmd, int fdin, int fdout)
 	return ret;
 }
 
+static int iptables_tool_restore(char *def_cmd, int fdin)
+{
+	return run_iptables_tool(def_cmd, fdin, -1);
+}
+
+static int iptables_tool_dump(char *def_cmd, int fdout)
+{
+	return run_iptables_tool(def_cmd, -1, fdout);
+}
+
 static inline int dump_ifaddr(struct cr_imgset *fds)
 {
 	struct cr_img *img = img_from_set(fds, CR_FD_IFADDR);
@@ -1380,12 +1390,12 @@ static inline int dump_iptables(struct cr_imgset *fds)
 	struct cr_img *img;
 
 	img = img_from_set(fds, CR_FD_IPTABLES);
-	if (run_iptables_tool("iptables-save", -1, img_raw_fd(img)))
+	if (iptables_tool_dump("iptables-save", img_raw_fd(img)))
 		return -1;
 
 	if (kdat.ipv6) {
 		img = img_from_set(fds, CR_FD_IP6TABLES);
-		if (run_iptables_tool("ip6tables-save", -1, img_raw_fd(img)))
+		if (iptables_tool_dump("ip6tables-save", img_raw_fd(img)))
 			return -1;
 	}
 
@@ -1542,7 +1552,7 @@ static inline int restore_iptables(int pid)
 
 	img = open_image(CR_FD_IPTABLES, O_RSTR, pid);
 	if (img) {
-		ret = run_iptables_tool("iptables-restore", img_raw_fd(img), -1);
+		ret = iptables_tool_restore("iptables-restore", img_raw_fd(img));
 		close_image(img);
 	}
 	if (ret)
@@ -1554,7 +1564,8 @@ static inline int restore_iptables(int pid)
 	if (empty_image(img))
 		goto out;
 
-	ret = run_iptables_tool("ip6tables-restore", img_raw_fd(img), -1);
+	ret = iptables_tool_restore("ip6tables-restore", img_raw_fd(img));
+
 out:
 	close_image(img);
 
