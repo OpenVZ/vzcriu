@@ -3069,6 +3069,7 @@ int restore_task_mnt_ns(struct pstree_item *current)
 		return 0;
 
 	if (current->ids && current->ids->has_mnt_ns_id) {
+		struct pstree_item *next = current->parent;
 		unsigned int id = current->ids->mnt_ns_id;
 		struct ns_id *nsid;
 
@@ -3081,8 +3082,14 @@ int restore_task_mnt_ns(struct pstree_item *current)
 		 * already there, otherwise it will have to do
 		 * setns().
 		 */
-		if (current->parent && id == current->parent->ids->mnt_ns_id)
-			return 0;
+		for (; next; next = next->parent) {
+			if (!next->ids)
+			       continue;
+			if (id == next->ids->mnt_ns_id)
+				return 0;
+			else
+				break;
+		}
 
 		nsid = lookup_ns_by_id(id, &mnt_ns_desc);
 		if (nsid == NULL) {
