@@ -776,21 +776,14 @@ static inline bool thread_collected(struct pstree_item *i, pid_t tid)
 static bool creds_dumpable(struct proc_status_creds *parent,
 				struct proc_status_creds *child)
 {
-	const size_t size = sizeof(struct proc_status_creds) -
-			offsetof(struct proc_status_creds, cap_inh);
-
 	/*
-	 * The comparison rules are the following
-	 *
-	 *  - CAPs can be different
 	 *  - seccomp filters should be passed via
 	 *    semantic comparison (FIXME) but for
 	 *    now we require them to be exactly
 	 *    identical
-	 *  - the rest of members must match
 	 */
-
-	if (memcmp(parent, child, size)) {
+	if (parent->s.seccomp_mode != child->s.seccomp_mode ||
+	    parent->last_filter != child->last_filter) {
 		if (!pr_quelled(LOG_DEBUG)) {
 			pr_debug("Creds undumpable (parent:child)\n"
 				 "  uids:               %d:%d %d:%d %d:%d %d:%d\n"
