@@ -1789,7 +1789,7 @@ int netns_keep_nsfd(void)
  * iptables-restore allows to make a few changes for one iteration,
  * so it works faster.
  */
-static int iptables_restore(bool ipv6, char *buf, int size)
+static int do_iptables_restore(bool ipv6, char *buf, int size)
 {
 	int pfd[2], ret = -1;
 	char *cmd4[] = {"iptables-restore",  "--noflush", NULL};
@@ -1812,6 +1812,34 @@ err:
 	close_safe(&pfd[1]);
 	close_safe(&pfd[0]);
 	return ret;
+}
+
+static int __iptables_restore(bool ipv6, char *buf, int size)
+{
+	if (join_ve(root_item->pid->real, false))
+		return -1;
+
+	return do_iptables_restore(ipv6, buf, size);
+}
+
+static int iptables_restore(bool ipv6, char *buf, int size)
+{
+	int child, status;
+
+	child = fork();
+	if (child < 0) {
+		pr_perror("failed to fork");
+		return -1;
+	} else if (!child) {
+		_exit(__iptables_restore(ipv6, buf, size));
+	}
+
+	if (waitpid(child, &status, 0) != child) {
+		pr_err("failed to collect child %d\n", child);
+		return -1;
+	}
+
+	return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
 }
 
 int network_lock_internal()
