@@ -1335,6 +1335,13 @@ static int prepare_cgroup_dir_properties(char *path, int off, CgroupDirEntry **e
 				if (special)
 					continue;
 
+				/*
+				 * XXX: Skip for a while ifpriomap property
+				 * restore, will be fixed by PSBM-66683.
+				 */
+				if (!strcmp(e->properties[j]->name, "net_prio.ifpriomap") == 0)
+					continue;
+
 				if (restore_cgroup_prop(e->properties[j], path, off2) < 0) {
 					return -1;
 				}
