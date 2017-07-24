@@ -1875,6 +1875,54 @@ out:
 	return ret;
 }
 
+/*
+ * In case of resources have been overused we should
+ * return error recognizable by calling side.
+ */
+static int bc_failcnt_check(int ret)
+{
+	char buf[max(PATH_MAX, 4096)];
+	char *veid;
+	FILE *f;
+
+	if (!ret)
+		return 0;
+
+	veid = get_dumpee_veid(-1);
+	if (IS_ERR_OR_NULL(veid)) {
+		pr_err("ve: Can't fetch VEID\n");
+		return ret;
+	}
+
+	snprintf(buf, sizeof(buf), "/proc/bc/%s/resources", veid);
+	f = fopen(buf, "r");
+	if (!f) {
+		pr_perror("Can't open %s", buf);
+		return ret;
+	}
+	while (fgets(buf, sizeof(buf), f)) {
+		unsigned long long held, maxheld, barrier, limit,failcnt;
+		unsigned char resname[16] = { };
+		int num;
+
+		num = sscanf(&buf[12], "%12s%llu%llu%llu%llu%llu",
+			     resname, &held, &maxheld, &barrier, &limit, &failcnt);
+		if (num > 0 && failcnt > 0) {
+			pr_err("Failcounter %llu for %s\n", failcnt, resname);
+			/*
+			 * For fail counters lets return ENOMEM since it's
+			 * should not happen on restore procedure even
+			 * in regular case.
+			 */
+			ret = -ENOMEM;
+			break;
+		}
+	}
+
+	fclose(f);
+	return ret;
+}
+
 static int restore_root_task(struct pstree_item *init)
 {
 	enum trace_flags flag = TRACE_ALL;
@@ -2265,7 +2313,7 @@ int cr_restore_tasks(void)
 	ret = restore_root_task(root_item);
 err:
 	cr_plugin_fini(CR_PLUGIN_STAGE__RESTORE, ret);
-	return ret;
+	return bc_failcnt_check(ret);
 }
 
 static long restorer_get_vma_hint(struct list_head *tgt_vma_list,
