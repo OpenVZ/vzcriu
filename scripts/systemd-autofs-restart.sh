@@ -128,23 +128,28 @@ function save_mountpoint {
 function restore_mountpoint {
 	local mountpoint=$1
 
-	[ -n "$bindmount" ] || return
+	[ -n "$bindmount" ] || return 0
 
 	# Umount file system, remounted by systemd, if any
 	top_mount_fs_type=$(get_fs_type $mountpoint)
 	if [ $? -ne 0 ]; then
 		echo "$top_mount_fs_type"
-		return
+		return 0
 	fi
 
 	# Nothing to do, if no file system is on top of autofs
 	if [ "$top_mount_fs_type" != "autofs" ]; then
-		$JOIN_CT umount $mountpoint || echo "Failed to umount $mountpoint"
+		$JOIN_CT umount $mountpoint
+		if [ $? -ne 0 ]; then
+			echo "Failed to umount $mountpoint"
+			return 1
+		fi
 	fi
 
 	# Restore origin file system even if we failed to unmount the new one
-	bind_mount $bindmount $mountpoint
+	bind_mount $bindmount $mountpoint || return 1
 	remove_bindmount
+	return 0
 }
 
 function restart_service {
