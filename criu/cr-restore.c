@@ -3428,6 +3428,8 @@ static int sigreturn_restore(pid_t pid, struct task_restore_args *task_args, uns
 		task_args->clone_restore_fn,
 		task_args->thread_args);
 
+	task_args->sfd_occupy_min_fd = sfd_occupy_min_fd();
+
 	/*
 	 * An indirect call to task_restore, note it never returns
 	 * and restoring core is extremely destructive.

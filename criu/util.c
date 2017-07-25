@@ -388,6 +388,52 @@ int do_open_proc(pid_t pid, int flags, const char *fmt, ...)
 static int service_fd_rlim_cur;
 static int service_fd_id = 0;
 
+/*
+ * sfd_occupy_min and sfd_occupy are rather hacks
+ * to address a problem where "service" descriptors
+ * are overridden by CRIU itself when fethcing memory
+ * via that named page pipes. The only purpose of these
+ * helpers is to prevent page pipes from grabbing one
+ * of sfd but rather exit with explicit error.
+ *
+ * Once we implement memory fetching via process_vm_readv
+ * or something similar these routines should be dropped
+ * out.
+ *
+ * Meanwhile the trick is simply occupy all service descriptors
+ * on the start and release them on sigreturn.
+ */
+int sfd_occupy_min_fd(void)
+{
+	return service_fd_rlim_cur - (SERVICE_FD_MAX - 1);
+}
+
+int sfd_occupy(void)
+{
+	int i, fdnil, fdmin;
+
+	fdnil = open("/dev/null", O_PATH);
+	if (fdnil < 0) {
+		pr_perror("Can't open /dev/null");
+		return -1;
+	}
+
+	fdmin = sfd_occupy_min_fd();
+	for (i = fdmin; i < (fdmin + SERVICE_FD_MAX - 1); i++) {
+		if (dup2(fdnil, i) < 0) {
+			pr_perror("sfd: Unable to reserve fd early %d->%d (%d)",
+				  fdnil, i, i - fdmin);
+			for (--i; i > fdmin; i--)
+				close(i);
+			close(fdnil);
+			return -1;
+		}
+	}
+	close(fdnil);
+
+	return 0;
+}
+
 int init_service_fd(void)
 {
 	struct rlimit64 rlimit;
@@ -405,7 +451,7 @@ int init_service_fd(void)
 	service_fd_rlim_cur = (int)rlimit.rlim_cur;
 	BUG_ON(service_fd_rlim_cur < SERVICE_FD_MAX);
 
-	return 0;
+	return sfd_occupy();
 }
 
 static int __get_service_fd(enum sfd_type type, int service_fd_id)
