@@ -472,6 +472,12 @@ int reserve_service_fd(enum sfd_type type)
 
 	BUG_ON((int)type <= SERVICE_FD_MIN || (int)type >= SERVICE_FD_MAX);
 
+	/* FIXME See sfd_occupy, it's preopened */
+	if (type == CTL_TTY_OFF) {
+		pr_warn_once("sfd: Closing preopened CTL_TTY_OFF\n");
+		close(sfd);
+	}
+
 	set_bit(type, sfd_map);
 	return sfd;
 }
