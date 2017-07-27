@@ -37,7 +37,4 @@ extern bool is_service_fd(int fd, enum sfd_type type);
 extern bool is_any_service_fd(int fd);
 extern int service_fd_min_fd(void);
 
-extern int sfd_occupy(void);
-extern int sfd_occupy_min_fd(void);
-
 #endif /* __CR_SERVICE_FD_H__ */

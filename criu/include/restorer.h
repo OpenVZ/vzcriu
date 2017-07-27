@@ -185,9 +185,6 @@ struct task_restore_args {
 	void				**breakpoint;
 
 	enum faults			fault_strategy;
-
-	// FIXME: See sfd_occupy comment
-	int				sfd_occupy_min_fd;
 } __aligned(64);
 
 /*

@@ -1573,14 +1573,6 @@ long __export_restore_task(struct task_restore_args *args)
 
 	restore_posix_timers(args);
 
-	/*
-	 * FIXME See sfd_occupy
-	 */
-	for (i = args->sfd_occupy_min_fd;
-	     i < (args->sfd_occupy_min_fd + SERVICE_FD_MAX - 1);
-	     i++)
-		sys_close(i);
-
 	sys_munmap(args->rst_mem, args->rst_mem_size);
 
 	/*
