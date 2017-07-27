@@ -177,7 +177,9 @@ static int write_pages_to_server(struct page_xfer *xfer,
 			ret = splice(p, NULL, xfer->sk, NULL, left,
 					SPLICE_F_MOVE);
 			if (ret < 0) {
-				pr_perror("Can't write pages to socket");
+				pr_perror("Can't write pages to socket. "
+					  "The socket may be overridden by a service descriptor "
+					  "because of too much anonymous memory used.");
 				return -1;
 			}
 
