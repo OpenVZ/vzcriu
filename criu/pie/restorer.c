@@ -1052,15 +1052,20 @@ static int wait_helpers(struct task_restore_args *task_args)
 	int i;
 
 	for (i = 0; i < task_args->helpers_n; i++) {
-		int status;
+		int status, ret;
 		pid_t pid = task_args->helpers[i];
 
 		/* Check that a helper completed. */
-		if (sys_wait4(pid, &status, 0, NULL) == -1) {
+		ret = sys_wait4(pid, &status, 0, NULL);
+		if (ret == -ECHILD) {
 			/* It has been waited in sigchld_handler */
 			continue;
 		}
-		if (!WIFEXITED(status) || WEXITSTATUS(status)) {
+		if (ret < 0) {
+			pr_err("wait4(%d) returned %d\n", pid, ret);
+			return -1;
+		}
+		if (status) {
 			pr_err("%d exited with non-zero code (%d,%d)\n", pid,
 				WEXITSTATUS(status), WTERMSIG(status));
 			return -1;
