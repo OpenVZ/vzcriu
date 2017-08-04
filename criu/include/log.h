@@ -3,6 +3,8 @@
 
 #include <inttypes.h>
 
+#include "cr-syslog.h"
+
 #ifndef CR_NOGLIBC
 
 #include <string.h>
