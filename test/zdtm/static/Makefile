@@ -339,6 +339,7 @@ TST_DIR		=				\
 		del_standalone_un		\
 		pty05				\
 		sk-unix01			\
+		bind-mount-unix			\
 
 TST_DIR_FILE	=				\
 		chroot				\
