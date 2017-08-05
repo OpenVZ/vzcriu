@@ -260,6 +260,7 @@ TST_DIR		=				\
 		mnt_ro_bind			\
 		mount_paths			\
 		bind-mount			\
+		bind-mount-unix			\
 		inotify00			\
 		inotify01			\
 		inotify02			\
