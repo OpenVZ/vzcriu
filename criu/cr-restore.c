@@ -165,7 +165,6 @@ static struct collect_image_info *cinfos[] = {
 	&nsfile_cinfo,
 	&pipe_cinfo,
 	&fifo_cinfo,
-	&unix_sk_cinfo,
 	&packet_sk_cinfo,
 	&netlink_sk_cinfo,
 	&eventfd_cinfo,
@@ -187,6 +186,7 @@ static struct collect_image_info *cinfos[] = {
 
 /* These images are requered to restore namespaces */
 static struct collect_image_info *before_ns_cinfos[] = {
+	&unix_sk_cinfo,
 	&tty_info_cinfo, /* Restore devpts content */
 	&tty_cinfo,
 	&tty_cdata,
