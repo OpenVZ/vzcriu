@@ -102,12 +102,18 @@ static void sigchld_handler(int signal, siginfo_t *siginfo, void *data)
 		if (siginfo->si_pid == zombies[i])
 			return;
 
-	if (siginfo->si_code & CLD_EXITED)
-		r = " exited, status=";
-	else if (siginfo->si_code & CLD_KILLED)
-		r = " killed by signal ";
+	if (siginfo->si_code == CLD_EXITED)
+		r = "exited, status=";
+	else if (siginfo->si_code == CLD_KILLED)
+		r = "killed by signal";
+	else if (siginfo->si_code == CLD_DUMPED)
+		r = "terminated abnormally with";
+	else if (siginfo->si_code == CLD_TRAPPED)
+		r = "trapped with";
+	else if (siginfo->si_code == CLD_STOPPED)
+		r = "stopped with";
 	else
-		r = "disappeared with ";
+		r = "disappeared with";
 
 	pr_info("Task %d %s %d\n", siginfo->si_pid, r, siginfo->si_status);
 
@@ -404,19 +410,8 @@ static int restore_seccomp(struct task_restore_args *args)
 			 */
 			ret = sys_seccomp(SECCOMP_SET_MODE_FILTER, SECCOMP_FILTER_FLAG_TSYNC, (char *) fprog);
 			if (ret < 0) {
-				if (ret == -ENOSYS) {
-					pr_debug("sys_seccomp is not supported in kernel, "
-						 "switching to prctl interface\n");
-					ret = sys_prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER,
-							(long)(void *)fprog, 0, 0);
-					if (ret) {
-						pr_err("sys_prctl(PR_SET_SECCOMP) returned %d\n", ret);
-						goto die;
-					}
-				} else {
-					pr_err("sys_seccomp() returned %d\n", ret);
-					goto die;
-				}
+				pr_err("sys_seccomp() returned %d\n", ret);
+				goto die;
 			}
 
 			filter_data += fprog->len * sizeof(struct sock_filter);
@@ -606,8 +601,13 @@ static unsigned long restore_mapping(VmaEntry *vma_entry)
 	if (vma_entry_is(vma_entry, VMA_ANON_SHARED) && (vma_entry->fd != -1UL))
 		flags &= ~MAP_ANONYMOUS;
 
+	/* See comment in premap_private_vma() for this flag change */
+	if (vma_entry_is(vma_entry, VMA_AREA_AIORING))
+		flags |= MAP_ANONYMOUS;
+
 	/* A mapping of file with MAP_SHARED is up to date */
-	if (vma_entry->fd == -1 || !(vma_entry->flags & MAP_SHARED))
+	if ((vma_entry->fd == -1 || !(vma_entry->flags & MAP_SHARED)) &&
+			!(vma_entry->status & VMA_NO_PROT_WRITE))
 		prot |= PROT_WRITE;
 
 	pr_debug("\tmmap(%"PRIx64" -> %"PRIx64", %x %x %d)\n",
@@ -624,7 +624,8 @@ static unsigned long restore_mapping(VmaEntry *vma_entry)
 			vma_entry->fd,
 			vma_entry->pgoff);
 
-	if (vma_entry->fd != -1)
+	if ((vma_entry->fd != -1) &&
+			(vma_entry->status & VMA_CLOSE))
 		sys_close(vma_entry->fd);
 
 	return addr;
@@ -635,7 +636,7 @@ static unsigned long restore_mapping(VmaEntry *vma_entry)
  * of tail. To set tail, we write to /dev/null and use the fact this
  * operation is synchronious for the device. Also, we unmap temporary
  * anonymous area, used to store content of ring buffer during restore
- * and mapped in map_private_vma().
+ * and mapped in premap_private_vma().
  */
 static int restore_aio_ring(struct rst_aio_ring *raio)
 {
@@ -960,34 +961,13 @@ static unsigned long vdso_rt_size;
 #define vdso_rt_size	(0)
 #endif
 
-static void *bootstrap_start;
-static unsigned int bootstrap_len;
+void *bootstrap_start = NULL;
+unsigned int bootstrap_len = 0;
 
 void __export_unmap(void)
 {
 	sys_munmap(bootstrap_start, bootstrap_len - vdso_rt_size);
 }
-
-#ifdef CONFIG_X86_64
-asm (
-	"	.pushsection .text\n"
-	"	.global	__export_unmap_compat\n"
-	"__export_unmap_compat:\n"
-	"	.code32\n"
-	"	mov bootstrap_start, %ebx\n"
-	"	mov bootstrap_len, %ecx\n"
-	"	sub vdso_rt_size, %ecx\n"
-	"	movl $"__stringify(__NR32_munmap)", %eax\n"
-	"	int	$0x80\n"
-	"	.code64\n"
-	"	.popsection\n"
-);
-extern char __export_unmap_compat;
-#else
-void __export_unmap_compat(void)
-{
-}
-#endif
 
 /*
  * This function unmaps all VMAs, which don't belong to
@@ -1052,20 +1032,15 @@ static int wait_helpers(struct task_restore_args *task_args)
 	int i;
 
 	for (i = 0; i < task_args->helpers_n; i++) {
-		int status, ret;
+		int status;
 		pid_t pid = task_args->helpers[i];
 
 		/* Check that a helper completed. */
-		ret = sys_wait4(pid, &status, 0, NULL);
-		if (ret == -ECHILD) {
+		if (sys_wait4(pid, &status, 0, NULL) == -ECHILD) {
 			/* It has been waited in sigchld_handler */
 			continue;
 		}
-		if (ret < 0) {
-			pr_err("wait4(%d) returned %d\n", pid, ret);
-			return -1;
-		}
-		if (status) {
+		if (!WIFEXITED(status) || WEXITSTATUS(status)) {
 			pr_err("%d exited with non-zero code (%d,%d)\n", pid,
 				WEXITSTATUS(status), WTERMSIG(status));
 			return -1;
@@ -1106,34 +1081,6 @@ static int wait_zombies(struct task_restore_args *task_args)
 	return 0;
 }
 
-static bool vdso_unmapped(struct task_restore_args *args)
-{
-	unsigned int i;
-
-	/* Don't park rt-vdso or rt-vvar if dumpee doesn't have them */
-	for (i = 0; i < args->vmas_n; i++) {
-		VmaEntry *vma = &args->vmas[i];
-
-		if (vma_entry_is(vma, VMA_AREA_VDSO) ||
-				vma_entry_is(vma, VMA_AREA_VVAR))
-			return false;
-	}
-
-	return true;
-}
-
-static bool vdso_needs_parking(struct task_restore_args *args)
-{
-	/* Compatible vDSO will be mapped, not moved */
-	if (args->compatible_mode)
-		return false;
-
-	if (args->can_map_vdso)
-		return false;
-
-	return !vdso_unmapped(args);
-}
-
 /*
  * The main routine to restore task via sigreturn.
  * This one is very special, we never return there
@@ -1147,7 +1094,7 @@ long __export_restore_task(struct task_restore_args *args)
 	int i;
 	VmaEntry *vma_entry;
 	unsigned long va;
-
+	struct restore_vma_io *rio;
 	struct rt_sigframe *rt_sigframe;
 	struct prctl_mm_map prctl_map;
 	unsigned long new_sp;
@@ -1187,8 +1134,8 @@ long __export_restore_task(struct task_restore_args *args)
 
 	pr_info("Switched to the restorer %d\n", my_pid);
 
-
-	if (vdso_needs_parking(args)) {
+	if (!args->compatible_mode) {
+		/* Compatible vDSO will be mapped, not moved */
 		if (vdso_do_park(&args->vdso_sym_rt,
 				args->vdso_rt_parked_at, vdso_rt_size))
 			goto core_restore_end;
@@ -1198,19 +1145,15 @@ long __export_restore_task(struct task_restore_args *args)
 				bootstrap_start, bootstrap_len, args->task_size))
 		goto core_restore_end;
 
-	/* Map vdso that wasn't parked */
-	if (!vdso_unmapped(args) && args->can_map_vdso) {
-		if (arch_map_vdso(args->vdso_rt_parked_at,
-				args->compatible_mode) < 0) {
-			goto core_restore_end;
-		}
-	}
+	/* Map compatible vdso */
+	if (args->compatible_mode && vdso_map_compat(args->vdso_rt_parked_at))
+		goto core_restore_end;
 
 	/* Shift private vma-s to the left */
 	for (i = 0; i < args->vmas_n; i++) {
 		vma_entry = args->vmas + i;
 
-		if (!vma_entry_is_private(vma_entry, args->task_size))
+		if (!vma_entry_is(vma_entry, VMA_PREMMAPED))
 			continue;
 
 		if (vma_entry->end >= args->task_size)
@@ -1228,7 +1171,7 @@ long __export_restore_task(struct task_restore_args *args)
 	for (i = args->vmas_n - 1; i >= 0; i--) {
 		vma_entry = args->vmas + i;
 
-		if (!vma_entry_is_private(vma_entry, args->task_size))
+		if (!vma_entry_is(vma_entry, VMA_PREMMAPED))
 			continue;
 
 		if (vma_entry->start > args->task_size)
@@ -1248,10 +1191,11 @@ long __export_restore_task(struct task_restore_args *args)
 	for (i = 0; i < args->vmas_n; i++) {
 		vma_entry = args->vmas + i;
 
-		if (!vma_entry_is(vma_entry, VMA_AREA_REGULAR))
+		if (!vma_entry_is(vma_entry, VMA_AREA_REGULAR) &&
+				!vma_entry_is(vma_entry, VMA_AREA_AIORING))
 			continue;
 
-		if (vma_entry_is_private(vma_entry, args->task_size))
+		if (vma_entry_is(vma_entry, VMA_PREMMAPED))
 			continue;
 
 		va = restore_mapping(vma_entry);
@@ -1261,6 +1205,49 @@ long __export_restore_task(struct task_restore_args *args)
 			goto core_restore_end;
 		}
 	}
+
+	/*
+	 * Now read the contents (if any)
+	 */
+
+	rio = args->vma_ios;
+	for (i = 0; i < args->vma_ios_n; i++) {
+		struct iovec *iovs = rio->iovs;
+		int nr = rio->nr_iovs;
+		ssize_t r;
+
+		while (nr) {
+			pr_debug("Preadv %lx:%d... (%d iovs)\n",
+					(unsigned long)iovs->iov_base,
+					(int)iovs->iov_len, nr);
+			r = sys_preadv(args->vma_ios_fd, iovs, nr, rio->off);
+			if (r < 0) {
+				pr_err("Can't read pages data (%d)\n", (int)r);
+				goto core_restore_end;
+			}
+
+			pr_debug("`- returned %ld\n", (long)r);
+			rio->off += r;
+			/* Advance the iovecs */
+			do {
+				if (iovs->iov_len <= r) {
+					pr_debug("   `- skip pagemap\n");
+					r -= iovs->iov_len;
+					iovs++;
+					nr--;
+					continue;
+				}
+
+				iovs->iov_base += r;
+				iovs->iov_len -= r;
+				break;
+			} while (nr > 0);
+		}
+
+		rio = ((void *)rio) + RIO_SIZE(rio->nr_iovs);
+	}
+
+	sys_close(args->vma_ios_fd);
 
 #ifdef CONFIG_VDSO
 	/*
@@ -1282,7 +1269,8 @@ long __export_restore_task(struct task_restore_args *args)
 		if (!(vma_entry_is(vma_entry, VMA_AREA_REGULAR)))
 			continue;
 
-		if (vma_entry->prot & PROT_WRITE)
+		if ((vma_entry->prot & PROT_WRITE) ||
+				(vma_entry->status & VMA_NO_PROT_WRITE))
 			continue;
 
 		sys_mprotect(decode_pointer(vma_entry->start),

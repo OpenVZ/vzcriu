@@ -31,6 +31,7 @@
 #include "eventfd.h"
 #include "eventpoll.h"
 #include "fsnotify.h"
+#include "sk-packet.h"
 #include "mount.h"
 #include "signalfd.h"
 #include "namespaces.h"
@@ -54,14 +55,12 @@
 #define FDESC_HASH_SIZE	64
 static struct hlist_head file_desc_hash[FDESC_HASH_SIZE];
 
-int prepare_shared_fdinfo(void)
+static void init_fdesc_hash(void)
 {
 	int i;
 
 	for (i = 0; i < FDESC_HASH_SIZE; i++)
 		INIT_HLIST_HEAD(&file_desc_hash[i]);
-
-	return 0;
 }
 
 void file_desc_init(struct file_desc *d, u32 id, struct file_desc_ops *ops)
@@ -178,11 +177,8 @@ void wait_fds_event(void)
 {
 	futex_t *f = &current->task_st;
 	int value;
-#if BITS_PER_LONG == 64
-	value = htole64(FDS_EVENT);
-#else
+
 	value = htole32(FDS_EVENT);
-#endif
 	futex_wait_if_cond(f, value, &);
 	clear_fds_event();
 }
@@ -339,7 +335,7 @@ static int fill_fd_params(struct pid *owner_pid, int fd, int lfd,
 		return -1;
 	}
 
-	if (parse_fdinfo_pid(owner_pid->real, fd, FD_TYPES__UND, NULL, &fdinfo))
+	if (parse_fdinfo_pid(owner_pid->real, fd, FD_TYPES__UND, &fdinfo))
 		return -1;
 
 	p->fs_type	= fsbuf.f_type;
@@ -448,33 +444,8 @@ static int dump_chrdev(struct fd_parms *p, int lfd, struct cr_img *img)
 	return err;
 }
 
-static int check_blkdev(struct fd_parms *p, int lfd)
-{
-	/*
-	 * @ploop_major is module parameter actually,
-	 * set to PLOOP_DEVICE_MAJOR by default. We may
-	 * need to scan module params or access
-	 * /sys/block/ploopX/dev to fetch major.
-	 *
-	 * For a while simply use predefined @major.
-	 */
-	static const int ploop_major = 182;
-	int maj = major(p->stat.st_rdev);
-
-	/*
-	 * It's been found that systemd-udevd sometimes
-	 * opens-up ploop device from inside of container,
-	 * so allow him to do that.
-	 */
-	if (maj == ploop_major)
-		return 0;
-
-	return -1;
-}
-
 static int dump_one_file(struct pid *pid, int fd, int lfd, struct fd_opts *opts,
-		       struct cr_img *img, struct parasite_ctl *ctl,
-		       struct parasite_drain_fd *dfds)
+		       struct cr_img *img, struct parasite_ctl *ctl)
 {
 	struct fd_parms p = FD_PARMS_INIT;
 	const struct fdtype_ops *ops;
@@ -489,7 +460,6 @@ static int dump_one_file(struct pid *pid, int fd, int lfd, struct fd_opts *opts,
 		return -1;
 
 	p.fd_ctl = ctl; /* Some dump_opts require this to talk to parasite */
-	p.dfds = dfds; /* epoll needs to verify if target fd exist */
 
 	if (S_ISSOCK(p.stat.st_mode))
 		return dump_socket(&p, lfd, img);
@@ -521,15 +491,7 @@ static int dump_one_file(struct pid *pid, int fd, int lfd, struct fd_opts *opts,
 		return do_dump_gen_file(&p, lfd, ops, img);
 	}
 
-	if (S_ISREG(p.stat.st_mode) || S_ISDIR(p.stat.st_mode) ||
-	    S_ISBLK(p.stat.st_mode)) {
-		struct fd_link link;
-
-		if (S_ISBLK(p.stat.st_mode)) {
-			if (check_blkdev(&p, lfd))
-				return -1;
-		}
-
+	if (S_ISREG(p.stat.st_mode) || S_ISDIR(p.stat.st_mode)) {
 		if (fill_fdlink(lfd, &p, &link))
 			return -1;
 
@@ -600,8 +562,7 @@ int dump_task_files_seized(struct parasite_ctl *ctl, struct pstree_item *item,
 
 		for (i = 0; i < nr_fds; i++) {
 			ret = dump_one_file(item->pid, dfds->fds[i + off],
-						lfds[i], opts + i, img, ctl,
-						dfds);
+						lfds[i], opts + i, img, ctl);
 			close(lfds[i]);
 			if (ret)
 				break;
@@ -678,11 +639,10 @@ int restore_fown(int fd, FownEntry *fown)
 {
 	struct f_owner_ex owner;
 	uid_t uids[3];
-	pid_t pid = getpid();
 
 	if (fown->signum) {
 		if (fcntl(fd, F_SETSIG, fown->signum)) {
-			pr_perror("%d: Can't set signal", pid);
+			pr_perror("Can't set signal");
 			return -1;
 		}
 	}
@@ -692,12 +652,12 @@ int restore_fown(int fd, FownEntry *fown)
 		return 0;
 
 	if (getresuid(&uids[0], &uids[1], &uids[2])) {
-		pr_perror("%d: Can't get current UIDs", pid);
+		pr_perror("Can't get current UIDs");
 		return -1;
 	}
 
 	if (setresuid(fown->uid, fown->euid, uids[2])) {
-		pr_perror("%d: Can't set UIDs", pid);
+		pr_perror("Can't set UIDs");
 		return -1;
 	}
 
@@ -705,13 +665,12 @@ int restore_fown(int fd, FownEntry *fown)
 	owner.pid = fown->pid;
 
 	if (fcntl(fd, F_SETOWN_EX, &owner)) {
-		pr_perror("%d: Can't setup %d file owner pid",
-			  pid, fd);
+		pr_perror("Can't setup %d file owner pid", fd);
 		return -1;
 	}
 
 	if (setresuid(uids[0], uids[1], uids[2])) {
-		pr_perror("%d: Can't revert UIDs back", pid);
+		pr_perror("Can't revert UIDs back");
 		return -1;
 	}
 
@@ -731,7 +690,6 @@ static int collect_fd(int pid, FdinfoEntry *e, struct rst_info *rst_info)
 {
 	struct fdinfo_list_entry *le, *new_le;
 	struct file_desc *fdesc;
-	int ret;
 
 	pr_info("Collect fdinfo pid=%d fd=%d id=%#x\n",
 		pid, e->fd, e->id);
@@ -748,20 +706,9 @@ static int collect_fd(int pid, FdinfoEntry *e, struct rst_info *rst_info)
 		return -1;
 	}
 
-	list_for_each_entry(le, &fdesc->fd_info_head, desc_list) {
-		ret = pstree_pid_cmp(new_le->pid, le->pid);
-		if (ret < 0) {
-			/*
-			 * Fall back into old algo, should not
-			 * happen though.
-			 */
-			pr_warn("Can't compare pids %d, %d (%d)\n",
-				new_le->pid, le->pid, ret);
-			if (pid_rst_prio(new_le->pid, le->pid))
-				break;
-		} else if (ret == 1)
+	list_for_each_entry(le, &fdesc->fd_info_head, desc_list)
+		if (pid_rst_prio(new_le->pid, le->pid))
 			break;
-	}
 
 	if (fdesc->ops->collect_fd)
 		fdesc->ops->collect_fd(fdesc, new_le, rst_info);
@@ -1716,4 +1663,95 @@ int open_transport_socket(void)
 	close(sock);
 
 	return 0;
+}
+
+static int collect_one_file_entry(FileEntry *fe, u_int32_t id, ProtobufCMessage *base,
+		struct collect_image_info *cinfo)
+{
+	if (fe->id != id) {
+		pr_err("ID mismatch %u != %u\n", fe->id, id);
+		return -1;
+	}
+
+	return collect_entry(base, cinfo);
+}
+
+static int collect_one_file(void *o, ProtobufCMessage *base, struct cr_img *i)
+{
+	int ret = 0;
+	FileEntry *fe;
+
+	fe = pb_msg(base, FileEntry);
+	switch (fe->type) {
+	default:
+		pr_err("Unknown file type %d\n", fe->type);
+		return -1;
+	case FD_TYPES__REG:
+		ret = collect_one_file_entry(fe, fe->reg->id, &fe->reg->base, &reg_file_cinfo);
+		break;
+	case FD_TYPES__INETSK:
+		ret = collect_one_file_entry(fe, fe->isk->id, &fe->isk->base, &inet_sk_cinfo);
+		break;
+	case FD_TYPES__NS:
+		ret = collect_one_file_entry(fe, fe->nsf->id, &fe->nsf->base, &nsfile_cinfo);
+		break;
+	case FD_TYPES__PACKETSK:
+		ret = collect_one_file_entry(fe, fe->psk->id, &fe->psk->base, &packet_sk_cinfo);
+		break;
+	case FD_TYPES__NETLINKSK:
+		ret = collect_one_file_entry(fe, fe->nlsk->id, &fe->nlsk->base, &netlink_sk_cinfo);
+		break;
+	case FD_TYPES__EVENTFD:
+		ret = collect_one_file_entry(fe, fe->efd->id, &fe->efd->base, &eventfd_cinfo);
+		break;
+	case FD_TYPES__EVENTPOLL:
+		ret = collect_one_file_entry(fe, fe->epfd->id, &fe->epfd->base, &epoll_cinfo);
+		break;
+	case FD_TYPES__SIGNALFD:
+		ret = collect_one_file_entry(fe, fe->sgfd->id, &fe->sgfd->base, &signalfd_cinfo);
+		break;
+	case FD_TYPES__TUNF:
+		ret = collect_one_file_entry(fe, fe->tunf->id, &fe->tunf->base, &tunfile_cinfo);
+		break;
+	case FD_TYPES__TIMERFD:
+		ret = collect_one_file_entry(fe, fe->tfd->id, &fe->tfd->base, &timerfd_cinfo);
+		break;
+	case FD_TYPES__INOTIFY:
+		ret = collect_one_file_entry(fe, fe->ify->id, &fe->ify->base, &inotify_cinfo);
+		break;
+	case FD_TYPES__FANOTIFY:
+		ret = collect_one_file_entry(fe, fe->ffy->id, &fe->ffy->base, &fanotify_cinfo);
+		break;
+	case FD_TYPES__EXT:
+		ret = collect_one_file_entry(fe, fe->ext->id, &fe->ext->base, &ext_file_cinfo);
+		break;
+	case FD_TYPES__UNIXSK:
+		ret = collect_one_file_entry(fe, fe->usk->id, &fe->usk->base, &unix_sk_cinfo);
+		break;
+	case FD_TYPES__FIFO:
+		ret = collect_one_file_entry(fe, fe->fifo->id, &fe->fifo->base, &fifo_cinfo);
+		break;
+	case FD_TYPES__PIPE:
+		ret = collect_one_file_entry(fe, fe->pipe->id, &fe->pipe->base, &pipe_cinfo);
+		break;
+	case FD_TYPES__TTY:
+		ret = collect_one_file_entry(fe, fe->tty->id, &fe->tty->base, &tty_cinfo);
+		break;
+	}
+
+	return ret;
+}
+
+struct collect_image_info files_cinfo = {
+	.fd_type = CR_FD_FILES,
+	.pb_type = PB_FILE,
+	.priv_size = 0,
+	.collect = collect_one_file,
+	.flags = COLLECT_NOFREE,
+};
+
+int prepare_files(void)
+{
+	init_fdesc_hash();
+	return collect_image(&files_cinfo);
 }

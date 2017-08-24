@@ -2,6 +2,7 @@ target		:= parasite restorer
 
 CFLAGS		:= $(filter-out -pg $(CFLAGS-GCOV) $(CFLAGS-ASAN),$(CFLAGS))
 ccflags-y	+= $(COMPEL_UAPI_INCLUDES)
+ccflags-y	+= $(CFLAGS_PIE)
 ccflags-y	+= -DCR_NOGLIBC
 ccflags-y	+= -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0
 ccflags-y	+= -Wp,-U_FORTIFY_SOURCE -Wp,-D_FORTIFY_SOURCE=0
@@ -25,6 +26,7 @@ restorer-obj-y	+= ./$(ARCH_DIR)/restorer.o
 ifeq ($(ARCH),x86)
         ifeq ($(CONFIG_COMPAT),y)
                 restorer-obj-y	+= ./$(ARCH_DIR)/call32.o
+                restorer-obj-y	+= ./$(ARCH_DIR)/restorer_unmap.o
                 restorer-obj-y	+= ./$(ARCH_DIR)/sigaction_compat_pie.o
         endif
 endif

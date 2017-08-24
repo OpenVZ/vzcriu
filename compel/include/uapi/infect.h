@@ -16,16 +16,17 @@
 extern int compel_interrupt_task(int pid);
 
 struct seize_task_status {
-	char			state;
-	int			ppid;
 	unsigned long long	sigpnd;
 	unsigned long long	shdpnd;
+	char			state;
+	int			ppid;
 	int			seccomp_mode;
 };
 
 extern int compel_wait_task(int pid, int ppid,
-		int (*get_status)(int pid, struct seize_task_status *),
-		struct seize_task_status *st);
+		int (*get_status)(int pid, struct seize_task_status *, void *data),
+		void (*free_status)(int pid, struct seize_task_status *, void *data),
+		struct seize_task_status *st, void *data);
 
 extern int compel_stop_task(int pid);
 extern int compel_resume_task(pid_t pid, int orig_state, int state);
@@ -55,7 +56,7 @@ extern int compel_cure(struct parasite_ctl *ctl);
 	})
 
 extern void *compel_parasite_args_p(struct parasite_ctl *ctl);
-extern void *compel_parasite_args_s(struct parasite_ctl *ctl, unsigned long args_size);
+extern void *compel_parasite_args_s(struct parasite_ctl *ctl, int args_size);
 
 extern int compel_syscall(struct parasite_ctl *ctl, int nr, long *ret,
 		unsigned long arg1,

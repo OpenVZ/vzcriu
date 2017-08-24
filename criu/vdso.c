@@ -32,41 +32,6 @@ struct vdso_symtable vdso_sym_rt = VDSO_SYMTABLE_INIT;
 u64 vdso_pfn = VDSO_BAD_PFN;
 struct vdso_symtable vdso_compat_rt = VDSO_SYMTABLE_INIT;
 /*
- * Starting with 3.16 the [vdso]/[vvar] marks are reported correctly
- * even when they are remapped into a new place, but only since that
- * particular version of the kernel!
- * On previous kernels we need to check if vma is vdso by some means:
- * - if pagemap is present, by pfn
- * - by parsing ELF and filling vdso symtable otherwise
- */
-enum vdso_check_t {
-	/* from slowest to fastest */
-	VDSO_CHECK_SYMS = 0,
-	VDSO_CHECK_PFN,
-	VDSO_NO_CHECK,
-};
-
-static enum vdso_check_t get_vdso_check_type(struct parasite_ctl *ctl)
-{
-	/*
-	 * ia32 C/R depends on mremap() for vdso patches (v4.8),
-	 * so we can omit any check and be sure that "[vdso]"
-	 * hint stays in /proc/../maps file and is correct.
-	 */
-	if (!compel_mode_native(ctl)) {
-		pr_info("Don't check vdso for compat task\n");
-		return VDSO_NO_CHECK;
-	}
-
-	/*
-	 * vzkernel-specific, since
-	 * commit eb3def2e36b6 ("x86/mm: Support mremap()'ing vdso vma")
-	 */
-	pr_info("vDSO hint is reliable - omit checking\n");
-	return VDSO_NO_CHECK;
-}
-
-/*
  * The VMAs list might have proxy vdso/vvar areas left
  * from previous dump/restore cycle so we need to detect
  * them and eliminated from the VMAs list, they will be
@@ -81,19 +46,18 @@ int parasite_fixup_vdso(struct parasite_ctl *ctl, pid_t pid,
 	struct vma_area *proxy_vvar_marked = NULL;
 	struct parasite_vdso_vma_entry *args;
 	int fd = -1, ret, exit_code = -1;
-	enum vdso_check_t vcheck;
 	u64 pfn = VDSO_BAD_PFN;
 	struct vma_area *vma;
 	off_t off;
 
-	vcheck = get_vdso_check_type(ctl);
 	args = compel_parasite_args(ctl, struct parasite_vdso_vma_entry);
-	if (vcheck == VDSO_CHECK_PFN) {
+	if (kdat.pmap == PM_FULL) {
 		BUG_ON(vdso_pfn == VDSO_BAD_PFN);
 		fd = open_proc(pid, "pagemap");
 		if (fd < 0)
 			return -1;
-	}
+	} else
+		pr_info("Pagemap is unavailable, trying a slow way\n");
 
 	list_for_each_entry(vma, &vma_area_list->h, list) {
 		if (!vma_area_is(vma, VMA_AREA_REGULAR))
@@ -140,7 +104,10 @@ int parasite_fixup_vdso(struct parasite_ctl *ctl, pid_t pid,
 		 */
 		args->start = vma->e->start;
 		args->len = vma_area_len(vma);
-		args->try_fill_symtable = (vcheck == VDSO_CHECK_SYMS);
+		if (!compel_mode_native(ctl))
+			args->try_fill_symtable = false;
+		else
+			args->try_fill_symtable = (fd < 0) ? true : false;
 		args->is_vdso = false;
 
 		if (compel_rpc_call_sync(PARASITE_CMD_CHECK_VDSO_MARK, ctl)) {
@@ -164,9 +131,6 @@ int parasite_fixup_vdso(struct parasite_ctl *ctl, pid_t pid,
 			continue;
 		}
 
-		if (vcheck == VDSO_NO_CHECK)
-			continue;
-
 		/*
 		 * If we have an access to pagemap we can handle vDSO
 		 * status early. Otherwise, in worst scenario, where
@@ -175,7 +139,7 @@ int parasite_fixup_vdso(struct parasite_ctl *ctl, pid_t pid,
 		 * detected via procfs status so we have to parse
 		 * symbols in parasite code.
 		 */
-		if (vcheck == VDSO_CHECK_PFN) {
+		if (fd >= 0) {
 			off = (vma->e->start / PAGE_SIZE) * sizeof(u64);
 			ret = pread(fd, &pfn, sizeof(pfn), off);
 			if (ret < 0 || ret != sizeof(pfn)) {
@@ -190,6 +154,13 @@ int parasite_fixup_vdso(struct parasite_ctl *ctl, pid_t pid,
 			}
 		}
 
+		/*
+		 * Setup proper VMA status. Note starting with 3.16
+		 * the [vdso]/[vvar] marks are reported correctly
+		 * even when they are remapped into a new place,
+		 * but only since that particular version of the
+		 * kernel!
+		 */
 		if ((pfn == vdso_pfn && pfn != VDSO_BAD_PFN) || args->is_vdso) {
 			if (!vma_area_is(vma, VMA_AREA_VDSO)) {
 				pr_debug("Restore vDSO status by pfn/symtable at %lx\n",
@@ -197,7 +168,12 @@ int parasite_fixup_vdso(struct parasite_ctl *ctl, pid_t pid,
 				vma->e->status |= VMA_AREA_VDSO;
 			}
 		} else {
-			if (unlikely(vma_area_is(vma, VMA_AREA_VDSO))) {
+			/*
+			 * Compat vDSO mremap support is only after v4.8,
+			 * [vdso] vma name always stays after mremap.
+			 */
+			if (unlikely(vma_area_is(vma, VMA_AREA_VDSO)) &&
+					compel_mode_native(ctl)) {
 				pr_debug("Drop mishinted vDSO status at %lx\n",
 					 (long)vma->e->start);
 				vma->e->status &= ~VMA_AREA_VDSO;
@@ -253,18 +229,27 @@ err:
 static int vdso_parse_maps(pid_t pid, struct vdso_symtable *s)
 {
 	int exit_code = -1;
-	char buf[512];
-	FILE *maps;
+	char *buf;
+	struct bfd f;
 
 	*s = (struct vdso_symtable)VDSO_SYMTABLE_INIT;
 
-	maps = fopen_proc(pid, "maps");
-	if (!maps)
+	f.fd = open_proc(pid, "maps");
+	if (f.fd < 0)
 		return -1;
 
-	while (fgets(buf, sizeof(buf), maps)) {
+	if (bfdopenr(&f))
+		goto err;
+
+	while (1) {
 		unsigned long start, end;
 		char *has_vdso, *has_vvar;
+
+		buf = breadline(&f);
+		if (buf == NULL)
+			break;
+		if (IS_ERR(buf))
+			goto err;
 
 		has_vdso = strstr(buf, "[vdso]");
 		if (!has_vdso)
@@ -299,7 +284,7 @@ static int vdso_parse_maps(pid_t pid, struct vdso_symtable *s)
 
 	exit_code = 0;
 err:
-	fclose(maps);
+	bclose(&f);
 	return exit_code;
 }
 

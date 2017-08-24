@@ -10,7 +10,6 @@
 #include <ctype.h>
 #include <linux/fs.h>
 #include <sys/sysmacros.h>
-#include <sys/vfs.h>
 
 #include "types.h"
 #include "common/list.h"
@@ -41,7 +40,6 @@
 #include "cgroup-props.h"
 #include "timerfd.h"
 #include "path.h"
-#include "fs-magic.h"
 
 #include "protobuf.h"
 #include "images/fdinfo.pb-c.h"
@@ -425,19 +423,29 @@ static int vma_get_mapfile(const char *fname, struct vma_area *vma, DIR *mfd,
 
 int parse_self_maps_lite(struct vm_area_list *vms)
 {
-	FILE *maps;
 	struct vma_area *prev = NULL;
+	struct bfd maps;
+	char *buf;
 
 	vm_area_list_init(vms);
 
-	maps = fopen_proc(PROC_SELF, "maps");
-	if (maps == NULL)
+	maps.fd = open_proc(PROC_SELF, "maps");
+	if (maps.fd < 0)
 		return -1;
 
-	while (fgets(buf, BUF_SIZE, maps) != NULL) {
+	if (bfdopenr(&maps))
+		return -1;
+
+	while (1) {
 		struct vma_area *vma;
 		char *end;
 		unsigned long s, e;
+
+		buf = breadline(&maps);
+		if (!buf)
+			break;
+		if (IS_ERR(buf))
+			goto err;
 
 		s = strtoul(buf, &end, 16);
 		e = strtoul(end + 1, NULL, 16);
@@ -451,10 +459,8 @@ int parse_self_maps_lite(struct vm_area_list *vms)
 			prev->e->end = e;
 		else {
 			vma = alloc_vma_area();
-			if (!vma) {
-				fclose(maps);
-				return -1;
-			}
+			if (!vma)
+				goto err;
 
 			vma->e->start = s;
 			vma->e->end = e;
@@ -466,8 +472,12 @@ int parse_self_maps_lite(struct vm_area_list *vms)
 		pr_debug("Parsed %"PRIx64"-%"PRIx64" vma\n", prev->e->start, prev->e->end);
 	}
 
-	fclose(maps);
+	bclose(&maps);
 	return 0;
+
+err:
+	bclose(&maps);
+	return -1;
 }
 
 #ifdef CONFIG_VDSO
@@ -630,8 +640,7 @@ static int vma_list_add(struct vma_area *vma_area,
 	/* Add a guard page only if here is enough space for it */
 	if (vma_has_guard_gap_hidden(vma_area) &&
 	    *prev_end < vma_area->e->start)
-		if (kdat.stack_guard_gap_hidden)
-			vma_area->e->start -= PAGE_SIZE; /* Guard page */
+		vma_area->e->start -= PAGE_SIZE; /* Guard page */
 	*prev_end = vma_area->e->end;
 
 	list_add_tail(&vma_area->list, &vma_area_list->h);
@@ -654,6 +663,22 @@ static int vma_list_add(struct vma_area *vma_area,
 	prev_vfi->vma = vma_area;
 
 	return 0;
+}
+
+/*
+ * On s390 we have old kernels where the global task size assumption of
+ * criu does not work. See also compel_task_size() for s390.
+ */
+static int task_size_check(pid_t pid, VmaEntry *entry)
+{
+#ifdef __s390x__
+	if (entry->end <= kdat.task_size)
+		return 0;
+	pr_err("Can't dump high memory region %lx-%lx of task %d because kernel commit ee71d16d22bb is missing\n", entry->start, entry->end, pid);
+	return -1;
+#else
+	return 0;
+#endif
 }
 
 int parse_smaps(pid_t pid, struct vm_area_list *vma_area_list,
@@ -740,6 +765,9 @@ int parse_smaps(pid_t pid, struct vm_area_list *vma_area_list,
 		vma_area->e->end	= end;
 		vma_area->e->pgoff	= pgoff;
 		vma_area->e->prot	= PROT_NONE;
+
+		if (task_size_check(pid, vma_area->e))
+			goto err;
 
 		if (r == 'r')
 			vma_area->e->prot |= PROT_READ;
@@ -985,7 +1013,7 @@ static int cap_parse(char *str, unsigned int *res)
 	return 0;
 }
 
-int parse_pid_status(pid_t pid, struct seize_task_status *ss)
+int parse_pid_status(pid_t pid, struct seize_task_status *ss, void *data)
 {
 	struct proc_status_creds *cr = container_of(ss, struct proc_status_creds, s);
 	struct bfd f;
@@ -1457,7 +1485,7 @@ struct mount_info *parse_mountinfo(pid_t pid, struct ns_id *nsid, bool for_dump)
 				new->flags, new->options);
 
 		if (new->fstype->parse) {
-			ret = new->fstype->parse(new, for_dump);
+			ret = new->fstype->parse(new);
 			if (ret < 0) {
 				pr_err("Failed to parse FS specific data on %s\n",
 						new->mountpoint);
@@ -1509,38 +1537,6 @@ static char nybble(const char n)
 	else if (n >= 'a' && n <= 'f')
 		return n - ('a' - 10);
 	return 0;
-}
-
-static int alloc_fhandle(FhEntry *fh)
-{
-	fh->n_handle = FH_ENTRY_SIZES__min_entries;
-	fh->handle = xmalloc(pb_repeated_size(fh, handle));
-
-	return fh->handle == NULL ? -1 : 0;
-}
-
-static void free_fhandle(FhEntry *fh)
-{
-	if (fh->handle)
-		xfree(fh->handle);
-}
-
-void free_inotify_wd_entry(union fdinfo_entries *e)
-{
-	free_fhandle(e->ify.e.f_handle);
-	xfree(e);
-}
-
-void free_fanotify_mark_entry(union fdinfo_entries *e)
-{
-	if (e->ffy.e.ie)
-		free_fhandle(e->ffy.ie.f_handle);
-	xfree(e);
-}
-
-void free_event_poll_entry(union fdinfo_entries *e)
-{
-	xfree(e);
 }
 
 static void parse_fhandle_encoded(char *tok, FhEntry *fh)
@@ -1620,57 +1616,7 @@ nodata:
 
 static int parse_file_lock_buf(char *buf, struct file_lock *fl,
 				bool is_blocked);
-
-static bool unsupported_nfs_lock(pid_t pid, int remote_fd, int mnt_id,
-				 int fl_kind)
-{
-	struct statfs buf;
-	int fd;
-	char path[PATH_MAX];
-	struct mount_info *mi;
-	char local_lock[32], *ptr;
-
-	sprintf(path, "/proc/%d/fd/%d", pid, remote_fd);
-	fd = open(path, O_RDONLY);
-	if (fd < 0) {
-		pr_perror("failed to open %s", path);
-		return false;
-	}
-
-	if (fstatfs(fd, &buf)) {
-		pr_perror("failed to statfs /proc/self/fd/%d", fd);
-		close(fd);
-		return false;
-	}
-	close(fd);
-
-	if (buf.f_type != NFS_SUPER_MAGIC)
-		return false;
-
-	mi = lookup_mnt_id(mnt_id);
-	if (!mi)
-		return false;
-
-	ptr = strstr(mi->options, "local_lock=");
-	if (!ptr)
-		return false;
-
-	if (sscanf(ptr, "local_lock=%[^,],%*s", local_lock) != 1)
-		return false;
-
-	if (!strcmp(local_lock, "all"))
-		return false;
-	if ((fl_kind == FL_POSIX) && !strcmp(local_lock, "posix"))
-		return false;
-	if ((fl_kind == FL_FLOCK) && !strcmp(local_lock, "flock"))
-		return false;
-
-	pr_err("remote %s on NFS are not supported yet: /proc/%d/fd/%d\n", (fl_kind == FL_FLOCK) ? "flocks" : "posix locks", pid, remote_fd);
-	return true;
-}
-
-static int parse_fdinfo_pid_s(int pid, int fd, int type,
-		int (*cb)(union fdinfo_entries *e, void *arg), void *arg)
+static int parse_fdinfo_pid_s(int pid, int fd, int type, void *arg)
 {
 	struct bfd f;
 	char *str;
@@ -1685,8 +1631,6 @@ static int parse_fdinfo_pid_s(int pid, int fd, int type,
 		return -1;
 
 	while (1) {
-		union fdinfo_entries entry;
-
 		str = breadline(&f);
 		if (!str)
 			break;
@@ -1746,12 +1690,6 @@ static int parse_fdinfo_pid_s(int pid, int fd, int type,
 				goto out;
 			}
 
-			if (unsupported_nfs_lock(pid, fd, fdinfo->mnt_id,
-						 fl->fl_kind)) {
-				xfree(fl);
-				goto out;
-			}
-
 			fl->real_owner = fdinfo->owner;
 			fl->owners_fd = fd;
 			list_add_tail(&fl->list, &file_lock_list);
@@ -1761,180 +1699,199 @@ static int parse_fdinfo_pid_s(int pid, int fd, int type,
 			continue;
 
 		if (fdinfo_field(str, "eventfd-count")) {
-			eventfd_file_entry__init(&entry.efd);
+			EventfdFileEntry *efd = arg;
 
 			if (type != FD_TYPES__EVENTFD)
 				goto parse_err;
 			ret = sscanf(str, "eventfd-count: %"PRIx64,
-					&entry.efd.counter);
+					&efd->counter);
 			if (ret != 1)
 				goto parse_err;
-			ret = cb(&entry, arg);
-			if (ret)
-				goto out;
 
 			entry_met = true;
 			continue;
 		}
 		if (fdinfo_field(str, "clockid")) {
-			timerfd_entry__init(&entry.tfy);
+			TimerfdEntry *tfe = arg;
 
 			if (type != FD_TYPES__TIMERFD)
 				goto parse_err;
-			ret = parse_timerfd(&f, str, &entry.tfy);
+			ret = parse_timerfd(&f, str, tfe);
 			if (ret)
 				goto parse_err;
-			ret = cb(&entry, arg);
-			if (ret)
-				goto out;
 
 			entry_met = true;
 			continue;
 		}
 		if (fdinfo_field(str, "tfd")) {
-			union fdinfo_entries *e;
+			EventpollFileEntry *epfe = arg;
+			EventpollTfdEntry *e;
+			int i;
 
 			if (type != FD_TYPES__EVENTPOLL)
 				goto parse_err;
 
-			e = xmalloc(sizeof(union fdinfo_entries));
+			e = xmalloc(sizeof(EventpollTfdEntry));
 			if (!e)
 				goto out;
 
-			eventpoll_tfd_entry__init(&e->epl.e);
+			eventpoll_tfd_entry__init(e);
 
 			ret = sscanf(str, "tfd: %d events: %x data: %"PRIx64,
-					&e->epl.e.tfd, &e->epl.e.events, &e->epl.e.data);
+					&e->tfd, &e->events, &e->data);
 			if (ret != 3) {
-				free_event_poll_entry(e);
+				eventpoll_tfd_entry__free_unpacked(e, NULL);
 				goto parse_err;
 			}
-			ret = cb(e, arg);
-			if (ret)
+
+			i = epfe->n_tfd++;
+			if (xrealloc_safe(&epfe->tfd, epfe->n_tfd * sizeof(EventpollTfdEntry *)))
 				goto out;
 
+			epfe->tfd[i] = e;
 			entry_met = true;
 			continue;
 		}
 		if (fdinfo_field(str, "sigmask")) {
-			signalfd_entry__init(&entry.sfd);
+			SignalfdEntry *sfd = arg;
 
 			if (type != FD_TYPES__SIGNALFD)
 				goto parse_err;
 			ret = sscanf(str, "sigmask: %Lx",
-					(unsigned long long *)&entry.sfd.sigmask);
+					(unsigned long long *)&sfd->sigmask);
 			if (ret != 1)
 				goto parse_err;
-			ret = cb(&entry, arg);
-			if (ret)
-				goto out;
 
 			entry_met = true;
 			continue;
 		}
 		if (fdinfo_field(str, "fanotify flags")) {
-			struct fsnotify_params *p = arg;
+			FanotifyFileEntry *fe = arg;
 
 			if (type != FD_TYPES__FANOTIFY)
 				goto parse_err;
 
 			ret = sscanf(str, "fanotify flags:%x event-flags:%x",
-				     &p->faflags, &p->evflags);
+				     &fe->faflags, &fe->evflags);
 			if (ret != 2)
 				goto parse_err;
 			entry_met = true;
 			continue;
 		}
 		if (fdinfo_field(str, "fanotify ino")) {
-			union fdinfo_entries *e;
-			int hoff = 0;
+			void *buf, *ob;
+			FanotifyFileEntry *fe = arg;
+			FanotifyMarkEntry *me;
+			int hoff = 0, i;
 
 			if (type != FD_TYPES__FANOTIFY)
 				goto parse_err;
 
-			e = xmalloc(sizeof(*e));
-			if (!e)
-				goto parse_err;
+			ob = buf = xmalloc(sizeof(FanotifyMarkEntry) +
+					sizeof(FanotifyInodeMarkEntry) +
+					sizeof(FhEntry) +
+					FH_ENTRY_SIZES__min_entries * sizeof(uint64_t));
+			if (!buf)
+				goto out;
 
-			fanotify_mark_entry__init(&e->ffy.e);
-			fanotify_inode_mark_entry__init(&e->ffy.ie);
-			fh_entry__init(&e->ffy.f_handle);
-			e->ffy.e.ie = &e->ffy.ie;
-			e->ffy.ie.f_handle = &e->ffy.f_handle;
+			me = xptr_pull(&buf, FanotifyMarkEntry);
+			fanotify_mark_entry__init(me);
+			me->ie = xptr_pull(&buf, FanotifyInodeMarkEntry);
+			fanotify_inode_mark_entry__init(me->ie);
+			me->ie->f_handle = xptr_pull(&buf, FhEntry);
+			fh_entry__init(me->ie->f_handle);
+			me->ie->f_handle->n_handle = FH_ENTRY_SIZES__min_entries;
+			me->ie->f_handle->handle = xptr_pull_s(&buf,
+					FH_ENTRY_SIZES__min_entries * sizeof(uint64_t));
 
 			ret = sscanf(str,
 				     "fanotify ino:%"PRIx64" sdev:%x mflags:%x mask:%x ignored_mask:%x "
 				     "fhandle-bytes:%x fhandle-type:%x f_handle: %n",
-				     &e->ffy.ie.i_ino, &e->ffy.e.s_dev,
-				     &e->ffy.e.mflags, &e->ffy.e.mask, &e->ffy.e.ignored_mask,
-				     &e->ffy.f_handle.bytes, &e->ffy.f_handle.type,
+				     &me->ie->i_ino, &me->s_dev,
+				     &me->mflags, &me->mask, &me->ignored_mask,
+				     &me->ie->f_handle->bytes, &me->ie->f_handle->type,
 				     &hoff);
 			if (ret != 7 || hoff == 0) {
-				free_fanotify_mark_entry(e);
+				xfree(ob);
 				goto parse_err;
 			}
 
-			if (alloc_fhandle(&e->ffy.f_handle)) {
-				free_fanotify_mark_entry(e);
+			parse_fhandle_encoded(str + hoff, me->ie->f_handle);
+			me->type = MARK_TYPE__INODE;
+
+			i = fe->n_mark++;
+			if (xrealloc_safe(&fe->mark, fe->n_mark * sizeof(FanotifyMarkEntry *))) {
+				xfree(ob);
 				goto out;
 			}
-			parse_fhandle_encoded(str + hoff, &e->ffy.f_handle);
 
-			e->ffy.e.type = MARK_TYPE__INODE;
-			ret = cb(e, arg);
-
-
-			if (ret)
-				goto out;
-
+			fe->mark[i] = me;
 			entry_met = true;
 			continue;
 		}
 		if (fdinfo_field(str, "fanotify mnt_id")) {
-			union fdinfo_entries *e;
+			void *buf, *ob;
+			FanotifyFileEntry *fe = arg;
+			FanotifyMarkEntry *me;
+			int i;
 
 			if (type != FD_TYPES__FANOTIFY)
 				goto parse_err;
 
-			e = xmalloc(sizeof(*e));
-			if (!e)
-				goto parse_err;
 
-			fanotify_mark_entry__init(&e->ffy.e);
-			fanotify_mount_mark_entry__init(&e->ffy.me);
-			e->ffy.e.me = &e->ffy.me;
+			ob = buf = xmalloc(sizeof(FanotifyMarkEntry) +
+					sizeof(FanotifyMountMarkEntry));
+			if (!buf)
+				goto out;
+
+			me = xptr_pull(&buf, FanotifyMarkEntry);
+			fanotify_mark_entry__init(me);
+			me->me = xptr_pull(&buf, FanotifyMountMarkEntry);
+			fanotify_mount_mark_entry__init(me->me);
 
 			ret = sscanf(str,
 				     "fanotify mnt_id:%x mflags:%x mask:%x ignored_mask:%x",
-				     &e->ffy.e.me->mnt_id, &e->ffy.e.mflags,
-				     &e->ffy.e.mask, &e->ffy.e.ignored_mask);
-			if (ret != 4)
+				     &me->me->mnt_id, &me->mflags,
+				     &me->mask, &me->ignored_mask);
+			if (ret != 4) {
+				xfree(ob);
 				goto parse_err;
+			}
 
-			e->ffy.e.type = MARK_TYPE__MOUNT;
-			ret = cb(e, arg);
-			if (ret)
+			me->type = MARK_TYPE__MOUNT;
+
+			i = fe->n_mark++;
+			if (xrealloc_safe(&fe->mark, fe->n_mark * sizeof(FanotifyMarkEntry *))) {
+				xfree(ob);
 				goto out;
+			}
 
+			fe->mark[i] = me;
 			entry_met = true;
 			continue;
 		}
 		if (fdinfo_field(str, "inotify wd")) {
+			void *buf, *ob;
+			InotifyFileEntry *ie = arg;
 			InotifyWdEntry *ify;
-			union fdinfo_entries *e;
-			int hoff;
+			int hoff, i;
 
 			if (type != FD_TYPES__INOTIFY)
 				goto parse_err;
 
-			e = xmalloc(sizeof(*e));
-			if (!e)
-				goto parse_err;
-			ify = &e->ify.e;
+			ob = buf = xmalloc(sizeof(InotifyWdEntry) +
+					sizeof(FhEntry) +
+					FH_ENTRY_SIZES__min_entries * sizeof(uint64_t));
+			if (!buf)
+				goto out;
 
+			ify = xptr_pull(&buf, InotifyWdEntry);
 			inotify_wd_entry__init(ify);
-			ify->f_handle = &e->ify.f_handle;
+			ify->f_handle = xptr_pull(&buf, FhEntry);
 			fh_entry__init(ify->f_handle);
+			ify->f_handle->n_handle = FH_ENTRY_SIZES__min_entries;
+			ify->f_handle->handle = xptr_pull_s(&buf,
+					FH_ENTRY_SIZES__min_entries * sizeof(uint64_t));
 
 			ret = sscanf(str,
 					"inotify wd:%x ino:%"PRIx64" sdev:%x "
@@ -1946,22 +1903,19 @@ static int parse_fdinfo_pid_s(int pid, int fd, int type,
 					&ify->f_handle->bytes, &ify->f_handle->type,
 					&hoff);
 			if (ret != 7) {
-				free_inotify_wd_entry(e);
+				xfree(ob);
 				goto parse_err;
-			}
-
-			if (alloc_fhandle(ify->f_handle)) {
-				free_inotify_wd_entry(e);
-				goto out;
 			}
 
 			parse_fhandle_encoded(str + hoff, ify->f_handle);
 
-			ret = cb(e, arg);
-
-			if (ret)
+			i = ie->n_wd++;
+			if (xrealloc_safe(&ie->wd, ie->n_wd * sizeof(InotifyWdEntry *))) {
+				xfree(ob);
 				goto out;
+			}
 
+			ie->wd[i] = ify;
 			entry_met = true;
 			continue;
 		}
@@ -1986,23 +1940,21 @@ out:
 	return exit_code;
 }
 
-int parse_fdinfo_pid(int pid, int fd, int type,
-		int (*cb)(union fdinfo_entries *e, void *arg), void *arg)
+int parse_fdinfo_pid(int pid, int fd, int type, void *arg)
 {
-	return parse_fdinfo_pid_s(pid, fd, type, cb, arg);
+	return parse_fdinfo_pid_s(pid, fd, type, arg);
 }
 
-int parse_fdinfo(int fd, int type,
-		int (*cb)(union fdinfo_entries *e, void *arg), void *arg)
+int parse_fdinfo(int fd, int type, void *arg)
 {
-	return parse_fdinfo_pid_s(PROC_SELF, fd, type, cb, arg);
+	return parse_fdinfo_pid_s(PROC_SELF, fd, type, arg);
 }
 
 int get_fd_mntid(int fd, int *mnt_id)
 {
 	struct fdinfo_common fdinfo = { .mnt_id = -1};
 
-	if (parse_fdinfo(fd, FD_TYPES__UND, NULL, &fdinfo))
+	if (parse_fdinfo(fd, FD_TYPES__UND, &fdinfo))
 		return -1;
 
 	*mnt_id = fdinfo.mnt_id;
@@ -2319,8 +2271,19 @@ int parse_cgroup_file(FILE *f, struct list_head *retl, unsigned int *n)
 		 * 2:name=systemd:/user.slice/user-1000.slice/session-1.scope
 		 */
 		name = strchr(buf, ':');
-		if (name)
+		if (name) {
 			path = strchr(++name, ':');
+			if (*name == ':') {
+				/*
+				 * It's unified hierarchy. On kernels with legacy
+				 * tree this item is added automatically, so we
+				 * can just skip one. For those with full unified
+				 * support is on ... we need to write new code.
+				 */
+				xfree(ncc);
+				continue;
+			}
+		}
 		if (!name || !path) {
 			pr_err("Failed parsing cgroup %s\n", buf);
 			xfree(ncc);
@@ -2484,6 +2447,13 @@ int collect_controllers(struct list_head *cgroups, unsigned int *n_cgroups)
 		}
 		controllers++;
 
+		if (*controllers == ':')
+			/*
+			 * Unified hier. See comment in parse_cgroup_file
+			 * for more details.
+			 */
+			continue;
+
 		off = strchr(controllers, ':');
 		if (!off) {
 			pr_err("Unable to parse \"%s\"\n", buf);
@@ -2542,7 +2512,7 @@ err:
  *
  * See fixup_overlayfs for details.
  */
-int overlayfs_parse(struct mount_info *new, bool for_dump)
+int overlayfs_parse(struct mount_info *new)
 {
 	opts.overlayfs = true;
 	return 0;
@@ -2552,7 +2522,7 @@ int overlayfs_parse(struct mount_info *new, bool for_dump)
  * AUFS callback function to "fix up" the root pathname.
  * See sysfs_parse.c for details.
  */
-int aufs_parse(struct mount_info *new, bool for_dump)
+int aufs_parse(struct mount_info *new)
 {
 	int ret = 0;
 

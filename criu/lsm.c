@@ -5,6 +5,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include "kerndat.h"
 #include "config.h"
 #include "pstree.h"
 #include "util.h"
@@ -18,10 +19,6 @@
 #ifdef CONFIG_HAS_SELINUX
 #include <selinux/selinux.h>
 #endif
-
-static Lsmtype	lsmtype;
-static int	(*get_label)(pid_t, char **) = NULL;
-static char	*name = NULL;
 
 static int apparmor_get_label(pid_t pid, char **profile_name)
 {
@@ -109,18 +106,8 @@ static int selinux_get_label(pid_t pid, char **output)
 
 void kerndat_lsm(void)
 {
-	/* On restore, if someone passes --lsm-profile, we might end up doing
-	 * detection twice, once during flag parsing and once for
-	 * kerndat_init_rst(). Let's detect when we've already done detection
-	 * and not do it again.
-	 */
-	if (name)
-		return;
-
 	if (access(AA_SECURITYFS_PATH, F_OK) == 0) {
-		get_label = apparmor_get_label;
-		lsmtype = LSMTYPE__APPARMOR;
-		name = "apparmor";
+		kdat.lsm = LSMTYPE__APPARMOR;
 		return;
 	}
 
@@ -131,37 +118,47 @@ void kerndat_lsm(void)
 	 * well.
 	 */
 	if (access("/sys/fs/selinux", F_OK) == 0) {
-		get_label = selinux_get_label;
-		lsmtype = LSMTYPE__SELINUX;
-		name = "selinux";
+		kdat.lsm = LSMTYPE__SELINUX;
 		return;
 	}
 #endif
 
-	get_label = NULL;
-	lsmtype = LSMTYPE__NO_LSM;
-	name = "none";
+	kdat.lsm = LSMTYPE__NO_LSM;
 }
 
 Lsmtype host_lsm_type(void)
 {
-	return lsmtype;
+	return kdat.lsm;
 }
 
 int collect_lsm_profile(pid_t pid, CredsEntry *ce)
 {
+	int ret;
+
 	ce->lsm_profile = NULL;
 
-	if (lsmtype == LSMTYPE__NO_LSM)
-		return 0;
-
-	if (get_label(pid, &ce->lsm_profile) < 0)
-		return -1;
+	switch (kdat.lsm) {
+	case LSMTYPE__NO_LSM:
+		ret = 0;
+		break;
+	case LSMTYPE__APPARMOR:
+		ret = apparmor_get_label(pid, &ce->lsm_profile);
+		break;
+#ifdef CONFIG_HAS_SELINUX
+	case LSMTYPE__SELINUX:
+		ret = selinux_get_label(pid, &ce->lsm_profile);
+		break;
+#endif
+	default:
+		BUG();
+		ret = -1;
+		break;
+	}
 
 	if (ce->lsm_profile)
 		pr_info("%d has lsm profile %s\n", pid, ce->lsm_profile);
 
-	return 0;
+	return ret;
 }
 
 // in inventory.c
@@ -169,7 +166,7 @@ extern Lsmtype image_lsm;
 
 int validate_lsm(char *lsm_profile)
 {
-	if (image_lsm == LSMTYPE__NO_LSM || image_lsm == lsmtype)
+	if (image_lsm == LSMTYPE__NO_LSM || image_lsm == kdat.lsm)
 		return 0;
 
 	/*
@@ -189,7 +186,7 @@ int render_lsm_profile(char *profile, char **val)
 {
 	*val = NULL;
 
-	switch (lsmtype) {
+	switch (kdat.lsm) {
 	case LSMTYPE__APPARMOR:
 		if (strcmp(profile, "unconfined") != 0 && asprintf(val, "changeprofile %s", profile) < 0) {
 			pr_err("allocating lsm profile failed\n");
@@ -211,43 +208,42 @@ int render_lsm_profile(char *profile, char **val)
 	return 0;
 }
 
-int parse_lsm_arg(char *arg)
+int lsm_check_opts(void)
 {
 	char *aux;
 
-	kerndat_lsm();
+	if (!opts.lsm_supplied)
+		return 0;
 
-	aux = strchr(arg, ':');
+	aux = strchr(opts.lsm_profile, ':');
 	if (aux == NULL) {
-		pr_err("invalid argument %s for --lsm-profile\n", arg);
+		pr_err("invalid argument %s for --lsm-profile\n", opts.lsm_profile);
 		return -1;
 	}
 
 	*aux = '\0';
 	aux++;
 
-	if (strcmp(arg, "apparmor") == 0) {
-		if (lsmtype != LSMTYPE__APPARMOR) {
+	if (strcmp(opts.lsm_profile, "apparmor") == 0) {
+		if (kdat.lsm != LSMTYPE__APPARMOR) {
 			pr_err("apparmor LSM specified but apparmor not supported by kernel\n");
 			return -1;
 		}
 
 		opts.lsm_profile = aux;
-	} else if (strcmp(arg, "selinux") == 0) {
-		if (lsmtype != LSMTYPE__SELINUX) {
+	} else if (strcmp(opts.lsm_profile, "selinux") == 0) {
+		if (kdat.lsm != LSMTYPE__SELINUX) {
 			pr_err("selinux LSM specified but selinux not supported by kernel\n");
 			return -1;
 		}
 
 		opts.lsm_profile = aux;
-	} else if (strcmp(arg, "none") == 0) {
+	} else if (strcmp(opts.lsm_profile, "none") == 0) {
 		opts.lsm_profile = NULL;
 	} else {
-		pr_err("unknown lsm %s\n", arg);
+		pr_err("unknown lsm %s\n", opts.lsm_profile);
 		return -1;
 	}
-
-	opts.lsm_supplied = true;
 
 	return 0;
 }

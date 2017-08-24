@@ -34,28 +34,19 @@ if [ ! -x $NS_ENTER ]; then
 	exit 2
 fi
 
-JOIN_CT="$NS_ENTER -t $CRTOOLS_INIT_PID -m -u -p -n"
-
-BASENAME=/usr/bin/basename
-READLINK=/bin/readlink
-UMOUNT=/bin/umount
-MOUNT=/bin/mount
-RM=/bin/rm
-SYSTEMCTL=/bin/systemctl
-MKTEMP=/bin/mktemp
+JOIN_CT="$NS_ENTER -t $CRTOOLS_INIT_PID -m -u -p"
 
 # Skip container, if it's not systemd based
-[ "$($JOIN_CT $BASENAME -- $($JOIN_CT $READLINK /proc/1/exe))" == "systemd" ] || exit 0
+[ "$($JOIN_CT basename -- $($JOIN_CT readlink /proc/1/exe))" == "systemd" ] || exit 0
 
-AUTOFS_SERVICES="$($JOIN_CT $SYSTEMCTL --no-legend  -t automount \
-	 --state=active list-units | awk '{ print $1 }')"
+AUTOFS_SERVICES="proc-sys-fs-binfmt_misc.automount"
 
 bindmount=""
 
 function remove_bindmount {
 	if [ -n "$bindmount" ]; then
-		$JOIN_CT $UMOUNT $bindmount
-		$JOIN_CT $RM -rf $bindmount
+		$JOIN_CT umount $bindmount
+		$JOIN_CT rm -rf $bindmount
 		bindmount=""
 	fi
 }
@@ -95,7 +86,7 @@ function bind_mount {
 	local from=$1
 	local to=$2
 
-	$JOIN_CT $MOUNT --bind $from $to && return 0
+	$JOIN_CT mount --bind $from $to && return 0
 
 	echo "Failed to bind mount $from to $to"
 	return 1
@@ -114,7 +105,7 @@ function save_mountpoint {
 	# Nothing to do, if no file system is on top of autofs
 	[ "$top_mount_fs_type" = "autofs" ] && return
 
-	bindmount=$($JOIN_CT $MKTEMP -d)
+	bindmount=$($JOIN_CT mktemp -d)
 	if [ -z "$bindmount" ]; then
 		echo "Failed to create temporary directory"
 		return 1
@@ -122,88 +113,62 @@ function save_mountpoint {
 
 	# No need to unmount fs on top of autofs:
 	# systemd will does it for us on service restart
-	bind_mount $mountpoint $bindmount || $JOIN_CT $RM -rf $bindmount
+	bind_mount $mountpoint $bindmount || $JOIN_CT rm -rf $bindmount
 }
 
 function restore_mountpoint {
 	local mountpoint=$1
 
-	[ -n "$bindmount" ] || return 0
+	[ -n "$bindmount" ] || return
 
 	# Umount file system, remounted by systemd, if any
 	top_mount_fs_type=$(get_fs_type $mountpoint)
 	if [ $? -ne 0 ]; then
 		echo "$top_mount_fs_type"
-		return 0
+		return
 	fi
 
 	# Nothing to do, if no file system is on top of autofs
 	if [ "$top_mount_fs_type" != "autofs" ]; then
-		$JOIN_CT umount $mountpoint
-		if [ $? -ne 0 ]; then
-			echo "Failed to umount $mountpoint"
-			return 1
-		fi
+		$JOIN_CT umount $mountpoint || echo "Failed to umount $mountpoint"
 	fi
 
 	# Restore origin file system even if we failed to unmount the new one
-	bind_mount $bindmount $mountpoint || return 1
+	bind_mount $bindmount $mountpoint
 	remove_bindmount
-	return 0
 }
 
 function restart_service {
 	local service=$1
-	local mountpoint=$($JOIN_CT $SYSTEMCTL show $service -p Where | sed 's/.*=//g')
-
-	if [ $? -ne 0 ]; then
-		echo "Failed to get mountpoint for $service service"
-		return 1
-	fi
+	local mountpoint=$($JOIN_CT systemctl show $service -p Where | sed 's/.*=//g')
 
 	if [ -z "$mountpoint" ]; then
-		echo "$service service mountpoint string is empty"
-		return 1
+		echo "Failed to discover $service mountpoint"
+		return
 	fi
 
 	# Try to move restored bind-mount aside and exit if Failed
 	# Nothing to do, if we Failed
-	save_mountpoint $mountpoint || return 1
+	save_mountpoint $mountpoint || return
 
-	$JOIN_CT $SYSTEMCTL restart $service || return 1
-
+	$JOIN_CT systemctl restart $service
+	if [ $? -ne 0 ]; then
+		echo "Failed to restart $service service"
+		return
+	fi
 	echo "$service restarted"
 
 	# Try to move saved monutpoint back on top of autofs
 	restore_mountpoint $mountpoint
 }
 
-function skip_service {
-	local service=$1
-	local mountpoint=$($JOIN_CT $SYSTEMCTL show $service -p Where | sed 's/.*=//g')
-
-	if [ -z "$mountpoint" ]; then
-		echo "Failed to discover $service mountpoint"
-		return 1
-	fi
-
-	local top_mount_fs_type=$(get_fs_type $mountpoint)
-	# This is SPFS mount point in "Stub" mode. It can't be moved.
-	if [ "$top_mount_fs_type" == "fuse.spfs" ]; then
-		echo "spfs mount"
-		return 1
-	fi
-
-	return 0
-}
-
 for service in $AUTOFS_SERVICES; do
-	skip_message=$(skip_service $service)
+	status=$($JOIN_CT systemctl is-active $service)
 
-	if [ $? -eq 1 ]; then
-		echo "$service skipped ($skip_message)"
+	if [ $status == "active" ]; then
+		restart_service $service
 	else
-		restart_service $service || echo "Failed to restart $service service"
+		echo "$service skipped ($status)"
 	fi
 done
 

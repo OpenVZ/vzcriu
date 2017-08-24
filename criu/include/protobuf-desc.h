@@ -59,6 +59,8 @@ enum {
 	PB_BINFMT_MISC,		/* 50 */
 	PB_TTY_DATA,
 	PB_AUTOFS,
+	PB_GHOST_CHUNK,
+	PB_FILE,
 
 	/* PB_AUTOGEN_STOP */
 

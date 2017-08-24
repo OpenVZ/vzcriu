@@ -60,7 +60,6 @@ TST_NOFILE	:=				\
 		sockets02			\
 		sockets_spair			\
 		socket_queues			\
-		socket-raw			\
 		socket-tcp			\
 		socket-tcp6			\
 		socket-tcp-local		\
@@ -83,6 +82,8 @@ TST_NOFILE	:=				\
 		socket-tcp-closed		\
 		socket-tcp-closed-last-ack	\
 		socket-tcp6-closed		\
+		socket-tcp-close0 		\
+		socket-tcp-close1 		\
 		socket-tcp-unconn		\
 		socket-tcp6-unconn		\
 		socket-tcp-syn-sent		\
@@ -133,8 +134,6 @@ TST_NOFILE	:=				\
 		sigpending			\
 		sigaltstack			\
 		sk-netlink			\
-		sk-netlink02			\
-		sk-netlink03			\
 		mem-touch			\
 		grow_map			\
 		grow_map02			\
@@ -172,12 +171,19 @@ TST_NOFILE	:=				\
 		macvlan			\
 		cr_veth				\
 		sock_peercred			\
+		s390x_mmap_high			\
 #		jobctl00			\
+
+include ../Makefile.inc
 
 ifneq ($(SRCARCH),arm)
 ifneq ($(COMPAT_TEST),y)
         TST_NOFILE += maps03
 endif
+endif
+
+ifeq ($(SRCARCH),s390)
+        TST_NOFILE += s390x_regs_check
 endif
 
 TST_FILE	=				\
@@ -191,13 +197,15 @@ TST_FILE	=				\
 		file_attr			\
 		deleted_unix_sock		\
 		sk-unix-rel			\
-		sk-unix-ucred			\
 		deleted_dev			\
 		unlink_fstat00			\
 		unlink_fstat01			\
 		unlink_fstat01+			\
 		unlink_fstat02			\
 		unlink_fstat03			\
+		ghost_holes00			\
+		ghost_holes01			\
+		ghost_holes02			\
 		unlink_largefile		\
 		mtime_mmap			\
 		fifo				\
@@ -248,7 +256,6 @@ TST_DIR		=				\
 		mnt_ro_bind			\
 		mount_paths			\
 		bind-mount			\
-		bind-mount-unix			\
 		inotify00			\
 		inotify01			\
 		inotify02			\
@@ -283,8 +290,6 @@ TST_DIR		=				\
 		mnt_enablefs			\
 		autofs				\
 		del_standalone_un		\
-		pty05				\
-		sk-unix01			\
 
 TST_DIR_FILE	=				\
 		chroot				\
@@ -306,8 +311,9 @@ TST_STATE	=				\
 		conntracks			\
 		route_rules			\
 
+AUX_SRC	= get_smaps_bits.c ofd_file_locks.c
 
-SRC	= $(TST:%=%.c)
+SRC	= $(TST:%=%.c) $(AUX_SRC)
 OBJ	= $(SRC:%.c=%.o)
 DEP	= $(SRC:%.c=%.d)
 PID	= $(TST:%=%.pid)
@@ -315,14 +321,9 @@ OUT	= $(TST:%=%.out)
 STATE	= $(TST_STATE:%=%.state)
 STATE_OUT	= $(TST_STATE:%=%.out)
 
-include ../Makefile.inc
-
 all:	$(TST) criu-rtc.so
 install: all
 .PHONY: all install
-
-inotify_system_nodel.c: inotify_system.c
-	ln -sf inotify_system.c inotify_system_nodel.c
 
 $(TST_NOFILE:%=%.pid):	%.pid:	%
 	$(<D)/$(<F) --pidfile=$@ --outfile=$<.out
@@ -394,6 +395,7 @@ $(TST):	| $(LIB)
 
 aio00:			LDLIBS += -laio
 different_creds:	LDLIBS += -lcap
+file_locks06 file_locks07 file_locks08:	ofd_file_locks.o
 futex:			CFLAGS += -pthread
 futex:			LDFLAGS += -pthread
 futex-rl:		CFLAGS += -pthread
@@ -437,6 +439,8 @@ mlock_setuid: get_smaps_bits.o
 inotify01:		CFLAGS += -DINOTIFY01
 unlink_fstat01+:	CFLAGS += -DUNLINK_OVER
 unlink_fstat04:		CFLAGS += -DUNLINK_FSTAT04
+ghost_holes01:		CFLAGS += -DTAIL_HOLE
+ghost_holes02:		CFLAGS += -DHEAD_HOLE
 sk-freebind-false:	CFLAGS += -DZDTM_FREEBIND_FALSE
 stopped01:		CFLAGS += -DZDTM_STOPPED_KILL
 stopped02:		CFLAGS += -DZDTM_STOPPED_TKILL
@@ -457,15 +461,18 @@ socket-tcp-last-ack:	CFLAGS += -D ZDTM_TCP_LAST_ACK
 socket-tcp6-last-ack:	CFLAGS += -D ZDTM_TCP_LAST_ACK -D ZDTM_IPV6
 socket-tcp6-closing:	CFLAGS += -D ZDTM_IPV6
 socket-tcp6-unconn:	CFLAGS += -D ZDTM_IPV6
-shm-unaligned:		CFLAGS += -DZDTM_SHM_UNALIGNED
 
 pty-console:		CFLAGS += -D ZDTM_DEV_CONSOLE
+
+shm-unaligned:		CFLAGS += -DZDTM_SHM_UNALIGNED
+
+s390x_regs_check:	LDFLAGS += -pthread
 
 $(LIB):	force
 	$(Q) $(MAKE) -C $(LIBDIR)
 
 clean-more:
-	$(RM) criu-rtc.so criu-rtc.pb-c.c criu-rtc.pb-c.h get_smaps_bits.o
+	$(RM) criu-rtc.so criu-rtc.pb-c.c criu-rtc.pb-c.h
 .PHONY: clean-more
 clean: clean-more
 

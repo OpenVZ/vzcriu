@@ -12,7 +12,6 @@
 #include <sys/ioctl.h>
 #include <sys/epoll.h>
 
-#include "types.h"
 #include "crtools.h"
 #include "common/compiler.h"
 #include "imgset.h"
@@ -23,7 +22,6 @@
 #include "util.h"
 #include "log.h"
 #include "pstree.h"
-#include "parasite.h"
 
 #include "protobuf.h"
 #include "images/eventpoll.pb-c.h"
@@ -35,13 +33,6 @@ struct eventpoll_file_info {
 	EventpollFileEntry		*efe;
 	struct file_desc		d;
 };
-
-struct eventpoll_tfd_file_info {
-	EventpollTfdEntry		*tdefe;
-	struct list_head		list;
-};
-
-static LIST_HEAD(eventpoll_tfds);
 
 /* Checks if file descriptor @lfd is eventfd */
 int is_eventpoll_link(char *link)
@@ -60,65 +51,32 @@ static void pr_info_eventpoll(char *action, EventpollFileEntry *e)
 	pr_info("%seventpoll: id %#08x flags %#04x\n", action, e->id, e->flags);
 }
 
-struct eventpoll_list {
-	struct list_head list;
-	int n;
-};
-
-static int dump_eventpoll_entry(union fdinfo_entries *e, void *arg)
-{
-	struct eventpoll_list *ep_list = (struct eventpoll_list *) arg;
-	EventpollTfdEntry *efd = &e->epl.e;
-
-	pr_info_eventpoll_tfd("Dumping: ", efd);
-
-	list_add_tail(&e->epl.node, &ep_list->list);
-	ep_list->n++;
-
-	return 0;
-}
-
 static int dump_one_eventpoll(int lfd, u32 id, const struct fd_parms *p)
 {
+	FileEntry fe = FILE_ENTRY__INIT;
 	EventpollFileEntry e = EVENTPOLL_FILE_ENTRY__INIT;
-	struct eventpoll_list ep_list = {LIST_HEAD_INIT(ep_list.list), 0};
-	union fdinfo_entries *te, *tmp;
-	int i, j, k, ret = -1;
+	int i, ret = -1;
 
 	e.id = id;
 	e.flags = p->flags;
 	e.fown = (FownEntry *)&p->fown;
 
-	if (parse_fdinfo(lfd, FD_TYPES__EVENTPOLL, dump_eventpoll_entry, &ep_list))
+	if (parse_fdinfo(lfd, FD_TYPES__EVENTPOLL, &e))
 		goto out;
 
-	e.tfd = xmalloc(sizeof(struct EventpollTfdEntry *) * ep_list.n);
-	if (!e.tfd)
-		goto out;
-
-	i = j = 0;
-	list_for_each_entry(te, &ep_list.list, epl.node) {
-		for (k = 0; k < p->dfds->nr_fds; k++) {
-			if (p->dfds->fds[k] == te->epl.e.tfd)
-				break;
-		}
-
-		if (k >= p->dfds->nr_fds) {
-			pr_warn("Escaped/closed fd descriptor %d on pid %d, ignoring\n",
-				te->epl.e.tfd, p->pid);
-			j++;
-			continue;
-		}
-		e.tfd[i++] = &te->epl.e;
-	}
-	e.n_tfd = ep_list.n - j;
+	fe.type = FD_TYPES__EVENTPOLL;
+	fe.id = e.id;
+	fe.epfd = &e;
 
 	pr_info_eventpoll("Dumping ", &e);
-	ret = pb_write_one(img_from_set(glob_imgset, CR_FD_EVENTPOLL_FILE),
-		     &e, PB_EVENTPOLL_FILE);
+	ret = pb_write_one(img_from_set(glob_imgset, CR_FD_FILES), &fe, PB_FILE);
 out:
-	list_for_each_entry_safe(te, tmp, &ep_list.list, epl.node)
-		free_event_poll_entry(te);
+	for (i = 0; i < e.n_tfd; i++) {
+		if (!ret)
+			pr_info_eventpoll_tfd("Dumping: ", e.tfd[i]);
+		eventpoll_tfd_entry__free_unpacked(e.tfd[i], NULL);
+	}
+	xfree(e.tfd);
 
 	return ret;
 }
@@ -193,19 +151,8 @@ static int eventpoll_retore_tfd(int fd, int id, EventpollTfdEntry *tdefe)
 	event.events	= tdefe->events;
 	event.data.u64	= tdefe->data;
 	if (epoll_ctl(fd, EPOLL_CTL_ADD, tdefe->tfd, &event)) {
-		if (errno != EEXIST && errno != EPERM && errno != ELOOP) {
-			pr_perror("Can't add event on %#08x", id);
-			return -1;
-		} else {
-			int rc = errno;
-			/*
-			 * FIXME: Until kcmp for epolls is supported
-			 * we should ignore such errors, we simply
-			 * can't figure out real target files.
-			 */
-			pr_warn("Ignore event on %#08x, errno -%d (%s)",
-				id, rc, strerror(rc));
-		}
+		pr_perror("Can't add event on %#08x", id);
+		return -1;
 	}
 
 	return 0;
@@ -213,7 +160,6 @@ static int eventpoll_retore_tfd(int fd, int id, EventpollTfdEntry *tdefe)
 
 static int eventpoll_post_open(struct file_desc *d, int fd)
 {
-	struct eventpoll_tfd_file_info *td_info;
 	struct eventpoll_file_info *info;
 	int i;
 
@@ -228,19 +174,6 @@ static int eventpoll_post_open(struct file_desc *d, int fd)
 			return -1;
 	}
 
-	list_for_each_entry(td_info, &eventpoll_tfds, list) {
-		if (epoll_not_ready_tfd(td_info->tdefe))
-			return 1;
-	}
-	list_for_each_entry(td_info, &eventpoll_tfds, list) {
-		if (td_info->tdefe->id != info->efe->id)
-			continue;
-
-		if (eventpoll_retore_tfd(fd, info->efe->id, td_info->tdefe))
-			return -1;
-
-	}
-
 	return 0;
 }
 
@@ -251,14 +184,31 @@ static struct file_desc_ops desc_ops = {
 
 static int collect_one_epoll_tfd(void *o, ProtobufCMessage *msg, struct cr_img *i)
 {
-	struct eventpoll_tfd_file_info *info = o;
+	EventpollTfdEntry *tfde;
+	struct file_desc *d;
+	struct eventpoll_file_info *ef;
+	EventpollFileEntry *efe;
+	int n_tfd;
 
 	if (!deprecated_ok("Epoll TFD image"))
 		return -1;
 
-	info->tdefe = pb_msg(msg, EventpollTfdEntry);
-	list_add(&info->list, &eventpoll_tfds);
-	pr_info_eventpoll_tfd("Collected ", info->tdefe);
+	tfde = pb_msg(msg, EventpollTfdEntry);
+	d = find_file_desc_raw(FD_TYPES__EVENTPOLL, tfde->id);
+	if (!d) {
+		pr_err("No epoll FD for %u\n", tfde->id);
+		return -1;
+	}
+
+	ef = container_of(d, struct eventpoll_file_info, d);
+	efe = ef->efe;
+
+	n_tfd = efe->n_tfd + 1;
+	if (xrealloc_safe(&efe->tfd, n_tfd * sizeof(EventpollTfdEntry *)))
+		return -1;
+
+	efe->tfd[efe->n_tfd] = tfde;
+	efe->n_tfd = n_tfd;
 
 	return 0;
 }
@@ -266,8 +216,8 @@ static int collect_one_epoll_tfd(void *o, ProtobufCMessage *msg, struct cr_img *
 struct collect_image_info epoll_tfd_cinfo = {
 	.fd_type = CR_FD_EVENTPOLL_TFD,
 	.pb_type = PB_EVENTPOLL_TFD,
-	.priv_size = sizeof(struct eventpoll_tfd_file_info),
 	.collect = collect_one_epoll_tfd,
+	.flags = COLLECT_NOFREE,
 };
 
 static int collect_one_epoll(void *o, ProtobufCMessage *msg, struct cr_img *i)

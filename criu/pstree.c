@@ -209,6 +209,7 @@ struct pstree_item *__alloc_pstree_item(bool rst)
 
 		memset(item, 0, sz);
 		vm_area_list_init(&rsti(item)->vmas);
+		INIT_LIST_HEAD(&rsti(item)->vma_io);
 		item->pid = (void *)item + sizeof(*item) + sizeof(struct rst_info);
 	}
 
@@ -432,11 +433,7 @@ struct pstree_item *lookup_create_item(pid_t pid)
 	node = lookup_create_pid(pid, NULL);
 	if (!node)
 		return NULL;
-
-	if (node->state == TASK_THREAD) {
-		pr_err("The %d node is used for a thread\n", pid);
-		return NULL;
-	}
+	BUG_ON(node->state == TASK_THREAD);
 
 	return node->item;
 }
@@ -456,42 +453,6 @@ struct pid *pstree_pid_by_virt(pid_t pid)
 			return this;
 	}
 	return NULL;
-}
-
-/*
- *  0 -- pids are the same
- *  1 -- @a is a parent of @b
- *  2 -- @b is a parent of @a
- *  3 -- pids are not connected
- *  -1 -- pid not found
- */
-int pstree_pid_cmp(pid_t a, pid_t b)
-{
-	struct pstree_item *pstree_a, *pstree_b, *t;
-	struct pid *pid_a, *pid_b;
-
-	if (a == b)
-		return 0;
-
-	pid_a = pstree_pid_by_virt(a);
-	pid_b = pstree_pid_by_virt(b);
-	if (!pid_a || !pid_b)
-		return -1;
-
-	pstree_a = pid_a->item;
-	pstree_b = pid_b->item;
-
-	for (t = pstree_b; t->parent; t = t->parent) {
-		if (t == pstree_a)
-			return 1;
-	}
-
-	for (t = pstree_a; t->parent; t = t->parent) {
-		if (t == pstree_b)
-			return 2;
-	}
-
-	return 3;
 }
 
 static int read_pstree_ids(struct pstree_item *pi)

@@ -22,9 +22,6 @@
 #include <sched.h>
 #include <sys/resource.h>
 
-#include <sys/time.h>
-#include <sys/resource.h>
-
 #include "types.h"
 #include "protobuf.h"
 #include "images/fdinfo.pb-c.h"
@@ -61,7 +58,6 @@
 #include "tty.h"
 #include "net.h"
 #include "sk-packet.h"
-#include "sk-queue.h"
 #include "cpu.h"
 #include "elf.h"
 #include "cgroup.h"
@@ -87,302 +83,13 @@
 #include "fault-injection.h"
 #include "dump.h"
 
-struct rlim_ctl {
-	struct rlimit		old_rlimit;
-	struct rlimit		new_rlimit;
-	bool			unlimited;
-};
-
-static int rlimit_unlimit_nofile(pid_t pid, struct rlim_ctl *ctl)
+/*
+ * Architectures can overwrite this function to restore register sets that
+ * are not covered by ptrace_set/get_regs().
+ */
+int __attribute__((weak)) arch_set_thread_regs(struct pstree_item *item)
 {
-	ctl->new_rlimit.rlim_cur = kdat.sysctl_nr_open;
-	ctl->new_rlimit.rlim_max = kdat.sysctl_nr_open;
-
-	if (prlimit(pid, RLIMIT_NOFILE, &ctl->new_rlimit, &ctl->old_rlimit)) {
-		pr_perror("rlimir: Can't setup RLIMIT_NOFILE for %d", pid);
-		return -1;
-	} else
-		pr_debug("rlimit: RLIMIT_NOFILE unlimited for %d\n", pid);
-
-	ctl->unlimited = true;
 	return 0;
-}
-
-static int rlimit_limit_nofile(pid_t pid, struct rlim_ctl *ctl)
-{
-	if (!ctl->unlimited)
-		return 0;
-
-	if (prlimit(pid, RLIMIT_NOFILE, &ctl->old_rlimit, NULL)) {
-		pr_perror("rlimir: Can't restore RLIMIT_NOFILE for %d", pid);
-		return -1;
-	} else
-		pr_debug("rlimit: RLIMIT_NOFILE restored for %d\n", pid);
-
-	ctl->unlimited = false;
-	return 0;
-}
-
-typedef struct {
-	const char	*name;
-	const char	fmt_barrier[64];
-	const char	fmt_limit[64];
-	unsigned long	barrier;
-	unsigned long	limit;
-} bc_val_t;
-
-#define declare_ub(_u, _b, _l)							\
-	{									\
-		.name		= __stringify_1(_u),				\
-		.fmt_barrier	= "beancounter." __stringify_1(_u) ".barrier",	\
-		.fmt_limit	= "beancounter." __stringify_1(_u) ".limit",	\
-		.barrier	= _b,						\
-		.limit		= _l,						\
-	}
-
-#define declare_ub_unlimited(_u)						\
-	declare_ub(_u, LONG_MAX, LONG_MAX)
-
-static bc_val_t bc_vals[] = {
-	declare_ub_unlimited(lockedpages),
-	declare_ub_unlimited(privvmpages),
-	declare_ub_unlimited(shmpages),
-	declare_ub_unlimited(numproc),
-	declare_ub_unlimited(vmguarpages),
-	declare_ub_unlimited(numflock),
-	declare_ub_unlimited(numpty),
-	declare_ub_unlimited(numsiginfo),
-	declare_ub_unlimited(numfile),
-	declare_ub_unlimited(numiptent),
-};
-
-typedef struct {
-	const char	*name;
-	unsigned long	value;
-} memcg_val_t;
-
-static memcg_val_t memcg_vals[] = {
-	{
-		.name		= "memory.memsw.limit_in_bytes",
-		.value		= LONG_MAX,
-	}, {
-		.name		= "memory.limit_in_bytes",
-		.value		= LONG_MAX,
-	},
-};
-
-#define VE_BC_STATUS_UNDEF	0
-#define VE_BC_STATUS_READ	1
-#define VE_BC_STATUS_UNLIMITED	2
-
-typedef struct {
-	char		veid[512];
-	unsigned int	status;
-
-	int		bc_dirfd;
-	bc_val_t	*bc_vals;
-	size_t		nr_bc_vals;
-
-	int		memcg_dirfd;
-	memcg_val_t	*memcg_vals;
-	size_t		nr_memcg_vals;
-} bc_set_t;
-
-static bc_set_t bc_set = {
-	.bc_vals	= bc_vals,
-	.nr_bc_vals	= ARRAY_SIZE(bc_vals),
-	.memcg_vals	= memcg_vals,
-	.nr_memcg_vals	= ARRAY_SIZE(memcg_vals),
-	.bc_dirfd	= -1,
-	.memcg_dirfd	= -1,
-};
-
-extern char *get_dumpee_veid(pid_t pid_real);
-
-static int __maybe_unused ve_read_cg(int dirfd, const char *path, unsigned long *value)
-{
-	int fd, ret = -1;
-	char buf[256];
-
-	fd = openat(dirfd, path, O_RDONLY);
-	if (fd < 0) {
-		pr_perror("ubc: Can't open %s", path);
-		goto out;
-	}
-
-	ret = read(fd, buf, sizeof(buf));
-	close(fd);
-	if (ret <= 0) {
-		ret = -1;
-		pr_perror("ubc: Can't read %s", path);
-		goto out;
-	}
-	*value = atol(buf);
-	ret = 0;
-out:
-	return ret;
-}
-
-static int __maybe_unused ve_write_cg(int dirfd, const char *path, unsigned long value)
-{
-	int fd, ret = -1;
-	char buf[256];
-
-	fd = openat(dirfd, path, O_RDWR);
-	if (fd < 0) {
-		pr_perror("ubc: Can't open %s", path);
-		goto out;
-	}
-
-	snprintf(buf, sizeof(buf), "%lu", value);
-	ret = write(fd, buf, strlen(buf));
-	close(fd);
-	if (ret <= 0) {
-		ret = -1;
-		pr_perror("ubc: Can't write %s", path);
-		goto out;
-	}
-	ret = 0;
-out:
-	return ret;
-}
-
-static void __maybe_unused ve_bc_read(pid_t pid, bc_set_t *bc_set)
-{
-	char *veid = get_dumpee_veid(pid);
-	char path[PATH_MAX];
-	int i;
-
-	if (IS_ERR_OR_NULL(veid)) {
-		pr_err("ubc: Can't fetch VEID of a dumpee %d\n", pid);
-		return;
-	}
-	strlcpy(bc_set->veid, veid, sizeof(bc_set->veid));
-
-	pr_debug("ubc: reading %s\n", bc_set->veid);
-
-	snprintf(path, sizeof(path), "/sys/fs/cgroup/beancounter/%s", veid);
-	bc_set->bc_dirfd = open(path, O_DIRECTORY | O_PATH);
-	if (bc_set->bc_dirfd < 0) {
-		pr_perror("ubc: Can't open %s", path);
-		return;
-	}
-
-	snprintf(path, sizeof(path), "/sys/fs/cgroup/memory/machine.slice/%s", veid);
-	bc_set->memcg_dirfd = open(path, O_DIRECTORY | O_PATH);
-	if (bc_set->memcg_dirfd < 0) {
-		pr_perror("ubc: Can't open %s", path);
-		return;
-	}
-
-	for (i = 0; i < bc_set->nr_bc_vals; i++) {
-		if (ve_read_cg(bc_set->bc_dirfd,
-			       bc_set->bc_vals[i].fmt_barrier,
-			       &bc_set->bc_vals[i].barrier) ||
-		    ve_read_cg(bc_set->bc_dirfd,
-			       bc_set->bc_vals[i].fmt_limit,
-			       &bc_set->bc_vals[i].limit))
-			return;
-
-		pr_debug("ubc: %s: %s: barrier %lu limit %lu\n",
-			 veid, bc_set->bc_vals[i].name,
-			 bc_set->bc_vals[i].barrier,
-			 bc_set->bc_vals[i].limit);
-	}
-
-	for (i = 0; i < bc_set->nr_memcg_vals; i++) {
-		if (ve_read_cg(bc_set->memcg_dirfd,
-			       bc_set->memcg_vals[i].name,
-			       &bc_set->memcg_vals[i].value))
-			return;
-
-		pr_debug("ubc: %s: %s: %lu\n",
-			 veid, bc_set->memcg_vals[i].name,
-			 bc_set->memcg_vals[i].value);
-	}
-
-
-	pr_debug("ubc: read %s\n", bc_set->veid);
-	bc_set->status |= VE_BC_STATUS_READ;
-}
-
-static void __maybe_unused ve_bc_unlimit(bc_set_t *bc_set)
-{
-	int i, j;
-
-	if (!(bc_set->status & VE_BC_STATUS_READ))
-		return;
-
-	pr_debug("ubc: unlimiting %s\n", bc_set->veid);
-
-	for (i = 0; i < bc_set->nr_bc_vals; i++) {
-		if (ve_write_cg(bc_set->bc_dirfd,
-				bc_set->bc_vals[i].fmt_barrier,
-				LONG_MAX) ||
-		    ve_write_cg(bc_set->bc_dirfd,
-				bc_set->bc_vals[i].fmt_limit,
-				LONG_MAX)) {
-			pr_err("ubc: Can't unlimit %s/%s for %s\n",
-			       bc_set->bc_vals[i].fmt_barrier,
-			       bc_set->bc_vals[i].fmt_limit,
-			       bc_set->veid);
-			for (j = i; j >= 0; j--) {
-				ve_write_cg(bc_set->bc_dirfd,
-					    bc_set->bc_vals[j].fmt_barrier,
-					    bc_set->bc_vals[j].barrier);
-				ve_write_cg(bc_set->bc_dirfd,
-					    bc_set->bc_vals[j].fmt_limit,
-					    bc_set->bc_vals[j].limit);
-			}
-			return;
-		}
-	}
-
-	for (i = 0; i < bc_set->nr_memcg_vals; i++) {
-		if (ve_write_cg(bc_set->memcg_dirfd,
-				bc_set->memcg_vals[i].name,
-				LONG_MAX)) {
-			pr_err("ubc: Can't unlimit %s for %s\n",
-			       bc_set->memcg_vals[i].name,
-			       bc_set->veid);
-			for (j = i; j >= 0; j--) {
-				ve_write_cg(bc_set->memcg_dirfd,
-				bc_set->memcg_vals[i].name,
-				bc_set->memcg_vals[i].value);
-			}
-			return;
-		}
-	}
-
-	pr_debug("ubc: unlimited %s\n", bc_set->veid);
-	bc_set->status |= VE_BC_STATUS_UNLIMITED;
-}
-
-static void __maybe_unused ve_bc_finish(bc_set_t *bc_set)
-{
-	int i;
-
-	pr_debug("ubc: restore limits %s\n", bc_set->veid);
-
-	if (!(bc_set->status & VE_BC_STATUS_UNLIMITED))
-		return;
-
-	for (i = 0; i < bc_set->nr_bc_vals; i++) {
-		ve_write_cg(bc_set->bc_dirfd,
-			    bc_set->bc_vals[i].fmt_barrier,
-			    bc_set->bc_vals[i].barrier);
-		ve_write_cg(bc_set->bc_dirfd,
-			    bc_set->bc_vals[i].fmt_limit,
-			    bc_set->bc_vals[i].limit);
-	}
-
-	for (i = bc_set->nr_memcg_vals - 1; i >= 0; i--) {
-		ve_write_cg(bc_set->memcg_dirfd,
-			    bc_set->memcg_vals[i].name,
-			    bc_set->memcg_vals[i].value);
-	}
-
-	pr_debug("ubc: restored %s\n", bc_set->veid);
 }
 
 static char loc_buf[PAGE_SIZE];
@@ -643,7 +350,7 @@ static int dump_pid_misc(pid_t pid, TaskCoreEntry *tc)
 {
 	int ret;
 
-	if (kdat.has_loginuid) {
+	if (kdat.luid != LUID_NONE) {
 		pr_info("dumping /proc/%d/loginuid\n", pid);
 
 		tc->has_loginuid = true;
@@ -679,19 +386,11 @@ static int dump_filemap(struct vma_area *vma_area, int fd)
 	struct fd_parms p = FD_PARMS_INIT;
 	VmaEntry *vma = vma_area->e;
 	int ret = 0;
-	struct statfs fst;
 	u32 id;
 
 	BUG_ON(!vma_area->vmst);
 	p.stat = *vma_area->vmst;
 	p.mnt_id = vma_area->mnt_id;
-
-	if (fstatfs(fd, &fst)) {
-		pr_perror("Unable to statfs fd %d", fd);
-		return -1;
-	}
-
-	p.fs_type = fst.f_type;
 
 	/*
 	 * AUFS support to compensate for the kernel bug
@@ -1050,13 +749,6 @@ static int dump_task_core_all(struct parasite_ctl *ctl,
 	core->tc->flags = stat->flags;
 	core->tc->task_state = item->pid->state;
 	core->tc->exit_code = 0;
-
-	if (stat->tty_nr) {
-		core->tc->has_tty_nr = true;
-		core->tc->has_tty_pgrp = true;
-		core->tc->tty_nr = stat->tty_nr;
-		core->tc->tty_pgrp = stat->tty_pgrp;
-	}
 
 	ret = parasite_dump_thread_leader_seized(ctl, pid, core);
 	if (ret)
@@ -1446,13 +1138,11 @@ static int pre_dump_one_task(struct pstree_item *item)
 	struct parasite_dump_misc misc;
 	struct mem_dump_ctl mdc;
 
-	struct rlim_ctl rlim_ctl = { };
-
 	INIT_LIST_HEAD(&vmas.h);
 	vmas.nr = 0;
 
 	pr_info("========================================\n");
-	pr_info("Pre-dumping task (pid: %d comm: %s)\n", pid, __task_comm_info(pid));
+	pr_info("Pre-dumping task (pid: %d)\n", pid);
 	pr_info("========================================\n");
 
 	if (item->pid->state == TASK_STOPPED) {
@@ -1468,8 +1158,6 @@ static int pre_dump_one_task(struct pstree_item *item)
 		pr_err("Collect mappings (pid: %d) failed with %d\n", pid, ret);
 		goto err;
 	}
-
-	rlimit_unlimit_nofile(pid, &rlim_ctl);
 
 	ret = -1;
 	parasite_ctl = parasite_infect_seized(pid, item, &vmas);
@@ -1509,7 +1197,6 @@ static int pre_dump_one_task(struct pstree_item *item)
 err_free:
 	free_mappings(&vmas);
 err:
-	rlimit_limit_nofile(pid, &rlim_ctl);
 	return ret;
 
 err_cure:
@@ -1530,13 +1217,11 @@ static int dump_one_task(struct pstree_item *item)
 	struct proc_posix_timers_stat proc_args;
 	struct mem_dump_ctl mdc;
 
-	struct rlim_ctl rlim_ctl = { };
-
 	INIT_LIST_HEAD(&vmas.h);
 	vmas.nr = 0;
 
 	pr_info("========================================\n");
-	pr_info("Dumping task (pid: %d comm: %s)\n", pid, __task_comm_info(pid));
+	pr_info("Dumping task (pid: %d)\n", pid);
 	pr_info("========================================\n");
 
 	if (item->pid->state == TASK_DEAD)
@@ -1583,8 +1268,6 @@ static int dump_one_task(struct pstree_item *item)
 		pr_err("Dump %d signals failed %d\n", pid, ret);
 		goto err;
 	}
-
-	rlimit_unlimit_nofile(pid, &rlim_ctl);
 
 	parasite_ctl = parasite_infect_seized(pid, item, &vmas);
 	if (!parasite_ctl) {
@@ -1668,7 +1351,7 @@ static int dump_one_task(struct pstree_item *item)
 	if (ret)
 		goto err_cure;
 
-	ret = parasite_dump_sigacts_seized(parasite_ctl, cr_imgset);
+	ret = parasite_dump_sigacts_seized(parasite_ctl, item);
 	if (ret) {
 		pr_err("Can't dump sigactions (pid: %d) with parasite\n", pid);
 		goto err_cure;
@@ -1685,8 +1368,6 @@ static int dump_one_task(struct pstree_item *item)
 		pr_err("Can't dump posix timers (pid: %d)\n", pid);
 		goto err_cure;
 	}
-
-	rlimit_limit_nofile(pid, &rlim_ctl);
 
 	ret = dump_task_core_all(parasite_ctl, item, &pps_buf, cr_imgset);
 	if (ret) {
@@ -1730,7 +1411,6 @@ err:
 	close_pid_proc();
 	free_mappings(&vmas);
 	xfree(dfds);
-	rlimit_limit_nofile(pid, &rlim_ctl);
 	return exit_code;
 
 err_cure:
@@ -1779,8 +1459,6 @@ static int setup_alarm_handler()
 static int cr_pre_dump_finish(int ret)
 {
 	struct pstree_item *item;
-
-	ve_bc_finish(&bc_set);
 
 	pstree_switch_state(root_item, TASK_ALIVE);
 
@@ -1846,11 +1524,6 @@ int cr_pre_dump_tasks(pid_t pid)
 	struct pstree_item *item;
 	int ret = -1;
 
-	ve_bc_read(pid, &bc_set);
-
-	if (images_init(false))
-		goto err;
-
 	root_item = alloc_pstree_item();
 	if (!root_item)
 		goto err;
@@ -1873,6 +1546,9 @@ int cr_pre_dump_tasks(pid_t pid)
 		goto err;
 
 	if (kerndat_init())
+		goto err;
+
+	if (lsm_check_opts())
 		goto err;
 
 	if (irmap_load_cache())
@@ -1899,8 +1575,6 @@ int cr_pre_dump_tasks(pid_t pid)
 	if (collect_namespaces(false) < 0)
 		goto err;
 
-	ve_bc_unlimit(&bc_set);
-
 	for_each_pstree_item(item)
 		if (pre_dump_one_task(item))
 			goto err;
@@ -1920,8 +1594,6 @@ err:
 static int cr_dump_finish(int ret)
 {
 	int post_dump_ret = 0;
-
-	ve_bc_finish(&bc_set);
 
 	if (disconnect_from_page_server())
 		ret = -1;
@@ -1946,8 +1618,10 @@ static int cr_dump_finish(int ret)
 		 * checkpoint.
 		 */
 		post_dump_ret = run_scripts(ACT_POST_DUMP);
-		if (post_dump_ret)
-			pr_err("Post dump script passed with %d\n", post_dump_ret);
+		if (post_dump_ret) {
+			post_dump_ret = WEXITSTATUS(post_dump_ret);
+			pr_info("Post dump script passed with %d\n", post_dump_ret);
+		}
 	}
 
 	/*
@@ -1976,6 +1650,7 @@ static int cr_dump_finish(int ret)
 		delete_link_remaps();
 		clean_cr_time_mounts();
 	}
+	arch_set_thread_regs(root_item);
 	pstree_switch_state(root_item,
 			    (ret || post_dump_ret) ?
 			    TASK_ALIVE : opts.final_state);
@@ -2004,14 +1679,9 @@ int cr_dump_tasks(pid_t pid)
 	int pre_dump_ret = 0;
 	int ret = -1;
 
-	ve_bc_read(pid, &bc_set);
-
 	pr_info("========================================\n");
-	pr_info("Dumping processes (pid: %d comm: %s)\n", pid, __task_comm_info(pid));
+	pr_info("Dumping processes (pid: %d)\n", pid);
 	pr_info("========================================\n");
-
-	if (images_init(false))
-		goto err;
 
 	root_item = alloc_pstree_item();
 	if (!root_item)
@@ -2030,6 +1700,9 @@ int cr_dump_tasks(pid_t pid)
 		goto err;
 
 	if (kerndat_init())
+		goto err;
+
+	if (lsm_check_opts())
 		goto err;
 
 	if (irmap_load_cache())
@@ -2085,17 +1758,12 @@ int cr_dump_tasks(pid_t pid)
 	if (collect_namespaces(true) < 0)
 		goto err;
 
-	if (collect_unix_bindmounts() < 0)
-		goto err;
-
 	glob_imgset = cr_glob_imgset_open(O_DUMP);
 	if (!glob_imgset)
 		goto err;
 
 	if (collect_seccomp_filters() < 0)
 		goto err;
-
-	ve_bc_unlimit(&bc_set);
 
 	for_each_pstree_item(item) {
 		if (dump_one_task(item))
@@ -2144,10 +1812,6 @@ int cr_dump_tasks(pid_t pid)
 		goto err;
 
 	ret = tty_post_actions();
-	if (ret)
-		goto err;
-
-	ret = sk_queue_post_actions();
 	if (ret)
 		goto err;
 

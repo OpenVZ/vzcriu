@@ -251,12 +251,6 @@ static inline bool issubpath(const char *path, const char *sub_path)
  * mkdir -p
  */
 int mkdirpat(int fd, const char *path, int mode);
-/*
- * mkdir -p `dirname $path`
- */
-int mkdirname(const char *path, int mode);
-
-int rmdirp(const char *path, size_t keep);
 
 /*
  * Tests whether a path is a prefix of another path. This is different than
@@ -292,11 +286,29 @@ void print_data(unsigned long addr, unsigned char *data, size_t size);
 int setup_tcp_server(char *type);
 int run_tcp_server(bool daemon_mode, int *ask, int cfd, int sk);
 int setup_tcp_client(char *addr);
-int cr_set_root(int fd, int *old_root);
-int cr_restore_root(int fd);
-int call_in_child_process(int (*fn)(void *), void *arg);
 
 #define LAST_PID_PATH		"sys/kernel/ns_last_pid"
 #define PID_MAX_PATH		"sys/kernel/pid_max"
+
+#define block_sigmask(saved_mask, sig_mask)	({					\
+		sigset_t ___blocked_mask;						\
+		int ___ret = 0;								\
+		sigemptyset(&___blocked_mask);						\
+		sigaddset(&___blocked_mask, sig_mask);					\
+		if (sigprocmask(SIG_BLOCK, &___blocked_mask, saved_mask) == -1) {	\
+			pr_perror("Can not set mask of blocked signals");		\
+			___ret = -1;							\
+		}									\
+		___ret;									\
+	})
+
+#define restore_sigmask(saved_mask)	({						\
+		int ___ret = 0;								\
+		if (sigprocmask(SIG_SETMASK, saved_mask, NULL) == -1) {			\
+			pr_perror("Can not unset mask of blocked signals");		\
+			___ret = -1;							\
+		}									\
+		___ret;									\
+	})
 
 #endif /* __CR_UTIL_H__ */

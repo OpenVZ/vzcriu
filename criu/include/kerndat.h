@@ -2,7 +2,9 @@
 #define __CR_KERNDAT_H__
 
 #include <stdbool.h>
+
 #include "int.h"
+#include "config.h"
 
 struct stat;
 
@@ -12,12 +14,9 @@ struct stat;
  */
 
 extern int kerndat_init(void);
-extern int kerndat_init_rst(void);
-extern int kerndat_init_cr_exec(void);
 extern int kerndat_get_dirty_track(void);
 extern int kerndat_fdinfo_has_lock(void);
-extern int kerndat_loginuid(bool only_dump);
-extern int kerndat_files_stat(bool early);
+extern int kerndat_loginuid(void);
 
 enum pagemap_func {
 	PM_UNKNOWN,
@@ -26,26 +25,30 @@ enum pagemap_func {
 	PM_FULL,
 };
 
+enum loginuid_func {
+	LUID_NONE,
+	LUID_READ,
+	LUID_FULL,
+};
+
 struct kerndat_s {
+	u32 magic1, magic2;
 	dev_t shmem_dev;
 	int last_cap;
 	u64 zero_page_pfn;
 	bool has_dirty_track;
 	bool has_memfd;
 	bool has_fdinfo_lock;
-	bool has_nl_repair;
 	unsigned long task_size;
 	bool ipv6;
-	bool has_loginuid;
+	enum loginuid_func luid;
 	bool compat_cr;
 	enum pagemap_func pmap;
 	unsigned int has_xtlocks;
 	unsigned long mmap_min_addr;
 	bool has_tcp_half_closed;
-	unsigned int sysctl_nr_open;
-	unsigned long files_stat_max_files;
 	bool stack_guard_gap_hidden;
-	bool can_map_vdso;
+	int lsm;
 };
 
 extern struct kerndat_s kdat;
@@ -67,6 +70,5 @@ enum {
 extern int kerndat_fs_virtualized(unsigned int which, u32 kdev);
 
 extern int kerndat_tcp_repair();
-extern int kerndat_nl_repair();
 
 #endif /* __CR_KERNDAT_H__ */

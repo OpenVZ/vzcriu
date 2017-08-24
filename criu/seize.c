@@ -23,60 +23,11 @@
 #include "util.h"
 #include <compel/compel.h>
 
-char *task_comm_info(pid_t pid, char *comm, size_t size)
-{
-	int ret = 0;
-
-	if (!pr_quelled(LOG_INFO)) {
-		int saved_errno = errno;
-		char path[64];
-		int fd;
-
-		snprintf(path, sizeof(path), "/proc/%d/comm", pid);
-		fd = open(path, O_RDONLY);
-		if (fd >= 0) {
-			ssize_t n = read(fd, comm, size);
-			if (n > 0)
-				comm[n-1] = '\0';
-			else
-				ret = -1;
-			close(fd);
-		} else
-			ret = -1;
-		errno = saved_errno;
-	}
-
-	if (ret || (pr_quelled(LOG_INFO) && comm[0]))
-		comm[0] = '\0';
-
-	return comm;
-}
-
-/*
- * NOTE: Don't run simultaneously, it uses local static buffer!
- */
-char *__task_comm_info(pid_t pid)
-{
-	static char comm[32];
-	return task_comm_info(pid, comm, sizeof(comm));
-}
-
 #define NR_ATTEMPTS 5
 
 static const char frozen[]	= "FROZEN";
 static const char freezing[]	= "FREEZING";
 static const char thawed[]	= "THAWED";
-
-static int set_freezer_state(int fd, const char *state, size_t len)
-{
-	lseek(fd, 0, SEEK_SET);
-	if (write(fd, state, len) != len) {
-		pr_perror("freezer: Unable to apply %s", state);
-		return -1;
-	}
-
-	return 0;
-}
 
 static const char *get_freezer_state(int fd)
 {
@@ -146,34 +97,6 @@ static int freezer_restore_state(void)
 static int processes_to_wait;
 static pid_t *processes_to_wait_pids;
 
-static bool is_traced(pid_t pid)
-{
-	char path[PATH_MAX];
-	FILE *f;
-
-	snprintf(path, sizeof(path), "/proc/%d/status", pid);
-	f = fopen(path, "r");
-	if (!f) {
-		pr_perror("Unable to open %s", path);
-		return false;
-	}
-
-	while (fgets(path, sizeof(path), f)) {
-		pid_t tpid;
-
-		if (strncmp("TracerPid:\t", path, 11))
-			continue;
-
-		fclose(f);
-
-		tpid = atol(&path[11]);
-		pr_debug("pid %d is traced by %d\n", pid, tpid);
-		return tpid ? true : false;
-	}
-	fclose(f);
-	return false;
-}
-
 static int seize_cgroup_tree(char *root_path, const char *state)
 {
 	DIR *dir;
@@ -202,15 +125,13 @@ static int seize_cgroup_tree(char *root_path, const char *state)
 		if (ret == 0)
 			continue;
 		if (errno != ESRCH) {
-			pr_perror("Unexpected error for pid %d (comm %s)",
-				  pid, __task_comm_info(pid));
+			pr_perror("Unexpected error");
 			fclose(f);
 			return -1;
 		}
 
 		if (!compel_interrupt_task(pid)) {
-			pr_debug("SEIZE %d (comm %s): success\n",
-				 pid, __task_comm_info(pid));
+			pr_debug("SEIZE %d: success\n", pid);
 			processes_to_wait++;
 		} else if (state == frozen) {
 			char buf[] = "/proc/XXXXXXXXXX/exe";
@@ -220,12 +141,6 @@ static int seize_cgroup_tree(char *root_path, const char *state)
 			snprintf(buf, sizeof(buf), "/proc/%d/exe", pid);
 			if (stat(buf, &st) == -1 && errno == ENOENT)
 				continue;
-
-			if (is_traced(pid)) {
-				fclose(f);
-				return -EAGAIN;
-			}
-
 			/*
 			 * fails when meets a zombie, or eixting process:
 			 * there is a small race in a kernel -- the process
@@ -233,57 +148,7 @@ static int seize_cgroup_tree(char *root_path, const char *state)
 			 * before it compete exit procedure. The caller simply
 			 * should wait a bit and try freezing again.
 			 */
-			pr_err("zombie %d (comm %s) found while seizing\n",
-			       pid, __task_comm_info(pid));
-			if (!pr_quelled(LOG_DEBUG)) {
-				/*
-				 * FIXME: Debug printing in a sake of
-				 * https://jira.sw.ru/browse/PSBM-53929
-				 * Drop before the release.
-				 */
-				char __path[64], __buf[2048];
-				static char ps_cmd[] = "ps";
-				int fd, ret;
-
-				cr_system(-1, -1, -1, ps_cmd,
-					  (char *[]) { ps_cmd, "aufx", NULL}, 0);
-
-				snprintf(__path, sizeof(__path), "/proc/%d/stack", pid);
-				fd = open(__path, O_RDONLY);
-				if (fd >= 0) {
-					ret = read(fd, __buf, sizeof(__buf) - 1);
-					if (ret > 0) {
-						__buf[ret] = '\0';
-						pr_debug("/proc/%d/stack:\n%s\n",
-							 pid, __buf);
-					}
-					close(fd);
-				}
-
-				snprintf(__path, sizeof(__path), "/proc/%d/stat", pid);
-				fd = open(__path, O_RDONLY);
-				if (fd >= 0) {
-					ret = read(fd, __buf, sizeof(__buf) - 1);
-					if (ret > 0) {
-						__buf[ret] = '\0';
-						pr_debug("/proc/%d/stat:\n%s\n",
-							 pid, __buf);
-					}
-					close(fd);
-				}
-
-				snprintf(__path, sizeof(__path), "/proc/%d/status", pid);
-				fd = open(__path, O_RDONLY);
-				if (fd >= 0) {
-					ret = read(fd, __buf, sizeof(__buf) - 1);
-					if (ret > 0) {
-						__buf[ret] = '\0';
-						pr_debug("/proc/%d/status:\n%s\n",
-							 pid, __buf);
-					}
-					close(fd);
-				}
-			}
+			pr_err("zombie found while seizing\n");
 			fclose(f);
 			return -EAGAIN;
 		}
@@ -371,10 +236,8 @@ static int freezer_detach(void)
 		pid_t pid = processes_to_wait_pids[i];
 		int status, save_errno;
 
-		if (ptrace(PTRACE_DETACH, pid, NULL, NULL) == 0) {
-			pr_debug("Detached from %d\n", pid);
+		if (ptrace(PTRACE_DETACH, pid, NULL, NULL) == 0)
 			continue;
-		}
 
 		save_errno = errno;
 
@@ -501,13 +364,12 @@ static int freeze_processes(void)
 		close(fd);
 		return -1;
 	}
-
-again:
 	if (state == thawed) {
 		freezer_thawed = true;
 
-		if (set_freezer_state(fd, frozen, sizeof(frozen))) {
-			pr_err("Unable to freeze tasks\n");
+		lseek(fd, 0, SEEK_SET);
+		if (write(fd, frozen, sizeof(frozen)) != sizeof(frozen)) {
+			pr_perror("Unable to freeze tasks");
 			close(fd);
 			return -1;
 		}
@@ -551,16 +413,6 @@ again:
 		if (exit_code == -EAGAIN) {
 			if (alarm_timeouted())
 				goto err;
-			if (freezer_thawed) {
-				if (set_freezer_state(fd, thawed, sizeof(thawed))) {
-					pr_err("Unable to thaw tasks\n");
-					exit_code = -1;
-					goto err;
-				}
-				state = thawed;
-				nanosleep(&req, NULL);
-				goto again;
-			}
 			nanosleep(&req, NULL);
 		} else
 			break;
@@ -568,8 +420,9 @@ again:
 
 err:
 	if (exit_code == 0 || freezer_thawed) {
-		if (set_freezer_state(fd, thawed, sizeof(thawed))) {
-			pr_err("Unable to thaw tasks\n");
+		lseek(fd, 0, SEEK_SET);
+		if (write(fd, thawed, sizeof(thawed)) != sizeof(thawed)) {
+			pr_perror("Unable to thaw tasks");
 			exit_code = -1;
 		}
 	}
@@ -637,7 +490,7 @@ static int collect_children(struct pstree_item *item)
 			goto free;
 		}
 
-		ret = compel_wait_task(pid, item->pid->real, parse_pid_status, &creds->s);
+		ret = compel_wait_task(pid, item->pid->real, parse_pid_status, NULL, &creds->s, NULL);
 		if (ret < 0) {
 			/*
 			 * Here is a race window between parse_children() and seize(),
@@ -776,21 +629,29 @@ static inline bool thread_collected(struct pstree_item *i, pid_t tid)
 static bool creds_dumpable(struct proc_status_creds *parent,
 				struct proc_status_creds *child)
 {
+	size_t size;
 	/*
+	 * The comparison rules are the following
+	 *
+	 *  - CAPs can be different
 	 *  - seccomp filters should be passed via
 	 *    semantic comparison (FIXME) but for
 	 *    now we require them to be exactly
 	 *    identical
+	 *  - sigpnd may be different
+	 *  - the rest of members must match
 	 */
-	if (parent->s.seccomp_mode != child->s.seccomp_mode ||
-	    parent->last_filter != child->last_filter) {
+
+	size = offsetof(struct proc_status_creds, cap_inh) -
+	       sizeof(parent->s.sigpnd);
+
+	if (memcmp(&parent->s.sigpnd, &child->s.sigpnd, size)) {
 		if (!pr_quelled(LOG_DEBUG)) {
 			pr_debug("Creds undumpable (parent:child)\n"
 				 "  uids:               %d:%d %d:%d %d:%d %d:%d\n"
 				 "  gids:               %d:%d %d:%d %d:%d %d:%d\n"
 				 "  state:              %d:%d"
 				 "  ppid:               %d:%d\n"
-				 "  sigpnd:             %llu:%llu\n"
 				 "  shdpnd:             %llu:%llu\n"
 				 "  seccomp_mode:       %d:%d\n"
 				 "  last_filter:        %u:%u\n",
@@ -804,7 +665,6 @@ static bool creds_dumpable(struct proc_status_creds *parent,
 				 parent->gids[3], child->gids[3],
 				 parent->s.state, child->s.state,
 				 parent->s.ppid, child->s.ppid,
-				 parent->s.sigpnd, child->s.sigpnd,
 				 parent->s.shdpnd, child->s.shdpnd,
 				 parent->s.seccomp_mode, child->s.seccomp_mode,
 				 parent->last_filter, child->last_filter);
@@ -856,7 +716,7 @@ static int collect_threads(struct pstree_item *item)
 		if (!opts.freeze_cgroup && compel_interrupt_task(pid))
 			continue;
 
-		ret = compel_wait_task(pid, item_ppid(item), parse_pid_status, &t_creds.s);
+		ret = compel_wait_task(pid, item_ppid(item), parse_pid_status, NULL, &t_creds.s, NULL);
 		if (ret < 0) {
 			/*
 			 * Here is a race window between parse_threads() and seize(),
@@ -876,7 +736,6 @@ static int collect_threads(struct pstree_item *item)
 		BUG_ON(item->nr_threads + 1 > nr_threads);
 		item->threads[item->nr_threads].real = pid;
 		item->threads[item->nr_threads].item = NULL;
-		item->threads[item->nr_threads].state = TASK_THREAD;
 		item->nr_threads++;
 
 		if (ret == TASK_DEAD) {
@@ -996,7 +855,7 @@ int collect_pstree(void)
 	if (!creds)
 		goto err;
 
-	ret = compel_wait_task(pid, -1, parse_pid_status, &creds->s);
+	ret = compel_wait_task(pid, -1, parse_pid_status, NULL, &creds->s, NULL);
 	if (ret < 0)
 		goto err;
 

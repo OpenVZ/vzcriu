@@ -1,3 +1,4 @@
+.SUFFIXES:
 MAKEFLAGS	+= -r
 
 ARCH ?= $(shell uname -m | sed          \
@@ -58,6 +59,7 @@ DEPEND.c = $(COMPILE.c) -MM -MP
 	$(Q)$(CC) $(LDFLAGS) $^ $(LDLIBS) -o $@
 
 default: all
+	@true
 .PHONY: default
 
 gitignore-clean:
@@ -88,7 +90,7 @@ dep: $(DEP)
 no-deps-targets	:= clean cleandep cleanout realclean groups.cleanout
 
 ifeq ($(filter $(no-deps-targets), $(MAKECMDGOALS)),)
--include $(DEP)
+-include $(wildcard $(DEP))
 endif
 
 .SECONDARY:

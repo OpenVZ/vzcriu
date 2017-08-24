@@ -1,3 +1,5 @@
+#include <signal.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <elf.h>
@@ -28,49 +30,33 @@
 #include "images/core.pb-c.h"
 #include "images/creds.pb-c.h"
 
-int kdat_can_map_vdso(void)
+#ifdef CONFIG_COMPAT
+static int has_arch_map_vdso(void)
 {
-	pid_t child;
-	int stat;
+	unsigned long auxval;
+	int ret;
 
+	errno = 0;
+	auxval = getauxval(AT_SYSINFO_EHDR);
+	if (!auxval) {
+		if (errno == ENOENT) { /* No vDSO - OK */
+			pr_warn("No SYSINFO_EHDR - no vDSO\n");
+			return 1;
+		} else { /* That can't happen, according to man */
+			pr_err("Failed to get auxval: errno %d\n", errno);
+			return -1;
+		}
+	}
 	/*
-	 * Running under fork so if vdso_64 is disabled - don't create
-	 * it for criu accidentally.
+	 * Mapping vDSO while have not unmap it yet:
+	 * this is restricted by API if ARCH_MAP_VDSO_* is supported.
 	 */
-
-	child = fork();
-	if (child < 0)
-		return -1;
-
-	if (child == 0) {
-		int ret;
-
-		ret = syscall(SYS_arch_prctl, ARCH_MAP_VDSO_32, 0);
-		if (ret == 0)
-			exit(1);
-		/*
-		 * Mapping vDSO while have not unmap it yet:
-		 * this is restricted by API if ARCH_MAP_VDSO_* is supported.
-		 */
-		if (ret == -1 && errno == EEXIST)
-			exit(1);
-		exit(0);
-	}
-
-	if (waitpid(child, &stat, 0) != child) {
-		pr_err("Failed to wait for arch_prctl() test");
-		kill(child, SIGKILL);
-		return -1;
-	}
-
-	if (!WIFEXITED(stat))
-		return -1;
-
-	return WEXITSTATUS(stat);
-
+	ret = syscall(SYS_arch_prctl, ARCH_MAP_VDSO_32, 1);
+	if (ret == -1 && errno == EEXIST)
+		return 1;
+	return 0;
 }
 
-#ifdef CONFIG_COMPAT
 void *mmap_ia32(void *addr, size_t len, int prot,
 		int flags, int fildes, off_t off)
 {
@@ -165,15 +151,13 @@ static int has_32bit_mmap_bug(void)
 
 int kdat_compatible_cr(void)
 {
-	if (!kdat.can_map_vdso)
+	if (!has_arch_map_vdso())
 		return 0;
-
 	if (has_32bit_mmap_bug())
 		return 0;
-
 	return 1;
 }
-#else /* !CONFIG_COMPAT */
+#else
 int kdat_compatible_cr(void)
 {
 	return 0;

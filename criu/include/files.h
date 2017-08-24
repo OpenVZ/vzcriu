@@ -20,7 +20,6 @@ struct file_desc;
 struct cr_imgset;
 struct rst_info;
 struct parasite_ctl;
-struct parasite_drain_fd;
 
 struct fd_link {
 	union {
@@ -51,7 +50,6 @@ struct fd_parms {
 	int		mnt_id;
 
 	struct parasite_ctl *fd_ctl;
-	struct parasite_drain_fd *dfds;
 };
 
 #define FD_PARMS_INIT			\
@@ -68,7 +66,16 @@ struct file_desc;
 
 enum {
 	FLE_INITIALIZED,
+	/*
+	 * FLE is open (via open() or socket() or etc syscalls), and
+	 * common file setting are set up (type-specific are not yet).
+	 * Most possible, the master was already served out.
+	 */
 	FLE_OPEN,
+	/*
+	 * File-type specific settings and preparations are finished,
+	 * and FLE is completely restored.
+	 */
 	FLE_RESTORED,
 };
 
@@ -159,10 +166,13 @@ extern void show_saved_files(void);
 extern int prepare_fds(struct pstree_item *me);
 extern int prepare_fd_pid(struct pstree_item *me);
 extern int prepare_ctl_tty(int pid, struct rst_info *rst_info, u32 ctl_tty_id);
-extern int prepare_shared_fdinfo(void);
+extern int prepare_files(void);
 extern int restore_fs(struct pstree_item *);
 extern int prepare_fs_pid(struct pstree_item *);
 extern int set_fd_flags(int fd, int flags);
+
+extern struct collect_image_info files_cinfo;
+#define files_collected() (files_cinfo.flags & COLLECT_HAPPENED)
 
 extern int close_old_fds(void);
 #ifndef AT_EMPTY_PATH

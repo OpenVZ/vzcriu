@@ -11,7 +11,6 @@
 #include "pipes.h"
 #include "util-pie.h"
 #include "autofs.h"
-#include "namespaces.h"
 
 #include "protobuf.h"
 #include "util.h"
@@ -76,7 +75,7 @@ int do_collect_pipe_data(struct pipe_data_rst *r, ProtobufCMessage *msg,
 }
 
 /* Choose who will restore a pipe. */
-static int mark_pipe_master(void *unused)
+static int mark_pipe_master_cb(struct pprep_head *ph)
 {
 	LIST_HEAD(head);
 
@@ -142,26 +141,9 @@ static int mark_pipe_master(void *unused)
 	return 0;
 }
 
+static MAKE_PPREP_HEAD(mark_pipe_master);
+
 static struct pipe_data_rst *pd_hash_pipes[PIPE_DATA_HASH_SIZE];
-
-typedef struct {
-	unsigned int	pipe_id;
-	size_t		size;
-} pipe_set_size_arg_t;
-
-static int pipe_set_size(void *arg, int fd, int pid)
-{
-	pipe_set_size_arg_t *p = arg;
-
-	pr_info("Restoring size %#zx for %#x\n", p->size, p->pipe_id);
-
-	if (fcntl(fd, F_SETPIPE_SZ, p->size) < 0) {
-		pr_perror("Can't restore pipe size");
-		return -1;
-	}
-
-	return 0;
-}
 
 int restore_pipe_data(int img_type, int pfd, u32 id, struct pipe_data_rst **hash)
 {
@@ -222,11 +204,13 @@ int restore_pipe_data(int img_type, int pfd, u32 id, struct pipe_data_rst **hash
 out:
 	ret = 0;
 	if (pd->pde->has_size) {
-		pipe_set_size_arg_t args = {
-			.pipe_id	= pd->pde->pipe_id,
-			.size		= (size_t)pd->pde->size,
-		};
-		ret = userns_call(pipe_set_size, UNS_ASYNC, &args, sizeof(args), pfd);
+		pr_info("Restoring size %#x for %#x\n",
+				pd->pde->size, pd->pde->pipe_id);
+		ret = fcntl(pfd, F_SETPIPE_SZ, pd->pde->size);
+		if (ret < 0)
+			pr_perror("Can't restore pipe size");
+		else
+			ret = 0;
 	}
 err:
 	return ret;
@@ -390,9 +374,7 @@ int collect_one_pipe_ops(void *o, ProtobufCMessage *base, struct file_desc_ops *
 			list_add(&pi->pipe_list, &tmp->pipe_list);
 	}
 
-	if (add_post_prepare_cb_once(mark_pipe_master, NULL))
-		return -1;
-
+	add_post_prepare_cb_once(&mark_pipe_master);
 	list_add_tail(&pi->list, &pipes);
 
 	return 0;
@@ -505,6 +487,7 @@ static struct pipe_data_dump pd_pipes = { .img_type = CR_FD_PIPES_DATA, };
 
 static int dump_one_pipe(int lfd, u32 id, const struct fd_parms *p)
 {
+	FileEntry fe = FILE_ENTRY__INIT;
 	PipeEntry pe = PIPE_ENTRY__INIT;
 
 	pr_info("Dumping pipe %d with id %#x pipe_id %#x\n",
@@ -520,7 +503,11 @@ static int dump_one_pipe(int lfd, u32 id, const struct fd_parms *p)
 	pe.flags	= p->flags & ~O_DIRECT;
 	pe.fown		= (FownEntry *)&p->fown;
 
-	if (pb_write_one(img_from_set(glob_imgset, CR_FD_PIPES), &pe, PB_PIPE))
+	fe.type = FD_TYPES__PIPE;
+	fe.id = pe.id;
+	fe.pipe = &pe;
+
+	if (pb_write_one(img_from_set(glob_imgset, CR_FD_FILES), &fe, PB_FILE))
 		return -1;
 
 	return dump_one_pipe_data(&pd_pipes, lfd, p);

@@ -45,19 +45,63 @@ static void psi2iovec(struct page_server_iov *ps, struct iovec *iov)
 #define PS_TYPE_BITS	8
 #define PS_TYPE_MASK	((1 << PS_TYPE_BITS) - 1)
 
-static inline u64 encode_pm_id(int type, long id)
+#define PS_TYPE_PID	(1)
+#define PS_TYPE_SHMEM	(2)
+/*
+ * XXX: When adding new types here check decode_pm for legacy
+ * numbers that can be met from older CRIUs
+ */
+
+static inline u64 encode_pm(int type, long id)
 {
+	if (type == CR_FD_PAGEMAP)
+		type = PS_TYPE_PID;
+	else if (type == CR_FD_SHMEM_PAGEMAP)
+		type = PS_TYPE_SHMEM;
+	else {
+		BUG();
+		return 0;
+	}
+
 	return ((u64)id) << PS_TYPE_BITS | type;
 }
 
-static int decode_pm_type(u64 dst_id)
+static int decode_pm(u64 dst_id, long *id)
 {
-	return dst_id & PS_TYPE_MASK;
-}
+	int type;
 
-static long decode_pm_id(u64 dst_id)
-{
-	return (long)(dst_id >> PS_TYPE_BITS);
+	/*
+	 * Magic numbers below came from the older CRIU versions that
+	 * errorneously used the changing CR_FD_* constants. The
+	 * changes were made when we merged images together and moved
+	 * the CR_FD_-s at the tail of the enum
+	 */
+	type = dst_id & PS_TYPE_MASK;
+	switch (type) {
+	case 10: /* 3.1 3.2 */
+	case 11: /* 1.3 1.4 1.5 1.6 1.7 1.8 2.* 3.0 */
+	case 16: /* 1.2 */
+	case 17: /* 1.0 1.1 */
+	case PS_TYPE_PID:
+		*id = dst_id >> PS_TYPE_BITS;
+		type = CR_FD_PAGEMAP;
+		break;
+	case 27: /* 1.3 */
+	case 28: /* 1.4 1.5 */
+	case 29: /* 1.6 1.7 */
+	case 32: /* 1.2 1.8 */
+	case 33: /* 1.0 1.1 3.1 3.2 */
+	case 34: /* 2.* 3.0 */
+	case PS_TYPE_SHMEM:
+		*id = dst_id >> PS_TYPE_BITS;
+		type = CR_FD_SHMEM_PAGEMAP;
+		break;
+	default:
+		type = -1;
+		break;
+	}
+
+	return type;
 }
 
 static inline int send_psi(int sk, u32 cmd, u32 nr_pages, u64 vaddr, u64 dst_id)
@@ -95,26 +139,11 @@ static int write_pagemap_to_server(struct page_xfer *xfer,
 static int write_pages_to_server(struct page_xfer *xfer,
 		int p, unsigned long len)
 {
-	ssize_t ret, left = len;
-
 	pr_debug("Splicing %lu bytes / %lu pages into socket\n", len, len / PAGE_SIZE);
 
-	while (left > 0) {
-		ret = splice(p, NULL, xfer->sk, NULL, left, SPLICE_F_MOVE);
-		if (ret < 0) {
-			pr_perror("Can't write pages to socket. "
-				  "The socket may be overridden by a service descriptor "
-				  "because of too much anonymous memory used.");
-			return -1;
-		}
-
-		if (ret == 0) {
-			pr_err("A pipe was closed unexpectedly\n");
-			return -1;
-		}
-
-		pr_debug("\tSpliced: %lu bytes sent\n", (unsigned long)ret);
-		left -= ret;
+	if (splice(p, NULL, xfer->sk, NULL, len, SPLICE_F_MOVE) != len) {
+		pr_perror("Can't write pages to socket");
+		return -1;
 	}
 
 	return 0;
@@ -139,7 +168,7 @@ static int open_page_server_xfer(struct page_xfer *xfer, int fd_type, long id)
 	xfer->write_pages = write_pages_to_server;
 	xfer->write_hole = write_hole_to_server;
 	xfer->close = close_server_xfer;
-	xfer->dst_id = encode_pm_id(fd_type, id);
+	xfer->dst_id = encode_pm(fd_type, id);
 	xfer->parent = NULL;
 
 	if (send_psi(xfer->sk, PS_IOV_OPEN2, 0, 0, xfer->dst_id)) {
@@ -286,11 +315,13 @@ static void close_page_xfer(struct page_xfer *xfer)
 
 static int open_page_local_xfer(struct page_xfer *xfer, int fd_type, long id)
 {
+	u32 pages_id;
+
 	xfer->pmi = open_image(fd_type, O_DUMP, id);
 	if (!xfer->pmi)
 		return -1;
 
-	xfer->pi = open_pages_image(O_DUMP, xfer->pmi);
+	xfer->pi = open_pages_image(O_DUMP, xfer->pmi, &pages_id);
 	if (!xfer->pi) {
 		close_image(xfer->pmi);
 		return -1;
@@ -449,8 +480,11 @@ static int page_server_check_parent(int sk, struct page_server_iov *pi)
 	int type, ret;
 	long id;
 
-	type = decode_pm_type(pi->dst_id);
-	id = decode_pm_id(pi->dst_id);
+	type = decode_pm(pi->dst_id, &id);
+	if (type == -1) {
+		pr_err("Unknown pagemap type received\n");
+		return -1;
+	}
 
 	ret = check_parent_local_xfer(type, id);
 	if (ret < 0)
@@ -470,7 +504,7 @@ static int check_parent_server_xfer(int fd_type, long id)
 	int has_parent;
 
 	pi.cmd = PS_IOV_PARENT;
-	pi.dst_id = encode_pm_id(fd_type, id);
+	pi.dst_id = encode_pm(fd_type, id);
 
 	if (write(page_server_sk, &pi, sizeof(pi)) != sizeof(pi)) {
 		pr_perror("Can't write to page server");
@@ -517,8 +551,12 @@ static int page_server_open(int sk, struct page_server_iov *pi)
 	int type;
 	long id;
 
-	type = decode_pm_type(pi->dst_id);
-	id = decode_pm_id(pi->dst_id);
+	type = decode_pm(pi->dst_id, &id);
+	if (type == -1) {
+		pr_err("Unknown pagemap type received\n");
+		return -1;
+	}
+
 	pr_info("Opening %d/%ld\n", type, id);
 
 	page_server_close();
@@ -593,7 +631,7 @@ static int page_server_add(int sk, struct page_server_iov *pi)
 			return -1;
 		}
 		if (chunk == 0) {
-			pr_err("The socket was closed unexpectedly\n");
+			pr_err("A socket was closed unexpectedly");
 			return -1;
 		}
 
@@ -736,8 +774,7 @@ int cr_page_server(bool daemon_mode, int cfd)
 	int sk = -1;
 	int ret;
 
-	if (images_init(true))
-		return -1;
+	up_page_ids_base();
 
 	if (opts.ps_socket != -1) {
 		ret = 0;
@@ -750,19 +787,6 @@ int cr_page_server(bool daemon_mode, int cfd)
 	if (sk == -1)
 		return -1;
 no_server:
-
-	if (!daemon_mode && cfd >= 0) {
-		struct ps_info info = {.pid = getpid(), .port = opts.port};
-		int count;
-
-		count = write(cfd, &info, sizeof(info));
-		close_safe(&cfd);
-		if (count != sizeof(info)) {
-			pr_perror("Unable to write ps_info");
-			exit(1);
-		}
-	}
-
 	ret = run_tcp_server(daemon_mode, &ask, cfd, sk);
 	if (ret != 0)
 		return ret > 0 ? 0 : -1;

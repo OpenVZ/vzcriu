@@ -16,7 +16,6 @@
 #include "xmalloc.h"
 #include "images/inventory.pb-c.h"
 #include "images/pagemap.pb-c.h"
-#include "rst-malloc.h"
 
 bool ns_per_id = false;
 bool img_common_magic = true;
@@ -446,21 +445,10 @@ void close_image_dir(void)
 	close_service_fd(IMG_FD_OFF);
 }
 
-/*
- * As we dump SysV shmem IPC into pages-<page_ids>.img,
- * the keys should be shared in each dump ns-helpers and in criu.
- */
-static atomic_t *page_ids;
+static unsigned long page_ids = 1;
 
-int images_init(bool page_server_mode)
+void up_page_ids_base(void)
 {
-	BUG_ON(page_ids);
-	page_ids = shmalloc(sizeof(*page_ids));
-	if (!page_ids) {
-		pr_err("Failed to shmalloc page_ids\n");
-		return -1;
-	}
-
 	/*
 	 * When page server and criu dump work on
 	 * the same dir, the shmem pagemaps and regular
@@ -468,34 +456,32 @@ int images_init(bool page_server_mode)
 	 * making page server produce page images with
 	 * higher IDs.
 	 */
-	atomic_set(page_ids, page_server_mode ? 0x10001 : 1);
- 
-	return 0;
+
+	BUG_ON(page_ids != 1);
+	page_ids += 0x10000;
 }
 
-struct cr_img *open_pages_image_at(int dfd, unsigned long flags, struct cr_img *pmi)
+struct cr_img *open_pages_image_at(int dfd, unsigned long flags, struct cr_img *pmi, u32 *id)
 {
-	unsigned id;
-
 	if (flags == O_RDONLY || flags == O_RDWR) {
 		PagemapHead *h;
 		if (pb_read_one(pmi, &h, PB_PAGEMAP_HEAD) < 0)
 			return NULL;
-		id = h->pages_id;
+		*id = h->pages_id;
 		pagemap_head__free_unpacked(h, NULL);
 	} else {
 		PagemapHead h = PAGEMAP_HEAD__INIT;
-		id = h.pages_id = atomic_inc_return(page_ids);
+		*id = h.pages_id = page_ids++;
 		if (pb_write_one(pmi, &h, PB_PAGEMAP_HEAD) < 0)
 			return NULL;
 	}
 
-	return open_image_at(dfd, CR_FD_PAGES, flags, id);
+	return open_image_at(dfd, CR_FD_PAGES, flags, *id);
 }
 
-struct cr_img *open_pages_image(unsigned long flags, struct cr_img *pmi)
+struct cr_img *open_pages_image(unsigned long flags, struct cr_img *pmi, u32 *id)
 {
-	return open_pages_image_at(get_service_fd(IMG_FD_OFF), flags, pmi);
+	return open_pages_image_at(get_service_fd(IMG_FD_OFF), flags, pmi, id);
 }
 
 /*

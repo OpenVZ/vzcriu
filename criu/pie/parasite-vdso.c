@@ -68,8 +68,19 @@ int vdso_do_park(struct vdso_symtable *sym_rt, unsigned long park_at, unsigned l
 	return ret;
 }
 
-/* XXX: move in arch/ */
 #if defined(CONFIG_X86_64) && defined(CONFIG_COMPAT)
+int vdso_map_compat(unsigned long map_at)
+{
+	int ret;
+
+	pr_debug("Mapping compatible vDSO at %lx\n", map_at);
+
+	ret = sys_arch_prctl(ARCH_MAP_VDSO_32, map_at);
+	if (ret < 0)
+		return ret;
+	return 0;
+}
+
 int __vdso_fill_symtable(uintptr_t mem, size_t size,
 		struct vdso_symtable *t, bool compat_vdso)
 {
@@ -79,6 +90,12 @@ int __vdso_fill_symtable(uintptr_t mem, size_t size,
 		return vdso_fill_symtable(mem, size, t);
 }
 #else
+int vdso_map_compat(unsigned long __always_unused map_at)
+{
+	/* shouldn't be called on !CONFIG_COMPAT */
+	BUG();
+	return 0;
+}
 int __vdso_fill_symtable(uintptr_t mem, size_t size,
 		struct vdso_symtable *t, bool __always_unused compat_vdso)
 {
@@ -105,8 +122,9 @@ int vdso_proxify(struct vdso_symtable *sym_rt, unsigned long vdso_rt_parked_at,
 	if (!vma_vdso && !vma_vvar) {
 		pr_info("No VVAR, no vDSO in image\n");
 		/*
-		 * We don't have to unmap rt-vdso, rt-vvar as we didn't
-		 * park them previously.
+		 * We don't have to unmap rt-vdso, rt-vvar as they will
+		 * be unmapped with restorer blob in the end,
+		 * see __export_unmap()
 		 */
 		return 0;
 	}

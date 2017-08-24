@@ -48,9 +48,4 @@ message unix_sk_entry {
 	 */
 	optional string			name_dir	= 14;
 	optional bool			deleted		= 15;
-
-	/*
-	 * Bind-mounted sockets.
-	 */
-	optional uint32			mnt_id		= 17;
 }

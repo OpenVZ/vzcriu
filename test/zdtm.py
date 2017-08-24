@@ -83,8 +83,9 @@ def add_to_report(path, tgt_name):
 			tgt_path = os.path.join(report_dir, tgt_name + ".%d" % att)
 			att += 1
 
+		ignore = shutil.ignore_patterns('*.socket')
 		if os.path.isdir(path):
-			shutil.copytree(path, tgt_path)
+			shutil.copytree(path, tgt_path, ignore = ignore)
 		else:
 			if not os.path.exists(os.path.dirname(tgt_path)):
 				os.mkdir(os.path.dirname(tgt_path))
@@ -363,6 +364,7 @@ class zdtm_test:
 		self._env = {}
 		self._deps = desc.get('deps', [])
 		self.auto_reap = True
+		self.__timeout = int(self.__desc.get('timeout') or 30)
 
 	def __make_action(self, act, env = None, root = None):
 		sys.stdout.flush()  # Not to let make's messages appear before ours
@@ -387,7 +389,7 @@ class zdtm_test:
 		return self.__name + '.pid'
 
 	def __wait_task_die(self):
-		wait_pid_die(int(self.__pid), self.__name)
+		wait_pid_die(int(self.__pid), self.__name, self.__timeout)
 
 	def __add_wperms(self):
 		# Add write perms for .out and .pid files
@@ -688,14 +690,6 @@ class criu_cli:
 		return cr.wait()
 
 
-class criu_rpc_process:
-	def wait(self):
-		return self.criu.wait_pid(self.pid)
-
-	def terminate(self):
-		os.kill(self.pid, signal.SIGTERM)
-
-
 class criu_rpc:
 	@staticmethod
 	def __set_opts(criu, args, ctx):
@@ -730,25 +724,6 @@ class criu_rpc:
 			if arg == '--external':
 				criu.opts.external.append(args.pop(0))
 				continue
-			if arg == '--status-fd':
-				fd = int(args.pop(0))
-				os.write(fd, "\0")
-				fcntl.fcntl(fd, fcntl.F_SETFD, fcntl.FD_CLOEXEC)
-				continue
-			if arg == '--port':
-				criu.opts.ps.port = int(args.pop(0))
-				continue
-			if arg == '--address':
-				criu.opts.ps.address = args.pop(0)
-				continue
-			if arg == '--page-server':
-				continue
-			if arg == '--prev-images-dir':
-				criu.opts.parent_img = args.pop(0)
-				continue
-			if arg == '--track-mem':
-				criu.opts.track_mem = True
-				continue
 
 			raise test_fail_exc('RPC for %s required' % arg)
 
@@ -760,18 +735,17 @@ class criu_rpc:
 			raise test_fail_exc('RPC and SAT not supported')
 		if preexec:
 			raise test_fail_exc('RPC and PREEXEC not supported')
+		if nowait:
+			raise test_fail_exc("RPC and status-fd not supported")
 
 		ctx = {}  # Object used to keep info untill action is done
 		criu = crpc.criu()
 		criu.use_binary(criu_bin)
 		criu_rpc.__set_opts(criu, args, ctx)
-		p = None
 
 		try:
 			if action == 'dump':
 				criu.dump()
-			elif action == 'pre-dump':
-				criu.pre_dump()
 			elif action == 'restore':
 				if 'rd' not in ctx:
 					raise test_fail_exc('RPC Non-detached restore is impossible')
@@ -780,15 +754,10 @@ class criu_rpc:
 				pidf = ctx.get('pidf')
 				if pidf:
 					open(pidf, 'w').write('%d\n' % res.pid)
-			elif action == "page-server":
-				res = criu.page_server_chld()
-				p = criu_rpc_process()
-				p.pid = res.pid
-				p.criu = criu
 			else:
 				raise test_fail_exc('RPC for %s required' % action)
-		except crpc.CRIUExceptionExternal, e:
-			print "Fail", e
+		except crpc.CRIUExceptionExternal:
+			print "Fail"
 			ret = -1
 		else:
 			ret = 0
@@ -796,10 +765,6 @@ class criu_rpc:
 		imgd = ctx.get('imgd')
 		if imgd:
 			os.close(imgd)
-
-		if nowait and ret == 0:
-			return p
-
 		return ret
 
 
@@ -888,6 +853,8 @@ class criu:
 			status_fds = os.pipe()
 			s_args += ["--status-fd", str(status_fds[1])]
 
+		ns_last_pid = open("/proc/sys/kernel/ns_last_pid").read()
+
 		ret = self.__criu.run(action, s_args, self.__fault, strace, preexec, nowait)
 
 		if nowait:
@@ -910,6 +877,9 @@ class criu:
 				else:
 					# on restore we move only a log file, because we need images
 					os.rename(os.path.join(__ddir, log), os.path.join(__ddir, log + ".fail"))
+				# restore ns_last_pid to avoid a case when criu gets
+				# PID of one of restored processes.
+				open("/proc/sys/kernel/ns_last_pid", "w+").write(ns_last_pid)
 				# try again without faults
 				print "Run criu " + action
 				ret = self.__criu.run(action, s_args, False, strace, preexec)
@@ -1025,11 +995,11 @@ class criu:
 	def kill(self):
 		if self.__lazy_pages_p:
 			self.__lazy_pages_p.terminate()
-			print "criu lazy-pages exited with %s" % self.__lazy_pages_p.wait()
+			print "criu lazy-pages exited with %s" & self.wait()
 			self.__lazy_pages_p = None
 		if self.__page_server_p:
 			self.__page_server_p.terminate()
-			print "criu page-server exited with %s" % self.__page_server_p.wait()
+			print "criu page-server exited with %s" & self.wait()
 			self.__page_server_p = None
 
 
@@ -1421,6 +1391,11 @@ class launcher:
 			print >> self.__file_report, "# Timestamp: " + now.strftime("%Y-%m-%d %H:%M") + " (GMT+1)"
 			print >> self.__file_report, "# "
 			print >> self.__file_report, "1.." + str(nr_tests)
+		self.__taint = open("/proc/sys/kernel/tainted").read()
+		if int(self.__taint, 0) != 0:
+			print "The kernel is tainted: %r" % self.__taint
+			if not opts["ignore_taint"]:
+				raise Exception("The kernel is tainted: %r" % self.__taint)
 
 	def __show_progress(self, msg):
 		perc = self.__nr * 16 / self.__total
@@ -1439,6 +1414,10 @@ class launcher:
 
 		if len(self.__subs) >= self.__max:
 			self.wait()
+
+		taint = open("/proc/sys/kernel/tainted").read()
+		if self.__taint != taint:
+			raise Exception("The kernel is tainted: %r (%r)" % (taint, self.__taint))
 
 		if test_flag(desc, 'excl'):
 			self.wait_all()
@@ -1675,6 +1654,10 @@ def run_tests(opts):
 				l.skip(t, "arch %s" % tdesc['arch'])
 				continue
 
+			if test_flag(tdesc, 'reqrst') and opts['norst']:
+				l.skip(t, "restore stage is required")
+				continue
+
 			if run_all and test_flag(tdesc, 'noauto'):
 				l.skip(t, "manual run only")
 				continue
@@ -1731,7 +1714,7 @@ def run_tests(opts):
 	finally:
 		l.finish()
 		if opts['join_ns']:
-			subprocess.Popen(["ip", "netns", "delete", "zdtm_netns"])
+			subprocess.Popen(["ip", "netns", "delete", "zdtm_netns"]).wait()
 
 
 sti_fmt = "%-40s%-10s%s"
@@ -1939,6 +1922,7 @@ rp.add_argument("-k", "--keep-img", help = "Whether or not to keep images after 
 		choices = ['always', 'never', 'failed'], default = 'failed')
 rp.add_argument("--report", help = "Generate summary report in directory")
 rp.add_argument("--keep-going", help = "Keep running tests in spite of failures", action = 'store_true')
+rp.add_argument("--ignore-taint", help = "Don't care about a non-zero kernel taint flag", action = 'store_true')
 
 lp = sp.add_parser("list", help = "List tests")
 lp.set_defaults(action = list_tests)

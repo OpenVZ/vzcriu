@@ -34,7 +34,6 @@
 #include <netinet/tcp.h>
 #include <sched.h>
 #include <ctype.h>
-#include <libgen.h>
 
 #include "bitops.h"
 #include "page.h"
@@ -48,7 +47,6 @@
 #include "namespaces.h"
 #include "criu-log.h"
 
-#include "clone-noasan.h"
 #include "cr_options.h"
 #include "servicefd.h"
 #include "cr-service.h"
@@ -483,11 +481,10 @@ int clone_service_fd(int id)
 		return 0;
 
 	for (i = SERVICE_FD_MIN + 1; i < SERVICE_FD_MAX; i++) {
-		int old = __get_service_fd(i, service_fd_id);
+		int old = get_service_fd(i);
 		int new = __get_service_fd(i, id);
 
-		/* Do not dup parent's transport fd */
-		if (i == TRANSPORT_FD_OFF)
+		if (old < 0)
 			continue;
 		ret = dup2(old, new);
 		if (ret == -1) {
@@ -655,7 +652,7 @@ int cr_system_userns(int in, int out, int err, char *cmd,
 
 		execvp(cmd, argv);
 
-		pr_perror("exec failed");
+		pr_perror("exec(%s, ...) failed", cmd);
 out_chld:
 		_exit(1);
 	}
@@ -861,66 +858,6 @@ int mkdirpat(int fd, const char *path, int mode)
 	}
 
 	return 0;
-}
-
-/*
- * Remove directory @path together with parents,
- * keeping @keep len of path if provided. Directories
- * must be empty of course.
- */
-int rmdirp(const char *path, size_t keep)
-{
-	char made_path[PATH_MAX], *pos;
-	size_t len = strlen(path);
-	int ret;
-
-	if (len >= PATH_MAX) {
-		pr_err("path %s is longer than PATH_MAX\n", path);
-		return -ENOSPC;
-	}
-
-	/* Nothing to do */
-	if (len <= keep)
-		return 0;
-
-	strcpy(made_path, path);
-
-	for (pos = strrchr(made_path, '/');
-	     pos && (pos - made_path) >= keep;
-	     pos = strrchr(made_path, '/')) {
-		ret = rmdir(made_path);
-
-		if (ret < 0 && errno != ENOENT) {
-			ret = -errno;
-			pr_perror("Can't delete %s", made_path);
-			goto out;
-		}
-		*pos = '\0';
-	}
-
-	ret = 0;
-out:
-	return ret;
-}
-
-int mkdirname(const char *path, int mode)
-{
-	int err;
-	char *dpath, *dirc;
-
-	dirc = strdup(path);
-	if (!dirc) {
-		pr_err("failed to duplicate string\n");
-		return -ENOMEM;
-	}
-
-	dpath = dirname(dirc);
-
-	err = mkdirpat(AT_FDCWD, dpath, mode);
-
-	free(dirc);
-
-	return err;
 }
 
 bool is_path_prefix(const char *path, const char *prefix)
@@ -1275,98 +1212,4 @@ int setup_tcp_client(char *addr)
 	}
 
 	return sk;
-}
-
-/*
- * When reading symlinks via /proc/$pid/root/
- * we should make sure the path resolving is done
- * via root as toplevel root, otherwive path
- * may be screwed.
- *
- * IOW, for any path resolving via /proc/$pid/root
- * use this helper, and call cr_restore_root once
- * you're done.
- */
-int cr_set_root(int fd, int *old_root)
-{
-	int errno_save = errno;
-	int cwd = -1, old = -1;
-
-	if (old_root) {
-		old = open("/", O_PATH);
-		if (old < 0) {
-			pr_perror("Unable to open /");
-			return -1;
-		}
-	}
-
-	cwd = open(".", O_PATH);
-	if (cwd < 0)
-		goto err;
-
-	/* implement fchroot() */
-	if (fchdir(fd)) {
-		pr_perror("Unable to chdir");
-		goto err;
-	}
-	if (chroot(".")) {
-		pr_perror("Unable to chroot");
-		goto err;
-	}
-	if (fchdir(cwd)) {
-		pr_perror("Unable to restore cwd\n");
-		goto err;
-	}
-
-	close(cwd);
-
-	if (old_root)
-		*old_root = old;
-
-	errno = errno_save;
-	return 0;
-err:
-	close_safe(&cwd);
-	close_safe(&old);
-	errno = errno_save;
-	return -1;
-}
-
-int cr_restore_root(int root)
-{
-	int ret;
-
-	ret = cr_set_root(root, NULL);
-	close(root);
-
-	return ret;
-}
-
-int call_in_child_process(int (*fn)(void *), void *arg)
-{
-	int status, ret = -1;
-	pid_t pid;
-	/*
-	 * Parent freezes till child exit, so child may use the same stack.
-	 * No SIGCHLD flag, so it's not need to block signal.
-	 */
-	pid = clone_noasan(fn, CLONE_VFORK | CLONE_VM | CLONE_FILES |
-			   CLONE_IO | CLONE_SIGHAND | CLONE_SYSVSEM, arg);
-	if (pid == -1) {
-		pr_perror("Can't clone");
-		return -1;
-	}
-	errno = 0;
-	if (waitpid(pid, &status, __WALL) != pid || !WIFEXITED(status) || WEXITSTATUS(status)) {
-		pr_err("Can't wait or bad status: errno=%d, status=%d", errno, status);
-		goto out;
-	}
-	ret = 0;
-	/*
-	 * Child opened PROC_SELF for pid. If we create one more child
-	 * with the same pid later, it will try to reuse this /proc/self.
-	 */
-out:
-	close_pid_proc();
-	return ret;
 }

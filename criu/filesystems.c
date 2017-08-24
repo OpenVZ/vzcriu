@@ -19,7 +19,6 @@
 #include "util.h"
 #include "fs-magic.h"
 #include "tty.h"
-#include "spfs.h"
 
 #include "images/mnt.pb-c.h"
 #include "images/binfmt-misc.pb-c.h"
@@ -41,15 +40,7 @@ struct binfmt_misc_info {
 
 LIST_HEAD(binfmt_misc_list);
 
-static int binfmt_misc_parse(struct mount_info *pm, bool for_dump)
-{
-	if (for_dump)
-		opts.has_binfmt_misc = true;
-	return 0;
-
-}
-
-static int binfmt_misc_collect(struct mount_info *pm)
+static int binfmt_misc_parse_or_collect(struct mount_info *pm)
 {
 	opts.has_binfmt_misc = true;
 	return 0;
@@ -130,9 +121,6 @@ static int dump_binfmt_misc_entry(int dfd, char *name, struct cr_img *img)
 
 	if (pb_write_one(img, &bme, PB_BINFMT_MISC))
 		goto err;
-	pr_debug("binfmt_misc_pattern=:%s:E::%s::%s:%s\n",
-		 bme.name, bme.extension, bme.interpreter,
-		 bme.flags ? : "\0");
 	ret = 0;
 err:
 	free(bme.interpreter);
@@ -388,8 +376,7 @@ int collect_binfmt_misc(void)
 #else
 #define binfmt_misc_dump	NULL
 #define binfmt_misc_restore	NULL
-#define binfmt_misc_parse NULL
-#define binfmt_misc_collect NULL
+#define binfmt_misc_parse_or_collect NULL
 #endif
 
 static int tmpfs_dump(struct mount_info *pm)
@@ -513,7 +500,7 @@ static int devtmpfs_restore(struct mount_info *pm)
 }
 
 /* Is it mounted w or w/o the newinstance option */
-static int devpts_parse(struct mount_info *pm, bool for_dump)
+static int devpts_parse(struct mount_info *pm)
 {
 	int ret;
 
@@ -572,7 +559,7 @@ out:
 	return ret;
 }
 
-static int debugfs_parse(struct mount_info *pm, bool for_dump)
+static int debugfs_parse(struct mount_info *pm)
 {
 	/* tracefs is automounted underneath debugfs sometimes, and the
 	 * kernel's overmounting protection prevents us from mounting debugfs
@@ -583,7 +570,7 @@ static int debugfs_parse(struct mount_info *pm, bool for_dump)
 	return 0;
 }
 
-static int tracefs_parse(struct mount_info *pm, bool for_dump)
+static int tracefs_parse(struct mount_info *pm)
 {
 	return 1;
 }
@@ -599,7 +586,7 @@ static bool cgroup_sb_equal(struct mount_info *a, struct mount_info *b)
 	return true;
 }
 
-static int cgroup_parse(struct mount_info *pm, bool for_dump)
+static int cgroup_parse(struct mount_info *pm)
 {
 	if (!(root_ns_mask & CLONE_NEWCGROUP))
 		return 0;
@@ -698,8 +685,8 @@ static struct fstype fstypes[] = {
 		.restore = devtmpfs_restore,
 	}, {
 		.name = "binfmt_misc",
-		.parse = binfmt_misc_parse,
-		.collect = binfmt_misc_collect,
+		.parse = binfmt_misc_parse_or_collect,
+		.collect = binfmt_misc_parse_or_collect,
 		.code = FSTYPE__BINFMT_MISC,
 		.dump = binfmt_misc_dump,
 		.restore = binfmt_misc_restore,
@@ -768,17 +755,6 @@ static struct fstype fstypes[] = {
 		.parse = autofs_parse,
 		.dump = autofs_dump,
 		.mount = autofs_mount,
-	}, {
-		.name = "rpc_pipefs",
-		.code = FSTYPE__RPC_PIPEFS,
-	}, {
-		.name = "nfs",
-		.code = FSTYPE__NFS,
-		.mount = spfs_mount,
-	}, {
-		.name = "nfs4",
-		.code = FSTYPE__NFS4,
-		.mount = spfs_mount,
 	},
 };
 

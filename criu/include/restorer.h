@@ -101,6 +101,14 @@ struct thread_restore_args {
 
 typedef long (*thread_restore_fcall_t) (struct thread_restore_args *args);
 
+struct restore_vma_io {
+	int nr_iovs;
+	loff_t off;
+	struct iovec iovs[0];
+};
+
+#define RIO_SIZE(niovs)	(sizeof(struct restore_vma_io) + (niovs) * sizeof(struct iovec))
+
 struct task_restore_args {
 	struct thread_restore_args	*t;			/* thread group leader */
 
@@ -120,6 +128,10 @@ struct task_restore_args {
 	/* Below arrays get remapped from RM_PRIVATE in sigreturn_restore */
 	VmaEntry			*vmas;
 	unsigned int			vmas_n;
+
+	int				vma_ios_fd;
+	struct restore_vma_io		*vma_ios;
+	unsigned int			vma_ios_n;
 
 	struct restore_posix_timer	*posix_timers;
 	unsigned int			posix_timers_n;
@@ -176,7 +188,6 @@ struct task_restore_args {
 
 	bool				compatible_mode;
 
-	bool				can_map_vdso;
 #ifdef CONFIG_VDSO
 	unsigned long			vdso_rt_size;
 	struct vdso_symtable		vdso_sym_rt;		/* runtime vdso symbols */
@@ -200,18 +211,62 @@ static inline unsigned long restorer_stack(struct restore_mem_zone *mz)
 }
 
 enum {
-	CR_STATE_FAIL		= -1,
-	CR_STATE_RESTORE_NS	= 0, /* is used for executing "setup-namespace" scripts */
 	/*
-	 * Need to wait a mount namespace which
-	 * will be used to clean up remap files.
+	 * Restore stages. The stage is started by criu process, then
+	 * confirmed by all tasks involved in it. Then criu does some
+	 * actions and starts the next stage.
+	 *
+	 * The first stated stage is CR_STATE_ROOT_TASK which is started
+	 * right before calling fork_with_pid() for the root_item.
 	 */
-	CR_STATE_POST_RESTORE_NS,
-	CR_STATE_RESTORE_SHARED,
+	CR_STATE_FAIL		= -1,
+	/*
+	 * Root task is created and does some pre-checks.
+	 * After the stage ACT_SETUP_NS scripts are performed.
+	 */
+	CR_STATE_ROOT_TASK	= 0,
+	/*
+	 * The prepare_namespace() is called.
+	 * After the stage criu opens root task's mntns and
+	 * calls ACT_POST_SETUP_NS scripts.
+	 */
+	CR_STATE_PREPARE_NAMESPACES,
+	/*
+	 * All tasks fork and call open_transport_socket().
+	 * Stage is needed to make sure they all have the socket.
+	 * Also this stage is a sync point after which the
+	 * fini_restore_mntns() can be called.
+	 *
+	 * This stage is a little bit special. Normally all stages
+	 * are controlled by criu process, but when this stage
+	 * starts criu process starts waiting for the tasks to
+	 * finish it, but by the time it gets woken up the stage
+	 * finished is CR_STATE_RESTORE. The forking stage is
+	 * barrier-ed by the root task, this task is also the one
+	 * that switches the stage (into restoring).
+	 *
+	 * The above is done to lower the amount of context
+	 * switches from root task to criu and back, since the
+	 * separate forking stage is not needed by criu, it's
+	 * purely to make sure all tasks be in sync.
+	 */
 	CR_STATE_FORKING,
+	/*
+	 * Main restore stage. By the end of it all tasks are
+	 * almost ready and what's left is:
+	 *   pick up zombies and helpers
+	 *   restore sigchild handlers used to detect restore errors
+	 *   restore credentials
+	 */
 	CR_STATE_RESTORE,
+	/*
+	 * Tasks restore sigchild handlers.
+	 * Stage is needed to synchronize the change in error
+	 * propagation via sigchild.
+	 */
 	CR_STATE_RESTORE_SIGCHLD,
 	/*
+	 * Final stage.
 	 * For security reason processes can be resumed only when all
 	 * credentials are restored. Otherwise someone can attach to a
 	 * process, which are not restored credentials yet and execute

@@ -34,7 +34,6 @@
 #include "kerndat.h"
 #include "util.h"
 #include "external.h"
-#include "crtools.h"
 
 #include "protobuf.h"
 #include "images/netdev.pb-c.h"
@@ -636,6 +635,31 @@ static int dump_one_gre(struct ifinfomsg *ifi, char *kind,
 	return dump_unknown_device(ifi, kind, tb, fds);
 }
 
+static int dump_one_sit(struct ifinfomsg *ifi, char *kind,
+		struct nlattr **tb, struct cr_imgset *fds)
+{
+	char *name;
+
+	if (strcmp(kind, "sit")) {
+		pr_err("SIT device with %s kind\n", kind);
+		return -1;
+	}
+
+	name = (char *)RTA_DATA(tb[IFLA_IFNAME]);
+	if (!name) {
+		pr_err("sit device %d has no name\n", ifi->ifi_index);
+		return -1;
+	}
+
+	if (!strcmp(name, "sit0")) {
+		pr_info("found %s, ignoring\n", name);
+		return 0;
+	}
+
+	pr_warn("SIT device %s not supported natively\n", name);
+	return dump_unknown_device(ifi, kind, tb, fds);
+}
+
 static int dump_one_link(struct nlmsghdr *hdr, void *arg)
 {
 	struct cr_imgset *fds = arg;
@@ -673,6 +697,9 @@ static int dump_one_link(struct nlmsghdr *hdr, void *arg)
 		break;
 	case ARPHRD_IPGRE:
 		ret = dump_one_gre(ifi, kind, tb, fds);
+		break;
+	case ARPHRD_SIT:
+		ret = dump_one_sit(ifi, kind, tb, fds);
 		break;
 	default:
 unk:
@@ -1302,39 +1329,6 @@ static int run_iptables_tool(char *def_cmd, int fdin, int fdout)
 	return ret;
 }
 
-static int __iptables_tool_restore(char *def_cmd, int fdin)
-{
-	if (join_ve(root_item->pid->real, false))
-		return -1;
-
-	return run_iptables_tool(def_cmd, fdin, -1);
-}
-
-static int iptables_tool_restore(char *def_cmd, int fdin)
-{
-	int child, status;
-
-	child = fork();
-	if (child < 0) {
-		pr_perror("failed to fork");
-		return -1;
-	} else if (!child) {
-		_exit(__iptables_tool_restore(def_cmd, fdin));
-	}
-
-	if (waitpid(child, &status, 0) != child) {
-		pr_err("failed to collect child %d\n", child);
-		return -1;
-	}
-
-	return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
-}
-
-static int iptables_tool_dump(char *def_cmd, int fdout)
-{
-	return run_iptables_tool(def_cmd, -1, fdout);
-}
-
 static inline int dump_ifaddr(struct cr_imgset *fds)
 {
 	struct cr_img *img = img_from_set(fds, CR_FD_IFADDR);
@@ -1386,12 +1380,12 @@ static inline int dump_iptables(struct cr_imgset *fds)
 	struct cr_img *img;
 
 	img = img_from_set(fds, CR_FD_IPTABLES);
-	if (iptables_tool_dump("iptables-save", img_raw_fd(img)))
+	if (run_iptables_tool("iptables-save", -1, img_raw_fd(img)))
 		return -1;
 
 	if (kdat.ipv6) {
 		img = img_from_set(fds, CR_FD_IP6TABLES);
-		if (iptables_tool_dump("ip6tables-save", img_raw_fd(img)))
+		if (run_iptables_tool("ip6tables-save", -1, img_raw_fd(img)))
 			return -1;
 	}
 
@@ -1400,6 +1394,7 @@ static inline int dump_iptables(struct cr_imgset *fds)
 
 static int dump_netns_conf(struct cr_imgset *fds)
 {
+	void *buf, *o_buf;
 	int ret = -1;
 	int i;
 	NetnsEntry netns = NETNS_ENTRY__INIT;
@@ -1410,20 +1405,19 @@ static int dump_netns_conf(struct cr_imgset *fds)
 	char def_stable_secret[MAX_STR_CONF_LEN + 1] = {};
 	char all_stable_secret[MAX_STR_CONF_LEN + 1] = {};
 
+	o_buf = buf = xmalloc(
+			size4 * (sizeof(SysctlEntry*) + sizeof(SysctlEntry)) * 2 +
+			size6 * (sizeof(SysctlEntry*) + sizeof(SysctlEntry)) * 2
+		     );
+	if (!buf)
+		goto out;
+
 	netns.n_def_conf4 = size4;
 	netns.n_all_conf4 = size4;
-	netns.def_conf4 = xmalloc(sizeof(SysctlEntry *) * size4);
-	if (!netns.def_conf4)
-		goto err_free;
-	netns.all_conf4 = xmalloc(sizeof(SysctlEntry *) * size4);
-	if (!netns.all_conf4)
-		goto err_free;
-	def_confs4 = xmalloc(sizeof(SysctlEntry) * size4);
-	if (!def_confs4)
-		goto err_free;
-	all_confs4 = xmalloc(sizeof(SysctlEntry) * size4);
-	if (!all_confs4)
-		goto err_free;
+	netns.def_conf4 = xptr_pull_s(&buf, size4 * sizeof(SysctlEntry*));
+	netns.all_conf4 = xptr_pull_s(&buf, size4 * sizeof(SysctlEntry*));
+	def_confs4 = xptr_pull_s(&buf, size4 * sizeof(SysctlEntry));
+	all_confs4 = xptr_pull_s(&buf, size4 * sizeof(SysctlEntry));
 
 	for (i = 0; i < size4; i++) {
 		sysctl_entry__init(&def_confs4[i]);
@@ -1436,18 +1430,10 @@ static int dump_netns_conf(struct cr_imgset *fds)
 
 	netns.n_def_conf6 = size6;
 	netns.n_all_conf6 = size6;
-	netns.def_conf6 = xmalloc(sizeof(SysctlEntry *) * size6);
-	if (!netns.def_conf6)
-		goto err_free;
-	netns.all_conf6 = xmalloc(sizeof(SysctlEntry *) * size6);
-	if (!netns.all_conf6)
-		goto err_free;
-	def_confs6 = xmalloc(sizeof(SysctlEntry) * size6);
-	if (!def_confs6)
-		goto err_free;
-	all_confs6 = xmalloc(sizeof(SysctlEntry) * size6);
-	if (!all_confs6)
-		goto err_free;
+	netns.def_conf6 = xptr_pull_s(&buf, size6 * sizeof(SysctlEntry*));
+	netns.all_conf6 = xptr_pull_s(&buf, size6 * sizeof(SysctlEntry*));
+	def_confs6 = xptr_pull_s(&buf, size6 * sizeof(SysctlEntry));
+	all_confs6 = xptr_pull_s(&buf, size6 * sizeof(SysctlEntry));
 
 	for (i = 0; i < size6; i++) {
 		sysctl_entry__init(&def_confs6[i]);
@@ -1481,14 +1467,8 @@ static int dump_netns_conf(struct cr_imgset *fds)
 
 	ret = pb_write_one(img_from_set(fds, CR_FD_NETNS), &netns, PB_NETNS);
 err_free:
-	xfree(netns.def_conf4);
-	xfree(netns.all_conf4);
-	xfree(def_confs4);
-	xfree(all_confs4);
-	xfree(netns.def_conf6);
-	xfree(netns.all_conf6);
-	xfree(def_confs6);
-	xfree(all_confs6);
+	xfree(o_buf);
+out:
 	return ret;
 }
 
@@ -1562,7 +1542,7 @@ static inline int restore_iptables(int pid)
 
 	img = open_image(CR_FD_IPTABLES, O_RSTR, pid);
 	if (img) {
-		ret = iptables_tool_restore("iptables-restore", img_raw_fd(img));
+		ret = run_iptables_tool("iptables-restore", img_raw_fd(img), -1);
 		close_image(img);
 	}
 	if (ret)
@@ -1574,8 +1554,7 @@ static inline int restore_iptables(int pid)
 	if (empty_image(img))
 		goto out;
 
-	ret = iptables_tool_restore("ip6tables-restore", img_raw_fd(img));
-
+	ret = run_iptables_tool("ip6tables-restore", img_raw_fd(img), -1);
 out:
 	close_image(img);
 
@@ -1669,14 +1648,10 @@ static int mount_ns_sysfs(void)
 	return ns_sysfs_fd >= 0 ? 0 : -1;
 }
 
-int dump_net_ns(struct ns_id *ns)
+int dump_net_ns(int ns_id)
 {
 	struct cr_imgset *fds;
-	int ns_id = ns->id;
 	int ret;
-
-	if (fini_dump_sockets(ns))
-		return -1;
 
 	fds = cr_imgset_open(ns_id, NETNS, O_DUMP);
 	if (fds == NULL)
@@ -1775,7 +1750,7 @@ int netns_keep_nsfd(void)
  * iptables-restore allows to make a few changes for one iteration,
  * so it works faster.
  */
-static int do_iptables_restore(bool ipv6, char *buf, int size)
+static int iptables_restore(bool ipv6, char *buf, int size)
 {
 	int pfd[2], ret = -1;
 	char *cmd4[] = {"iptables-restore",  "--noflush", NULL};
@@ -1800,34 +1775,6 @@ err:
 	return ret;
 }
 
-static int __iptables_restore(bool ipv6, char *buf, int size)
-{
-	if (join_ve(root_item->pid->real, false))
-		return -1;
-
-	return do_iptables_restore(ipv6, buf, size);
-}
-
-static int iptables_restore(bool ipv6, char *buf, int size)
-{
-	int child, status;
-
-	child = fork();
-	if (child < 0) {
-		pr_perror("failed to fork");
-		return -1;
-	} else if (!child) {
-		_exit(__iptables_restore(ipv6, buf, size));
-	}
-
-	if (waitpid(child, &status, 0) != child) {
-		pr_err("failed to collect child %d\n", child);
-		return -1;
-	}
-
-	return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
-}
-
 int network_lock_internal()
 {
 	char conf[] =	"*filter\n"
@@ -1846,6 +1793,12 @@ int network_lock_internal()
 	ret |= iptables_restore(false, conf, sizeof(conf) - 1);
 	if (kdat.ipv6)
 		ret |= iptables_restore(true, conf, sizeof(conf) - 1);
+
+	if (ret)
+		pr_err("Locking network failed: iptables-restore returned %d. "
+			"This may be connected to disabled "
+			"CONFIG_NETFILTER_XT_MARK kernel build config "
+			"option.\n", ret);
 
 	if (restore_ns(nsret, &net_ns_desc))
 		ret = -1;
@@ -1888,9 +1841,7 @@ int network_lock(void)
 	if (run_scripts(ACT_NET_LOCK))
 		return -1;
 
-	if (network_lock_internal())
-		return -1;
-	return run_scripts(ACT_POST_NET_LOCK);
+	return network_lock_internal();
 }
 
 void network_unlock(void)

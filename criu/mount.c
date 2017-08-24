@@ -26,8 +26,6 @@
 #include "path.h"
 #include "files-reg.h"
 #include "external.h"
-#include "page.h"
-#include "sockets.h"
 
 #include "images/mnt.pb-c.h"
 
@@ -241,18 +239,6 @@ struct mount_info *lookup_mnt_sdev(unsigned int s_dev)
 	return NULL;
 }
 
-static struct mount_info *lookup_mnt_sdev_on_root(unsigned int s_dev)
-{
-	struct mount_info *m;
-
-	for (m = mntinfo; m != NULL; m = m->next)
-		if (m->s_dev == s_dev &&
-		    is_root(m->root))
-			return m;
-
-	return NULL;
-}
-
 static struct mount_info *mount_resolve_path(struct mount_info *mntinfo_tree, const char *path)
 {
 	size_t pathlen = strlen(path);
@@ -280,57 +266,6 @@ static struct mount_info *mount_resolve_path(struct mount_info *mntinfo_tree, co
 
 	pr_debug("Path `%s' resolved to `%s' mountpoint\n", path, m->mountpoint);
 	return m;
-}
-
-/*
- * Figuring out mount id is a bit tricky for PTYs: when
- * several devpts mounted they have own superblocks
- * thus opening /dev/<dirs>/ptmx leads to slave
- * peers lay into /dev/<dirs>/0 and etc, but the
- * exception is toplevel /dev/ptmx, when opened the
- * kernel lookups for first "pts" downlevel directory mounted
- * at /dev/pts (which of course must have DEVPTS_SUPER_MAGIC
- * in properties). It's done for backward compatibility,
- * see drivers/tty/pty.c:ptmx_open.
- */
-int mount_resolve_devpts_mnt_id(int s_dev)
-{
-	struct mount_info *mi;
-
-	mi = lookup_mnt_sdev_on_root(s_dev);
-	if (!mi) {
-		pr_err("No devpts mount point found for s_dev %#x\n", s_dev);
-		return -1;
-	}
-
-	if (mi->fstype->code == FSTYPE__DEVPTS) {
-		return mi->mnt_id;
-	} else if (mi->fstype->code == FSTYPE__DEVTMPFS) {
-		char path[PATH_MAX];
-
-		snprintf(path, sizeof(path), "%s/pts/ptmx", mi->ns_mountpoint + 1);
-		mi = mount_resolve_path(mi, path);
-		if (!mi) {
-			pr_err("Can't resolve %s\n", path);
-			return -1;
-		}
-		if (mi->fstype->code == FSTYPE__DEVPTS)
-			return mi->mnt_id;
-	}
-
-	pr_err("Can't resolve devpts for s_dev %#x\n", s_dev);
-	return -1;
-}
-
-struct mount_info *lookup_first_fstype(int code)
-{
-	struct mount_info *m;
-
-	for (m = mntinfo; m != NULL; m = m->next)
-		if (m->fstype->code == code &&
-		    is_root(m->root))
-			return m;
-	return NULL;
 }
 
 dev_t phys_stat_resolve_dev(struct ns_id *ns, dev_t st_dev, const char *path)
@@ -740,112 +675,6 @@ static bool mnt_is_external(struct mount_info *m)
 	return 0;
 }
 
-static bool nfs_mount(const struct mount_info *m)
-{
-	return !strcmp(m->fstype->name, "nfs") ||
-	       !strcmp(m->fstype->name, "nfs4");
-
-}
-
-static char *mnt_mark(const struct mount_info *m)
-{
-	static char *shared = "shared";
-	static char *private = "private";
-	static char *slave = "slave";
-
-	if (m->flags & MS_SHARED)
-		return shared;
-
-	if (m->flags & MS_SLAVE)
-		return slave;
-
-	return private;
-}
-
-static bool unsupported_nfs_mount(const struct mount_info *m);
-
-static bool unsupported_nfs_bindmounts(const struct mount_info *m)
-{
-	const struct mount_info *bm;
-
-	list_for_each_entry(bm, &m->mnt_bind, mnt_bind) {
-		if ((bm->shared_id != m->master_id) &&
-		    (bm->shared_id != m->shared_id)) {
-			pr_err("NFS bind-mount %s (id %d) has another shared "
-				"group, than %s (id %d): %d != %d (!= %d)\n",
-				bm->mountpoint, bm->mnt_id,
-				m->mountpoint, m->mnt_id,
-				bm->shared_id, m->master_id,
-				m->shared_id);
-			return true;
-		}
-		if (unsupported_nfs_mount(bm))
-			return true;
-	}
-	return false;
-}
-
-static bool unsupported_nfs_mount(const struct mount_info *m)
-{
-	return false;
-
-	switch (m->nsid->type) {
-		case NS_ROOT:
-			if (m->flags & MS_SHARED)
-				return false;
-
-			pr_err("NFS mount [%s] in init mount namespace "
-				"is marked as \"%s\".\n",
-				m->mountpoint, mnt_mark(m));
-			pr_err("Only shared NFS mounts in init mount "
-				"namespace are supported yet.\n");
-			break;
-		case NS_OTHER:
-			if (!(m->flags & MS_SLAVE)) {
-				pr_err("NFS mount [%s] in non-init mount "
-					"namespace is marked as \"%s\".\n",
-					m->mountpoint, mnt_mark(m));
-				pr_err("Only slave NFS mounts in non-init "
-					"mount namespace are supported yet.\n");
-				return true;
-			}
-			return unsupported_nfs_bindmounts(m);
-		case NS_CRIU:
-			pr_err("NFS mount [%s] in CRIU namespace is "
-					"unsupported.\n", m->mountpoint);
-			break;
-		case NS_UNKNOWN:
-			pr_err("Unknown NFS mount [%s] namespace type: %d\n",
-					m->mountpoint, m->nsid->type);
-			break;
-		default:
-			pr_err("Invalid NFS mount [%s] namespace type: %d\n",
-					m->mountpoint, m->nsid->type);
-			break;
-	}
-
-
-	return true;
-}
-
-static bool unsupported_mount(const struct mount_info *m)
-{
-	struct mount_info *parent = m->parent;
-
-	if (parent && nfs_mount(parent)) {
-		pr_err("overmounted NFS (%s) is not supported yet. Nested mount:\n",
-				parent->mountpoint);
-		pr_err("\ttype %s source %s mnt_id %d s_dev %#x %s @ %s flags %#x options %s\n",
-				m->fsname, m->source,
-				m->mnt_id, m->s_dev, m->root, m->mountpoint,
-				m->flags, m->options);
-
-		return true;
-	}
-
-	return nfs_mount(m) ? unsupported_nfs_mount(m) : false;
-}
-
 static int validate_mounts(struct mount_info *info, bool for_dump)
 {
 	struct mount_info *m, *t;
@@ -916,9 +745,6 @@ skip_fstype:
 					m->mnt_id, m->mountpoint);
 			return -1;
 		}
-
-		if (for_dump && unsupported_mount(m))
-			return -1;
 	}
 
 	return 0;
@@ -1193,8 +1019,8 @@ int mnt_is_dir(struct mount_info *pm)
  */
 int __open_mountpoint(struct mount_info *pm, int mnt_fd)
 {
+	dev_t dev;
 	struct stat st;
-	int dev;
 	int ret;
 
 	if (mnt_fd == -1) {
@@ -1223,7 +1049,7 @@ int __open_mountpoint(struct mount_info *pm, int mnt_fd)
 		goto err;
 	}
 
-	dev = MKKDEV(major(st.st_dev), minor(st.st_dev));
+	dev = phys_stat_resolve_dev(pm->nsid, st.st_dev, pm->ns_mountpoint + 1);
 	/*
 	 * Always check for @s_dev_rt here, because the @s_dev
 	 * from the image (in case of restore) has all rights
@@ -1232,7 +1058,7 @@ int __open_mountpoint(struct mount_info *pm, int mnt_fd)
 	 */
 	if (dev != pm->s_dev_rt) {
 		pr_err("The file system %#x %#x (%#x) %s %s is inaccessible\n",
-		       pm->s_dev, pm->s_dev_rt, dev,
+		       pm->s_dev, pm->s_dev_rt, (int)dev,
 		       pm->fstype->name, pm->ns_mountpoint);
 		goto err;
 	}
@@ -1367,6 +1193,7 @@ out:
 static __maybe_unused int add_cr_time_mount(struct mount_info *root, char *fsname, const char *path, unsigned int s_dev)
 {
 	struct mount_info *mi, *t, *parent;
+	bool add_slash = false;
 	int len;
 
 	if (!root->nsid) {
@@ -1382,20 +1209,25 @@ static __maybe_unused int add_cr_time_mount(struct mount_info *root, char *fsnam
 		}
 	}
 
-	len = strlen(root->mountpoint);
-	if (root->mountpoint[len-1] != '/') {
-		pr_err("Wrong root: %s\n", root->mountpoint);
-		return -1;
-	}
-
 	mi = mnt_entry_alloc();
 	if (!mi)
 		return -1;
+
+	len = strlen(root->mountpoint);
+	/* It may be "./" or "./path/to/dir" */
+	if (root->mountpoint[len - 1] != '/') {
+		add_slash = true;
+		len++;
+	}
+
 	mi->mountpoint = xmalloc(len + strlen(path) + 1);
 	if (!mi->mountpoint)
 		return -1;
 	mi->ns_mountpoint = mi->mountpoint;
-	sprintf(mi->mountpoint, "%s%s", root->mountpoint, path);
+	if (!add_slash)
+		sprintf(mi->mountpoint, "%s%s", root->mountpoint, path);
+	else
+		sprintf(mi->mountpoint, "%s/%s", root->mountpoint, path);
 	mi->mnt_id = CRTIME_MNT_ID;
 	mi->flags = mi->sb_flags = 0;
 	mi->root = xstrdup("/");
@@ -1431,109 +1263,23 @@ static __maybe_unused int add_cr_time_mount(struct mount_info *root, char *fsnam
 	return 0;
 }
 
-char *get_dumpee_veid(pid_t pid_real)
-{
-	char *veid = getenv("VEID");
-	static char vebuf[256];
-	static pid_t pid = 0;
-	bool found = false;
-
-	if (veid) {
-		pr_debug("VEID from env %s\n", veid);
-		return veid;
-	} else if (pid == 0 || pid_real != pid) {
-		FILE *f = fopen_proc(pid_real, "cgroup");
-		char *name, *path = NULL, *e;
-		char buf[PAGE_SIZE];
-
-		if (!f)
-			return ERR_PTR(-ENOENT);
-		pr_debug("Determinating VEID for pid %d\n", pid_real);
-		found = false;
-
-		/*
-		 * 16:name=zdtmtst:/
-		 * 14:freezer:/machine.slice/150
-		 * 13:cpuset:/machine.slice/150
-		 * 12:perf_event:/machine.slice/150
-		 * 11:hugetlb:/machine.slice/150
-		 * 10:ve:/150
-		 */
-		while (fgets(buf, sizeof(buf), f)) {
-			name = strchr(buf, ':');
-			if (name)
-				path = strchr(++name, ':');
-			if (!name || !path) {
-				pr_err("Failed parsing cgroup %s\n", buf);
-				return ERR_PTR(-EINVAL);
-			}
-			e = strchr(name, '\n');
-			*path++ = '\0';
-			if (e)
-				*e = '\0';
-			if (!strcmp(name, "ve")) {
-				pid = pid_real;
-				strncpy(vebuf, path[0] == '/' ? &path[1] : path,
-					sizeof(vebuf) - 1);
-				pr_debug("VEID %s\n", vebuf);
-				found = true;
-				break;
-			}
-		}
-		fclose(f);
-	} else
-		found = true;
-
-	return found ? vebuf : ERR_PTR(-ENOENT);
-}
-
 /* Returns 1 in case of success, -errno in case of mount fail, and 0 on other errors */
 static __maybe_unused int mount_cr_time_mount(struct ns_id *ns, unsigned int *s_dev, const char *source,
 			       const char *target, const char *type)
 {
-	int ret = -1, exit_code = 0;
+	int mnt_fd, ret, exit_code = 0;
 	struct stat st;
-	int veX_fd = -1, len = -1;
-	char buf[PATH_MAX];
-	char *veid;
 
-	veid = get_dumpee_veid(root_item->pid->real);
-	if (IS_ERR_OR_NULL(veid)) {
-		pr_err("Can't fetch VEID of a dumpee\n");
-		goto out;
-	}
-
-	snprintf(buf, PATH_MAX, "/sys/fs/cgroup/ve/%s/tasks", veid);
-	ret = veX_fd = open(buf, O_WRONLY);
-	if (ret < 0) {
-		pr_perror("Can't open %s", buf);
-		goto out;
-	}
-
-	len = sprintf(buf, "%d", getpid());
-	if (len <= 0 || write(veX_fd, buf, len) != len) {
-		pr_perror("Can't enter VE cgroup (len=%d)", len);
-		len = ret = -1;
-		goto out;
-	}
-	close(veX_fd);
-
-	ret = switch_ns(ns->ns_pid, &mnt_ns_desc, NULL);
+	ret = switch_ns(ns->ns_pid, &mnt_ns_desc, &mnt_fd);
 	if (ret < 0) {
 		pr_err("Can't switch mnt_ns\n");
-		goto out;
-	}
-
-	ret = switch_ns(ns->ns_pid, &user_ns_desc, NULL);
-	if (ret < 0) {
-		pr_err("Can't switch user_ns\n");
 		goto out;
 	}
 
 	ret = mount(source, target, type, 0, NULL);
 	if (ret < 0) {
 		exit_code = -errno;
-		goto out;
+		goto restore_ns;
 	} else {
 		if (stat(target, &st) < 0) {
 			 pr_perror("Can't stat %s", target);
@@ -1544,44 +1290,13 @@ static __maybe_unused int mount_cr_time_mount(struct ns_id *ns, unsigned int *s_
 		}
 	}
 
+restore_ns:
+	ret = restore_ns(mnt_fd, &mnt_ns_desc);
 out:
 	return ret < 0 ? 0 : exit_code;
 }
 
-static __maybe_unused int mount_and_collect_binfmt_misc(void *unused)
-{
-	unsigned int s_dev = 0;
-	struct ns_id *ns;
-	int ret;
 
-	for (ns = ns_ids; ns != NULL; ns = ns->next) {
-		if (ns->type == NS_ROOT && ns->nd == &mnt_ns_desc)
-			break;
-	}
-	BUG_ON(!ns);
-
-	ret = mount_cr_time_mount(ns, &s_dev, "binfmt_misc", "/" BINFMT_MISC_HOME,
-				  "binfmt_misc");
-	if (ret == -EPERM || ret == -ENODEV || ret == -ENOENT) {
-		/*
-		 * EPERM is returned when we're in !init_user_ns, ENODEV and ENOENT
-		 * when no binfmt_misc module is loaded.
-		 */
-		pr_info("Can't mount binfmt_misc: %d %s\n", ret, strerror(-ret));
-		ret = 0;
-	} else if (ret < 0) {
-		errno = -ret;
-		pr_perror("Can't mount binfmt_misc");
-	} else if (ret == 0) {
-		/* Error not connected with mount */
-		ret = -1;
-	} else if (ret > 0) {
-		ret = add_cr_time_mount(ns->mnt.mntinfo_tree, "binfmt_misc",
-					BINFMT_MISC_HOME, s_dev);
-	}
-
-	return ret;
-}
 
 static int dump_one_fs(struct mount_info *mi)
 {
@@ -1862,24 +1577,6 @@ static char *resolve_source(struct mount_info *mi)
 	return NULL;
 }
 
-static int __restore_shared_options(char *mountpoint, bool private, bool shared, bool slave)
-{
-	if (private && mount(NULL, mountpoint, NULL, MS_PRIVATE, NULL)) {
-		pr_perror("Unable to make %s private", mountpoint);
-		return -1;
-	}
-	if (slave && mount(NULL, mountpoint, NULL, MS_SLAVE, NULL)) {
-		pr_perror("Unable to make %s slave", mountpoint);
-		return -1;
-	}
-	if (shared && mount(NULL, mountpoint, NULL, MS_SHARED, NULL)) {
-		pr_perror("Unable to make %s shared", mountpoint);
-		return -1;
-	}
-
-	return 0;
-}
-
 static int restore_shared_options(struct mount_info *mi, bool private, bool shared, bool slave)
 {
 	pr_debug("%d:%s private %d shared %d slave %d\n",
@@ -1892,7 +1589,20 @@ static int restore_shared_options(struct mount_info *mi, bool private, bool shar
 			return mount(NULL, mi->mountpoint, NULL, MS_UNBINDABLE, NULL);
 	}
 
-	return __restore_shared_options(mi->mountpoint, private, shared, slave);
+	if (private && mount(NULL, mi->mountpoint, NULL, MS_PRIVATE, NULL)) {
+		pr_perror("Unable to make %s private", mi->mountpoint);
+		return -1;
+	}
+	if (slave && mount(NULL, mi->mountpoint, NULL, MS_SLAVE, NULL)) {
+		pr_perror("Unable to make %s slave", mi->mountpoint);
+		return -1;
+	}
+	if (shared && mount(NULL, mi->mountpoint, NULL, MS_SHARED, NULL)) {
+		pr_perror("Unable to make %s shared", mi->mountpoint);
+		return -1;
+	}
+
+	return 0;
 }
 
 /*
@@ -1939,7 +1649,7 @@ static int propagate_siblings(struct mount_info *mi)
 	list_for_each_entry(t, &mi->mnt_share, mnt_share) {
 		if (t->mounted)
 			continue;
-		if (t->bind && t->bind->shared_id == mi->shared_id)
+		if (t->bind && t->bind->shared_id == t->shared_id)
 			continue;
 		pr_debug("\t\tBind share %s\n", t->mountpoint);
 		t->bind = mi;
@@ -1988,8 +1698,7 @@ static int propagate_mount(struct mount_info *mi)
 				 * is always shared. If we want to get a private
 				 * mount, we need to convert it.
 				 */
-				if (restore_shared_options(c, !c->shared_id, 0, 0))
-					return -1;
+				restore_shared_options(c, !c->shared_id, 0, 0);
 
 				c->mounted = true;
 				propagate_siblings(c);
@@ -2064,8 +1773,8 @@ static char *mnt_fsname(struct mount_info *mi)
 
 static int apply_sb_flags(void *args, int fd, pid_t pid)
 {
+	unsigned long flags = *(unsigned long *) args;
 	int rst = -1, err = -1;
-	long flags = *(int *) args;
 	char path[PSFDS];
 
 	snprintf(path, sizeof(path), "/proc/self/fd/%d", fd);
@@ -2130,10 +1839,9 @@ static int do_new_mount(struct mount_info *mi)
 			pr_perror("Unable to open %s", mi->mountpoint);
 			return -1;
 		}
-
 		sflags |= MS_RDONLY;
 		if (userns_call(apply_sb_flags, 0,
-				&sflags, sizeof(int), fd)) {
+				&sflags, sizeof(sflags), fd)) {
 			pr_perror("Unable to apply mount falgs %d for %s",
 						mi->sb_flags, mi->mountpoint);
 			close(fd);
@@ -2220,24 +1928,17 @@ static int do_bind_mount(struct mount_info *mi)
 	char mnt_fd_path[PSFDS];
 	char *root, *cut_root, rpath[PATH_MAX];
 	unsigned long mflags;
-	int exit_code = -1;
+	int exit_code = -1, mp_len;
 	bool shared = false;
 	bool master = false;
 	bool private = false;
 	char *mnt_path = NULL;
 	struct stat st;
-	int umount_mnt_fd = -1, fd;
+	bool umount_mnt_path = false;
+	struct mount_info *c;
 
 	if (mi->need_plugin) {
 		if (restore_ext_mount(mi))
-			return -1;
-		/*
-		 * shared - the mount is in the same shared group with mi->bind
-		 * mi->shared_id && !shared - create a new shared group
-		 */
-		if (restore_shared_options(mi, private,
-					   mi->shared_id && !shared,
-					   mi->master_id && !master))
 			return -1;
 		goto out;
 	}
@@ -2268,14 +1969,6 @@ static int do_bind_mount(struct mount_info *mi)
 
 	mnt_path = mi->bind->mountpoint;
 
-	if (mi->fstype->code == FSTYPE__AUTOFS && mi->bind->fd < 0) {
-		mi->bind->fd = open(mnt_path, O_PATH); /* autofs hack*/
-		if (mi->bind->fd < 0) {
-			pr_perror("Unable to open %s", mnt_path);
-			goto err;
-		}
-	}
-
 	/* Access a mount by fd if mi->bind->mountpoint is overmounted */
 	if (mi->bind->fd >= 0) {
 		snprintf(mnt_fd_path, sizeof(mnt_fd_path),
@@ -2283,32 +1976,42 @@ static int do_bind_mount(struct mount_info *mi)
 		mnt_path = mnt_fd_path;
 	}
 
-	/* mi->bind->mountpoint may be overmounted */
-	if (mount(mnt_path, mnt_clean_path, NULL, MS_BIND, NULL)) {
-		pr_perror("Unable to bind-mount %s to %s",
-				mi->bind->mountpoint, mnt_clean_path);
-		return -1;
+	if (cut_root[0] == 0) /* This case is handled by mi->bind->fd */
+		goto skip_overmount_check;
+
+	/*
+	 * The target path may be over-mounted by one of child mounts
+	 * and we need to create a new bind-mount to get access to the path.
+	 */
+	mp_len = strlen(mi->bind->mountpoint);
+	if (mp_len > 1) /* skip a joining / if mi->bind->mountpoint isn't "/" */
+		mp_len++;
+
+	list_for_each_entry(c, &mi->bind->children, siblings) {
+		if (!c->mounted)
+			continue;
+		if (issubpath(cut_root, c->mountpoint + mp_len))
+			break; /* a source path is overmounted */
 	}
-	mnt_path = mnt_clean_path;
-	umount_mnt_fd = open(mnt_clean_path, O_PATH);
-	if (umount_mnt_fd < 0) {
-		pr_perror("Unable to open %s", mnt_clean_path);
-		return -1;
+
+	if (&c->siblings != &mi->bind->children) {
+		/* Get a copy of mi->bind without child mounts */
+		if (mount(mnt_path, mnt_clean_path, NULL, MS_BIND, NULL)) {
+			pr_perror("Unable to bind-mount %s to %s",
+					mnt_path, mnt_clean_path);
+			return -1;
+		}
+		mnt_path = mnt_clean_path;
+		umount_mnt_path = true;
 	}
-	if (__restore_shared_options(mnt_path, private,
-				   mi->shared_id && !shared,
-				   mi->master_id && !master))
-		return -1;
 
 	if (mnt_path == NULL)
 		return -1;
 
-	if (cut_root[0]) {
-		snprintf(rpath, sizeof(rpath), "%s/%s",
-				mnt_path, cut_root);
-		root = rpath;
-	} else
-		root = mnt_path;
+skip_overmount_check:
+	snprintf(rpath, sizeof(rpath), "%s/%s",
+			mnt_path, cut_root);
+	root = rpath;
 do_bind:
 	pr_info("\tBind %s to %s\n", root, mi->mountpoint);
 
@@ -2338,25 +2041,10 @@ do_bind:
 		}
 	}
 
-	if (unix_prepare_bindmount(mi)) {
-		pr_err("Failed to prepare bindmount on unix at %s\n",
-		       mi->mountpoint);
-		goto err;
-	}
-
-	fd = open(root, O_PATH); /* autofs hack*/
-	if (fd < 0) {
-		pr_perror("Unable to open %s", root);
-		goto err;
-	}
-	snprintf(mnt_fd_path, sizeof(mnt_fd_path),
-				"/proc/self/fd/%d", fd);
-	if (mount(mnt_fd_path, mi->mountpoint, NULL, MS_BIND | (mi->flags & MS_REC), NULL) < 0) {
+	if (mount(root, mi->mountpoint, NULL, MS_BIND | (mi->flags & MS_REC), NULL) < 0) {
 		pr_perror("Can't mount at %s", mi->mountpoint);
-		close(fd);
 		goto err;
 	}
-	close(fd);
 
 	mflags = mi->flags & (~MS_PROPAGATE);
 	if (!mi->bind || mflags != (mi->bind->flags & (~MS_PROPAGATE)))
@@ -2379,34 +2067,31 @@ do_bind:
 		}
 	}
 out:
+	/*
+	 * shared - the mount is in the same shared group with mi->bind
+	 * mi->shared_id && !shared - create a new shared group
+	 */
+	if (restore_shared_options(mi, private,
+	                           mi->shared_id && !shared,
+	                           mi->master_id && !master))
+		return -1;
+
 	mi->mounted = true;
 	exit_code = 0;
 err:
-	if (umount_mnt_fd >= 0) {
-		int i;
-
-		snprintf(mnt_fd_path, sizeof(mnt_fd_path),
-				"/proc/self/fd/%d", umount_mnt_fd);
+	if (umount_mnt_path) {
 		/*
 		 * If mnt_path was shared, a new mount may be propagated
 		 * into it.
 		 */
-		if (mount(NULL, mnt_fd_path, NULL, MS_PRIVATE | MS_REC, NULL)) {
+		if (mount(NULL, mnt_path, NULL, MS_PRIVATE, NULL)) {
 			pr_perror("Unable to make %s private", mnt_path);
 			return -1;
 		}
-		i = 0;
-		while (1) {
-			/* Something may be propagated over mnt_clean_path */
-			if (umount2(mnt_fd_path, MNT_DETACH)) {
-				if (i && errno == EINVAL)
-					break; /* Everything was umounted */
-				pr_perror("Unable to umount %s", mnt_path);
-				return -1;
-			}
-			i++;
+		if (umount2(mnt_path, MNT_DETACH)) {
+			pr_perror("Unable to umount %s", mnt_path);
+			return -1;
 		}
-		close(umount_mnt_fd);
 	}
 	return exit_code;
 }
@@ -2445,15 +2130,6 @@ static bool can_mount_now(struct mount_info *mi)
 	if (!fsroot_mounted(mi) && (mi->bind == NULL && !mi->need_plugin))
 		return false;
 
-	if (mi->bind && mi->shared_id != mi->bind->shared_id) {
-		struct mount_info *n;
-		int len;
-
-		len = strlen(mi->root);
-		list_for_each_entry(n, &mi->mnt_share, mnt_share)
-			if (len > strlen(n->root))
-				return false;
-	}
 shared:
 	if (mi->parent->shared_id) {
 		struct mount_info *p = mi->parent, *n;
@@ -2806,22 +2482,6 @@ out:
 	return exit_code;
 }
 
-static int rst_collect_local_mntns(enum ns_type typ)
-{
-	struct ns_id *nsid;
-
-	nsid = rst_new_ns_id(0, getpid(), &mnt_ns_desc, typ);
-	if (!nsid)
-		return -1;
-
-	mntinfo = collect_mntinfo(nsid, false);
-	if (!mntinfo)
-		return -1;
-
-	nsid->ns_populated = true;
-	return 0;
-}
-
 static int get_mp_root(MntEntry *me, struct mount_info *mi)
 {
 	char *ext = NULL;
@@ -3076,7 +2736,6 @@ int restore_task_mnt_ns(struct pstree_item *current)
 		return 0;
 
 	if (current->ids && current->ids->has_mnt_ns_id) {
-		struct pstree_item *next = current->parent;
 		unsigned int id = current->ids->mnt_ns_id;
 		struct ns_id *nsid;
 
@@ -3089,14 +2748,8 @@ int restore_task_mnt_ns(struct pstree_item *current)
 		 * already there, otherwise it will have to do
 		 * setns().
 		 */
-		for (; next; next = next->parent) {
-			if (!next->ids)
-			       continue;
-			if (id == next->ids->mnt_ns_id)
-				return 0;
-			else
-				break;
-		}
+		if (current->parent && id == current->parent->ids->mnt_ns_id)
+			return 0;
 
 		nsid = lookup_ns_by_id(id, &mnt_ns_desc);
 		if (nsid == NULL) {
@@ -3334,7 +2987,7 @@ int prepare_mnt_ns(void)
 	struct ns_id *nsid;
 
 	if (!(root_ns_mask & CLONE_NEWNS))
-		return rst_collect_local_mntns(NS_CRIU);
+		return 0;
 
 	pr_info("Restoring mount namespace\n");
 
@@ -3511,6 +3164,8 @@ set_root:
 
 int mntns_get_root_fd(struct ns_id *mntns)
 {
+	if (!(root_ns_mask & CLONE_NEWNS))
+		return __mntns_get_root_fd(0);
 	/*
 	 * All namespaces are restored from the root task and during the
 	 * CR_STATE_FORKING stage the root task has two file descriptors for
@@ -3561,10 +3216,12 @@ struct ns_id *lookup_nsid_by_mnt_id(int mnt_id)
 
 int mntns_get_root_by_mnt_id(int mnt_id)
 {
-	struct ns_id *mntns;
+	struct ns_id *mntns = NULL;
 
-	mntns = lookup_nsid_by_mnt_id(mnt_id);
-	BUG_ON(mntns == NULL);
+	if (root_ns_mask & CLONE_NEWNS) {
+		mntns = lookup_nsid_by_mnt_id(mnt_id);
+		BUG_ON(mntns == NULL);
+	}
 
 	return mntns_get_root_fd(mntns);
 }
@@ -3609,9 +3266,31 @@ int collect_mnt_namespaces(bool for_dump)
 
 #ifdef CONFIG_BINFMT_MISC_VIRTUALIZED
 	if (for_dump && !opts.has_binfmt_misc) {
-		ret = call_in_child_process(mount_and_collect_binfmt_misc, NULL);
-		if (ret)
-			goto err;
+		unsigned int s_dev = 0;
+		struct ns_id *ns;
+
+		for (ns = ns_ids; ns != NULL; ns = ns->next) {
+			if (ns->type == NS_ROOT && ns->nd == &mnt_ns_desc)
+				break;
+		}
+
+		if (ns) {
+			ret = mount_cr_time_mount(ns, &s_dev, "binfmt_misc", "/" BINFMT_MISC_HOME,
+						  "binfmt_misc");
+			if (ret == -EPERM)
+				pr_info("Can't mount binfmt_misc: EPERM. Running in user_ns?\n");
+			else if (ret < 0 && ret != -EBUSY && ret != -ENODEV && ret != -ENOENT) {
+				pr_err("Can't mount binfmt_misc: %d %s\n", ret, strerror(-ret));
+				goto err;
+			} else if (ret == 0) {
+				ret = -1;
+				goto err;
+			} else if (ret > 0 && add_cr_time_mount(ns->mnt.mntinfo_tree, "binfmt_misc",
+								BINFMT_MISC_HOME, s_dev) < 0) {
+				ret = -1;
+				goto err;
+			}
+		}
 	}
 #endif
 

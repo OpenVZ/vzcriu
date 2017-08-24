@@ -10,7 +10,8 @@
 #include "cr_options.h"
 #include "servicefd.h"
 #include "pagemap.h"
-
+#include "restorer.h"
+#include "rst-malloc.h"
 #include "fault-injection.h"
 #include "xmalloc.h"
 #include "protobuf.h"
@@ -248,7 +249,7 @@ static int read_local_page(struct page_read *pr, unsigned long vaddr,
 			   unsigned long len, void *buf)
 {
 	int fd = img_raw_fd(pr->pi);
-	ssize_t ret;
+	int ret;
 	size_t curr = 0;
 
 	/*
@@ -262,7 +263,7 @@ static int read_local_page(struct page_read *pr, unsigned long vaddr,
 	while (1) {
 		ret = pread(fd, buf + curr, len - curr, pr->pi_off + curr);
 		if (ret < 1) {
-			pr_perror("Can't read mapping page %zd", ret);
+			pr_perror("Can't read mapping page %d", ret);
 			return -1;
 		}
 		curr += ret;
@@ -279,7 +280,8 @@ static int read_local_page(struct page_read *pr, unsigned long vaddr,
 	return 0;
 }
 
-static int enqueue_async_iov(struct page_read *pr, unsigned long len, void *buf)
+static int enqueue_async_iov(struct page_read *pr, void *buf,
+		unsigned long len, struct list_head *to)
 {
 	struct page_read_iov *pr_iov;
 	struct iovec *iov;
@@ -303,19 +305,45 @@ static int enqueue_async_iov(struct page_read *pr, unsigned long len, void *buf)
 	pr_iov->to = iov;
 	pr_iov->nr = 1;
 
-	list_add_tail(&pr_iov->l, &pr->async);
+	list_add_tail(&pr_iov->l, to);
 
 	return 0;
 }
 
-static int enqueue_async_page(struct page_read *pr, unsigned long vaddr,
-			      unsigned long len, void *buf)
+int pagemap_render_iovec(struct list_head *from, struct task_restore_args *ta)
+{
+	struct page_read_iov *piov;
+
+	ta->vma_ios = (struct restore_vma_io *)rst_mem_align_cpos(RM_PRIVATE);
+	ta->vma_ios_n = 0;
+
+	list_for_each_entry(piov, from, l) {
+		struct restore_vma_io *rio;
+
+		pr_info("`- render %d iovs (%p:%zd...)\n", piov->nr,
+				piov->to[0].iov_base, piov->to[0].iov_len);
+		rio = rst_mem_alloc(RIO_SIZE(piov->nr), RM_PRIVATE);
+		if (!rio)
+			return -1;
+
+		rio->nr_iovs = piov->nr;
+		rio->off = piov->from;
+		memcpy(rio->iovs, piov->to, piov->nr * sizeof(struct iovec));
+
+		ta->vma_ios_n++;
+	}
+
+	return 0;
+}
+
+int pagemap_enqueue_iovec(struct page_read *pr, void *buf,
+			      unsigned long len, struct list_head *to)
 {
 	struct page_read_iov *cur_async = NULL;
 	struct iovec *iov;
 
-	if (!list_empty(&pr->async))
-		cur_async = list_entry(pr->async.prev, struct page_read_iov, l);
+	if (!list_empty(to))
+		cur_async = list_entry(to->prev, struct page_read_iov, l);
 
 	/*
 	 * We don't have any async requests or we have new read
@@ -324,7 +352,7 @@ static int enqueue_async_page(struct page_read *pr, unsigned long vaddr,
 	 * Start the new preadv request here.
 	 */
 	if (!cur_async || pr->pi_off != cur_async->end)
-		return enqueue_async_iov(pr, len, buf);
+		return enqueue_async_iov(pr, buf, len, to);
 
 	/*
 	 * This read is pure continuation of the previous one. Let's
@@ -339,7 +367,7 @@ static int enqueue_async_page(struct page_read *pr, unsigned long vaddr,
 		unsigned int n_iovs = cur_async->nr + 1;
 
 		if (n_iovs >= IOV_MAX)
-			return enqueue_async_iov(pr, len, buf);
+			return enqueue_async_iov(pr, buf, len, to);
 
 		iov = xrealloc(cur_async->to, n_iovs * sizeof(*iov));
 		if (!iov)
@@ -366,7 +394,7 @@ static int maybe_read_page(struct page_read *pr, unsigned long vaddr,
 	unsigned long len = nr * PAGE_SIZE;
 
 	if (flags & PR_ASYNC)
-		ret = enqueue_async_page(pr, vaddr, len, buf);
+		ret = pagemap_enqueue_iovec(pr, buf, len, &pr->async);
 	else
 		ret = read_local_page(pr, vaddr, len, buf);
 
@@ -519,6 +547,19 @@ static void close_page_read(struct page_read *pr)
 		free_pagemaps(pr);
 }
 
+static void reset_pagemap(struct page_read *pr)
+{
+	pr->cvaddr = 0;
+	pr->pi_off = 0;
+	pr->curr_pme = -1;
+	pr->pe = NULL;
+
+	/* FIXME: take care of bunch */
+
+	if (pr->parent)
+		reset_pagemap(pr->parent);
+}
+
 static int try_open_parent(int dfd, int pid, struct page_read *pr, int pr_flags)
 {
 	int pfd, ret;
@@ -640,6 +681,7 @@ int open_page_read_at(int dfd, int pid, struct page_read *pr, int pr_flags)
 	pr->bunch.iov_len = 0;
 	pr->bunch.iov_base = NULL;
 	pr->pmes = NULL;
+	pr->pieok = false;
 
 	pr->pmi = open_image_at(dfd, i_typ, O_RSTR, (long)pid);
 	if (!pr->pmi)
@@ -655,7 +697,7 @@ int open_page_read_at(int dfd, int pid, struct page_read *pr, int pr_flags)
 		return -1;
 	}
 
-	pr->pi = open_pages_image_at(dfd, flags, pr->pmi);
+	pr->pi = open_pages_image_at(dfd, flags, pr->pmi, &pr->pages_img_id);
 	if (!pr->pi) {
 		close_page_read(pr);
 		return -1;
@@ -669,9 +711,13 @@ int open_page_read_at(int dfd, int pid, struct page_read *pr, int pr_flags)
 	pr->read_pages = read_pagemap_page;
 	pr->advance = advance;
 	pr->close = close_page_read;
+	pr->skip_pages = skip_pagemap_pages;
 	pr->sync = process_async_reads;
 	pr->seek_pagemap = seek_pagemap;
+	pr->reset = reset_pagemap;
 	pr->id = ids++;
+	if (!pr->parent)
+		pr->pieok = true;
 
 	pr_debug("Opened page read %u (parent %u)\n",
 			pr->id, pr->parent ? pr->parent->id : 0);

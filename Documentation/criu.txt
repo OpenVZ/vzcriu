@@ -24,15 +24,20 @@ on a different system, or both.
 OPTIONS
 -------
 
+Most of the true / false long options (the ones without arguments) can be
+prefixed with *--no-* to negate the option (example: *--display-stats*
+and *--no-display-stats*).
+
 Common options
 ~~~~~~~~~~~~~~
 Common options are applicable to any 'command'.
 
-*-v*[*v*...]::
+*-v*[*v*...], *--verbosity*::
     Increase verbosity up from the default level. Multiple *v* can be used,
-    each increasing verbosity by one level.
+    each increasing verbosity by one level. Using long option without argument
+    increases verbosity by one level.
 
-*-v*'num'::
+*-v*'num', *--verbosity*='num'::
     Set verbosity level to 'num'. The higher the level, the more output
     is produced.
     +
@@ -259,6 +264,9 @@ For example, the command line for the above example should look like this:
     these connections, rather than errors out.
     The TCP stack on the client side is expected to handle the
     re-connect gracefully.
+
+*--tcp-close*::
+    Restore connected TCP sockets in closed state.
 
 *--evasive-devices*::
     Use any path to a device file if the original one is inaccessible.
