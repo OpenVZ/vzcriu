@@ -14,6 +14,7 @@
 #include "libnetlink.h"
 #include "namespaces.h"
 #include "sk-queue.h"
+#include "kerndat.h"
 
 #undef  LOG_PREFIX
 #define LOG_PREFIX "netlink: "
@@ -83,15 +84,19 @@ int netlink_receive_one(struct nlmsghdr *hdr, struct ns_id *ns, void *arg)
 	return sk_collect_one(m->ndiag_ino, PF_NETLINK, &sd->sd, ns);
 }
 
-static bool can_dump_netlink_sk(int lfd)
+static bool can_dump_netlink_sk(int lfd, struct netlink_sk_desc *sk)
 {
 	int ret;
 
 	ret = fd_has_data(lfd);
-	if (ret == 1)
+	if (ret < 0)
+		return false;
+	if (ret == 1 && (sk->nl_flags & NDIAG_FLAG_CB_RUNNING)) {
 		pr_err("The socket has data to read\n");
+		return false;
+	}
 
-	return ret == 0;
+	return true;
 }
 
 static int dump_one_netlink_fd(int lfd, u32 id, const struct fd_parms *p)
@@ -108,7 +113,7 @@ static int dump_one_netlink_fd(int lfd, u32 id, const struct fd_parms *p)
 	ne.id = id;
 	ne.ino = p->stat.st_ino;
 
-	if (!can_dump_netlink_sk(lfd))
+	if (!can_dump_netlink_sk(lfd, sk))
 		goto err;
 
 	if (sk) {
@@ -187,6 +192,9 @@ static int dump_one_netlink_fd(int lfd, u32 id, const struct fd_parms *p)
 	fe.id = ne.id;
 	fe.nlsk = &ne;
 
+	if (kdat.has_nl_repair && dump_sk_queue(lfd, id, true))
+		goto err;
+
 	if (pb_write_one(img_from_set(glob_imgset, CR_FD_FILES), &fe, PB_FILE))
 		goto err;
 
@@ -204,6 +212,29 @@ struct netlink_sock_info {
 	NetlinkSkEntry *nse;
 	struct file_desc d;
 };
+
+static int restore_netlink_queue(int sk, int id)
+{
+	int val;
+
+	if (!kdat.has_nl_repair)
+		return 0;
+
+	val = 1;
+	if (setsockopt(sk, SOL_NETLINK, NETLINK_REPAIR, &val, sizeof(val))) {
+		pr_perror("Unable to set NETLINK_REPAIR");
+		return -1;
+	}
+
+	if (restore_sk_queue(sk, id))
+		return -1;
+
+	val = 0;
+	if (setsockopt(sk, SOL_NETLINK, NETLINK_REPAIR, &val, sizeof(val)))
+		return -1;
+
+	return 0;
+}
 
 static int open_netlink_sk(struct file_desc *d, int *new_fd)
 {
@@ -266,6 +297,9 @@ static int open_netlink_sk(struct file_desc *d, int *new_fd)
 		goto err;
 
 	if (restore_socket_opts(sk, nse->opts))
+		goto err;
+
+	if (restore_netlink_queue(sk, nse->id))
 		goto err;
 
 	*new_fd = sk;
