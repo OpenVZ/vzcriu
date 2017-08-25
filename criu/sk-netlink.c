@@ -27,6 +27,32 @@ struct netlink_sk_desc {
 	u8			protocol;
 };
 
+int netlink_final_check_one(struct nlmsghdr *hdr, void *arg)
+{
+	struct nlattr *tb[NETLINK_DIAG_MAX+1];
+	struct netlink_diag_msg *m;
+	unsigned long nl_ino = (unsigned long)arg;
+	u64 flags;
+	
+	m = NLMSG_DATA(hdr);
+
+	if (m->ndiag_ino == nl_ino)
+		return 0;
+
+	nlmsg_parse(hdr, sizeof(struct netlink_diag_msg), tb, NETLINK_DIAG_MAX, NULL);
+
+	flags = NDIAG_FLAG_CB_RUNNING;
+	if (tb[NETLINK_DIAG_FLAGS])
+		flags = nla_get_u32(tb[NETLINK_DIAG_FLAGS]);
+
+	if (flags & NDIAG_FLAG_CB_RUNNING) {
+		pr_err("The netlink socket 0x%x has undumped data\n", m->ndiag_ino);
+		return -1;
+	}
+
+	return 0;
+}
+
 int netlink_receive_one(struct nlmsghdr *hdr, void *arg)
 {
 	struct nlattr *tb[NETLINK_DIAG_MAX+1];
@@ -87,10 +113,6 @@ static bool can_dump_netlink_sk(int lfd, struct netlink_sk_desc *sk)
 	ret = fd_has_data(lfd);
 	if (ret < 0)
 		return false;
-	if (ret == 1 && (sk->nl_flags & NDIAG_FLAG_CB_RUNNING)) {
-		pr_err("The socket has data to read\n");
-		return false;
-	}
 
 	return true;
 }
