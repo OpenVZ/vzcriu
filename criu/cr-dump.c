@@ -796,6 +796,13 @@ static int dump_task_core_all(struct parasite_ctl *ctl, struct pstree_item *item
 		core->tc->stop_signo = item->pid->stop_signo;
 	}
 
+	if (stat->tty_nr) {
+		core->tc->has_tty_nr = true;
+		core->tc->has_tty_pgrp = true;
+		core->tc->tty_nr = stat->tty_nr;
+		core->tc->tty_pgrp = stat->tty_pgrp;
+	}
+
 	ret = parasite_dump_thread_leader_seized(ctl, pid, core);
 	if (ret)
 		goto err;
