@@ -429,6 +429,7 @@ int restore_sk_queue(int fd, unsigned int peer_id)
 {
 	struct sk_packet *pkt, *tmp;
 	int ret = -1;
+	size_t sum_len = 0;
 
 	pr_info("Trying to restore recv queue for %#x\n", peer_id);
 
@@ -450,8 +451,8 @@ int restore_sk_queue(int fd, unsigned int peer_id)
 		if (entry->id_for != peer_id)
 			continue;
 
-		pr_info("\tRestoring %d-bytes skb for %#x\n",
-			(unsigned int)entry->length, peer_id);
+		pr_info("\tRestoring %d-bytes (%zu bytes sent) skb for %#x\n",
+			(unsigned int)entry->length, sum_len, peer_id);
 
 		/*
 		 * Don't try to use sendfile here, because it use sendpage() and
@@ -500,6 +501,7 @@ int restore_sk_queue(int fd, unsigned int peer_id)
 			ret = -1;
 			goto out;
 		}
+		sum_len += (size_t)entry->length;
 		list_del(&pkt->list);
 		sk_packet_entry__free_unpacked(entry, NULL);
 		xfree(pkt);
