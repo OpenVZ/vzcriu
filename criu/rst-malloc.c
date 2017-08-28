@@ -109,6 +109,11 @@ static int grow_private(struct rst_mem_type_s *t, unsigned long size)
 	return grow_remap(t, MAP_PRIVATE, size);
 }
 
+/*
+ * Service code expects that we do not share rst_mems allocator's
+ * methodata and keep it in private. Otherwise restore may leave
+ * some of shared resources allocated to the next service command.
+ */
 static struct rst_mem_type_s rst_mems[RST_MEM_TYPES] = {
 	[RM_SHARED] = {
 		.grow = grow_shared,

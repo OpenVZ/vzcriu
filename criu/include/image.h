@@ -160,7 +160,6 @@ extern struct cr_img *open_image_at(int dfd, int type, unsigned long flags, ...)
 extern int open_image_lazy(struct cr_img *img);
 extern struct cr_img *open_pages_image(unsigned long flags, struct cr_img *pmi, u32 *pages_id);
 extern struct cr_img *open_pages_image_at(int dfd, unsigned long flags, struct cr_img *pmi, u32 *pages_id);
-extern void up_page_ids_base(void);
 
 extern struct cr_img *img_from_fd(int fd); /* for cr-show mostly */
 
@@ -173,5 +172,7 @@ extern int read_img_buf(struct cr_img *, void *ptr, int size);
 extern int read_img_str(struct cr_img *, char **pstr, int size);
 
 extern void close_image(struct cr_img *);
+
+extern int images_init(bool page_server_mode);
 
 #endif /* __CR_IMAGE_H__ */
