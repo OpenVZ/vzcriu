@@ -17,6 +17,7 @@ extern int kerndat_init(void);
 extern int kerndat_get_dirty_track(void);
 extern int kerndat_fdinfo_has_lock(void);
 extern int kerndat_loginuid(void);
+extern int kerndat_files_stat(bool early);
 
 enum pagemap_func {
 	PM_UNKNOWN,
