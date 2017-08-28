@@ -167,4 +167,6 @@ extern int read_img_str(struct cr_img *, char **pstr, int size);
 
 extern void close_image(struct cr_img *);
 
+extern int images_dump_init(void);
+
 #endif /* __CR_IMAGE_H__ */
