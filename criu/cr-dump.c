@@ -1869,6 +1869,9 @@ int cr_pre_dump_tasks(pid_t pid)
 	 */
 	rlimit_unlimit_nofile();
 
+	if (images_init(false))
+		goto err;
+
 	root_item = alloc_pstree_item();
 	if (!root_item)
 		goto err;
@@ -2079,6 +2082,9 @@ int cr_dump_tasks(pid_t pid)
 	 *  maximum.
 	 */
 	rlimit_unlimit_nofile();
+
+	if (images_init(false))
+		goto err;
 
 	root_item = alloc_pstree_item();
 	if (!root_item)

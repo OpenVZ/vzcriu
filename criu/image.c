@@ -593,20 +593,15 @@ void close_image_dir(void)
  */
 static atomic_t *page_ids;
 
-int images_init(void)
+int images_init(bool page_server_mode)
 {
+	BUG_ON(page_ids);
 	page_ids = shmalloc(sizeof(*page_ids));
 	if (!page_ids) {
 		pr_err("Failed to shmalloc page_ids\n");
 		return -1;
 	}
-	atomic_set(page_ids, 1);
 
-	return 0;
-}
-
-void up_page_ids_base(void)
-{
 	/*
 	 * When page server and criu dump work on
 	 * the same dir, the shmem pagemaps and regular
@@ -614,9 +609,9 @@ void up_page_ids_base(void)
 	 * making page server produce page images with
 	 * higher IDs.
 	 */
-
-	BUG_ON(atomic_read(page_ids) != 1);
-	atomic_add(0x10000, page_ids);
+	atomic_set(page_ids, page_server_mode ? 0x10001 : 1);
+ 
+	return 0;
 }
 
 struct cr_img *open_pages_image_at(int dfd, unsigned long flags, struct cr_img *pmi, u32 *id)
