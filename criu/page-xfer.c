@@ -181,6 +181,11 @@ static int write_pages_to_server(struct page_xfer *xfer,
 				return -1;
 			}
 
+			if (ret == 0) {
+				pr_err("A pipe was closed unexpectedly\n");
+				return -1;
+			}
+
 			pr_debug("\tSpliced: %lu bytes sent\n",
 				(unsigned long)ret);
 			left -= ret;
