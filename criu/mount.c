@@ -27,6 +27,7 @@
 #include "files-reg.h"
 #include "external.h"
 #include "page.h"
+#include "sockets.h"
 
 #include "images/mnt.pb-c.h"
 
@@ -2340,6 +2341,12 @@ do_bind:
 			       (int)st.st_mode, root);
 			goto err;
 		}
+	}
+
+	if (unix_prepare_bindmount(mi)) {
+		pr_err("Failed to prepare bindmount on unix at %s\n",
+		       mi->mountpoint);
+		goto err;
 	}
 
 	fd = open(root, O_PATH); /* autofs hack*/

@@ -32,6 +32,7 @@
 #include "rst-malloc.h"
 #include "atomic.h"
 #include "sysctl.h"
+#include "fdstore.h"
 
 #include "protobuf.h"
 #include "images/sk-unix.pb-c.h"
@@ -96,6 +97,7 @@ struct unix_sk_desc {
 };
 
 static LIST_HEAD(unix_sockets);
+static LIST_HEAD(unix_mnt_sockets);
 static LIST_HEAD(unix_ghost_addr);
 
 struct unix_sk_listen_icon {
@@ -925,9 +927,13 @@ int collect_unix_bindmounts(void)
 	return ret;
 }
 
+#define FDSTORE_ID_NONE		(-1)
+#define FDSTORE_ID_NOCWD	(-2)
+
 struct unix_sk_info {
 	UnixSkEntry		*ue;
 	struct list_head	list;
+	struct list_head	mnt_list;
 	char			*name;
 	char			*name_dir;
 	unsigned int		flags;
@@ -951,6 +957,8 @@ struct unix_sk_info {
 	unsigned int		queuer;
 	bool			bound;
 	bool			listen;
+
+	int			fdstore_id;
 };
 
 static int bind_unix_sk(int sk, struct unix_sk_info *ui);
@@ -1256,13 +1264,18 @@ static int bind_unix_sk(int sk, struct unix_sk_info *ui)
 	addr.sun_family = AF_UNIX;
 	memcpy(&addr.sun_path, ui->name, ui->ue->name.len);
 
-	if (prep_unix_sk_cwd(ui, &cwd_fd, NULL))
+	if (ui->fdstore_id != FDSTORE_ID_NOCWD && prep_unix_sk_cwd(ui, &cwd_fd, NULL))
 		return -1;
 
 	if (ui->ue->name.len) {
 		ret = bind(sk, (struct sockaddr *)&addr,
 				sizeof(addr.sun_family) + ui->ue->name.len);
 		if (ret < 0) {
+			if (ui->fdstore_id == FDSTORE_ID_NOCWD) {
+				pr_perror("bind on %s failed", ui->name);
+				return -1;
+			}
+
 			if (ui->ue->has_deleted && ui->ue->deleted && errno == EADDRINUSE) {
 				char temp[PATH_MAX];
 
@@ -1359,7 +1372,8 @@ static int bind_unix_sk(int sk, struct unix_sk_info *ui)
 
 	ret = 0;
 done:
-	revert_unix_sk_cwd(ui, &cwd_fd, &root_fd);
+	if (ui->fdstore_id != FDSTORE_ID_NOCWD)
+		revert_unix_sk_cwd(ui, &cwd_fd, &root_fd);
 	return ret;
 }
 
@@ -1438,6 +1452,12 @@ static int open_unixsk_standalone(struct unix_sk_info *ui, int *new_fd)
 
 	pr_info("Opening standalone socket (id %#x ino %#x peer %#x)\n",
 			ui->ue->id, ui->ue->ino, ui->ue->peer);
+
+	if (ui->fdstore_id >= 0) {
+		pr_debug("\tObtaining from fdstore id %#x\n", ui->fdstore_id);
+		*new_fd = fdstore_get(ui->fdstore_id);
+		return 0;
+	}
 
 	/*
 	 * Check if this socket was connected to criu service.
@@ -1644,6 +1664,9 @@ static void unlink_stale(struct unix_sk_info *ui)
 {
 	int ret, cwd_fd = -1, root_fd = -1;
 
+	if (ui->fdstore_id >= 0)
+		return;
+
 	if (ui->name[0] == '\0' || (ui->ue->uflags & USK_EXTERN))
 		return;
 
@@ -1764,6 +1787,7 @@ static int collect_one_unixsk(void *o, ProtobufCMessage *base, struct cr_img *i)
 	INIT_LIST_HEAD(&ui->connected);
 	INIT_LIST_HEAD(&ui->node);
 	ui->flags = 0;
+	ui->fdstore_id = FDSTORE_ID_NONE;
 
 	uname = ui->name;
 	ulen = ui->ue->name.len;
@@ -1795,6 +1819,11 @@ static int collect_one_unixsk(void *o, ProtobufCMessage *base, struct cr_img *i)
 		add_post_prepare_cb(&ui->peer_resolve);
 	}
 
+	if (ui->ue->has_mnt_id)
+		list_add_tail(&ui->mnt_list, &unix_mnt_sockets);
+	else
+		INIT_LIST_HEAD(&ui->mnt_list);
+
 	list_add_tail(&ui->list, &unix_sockets);
 	return file_desc_add(&ui->d, ui->ue->id, &unix_desc_ops);
 }
@@ -1806,6 +1835,87 @@ struct collect_image_info unix_sk_cinfo = {
 	.collect	= collect_one_unixsk,
 	.flags		= COLLECT_SHARED,
 };
+
+int unix_prepare_bindmount(struct mount_info *mi)
+{
+	int prev_cwd_fd = -1, prev_root_fd = -1;
+	struct unix_sk_info *ui, *t = NULL;
+	char path[PATH_MAX];
+	int ret = -1, sk;
+
+	list_for_each_entry(ui, &unix_mnt_sockets, mnt_list) {
+		if (ui->ue->mnt_id != mi->mnt_id)
+			continue;
+		t = ui;
+		break;
+	}
+
+	if (!t)
+		return 0;
+
+	/* root/cwd will be prepared here, skip them later */
+	ui->fdstore_id = FDSTORE_ID_NOCWD;
+
+	if (rst_get_mnt_root(mi->mnt_id, path, sizeof(path)) < 0) {
+		pr_err("Can't setup mnt_root for %s\n", mi->ns_mountpoint);
+		return -1;
+	}
+
+	prev_cwd_fd = open(".", O_RDONLY);
+	if (prev_cwd_fd < 0) {
+		pr_perror("Can't save current cwd");
+		goto out;
+	}
+
+	prev_root_fd = open("/", O_RDONLY);
+	if (prev_root_fd < 0) {
+		pr_perror("Can't save current root");
+		goto out;
+	}
+
+	if (chdir(path)) {
+		pr_perror("Can't chdir to %s", path);
+		goto out;
+	} else if (chroot(".")) {
+		pr_perror("Can't chroot");
+		goto out;
+	}
+
+	if (ui->name_dir && chdir(ui->name_dir)) {
+		pr_perror("Can't chdir to %s", ui->name_dir);
+		goto out;
+	}
+
+	if (open_unixsk_standalone(ui, &sk) < 0) {
+		pr_err("Can't open sk %s\n", ui->name);
+		goto out;
+	}
+
+	ui->fdstore_id = fdstore_add(sk);
+	close(sk);
+
+	if (fchdir(prev_root_fd)) {
+		pr_perror("Can't revert root directory");
+		goto out;
+	} else if (chroot(".")) {
+		pr_perror("Can't revert chroot");
+		goto out;
+	} else if (fchdir(prev_cwd_fd)) {
+		pr_perror("Can't revert working dir");
+		goto out;
+	}
+
+	if (ui->fdstore_id >= 0)
+		ret = 0;
+out:
+	close_safe(&prev_cwd_fd);
+	close_safe(&prev_root_fd);
+
+	if (ret == 0)
+		pr_debug("Standalone socket moved into fdstore (id %#x ino %#x peer %#x)\n",
+			 ui->ue->id, ui->ue->ino, ui->ue->peer);
+	return ret;
+}
 
 static void set_peer(struct unix_sk_info *ui, struct unix_sk_info *peer)
 {
