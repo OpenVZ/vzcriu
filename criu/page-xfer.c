@@ -150,6 +150,11 @@ static int write_pages_to_server(struct page_xfer *xfer,
 			return -1;
 		}
 
+		if (ret == 0) {
+			pr_err("A pipe was closed unexpectedly\n");
+			return -1;
+		}
+
 		pr_debug("\tSpliced: %lu bytes sent\n", (unsigned long)ret);
 		left -= ret;
 	}
@@ -639,7 +644,7 @@ static int page_server_add(int sk, struct page_server_iov *pi)
 			return -1;
 		}
 		if (chunk == 0) {
-			pr_err("A socket was closed unexpectedly");
+			pr_err("The socket was closed unexpectedly\n");
 			return -1;
 		}
 
