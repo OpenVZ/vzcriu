@@ -10,6 +10,7 @@
 struct cr_img;
 
 extern int do_pb_read_one(struct cr_img *, void **objp, int type, bool eof);
+extern int do_pb_read_one_VZ730(struct cr_img *, void **objp, int type, bool eof);
 
 #define pb_read_one(fd, objp, type) do_pb_read_one(fd, (void **)objp, type, false)
 #define pb_read_one_eof(fd, objp, type) do_pb_read_one(fd, (void **)objp, type, true)
