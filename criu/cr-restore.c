@@ -267,7 +267,6 @@ static struct collect_image_info *cinfos[] = {
 };
 
 static struct collect_image_info *cinfos_files[] = {
-	&unix_sk_cinfo,
 	&fifo_cinfo,
 	&pipe_cinfo,
 	&nsfile_cinfo,
