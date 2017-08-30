@@ -167,9 +167,12 @@ struct tty_driver {
 #define TTY_SUBTYPE_MASTER			0x0001
 #define TTY_SUBTYPE_SLAVE			0x0002
 
+#define TTY_BITMAP_LONGS			(BITS_TO_LONGS((MAX_TTYS << 1)))
+#define TTY_BITMAP_BITS				(TTY_BITMAP_LONGS * BITS_PER_LONG)
+
 typedef struct tty_bitmap_s {
 	struct tty_bitmap_s		*next;
-	unsigned long			bitmap[BITS_TO_LONGS((MAX_TTYS << 1))];
+	unsigned long			bitmap[TTY_BITMAP_LONGS];
 	int				mnt_id;
 } tty_bitmap_t;
 
