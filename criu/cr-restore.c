@@ -730,6 +730,85 @@ static int collect_zombie_pids(struct task_restore_args *ta)
 	return collect_child_pids(TASK_DEAD, &ta->zombies_n);
 }
 
+static int open_core_VZ730(int pid, CoreEntry **pcore)
+{
+	CoreEntryVZ730 *obj = NULL;
+	CoreEntryVZ730 objcpy;
+	TaskCoreEntryVZ730 tc;
+	CoreEntry *core;
+
+	struct cr_img *img;
+	int ret;
+
+	BUILD_BUG_ON(sizeof(CoreEntry) != sizeof(CoreEntryVZ730));
+	BUILD_BUG_ON(sizeof(TaskCoreEntry) != sizeof(TaskCoreEntryVZ730));
+
+	img = open_image(CR_FD_CORE, O_RSTR, pid);
+	if (!img) {
+		pr_err("VZ730: Can't open core data for %d\n", pid);
+		return -1;
+	}
+
+	ret = do_pb_read_one_VZ730(img, (void **)&obj, PB_CORE, false);
+	close_image(img);
+
+	if (ret > 0) {
+		pr_warn_once("VZ730: Old core detected, converting\n");
+
+		core = *pcore = (void *)obj;
+
+		memcpy(&objcpy, obj, sizeof(objcpy));
+		memcpy(&tc, obj->tc, sizeof(tc));
+
+		pr_debug("VZ730: tty_nr %d/%d tty_pgrp %d/%d\n",
+			 obj->tc->has_tty_nr, (int)obj->tc->tty_nr,
+			 obj->tc->has_tty_pgrp,(int)obj->tc->tty_pgrp);
+
+		core_entry__init(core);
+		core->mtype			= objcpy.mtype;
+		core->thread_info		= objcpy.thread_info;
+		core->ti_arm			= objcpy.ti_arm;
+		core->ti_aarch64		= objcpy.ti_aarch64;
+		core->ti_ppc64			= objcpy.ti_ppc64;
+		core->ti_s390			= objcpy.ti_s390;
+		core->tc			= (void *)objcpy.tc;
+		core->ids			= objcpy.ids;
+		core->thread_core		= objcpy.thread_core;
+
+		task_core_entry__init(core->tc);
+
+		core->tc->task_state		= tc.task_state;
+		core->tc->exit_code		= tc.exit_code;
+		core->tc->personality		= tc.personality;
+		core->tc->flags			= tc.flags;
+		core->tc->blk_sigset		= tc.blk_sigset;
+		core->tc->comm			= tc.comm;
+		core->tc->timers		= tc.timers;
+		core->tc->rlimits		= tc.rlimits;
+		core->tc->has_cg_set		= tc.has_cg_set;
+		core->tc->cg_set		= tc.cg_set;
+		core->tc->signals_s		= tc.signals_s;
+		core->tc->has_seccomp_mode	= tc.has_seccomp_mode;
+		core->tc->seccomp_mode		= tc.seccomp_mode;
+		core->tc->has_seccomp_filter	= tc.has_seccomp_filter;
+		core->tc->seccomp_filter	= tc.seccomp_filter;
+		core->tc->has_loginuid		= tc.has_loginuid;
+		core->tc->loginuid		= tc.loginuid;
+		core->tc->has_oom_score_adj	= tc.has_oom_score_adj;
+		core->tc->oom_score_adj		= tc.oom_score_adj;
+		core->tc->sigactions		= NULL;
+		core->tc->n_sigactions		= 0;
+		core->tc->has_tty_nr		= tc.has_tty_nr;
+		core->tc->tty_nr		= tc.tty_nr;
+		core->tc->has_tty_pgrp		= tc.has_tty_pgrp;
+		core->tc->tty_pgrp		= tc.tty_pgrp;
+	} else {
+		pr_err("VZ730 error %d\n", ret);
+	}
+
+	return ret <= 0 ? -1 : 0;
+}
+
 static int open_core(int pid, CoreEntry **pcore)
 {
 	int ret;
@@ -740,11 +819,10 @@ static int open_core(int pid, CoreEntry **pcore)
 		pr_err("Can't open core data for %d\n", pid);
 		return -1;
 	}
-
 	ret = pb_read_one(img, pcore, PB_CORE);
 	close_image(img);
 
-	return ret <= 0 ? -1 : 0;
+	return ret <= 0 ? open_core_VZ730(pid, pcore) : 0;
 }
 
 static int open_cores(int pid, CoreEntry *leader_core)
