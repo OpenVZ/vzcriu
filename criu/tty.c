@@ -846,8 +846,11 @@ static bool tty_is_hung(struct tty_info *info)
 static bool tty_has_active_pair(struct tty_info *info, unsigned long *bitmap)
 {
 	int d = tty_is_master(info) ? -1 : +1;
+	int bit = info->tfe->tty_info_id + d;
 
-	return test_bit(info->tfe->tty_info_id + d, bitmap);
+	BUG_ON(bit >= TTY_BITMAP_BITS);
+
+	return test_bit(bit, bitmap);
 }
 
 static void tty_show_pty_info(char *prefix, struct tty_info *info)
