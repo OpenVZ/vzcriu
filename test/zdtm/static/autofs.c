@@ -484,7 +484,7 @@ static int automountd_loop(int pipe, const char *mountpoint, struct autofs_param
 			continue;
 		}
 		if (bytes > psize) {
-			pr_err("read more that expected: %ld > %ld\n", bytes, psize);
+			pr_err("read more that expected: %zd > %zd\n", bytes, psize);
 			return -EINVAL;
 		}
 		if (bytes != sizeof(*packet)) {
