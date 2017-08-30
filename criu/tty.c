@@ -438,13 +438,13 @@ static int tty_get_index(u32 id)
 }
 
 /* Make sure the active pairs do exist */
-static int __tty_verify_active_pairs(unsigned long *bitmap)
+static int __tty_verify_active_pairs(tty_bitmap_t *t)
 {
 	unsigned long i, unpaired_slaves = 0;
 
-	for_each_bit(i, bitmap) {
+	for_each_bit(i, t->bitmap) {
 		if ((i % 2) == 0) {
-			if (test_bit(i + 1, bitmap)) {
+			if (test_bit(i + 1, t->bitmap)) {
 				i++;
 				continue;
 			}
@@ -475,7 +475,7 @@ static int tty_verify_active_pairs(void)
 	tty_bitmap_t *t;
 
 	for (t = tty_active_pairs_bitmap; t; t = t->next) {
-		if (__tty_verify_active_pairs(t->bitmap))
+		if (__tty_verify_active_pairs(t))
 			return -1;
 	}
 
