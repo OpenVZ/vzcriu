@@ -20,6 +20,8 @@
 #include "protobuf.h"
 #include "util.h"
 
+#include "images/core.pb-c.h"
+
 /*
  * To speed up reading of packed objects
  * by providing space on stack, this should
@@ -105,6 +107,75 @@ int do_pb_read_one(struct cr_img *img, void **pobj, int type, bool eof)
 	if (!*pobj) {
 		ret = -1;
 		pr_err("Failed unpacking object %p from %s\n",
+		       pobj, image_name(img));
+		goto err;
+	}
+
+	ret = 1;
+err:
+	if (buf != (void *)&local)
+		xfree(buf);
+
+	return ret;
+}
+
+int do_pb_read_one_VZ730(struct cr_img *img, void **pobj, int type, bool eof)
+{
+	u8 local[PB_PKOBJ_LOCAL_SIZE];
+	void *buf = (void *)&local;
+	u32 size;
+	int ret;
+
+	if (!cr_pb_descs[type].pb_desc) {
+		pr_err("VZ730: Wrong object requested %d on %s\n",
+			type, image_name(img));
+		return -1;
+	}
+
+	*pobj = NULL;
+
+	if (unlikely(empty_image(img)))
+		ret = 0;
+	else
+		ret = bread(&img->_x, &size, sizeof(size));
+	if (ret == 0) {
+		if (eof) {
+			return 0;
+		} else {
+			pr_err("VZ730: Unexpected EOF on %s\n",
+			       image_name(img));
+			return -1;
+		}
+	} else if (ret < sizeof(size)) {
+		pr_perror("VZ730: Read %d bytes while %d expected on %s",
+			  ret, (int)sizeof(size),
+			  image_name(img));
+		return -1;
+	}
+
+	if (size > sizeof(local)) {
+		ret = -1;
+		buf = xmalloc(size);
+		if (!buf)
+			goto err;
+	}
+
+	ret = bread(&img->_x, buf, size);
+	if (ret < 0) {
+		pr_perror("VZ730: Can't read %d bytes from file %s",
+			  size, image_name(img));
+		goto err;
+	} else if (ret != size) {
+		pr_perror("VZ730: Read %d bytes while %d expected from %s",
+			  ret, size, image_name(img));
+		ret = -1;
+		goto err;
+	}
+
+	*pobj = core_entry__vz730__unpack(NULL, size, buf);
+	if (!*pobj) {
+		ret = -1;
+		pr_err("VZ730: Failed unpacking object %p from %s\n",
 		       pobj, image_name(img));
 		goto err;
 	}

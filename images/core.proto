@@ -23,7 +23,8 @@ enum seccomp_mode {
 	filter		= 2;
 };
 
-message task_core_entry_vz730 {
+/* For backward compatibility due to fields clash in 3.1 vanilla */
+message task_core_entry_VZ730 {
 	required uint32			task_state	= 1 [(criu).dict = "gen"];
 	required uint32			exit_code	= 2;
 
@@ -46,8 +47,9 @@ message task_core_entry_vz730 {
 	optional uint32			loginuid	= 13;
 
 	optional int32			oom_score_adj	= 14;
-	optional int32                  tty_nr          = 15;
-	optional int32                  tty_pgrp        = 16;
+	optional int32			tty_nr		= 15;
+	optional int32			tty_pgrp	= 16;
+	repeated sa_entry		sigactions	= 17;
 }
 
 message task_core_entry {
@@ -135,6 +137,33 @@ message core_entry {
 	optional thread_info_s390	ti_s390		= 10;
 
 	optional task_core_entry	tc		= 3;
+	optional task_kobj_ids_entry	ids		= 4;
+	optional thread_core_entry	thread_core	= 5;
+}
+
+/*
+ * For backward compatibility due to fields clash in 3.1 vanilla.
+ * Make sure it's the same as core_entry except task_core_entry_vz730
+ */
+message core_entry_VZ730 {
+	enum march {
+		UNKNOWN		= 0;
+		X86_64		= 1;
+		ARM             = 2;
+		AARCH64		= 3;
+		PPC64		= 4;
+		S390		= 5;
+	}
+
+	required march			mtype		= 1;
+	optional thread_info_x86	thread_info	= 2;
+	optional thread_info_arm	ti_arm		= 6;
+	optional thread_info_aarch64	ti_aarch64	= 8;
+	optional thread_info_ppc64	ti_ppc64	= 9;
+	optional thread_info_s390	ti_s390		= 10;
+
+	/* This field mismatches */
+	optional task_core_entry_VZ730	tc		= 3;
 	optional task_kobj_ids_entry	ids		= 4;
 	optional thread_core_entry	thread_core	= 5;
 }
