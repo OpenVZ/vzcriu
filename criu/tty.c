@@ -1794,24 +1794,24 @@ static int collect_one_tty_info_entry(void *obj, ProtobufCMessage *msg, struct c
 
 		if (tty_info_setup(info))
 			return -1;
-	}
 
-	/*
-	 * The tty peers which have no @termios are hung up,
-	 * so don't mark them as active, we create them with
-	 * faked master and they are rather a rudiment which
-	 * can't be used. Most likely they appear if a user has
-	 * dumped program when it was closing a peer.
-	 */
-	if (is_pty(driver) && tie->termios) {
-		unsigned long *bitmap = tty_lookup_bitmap(&tty_active_pairs_bitmap,
-							  info->tfe->mnt_id);
-		if (!bitmap) {
-			pr_err("No pairing bitmap for %#x\n", info->tfe->id);
-			return -1;
+		/*
+		 * The tty peers which have no @termios are hung up,
+		 * so don't mark them as active, we create them with
+		 * faked master and they are rather a rudiment which
+		 * can't be used. Most likely they appear if a user has
+		 * dumped program when it was closing a peer.
+		 */
+		if (is_pty(driver) && tie->termios) {
+			unsigned long *bitmap = tty_lookup_bitmap(&tty_active_pairs_bitmap,
+								  info->tfe->mnt_id);
+			if (!bitmap) {
+				pr_err("No pairing bitmap for %#x\n", info->tfe->id);
+				return -1;
+			}
+
+			tty_test_and_set(info->tfe->tty_info_id, bitmap);
 		}
-
-		tty_test_and_set(info->tfe->tty_info_id, bitmap);
 	}
 
 	return 0;
