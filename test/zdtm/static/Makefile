@@ -175,6 +175,7 @@ TST_NOFILE	:=				\
 		cr_veth				\
 		sock_peercred			\
 		s390x_mmap_high			\
+		thread_different_uid_gid	\
 #		jobctl00			\
 
 include ../Makefile.inc
@@ -475,6 +476,8 @@ pty-console:		CFLAGS += -D ZDTM_DEV_CONSOLE
 shm-unaligned:		CFLAGS += -DZDTM_SHM_UNALIGNED
 
 s390x_regs_check:	LDFLAGS += -pthread
+
+thread_different_uid_gid:	LDLIBS += -pthread -lcap
 
 $(LIB):	force
 	$(Q) $(MAKE) -C $(LIBDIR)
