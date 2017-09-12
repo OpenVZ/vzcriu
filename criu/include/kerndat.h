@@ -53,6 +53,7 @@ struct kerndat_s {
 	int lsm;
 	unsigned int sysctl_nr_open;
 	unsigned long files_stat_max_files;
+	bool can_map_vdso;
 };
 
 extern struct kerndat_s kdat;

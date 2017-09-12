@@ -1058,6 +1058,14 @@ static int check_compat_cr(void)
 	return -1;
 }
 
+static int check_can_map_vdso(void)
+{
+	if (kdat_can_map_vdso() == 1)
+		return 0;
+	pr_warn("Do not have API to map vDSO - will use mremap() to restore vDSO\n");
+	return -1;
+}
+
 static int (*chk_feature)(void);
 
 /*
@@ -1161,6 +1169,7 @@ int cr_check(void)
 		ret |= check_tcp_halt_closed();
 		ret |= check_userns();
 		ret |= check_loginuid();
+		ret |= check_can_map_vdso();
 	}
 
 	/*
@@ -1212,6 +1221,7 @@ static struct feature_list feature_list[] = {
 	{ "tcp_half_closed", check_tcp_halt_closed },
 	{ "compat_cr", check_compat_cr },
 	{ "nl_repair", check_nl_repair },
+	{ "can_map_vdso", check_can_map_vdso},
 	{ NULL, NULL },
 };
 
