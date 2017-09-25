@@ -1576,7 +1576,7 @@ static inline int restore_iptables(int pid)
 
 	img = open_image(CR_FD_IPTABLES, O_RSTR, pid);
 	if (img) {
-		ret = iptables_tool_restore("iptables-restore", img_raw_fd(img));
+		ret = iptables_tool_restore("iptables-restore -w", img_raw_fd(img));
 		close_image(img);
 	}
 	if (ret)
@@ -1588,7 +1588,7 @@ static inline int restore_iptables(int pid)
 	if (empty_image(img))
 		goto out;
 
-	ret = iptables_tool_restore("ip6tables-restore", img_raw_fd(img));
+	ret = iptables_tool_restore("ip6tables-restore -w", img_raw_fd(img));
 
 out:
 	close_image(img);
