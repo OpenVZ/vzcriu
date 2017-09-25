@@ -1316,18 +1316,14 @@ static int run_ip_tool(char *arg1, char *arg2, char *arg3, char *arg4, int fdin,
 
 static int run_iptables_tool(char *def_cmd, int fdin, int fdout)
 {
-	char *argv[] = { "sh", "-c",
-			 def_cmd,
-			 kdat.has_xtlocks ? "-w" : "",
-			 NULL };
 	int ret;
 	char *cmd;
 
 	cmd = getenv("CR_IPTABLES");
-	if (cmd)
-		argv[2] = cmd;
-	pr_debug("\tRunning %s for %s\n", argv[2], def_cmd);
-	ret = cr_system(fdin, fdout, -1, "sh", argv, 0);
+	if (!cmd)
+		cmd = def_cmd;
+	pr_debug("\tRunning %s for %s\n", cmd, def_cmd);
+	ret = cr_system(fdin, fdout, -1, "sh", (char *[]) { "sh", "-c", cmd, NULL }, 0);
 	if (ret)
 		pr_err("%s failed\n", def_cmd);
 
