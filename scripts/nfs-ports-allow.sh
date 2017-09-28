@@ -33,10 +33,10 @@ function add_accept_rules {
 	local server=$1
 	local port=$2
 
-	${JOIN_CT} iptables -I ${CRTOOLS_IPTABLES_TABLE} -p tcp -s $server --sport $port -j ACCEPT &&
-	${JOIN_CT} iptables -I ${CRTOOLS_IPTABLES_TABLE} -p tcp -d $server --dport $port -j ACCEPT &&
-	${JOIN_CT} iptables -I ${CRTOOLS_IPTABLES_TABLE} -p udp -s $server --sport $port -j ACCEPT &&
-	${JOIN_CT} iptables -I ${CRTOOLS_IPTABLES_TABLE} -p udp -d $server --dport $port -j ACCEPT 
+	${JOIN_CT} iptables -w -I ${CRTOOLS_IPTABLES_TABLE} -p tcp -s $server --sport $port -j ACCEPT &&
+	${JOIN_CT} iptables -w -I ${CRTOOLS_IPTABLES_TABLE} -p tcp -d $server --dport $port -j ACCEPT &&
+	${JOIN_CT} iptables -w -I ${CRTOOLS_IPTABLES_TABLE} -p udp -s $server --sport $port -j ACCEPT &&
+	${JOIN_CT} iptables -w -I ${CRTOOLS_IPTABLES_TABLE} -p udp -d $server --dport $port -j ACCEPT 
 }
 
 function iptables_allow_nfs_ports {
@@ -60,10 +60,10 @@ function allow_portmapper_port {
 	local server=$1
 	local port=111
 
-	${JOIN_CT} iptables -I ${CRTOOLS_IPTABLES_TABLE} -p udp -s $server --sport $port -j ACCEPT &&
-	${JOIN_CT} iptables -I ${CRTOOLS_IPTABLES_TABLE} -p udp -d $server --dport $port -j ACCEPT &&
-	${JOIN_CT} iptables -I ${CRTOOLS_IPTABLES_TABLE} -p tcp -s $server --sport $port -j ACCEPT &&
-	${JOIN_CT} iptables -I ${CRTOOLS_IPTABLES_TABLE} -p tcp -d $server --dport $port -j ACCEPT 
+	${JOIN_CT} iptables -w -I ${CRTOOLS_IPTABLES_TABLE} -p udp -s $server --sport $port -j ACCEPT &&
+	${JOIN_CT} iptables -w -I ${CRTOOLS_IPTABLES_TABLE} -p udp -d $server --dport $port -j ACCEPT &&
+	${JOIN_CT} iptables -w -I ${CRTOOLS_IPTABLES_TABLE} -p tcp -s $server --sport $port -j ACCEPT &&
+	${JOIN_CT} iptables -w -I ${CRTOOLS_IPTABLES_TABLE} -p tcp -d $server --dport $port -j ACCEPT 
 }
 
 for s in $servers; do
