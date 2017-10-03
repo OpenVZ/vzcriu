@@ -308,6 +308,14 @@ criu-$(tar-name).tar.bz2:
 dist tar: criu-$(tar-name).tar.bz2 ;
 .PHONY: dist tar
 
+ifeq ($(filter-out tarball,$(MAKECMDGOALS)),)
+tarball-prefix := $(shell git describe --always --long)
+tarball-file := criu-$(tarball-prefix).tar.bz2
+endif
+tarball:
+	git archive --format tar --prefix 'criu-$(tarball-prefix)/' HEAD | bzip2 > $(tarball-file)
+.PHONY: tarball
+
 TAGS_FILES_REGEXP := . -name '*.[hcS]' ! -path './.*' \( ! -path './test/*' -o -path './test/zdtm/lib/*' \)
 tags:
 	$(call msg-gen, $@)
@@ -354,6 +362,7 @@ help:
 	@echo '      install         - Install CRIU (see INSTALL.md)'
 	@echo '      uninstall       - Uninstall CRIU'
 	@echo '      dist            - Create a source tarball'
+	@echo '      tarball         - Create a source tarball for current HEAD'
 	@echo '      clean           - Clean most, but leave enough to navigate'
 	@echo '      mrproper        - Delete all compiled/generated files'
 	@echo '      tags            - Generate tags file (ctags)'
