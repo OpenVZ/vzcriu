@@ -113,6 +113,8 @@ extern int open_mountpoint(struct mount_info *pm);
 extern struct mount_info *collect_mntinfo(struct ns_id *ns, bool for_dump);
 extern int prepare_mnt_ns(void);
 
+extern char *export_mnt_ns_roots(char *dst, size_t size);
+
 extern int pivot_root(const char *new_root, const char *put_old);
 
 extern struct mount_info *lookup_overlayfs(char *rpath, unsigned int s_dev,

@@ -3165,6 +3165,42 @@ static inline int print_ns_root(struct ns_id *ns, int remap_id, char *buf, int b
 	return snprintf(buf, bs, "%s/%d-%010d", mnt_roots, ns->id, remap_id);
 }
 
+/*
+ * Construct space separated list of mount namespace roots
+ * so that we could export it via environment variable and
+ * process in restore scripts.
+ */
+char *export_mnt_ns_roots(char *dst, size_t size)
+{
+	struct ns_id *nsid;
+	char *p = dst;
+	size_t len;
+
+	if (size == 0)
+		return dst;
+
+	dst[0] = '\0';
+	for (nsid = ns_ids; nsid; nsid = nsid->next) {
+		if (nsid->nd != &mnt_ns_desc)
+			continue;
+
+		len = print_ns_root(nsid, 0, p, size);
+		if (len >= (size - 2)) {
+			p[(size - 1)] = '\0';
+			return dst;
+		}
+
+		size -= len;
+		p += len;
+		p[0] = ' ';
+		p++, size--;
+	}
+	if (p != dst)
+		p[-1] = '\0';
+
+	return dst;
+}
+
 static int create_mnt_roots(void)
 {
 	int exit_code = -1;
