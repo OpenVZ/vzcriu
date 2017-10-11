@@ -17,6 +17,9 @@
 #include <sys/socket.h>
 #include "common/scm.h"
 
+#include "mount.h"
+#include "spfs.h"
+
 static const char *action_names[ACT_MAX] = {
 	[ ACT_PRE_DUMP ]	= "pre-dump",
 	[ ACT_POST_DUMP ]	= "post-dump",
@@ -72,6 +75,7 @@ static int run_shell_scripts(const char *action)
 	}
 
 	if (!(env_set & ENV_ROOTPID) && root_item) {
+		char mnt_ns_roots[PATH_MAX];
 		int pid;
 
 		pid = root_item->pid->real;
@@ -80,6 +84,11 @@ static int run_shell_scripts(const char *action)
 			snprintf(root_item_pid, sizeof(root_item_pid), "%d", pid);
 			if (setenv("CRTOOLS_INIT_PID", root_item_pid, 1)) {
 				pr_perror("Can't set CRTOOLS_INIT_PID=%s", root_item_pid);
+				return -1;
+			}
+			export_mnt_ns_roots(mnt_ns_roots, sizeof(mnt_ns_roots));
+			if (setenv("CRIU_MNT_NS_ROOTS", mnt_ns_roots, 1)) {
+				pr_perror("Can't set CRIU_MNT_ROOTS=%s", mnt_ns_roots);
 				return -1;
 			}
 			env_set |= ENV_ROOTPID;
