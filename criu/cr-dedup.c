@@ -8,7 +8,7 @@
 #include "pagemap.h"
 #include "restorer.h"
 
-static int cr_dedup_one_pagemap(int id, int flags);
+static int cr_dedup_one_pagemap(unsigned long id, int flags);
 
 int cr_dedup(void)
 {
@@ -36,17 +36,17 @@ int cr_dedup(void)
 			break;
 		}
 
-		ret = sscanf(ent->d_name, "pagemap-%d.img", &id);
+		ret = sscanf(ent->d_name, "pagemap-%lu.img", &id);
 		if (ret == 1) {
-			pr_info("pid=%d\n", id);
+			pr_info("pid=%lu\n", id);
 			ret = cr_dedup_one_pagemap(id, PR_TASK);
 			if (ret < 0)
 				break;
 		}
 
-		ret = sscanf(ent->d_name, "pagemap-shmem-%d.img", &id);
+		ret = sscanf(ent->d_name, "pagemap-shmem-%lu.img", &id);
 		if (ret == 1) {
-			pr_info("shmid=%d\n", id);
+			pr_info("shmid=%lu\n", id);
 			ret = cr_dedup_one_pagemap(id, PR_SHMEM);
 			if (ret < 0)
 				break;
@@ -67,7 +67,7 @@ err:
 	return 0;
 }
 
-static int cr_dedup_one_pagemap(int id, int flags)
+static int cr_dedup_one_pagemap(unsigned long id, int flags)
 {
 	int ret;
 	struct page_read pr;

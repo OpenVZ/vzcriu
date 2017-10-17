@@ -467,7 +467,7 @@ int page_xfer_dump_pages(struct page_xfer *xfer, struct page_pipe *pp,
  *	 0 - if a parent image doesn't exist
  *	-1 - in error cases
  */
-int check_parent_local_xfer(int fd_type, int id)
+int check_parent_local_xfer(int fd_type, unsigned long id)
 {
 	char path[PATH_MAX];
 	struct stat st;
