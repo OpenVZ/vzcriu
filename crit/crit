@@ -217,7 +217,7 @@ def explore_rss(opts):
 	for p in ps_img['entries']:
 		pid = p['pid']
 		vmas = pycriu.images.load(dinf(opts, 'mm-%d.img' % pid))['entries'][0]['vmas']
-		pms = pycriu.images.load(dinf(opts, 'pagemap-%d.img' % pid))['entries']
+		pms = pycriu.images.load(dinf(opts, 'pagemap-%lu.img' % pid))['entries']
 
 		print "%d" % pid
 		vmi = 0

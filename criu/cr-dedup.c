@@ -13,7 +13,7 @@ static int cr_dedup_one_pagemap(unsigned long id, int flags);
 int cr_dedup(void)
 {
 	int close_ret, ret = 0;
-	int id;
+	unsigned long id;
 	DIR * dirp;
 	struct dirent *ent;
 
