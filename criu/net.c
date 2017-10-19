@@ -3034,6 +3034,7 @@ static int iptables_restore(bool ipv6, char *buf, int size)
 	char *cmd4[] = { "iptables-restore", "-w", "--noflush", NULL };
 	char *cmd6[] = { "ip6tables-restore", "-w", "--noflush", NULL };
 	char **cmd = ipv6 ? cmd6 : cmd4;
+	int userns_pid = -1;
 
 	if (pipe(pfd) < 0) {
 		pr_perror("Unable to create pipe");
@@ -3046,7 +3047,15 @@ static int iptables_restore(bool ipv6, char *buf, int size)
 	}
 	close_safe(&pfd[1]);
 
-	ret = cr_system(pfd[0], -1, -1, cmd[0], cmd, 0);
+	/*
+	 * iptables-restore has to be executed in a userns owner of network
+	 * namespace, otherwise the kernel can return an error. One of these
+	 * checks is in xt_owner.c:owner_check().
+	 */
+	if (root_ns_mask & CLONE_NEWUSER)
+		userns_pid = root_item->pid->real;
+
+	ret = cr_system_userns(pfd[0], -1, -1, cmd[0], cmd, 0, userns_pid);
 err:
 	close_safe(&pfd[1]);
 	close_safe(&pfd[0]);
