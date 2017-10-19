@@ -2530,7 +2530,12 @@ static int iptables_restore(bool ipv6, char *buf, int size)
 	}
 	close_safe(&pfd[1]);
 
-	ret = cr_system(pfd[0], -1, -1, cmd[0], cmd, 0);
+	/*
+	 * iptables-restore has to be executed in a network userns,
+	 * otherwise the kernel can return an error. One of these checks
+	 * is in xt_owner.c:owner_check().
+	 */
+	ret = cr_system_userns(pfd[0], -1, -1, cmd[0], cmd, 0, root_item->pid->real);
 err:
 	close_safe(&pfd[1]);
 	close_safe(&pfd[0]);
