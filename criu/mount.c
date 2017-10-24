@@ -2829,6 +2829,8 @@ char *export_mnt_ns_roots(char *dst, size_t size)
 		p[0] = ' ';
 		p++, size--;
 	}
+	if (p != dst)
+		p[-1] = '\0';
 
 	return dst;
 }
