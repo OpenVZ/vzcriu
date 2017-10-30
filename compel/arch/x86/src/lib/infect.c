@@ -348,6 +348,13 @@ void *remote_mmap(struct parasite_ctl *ctl,
 		return NULL;
 	}
 
+	/*
+	 * For compat tasks the address in foreign process
+	 * must lay inside 4 bytes.
+	 */
+	if (compat_task)
+		map &= 0xfffffffful;
+
 	return (void *)map;
 }
 
