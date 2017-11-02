@@ -1617,27 +1617,18 @@ static int restore_task_with_children(void *_arg)
 			goto err;
 	}
 
+	/* Wait prepare_userns */
+	if (current->parent == NULL &&
+			restore_finish_ns_stage(CR_STATE_ROOT_TASK, CR_STATE_PREPARE_NAMESPACES) < 0)
+		goto err;
+
 	/*
 	 * Call this _before_ forking to optimize cgroups
 	 * restore -- if all tasks live in one set of cgroups
 	 * we will only move the root one there, others will
 	 * just have it inherited.
-	 *
-	 * Call this _before_ CR_STATE_PREPARE_NAMESPACES so
-	 * that setup-namespaces action script is called then
-	 * the root task is already in all it's cgroups. We
-	 * need it as we write START to ve cgroup from these
-	 * action script, and these initializes ve cgroup.
-	 * In it's turn these initialization sets CGRP_VE_ROOT
-	 * bits on each cgroup of init task, so that we know
-	 * that they are root.
 	 */
 	if (prepare_task_cgroup(current) < 0)
-		goto err;
-
-	/* Wait prepare_userns */
-	if (current->parent == NULL &&
-			restore_finish_ns_stage(CR_STATE_ROOT_TASK, CR_STATE_PREPARE_NAMESPACES) < 0)
 		goto err;
 
 	/* Restore root task */
