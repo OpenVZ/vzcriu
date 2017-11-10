@@ -1039,6 +1039,8 @@ static int chk_keepopen_req(CriuReq *msg)
 		return 0;
 	else if (msg->type == CRIU_REQ_TYPE__VERSION)
 		return 0;
+	else if (msg->type == CRIU_REQ_TYPE__WAIT_PID)
+		return 0;
 
 	return -1;
 }
