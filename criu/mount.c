@@ -243,10 +243,11 @@ static struct mount_info *lookup_mnt_sdev_on_root(unsigned int s_dev)
 {
 	struct mount_info *m;
 
-	for (m = mntinfo; m != NULL; m = m->next)
-		if (m->s_dev == s_dev &&
+	for (m = mntinfo; m != NULL; m = m->next) {
+		if (kdev_to_odev(m->s_dev) == s_dev &&
 		    is_root(m->root))
 			return m;
+	}
 
 	return NULL;
 }
@@ -291,14 +292,19 @@ static struct mount_info *mount_resolve_path(struct mount_info *mntinfo_tree, co
  * in properties). It's done for backward compatibility,
  * see drivers/tty/pty.c:ptmx_open.
  */
-int mount_resolve_devpts_mnt_id(int s_dev)
+int mount_resolve_devpts_mnt_id(int mnt_id, int s_dev)
 {
-	struct mount_info *mi;
+	struct mount_info *mi = NULL;
 
-	mi = lookup_mnt_sdev_on_root(s_dev);
+	if (mnt_id != -1)
+		mi = lookup_mnt_id(mnt_id);
+
 	if (!mi) {
-		pr_err("No devpts mount point found for s_dev %#x\n", s_dev);
-		return -1;
+		mi = lookup_mnt_sdev_on_root(s_dev);
+		if (!mi) {
+			pr_err("No devpts mount point found for s_dev %#x\n", s_dev);
+			return -1;
+		}
 	}
 
 	if (mi->fstype->code == FSTYPE__DEVPTS) {
