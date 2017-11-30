@@ -2131,7 +2131,7 @@ static int dump_one_tty(int lfd, u32 id, const struct fd_parms *p)
 	e.fown = (FownEntry *)&p->fown;
 
 	if (is_pty(driver)) {
-		mnt_id = mount_resolve_devpts_mnt_id(p->stat.st_dev);
+		mnt_id = mount_resolve_devpts_mnt_id(p->mnt_id, p->stat.st_dev);
 		if (mnt_id < 0) {
 			pr_info("Can't obtain mnt_id on tty %d id %#x\n", lfd, id);
 			return -1;
