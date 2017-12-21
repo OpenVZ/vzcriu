@@ -155,14 +155,34 @@ static int start_spfs_manager(void)
 	return sock;
 }
 
-static int get_spfs_mngr_sock(void *arg, int fd, pid_t pid)
+static int get_spfs_mngr_sock(void *start, int fd, pid_t pid)
 {
 	int sock;
 
 	sock = get_service_fd(SPFS_MNGR_SK);
-	if (sock < 0)
+	if (sock < 0 && start)
 		sock = start_spfs_manager();
 	return sock;
+}
+
+static int request_spfs_mngr_sock(bool *start_mngr)
+{
+	int ns_fd;
+	int sock;
+
+	ns_fd = open_proc(PROC_SELF, "ns");
+	if (ns_fd < 0)
+		return ns_fd;
+
+	sock = userns_call(get_spfs_mngr_sock, UNS_FDOUT, start_mngr, 0, ns_fd);
+
+	close(ns_fd);
+	return sock;
+}
+
+static int start_spfs_mngr(void)
+{
+	return request_spfs_mngr_sock((void *)1);
 }
 
 static int spfs_request_mount(int sock, struct mount_info *mi, const char *source,
@@ -270,15 +290,9 @@ int spfs_mount(struct mount_info *mi, const char *source,
 	       const char *filesystemtype, unsigned long mountflags)
 {
 	int ret;
-	int ns_fd;
 	int sock;
 
-	ns_fd = open_proc(PROC_SELF, "ns");
-	if (ns_fd < 0)
-		return ns_fd;
-
-	sock = userns_call(get_spfs_mngr_sock, UNS_FDOUT, NULL, 0, ns_fd);
-	close(ns_fd);
+	sock = start_spfs_mngr();
 	if (sock < 0) {
 		pr_err("failed to mount NFS to path %s\n", mi->mountpoint);
 		return sock;
@@ -347,16 +361,7 @@ int spfs_mngr_status(bool *active)
 
 int spfs_mngr_sock(void)
 {
-	int ns_fd, fd;
-
-	ns_fd = open_proc(PROC_SELF, "ns");
-	if (ns_fd < 0)
-		return ns_fd;
-
-	fd = userns_call(spfs_service_fd, UNS_FDOUT, NULL, 0, ns_fd);
-
-	close(ns_fd);
-	return fd;
+	return request_spfs_mngr_sock((void *)0);
 }
 
 int spfs_set_mode(int sock, const char *mode)
