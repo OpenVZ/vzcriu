@@ -129,6 +129,8 @@ static int start_spfs_manager(void)
 	char *socket_path = spfs_manager_socket_path();
 	int err = -ENOMEM, sock;
 
+	pr_info("Starting SPFS manager\n");
+
 	err = cr_system(-1, -1, -1, spfs_manager,
 			(char *[]){ "spfs-manager", "-vvvv",
 				 "-d",
@@ -137,13 +139,17 @@ static int start_spfs_manager(void)
 				 "--log-dir", spfs_manager_log_dir(),
 				 "--exit-with-spfs", NULL },
 			0);
-	pr_info("%s: spfs manager start result: %d\n", __func__, err);
-	if (err)
+	if (err) {
+		pr_err("failed to start SPFS manager binary: %d\n", err);
 		return err;
+	}
 
 	sock = sock_seqpacket_connect(socket_path);
-	if (sock < 0)
+	if (sock < 0) {
+		pr_err("failed to connect to SPFS manager via %s: %d\n",
+				socket_path, err);
 		return sock;
+	}
 
 	err = install_service_fd(SPFS_MNGR_SK, sock);
 	if (err < 0) {
