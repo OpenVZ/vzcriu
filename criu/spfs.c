@@ -381,9 +381,9 @@ int spfs_set_mode(int sock, const char *mode)
 
 	ret = spfs_send_request(sock, req, strlen(req) + 1);
 	if (ret)
-		pr_err("set mode to %s request failed: %d\n", mode, ret);
+		pr_err("set SPFS mode to %s request failed: %d\n", mode, ret);
 	else
-		pr_debug("Set mode to %s request succeeded\n", mode);
+		pr_debug("Set SPFS mode to %s request succeeded\n", mode);
 
 	free(req);
 	return 0;
@@ -396,9 +396,9 @@ int spfs_release_replace(int sock)
 
 	ret = spfs_send_request(sock, req, strlen(req) + 1);
 	if (ret)
-		pr_err("release replace request failed: %d\n", ret);
+		pr_err("SPFS release replace request failed: %d\n", ret);
 	else
-		pr_debug("Release replace request succeeded\n");
+		pr_debug("SPFS \"release replace\" request succeeded\n");
 
 	return 0;
 }
