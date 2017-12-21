@@ -321,16 +321,9 @@ int spfs_set_env(void)
 	return 0;
 }
 
-static int spfs_service_fd(void *arg, int fd, pid_t pid)
-{
-	return get_service_fd(SPFS_MNGR_SK);
-}
-
 static int spfs_service_is_active(void *arg, int fd, pid_t pid)
 {
-	if (spfs_service_fd(arg, fd, pid) < 0)
-		return 0;
-	return 1;
+	return get_service_fd(SPFS_MNGR_SK) < 0 ? 0 : 1;
 }
 
 int spfs_mngr_status(bool *active)
