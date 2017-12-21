@@ -153,8 +153,13 @@ static int get_spfs_mngr_sock(void *start, int fd, pid_t pid)
 	int sock;
 
 	sock = get_service_fd(SPFS_MNGR_SK);
-	if (sock < 0 && start)
+	if (sock != -1) {
+		sock = dup(sock);
+		if (sock < 0)
+			pr_perror("failed to duplicate SPFS manager socket");
+	} else if (start)
 		sock = start_spfs_manager();
+
 	return sock;
 }
 
