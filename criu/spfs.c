@@ -271,18 +271,23 @@ int spfs_mount(struct mount_info *mi, const char *source,
 
 	sock = start_spfs_mngr();
 	if (sock < 0) {
-		pr_err("failed to mount NFS to path %s\n", service_mountpoint(mi));
-		return sock;
+		pr_err("failed to connect to SPFS manager: %d\n", sock);
+		ret = sock;
+		goto err;
 	}
-
 	ret = spfs_request_mount(sock, mi, source, filesystemtype, mountflags);
 	close(sock);
 	if (ret) {
-		pr_err("mount of %s (%s) failed: %d\n", source, filesystemtype, ret);
-		return ret;
+		pr_err("mount request for %s (%s) failed: %d\n",
+		       source, filesystemtype, ret);
+		goto err;
 	}
 
 	return 0;
+
+err:
+	pr_err("failed to mount NFS to path %s\n", service_mountpoint(mi));
+	return ret;
 }
 
 int spfs_set_env(void)
