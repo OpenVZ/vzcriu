@@ -2522,12 +2522,6 @@ skip_ns_bouncing:
 	if (ret < 0)
 		goto out_kill;
 
-	if (spfs_is_running) {
-		ret = spfs_set_mode(spfs_sock, SPFS_MODE_STUB);
-		if (ret < 0)
-			goto out_kill;
-	}
-
 	if (fault_injected(FI_POST_RESTORE))
 		goto out_kill;
 
@@ -2550,6 +2544,12 @@ skip_ns_bouncing:
 
 	if (write_restored_pid())
 		goto out_kill;
+
+	if (spfs_is_running) {
+		ret = spfs_set_mode(spfs_sock, SPFS_MODE_STUB);
+		if (ret < 0)
+			goto out_kill;
+	}
 
 	/* Unlock network before disabling repair mode on sockets */
 	network_unlock();
