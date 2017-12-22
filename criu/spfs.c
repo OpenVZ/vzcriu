@@ -21,6 +21,7 @@
 #include "spfs.h"
 #include "proc_parse.h"
 #include "cgroup.h"
+#include "net.h"
 
 #define SPFS_MANAGER_WORK_DIR		"/run/spfs-manager/%d"
 #define VE_SPFS_MANAGER_WORK_DIR	"/vz/private/%s/dump/spfs-manager/%d"
@@ -123,7 +124,7 @@ static char *spfs_manager_log_dir(void)
 	return work_dir;
 }
 
-static int start_spfs_manager(void)
+static int __start_spfs_manager(void)
 {
 	char *spfs_manager = "spfs-manager";
 	char *socket_path = spfs_manager_socket_path();
@@ -158,6 +159,24 @@ static int start_spfs_manager(void)
 		return err;
 	}
 
+	return sock;
+}
+
+static int start_spfs_manager(void)
+{
+	int old_net_ns, sock;
+
+	if (switch_ns(root_item->pid->real, &net_ns_desc, &old_net_ns)) {
+		pr_err("failed to switch to containers network namespace\n");
+		return -1;
+	}
+
+	sock = __start_spfs_manager();
+
+	if (restore_ns(old_net_ns, &net_ns_desc)) {
+		pr_err("failed to restore original usernsd network namespace\n");
+		return -1;
+	}
 	return sock;
 }
 
