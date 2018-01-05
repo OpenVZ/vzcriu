@@ -57,7 +57,7 @@ static inline void do_full_int80(struct syscall_args32 *args)
 		      : "+a" (args->nr),
 			"+b" (args->arg0), "+c" (args->arg1), "+d" (args->arg2),
 			"+S" (args->arg3), "+D" (args->arg4), "+g" (args->arg5)
-			: : "r8", "r9", "r10", "r11");
+			: : "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15");
 }
 
 #ifndef CR_NOGLIBC
