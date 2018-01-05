@@ -34,7 +34,8 @@ static int arch_get_user_desc(user_desc_t *desc)
 	"	mov %%eax,%0			\n"
 	: "+m"(ret)
 	: "m"(desc)
-	: "rax", "rbx", "r8", "r9", "r10", "r11", "memory");
+	: "rax", "rbx", "r8", "r9", "r10", "r11",
+		"r12", "r13", "r14", "r15", "memory");
 
 	if (ret)
 		pr_err("Failed to dump TLS descriptor #%d: %d\n",
