@@ -1008,6 +1008,8 @@ static int wait_on_helpers_zombies(void)
 	return 0;
 }
 
+static int wait_exiting_children(void);
+
 static int restore_one_zombie(CoreEntry *core)
 {
 	int exit_code = core->tc->exit_code;
@@ -1020,7 +1022,7 @@ static int restore_one_zombie(CoreEntry *core)
 	prctl(PR_SET_NAME, (long)(void *)core->tc->comm, 0, 0, 0);
 
 	if (task_entries != NULL) {
-		restore_finish_stage(task_entries, CR_STATE_RESTORE);
+		wait_exiting_children();
 		zombie_prepare_signals();
 	}
 
@@ -1100,15 +1102,7 @@ static bool child_death_expected(void)
 	return false;
 }
 
-/*
- * Restore a helper process - artificially created by criu
- * to restore attributes of process tree.
- * - sessions for each leaders are dead
- * - process groups with dead leaders
- * - dead tasks for which /proc/<pid>/... is opened by restoring task
- * - whatnot
- */
-static int restore_one_helper(void)
+static int wait_exiting_children(void)
 {
 	siginfo_t info;
 
@@ -1152,6 +1146,19 @@ static int restore_one_helper(void)
 	}
 
 	return 0;
+}
+
+/*
+ * Restore a helper process - artificially created by criu
+ * to restore attributes of process tree.
+ * - sessions for each leaders are dead
+ * - process groups with dead leaders
+ * - dead tasks for which /proc/<pid>/... is opened by restoring task
+ * - whatnot
+ */
+static int restore_one_helper(void)
+{
+	return wait_exiting_children();
 }
 
 static int restore_one_task(int pid, CoreEntry *core)
