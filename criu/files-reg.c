@@ -58,6 +58,7 @@
 #include "plugin.h"
 
 #define ATOP_ACCT_FILE "tmp/atop.d/atop.acct"
+#define PROCFS_SYSDIR	"proc/sys/"
 
 int setfsuid(uid_t fsuid);
 int setfsgid(gid_t fsuid);
@@ -2477,7 +2478,21 @@ ext:
 			pr_err("File %s has bad mode 0%o (expect 0%o)\n",
 			       rfi->path, (int)st.st_mode,
 			       rfi->rfe->mode);
-			return -1;
+			/*
+			 * When we're restoring proc/sysfs entry the
+			 * file modes are virtualized by kernel and
+			 * 'write' bit is dropped when opening inside
+			 * veX. So don't fail in such case.
+			 *
+			 * FIXME if someone bind-mounts proc to some other
+			 * place this check will not work, moreover if someone
+			 * puts some regular file in /proc/sys path we would still
+			 * ignore mode missmatch for this non-proc-sys file.
+			 */
+			if (!strncmp(rfi->path, PROCFS_SYSDIR, strlen(PROCFS_SYSDIR)))
+				pr_warn("\tExpecting in VE environment. Ignore.\n");
+			else
+				return -1;
 		}
 
 		/*
