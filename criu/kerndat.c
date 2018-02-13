@@ -837,6 +837,22 @@ int kerndat_has_inotify_setnextwd(void)
 	return ret;
 }
 
+void kerndat_ve(void)
+{
+	static const char path[] = "/sys/fs/cgroup/ve/ve.ctty";
+
+	if (access(path, F_OK) < 0) {
+		if (errno == ENOENT) {
+			pr_debug("ve.ctty is disabled\n");
+			kdat.ve_can_inherit_ctty = false;
+		}
+		pr_perror("Unable to access %s", path);
+		return;
+	}
+
+	kdat.ve_can_inherit_ctty = true;
+}
+
 int kerndat_init(void)
 {
 	int ret;
@@ -883,6 +899,7 @@ int kerndat_init(void)
 	kerndat_lsm();
 	kerndat_mmap_min_addr();
 	kerndat_files_stat(false);
+	kerndat_ve();
 
 	if (!ret)
 		kerndat_save_cache();

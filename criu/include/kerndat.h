@@ -55,6 +55,7 @@ struct kerndat_s {
 	unsigned long files_stat_max_files;
 	bool can_map_vdso;
 	bool has_inotify_setnextwd;
+	bool ve_can_inherit_ctty;
 };
 
 extern struct kerndat_s kdat;
