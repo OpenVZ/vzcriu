@@ -54,6 +54,7 @@ struct kerndat_s {
 	unsigned int sysctl_nr_open;
 	unsigned long files_stat_max_files;
 	bool can_map_vdso;
+	bool has_inotify_setnextwd;
 };
 
 extern struct kerndat_s kdat;
