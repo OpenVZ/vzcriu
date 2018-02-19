@@ -31,6 +31,7 @@
 #include "action-scripts.h"
 #include "filesystems.h"
 #include "mount.h"
+#include "kerndat.h"
 
 #include "protobuf.h"
 #include "util.h"
@@ -97,6 +98,9 @@ struct tty_info {
 
 	bool				create;
 	bool				inherit;
+
+	struct pstree_item		*session_leader;
+	struct list_head		session_waiters;
 
 	struct tty_info			*ctl_tty;
 	struct tty_info			*link;
@@ -808,6 +812,80 @@ static int tty_set_prgp(int fd, int group)
 	return 0;
 }
 
+static int do_tty_propagate_session(void *arg, int fd, int pid)
+{
+	static const char path[] = "/sys/fs/cgroup/ve/ve.ctty";
+	char *res = arg;
+	int ret;
+
+	fd = open(path, O_RDWR);
+	if (fd < 0) {
+		pr_perror("Can't open %s", path);
+		return -1;
+	}
+
+	ret = write(fd, res, strlen(res) + 1);
+	if (ret != (strlen(res) + 1)) {
+		pr_perror("Can't write %s", res);
+	} else {
+		pr_debug("session propagated %s\n", res);
+		ret = 0;
+	}
+	close(fd);
+	return ret;
+}
+
+static int tty_propagate_session(struct tty_info *info)
+{
+	struct pstree_item *leader, *item;
+	struct tty_info *peer;
+	char *res = NULL;
+	int ret = 0;
+
+	if (!info->session_leader)
+		return 0;
+
+	if (!kdat.ve_can_inherit_ctty) {
+		pr_warn_once("ve.ctty interface is not present, restore may hang\n");
+		return 0;
+	}
+
+	leader = info->session_leader;
+
+	for_each_pstree_item(item) {
+		if (leader != item && item->sid == leader->sid) {
+			res = xstrcat(res, " %d", item->pid->real);
+			if (!res)
+				return -1;
+		}
+	}
+
+	if (res) {
+		char *_res = res;
+
+		res = xstrcat(NULL, "%d%s", leader->pid->real, res);
+		if (!res) {
+			xfree(_res);
+			return -1;
+		}
+
+		pr_debug("Propagating session via VE interface %s\n", res);
+		ret = userns_call(do_tty_propagate_session, 0, res, strlen(res) + 1, -1);
+		xfree(res);
+
+		if (ret)
+			return ret;
+	}
+
+	list_for_each_entry(peer, &info->session_waiters, session_waiters) {
+		struct fdinfo_list_entry *fle = file_master(&peer->d);
+		pr_debug("\tkicking process %d\n", fle->pid);
+		set_fds_event(fle->pid);
+	}
+
+	return 0;
+}
+
 int tty_restore_ctl_terminal(struct file_desc *d, int fd)
 {
 	struct tty_info *info = container_of(d, struct tty_info, d);
@@ -851,6 +929,8 @@ out:
 	ret = tty_set_sid(slave);
 	if (!ret)
 		ret = tty_set_prgp(slave, info->tie->pgrp);
+	if (!ret)
+		ret = tty_propagate_session(info);
 
 	close(slave);
 err:
@@ -1279,13 +1359,28 @@ static bool tty_deps_restored(struct tty_info *info)
 	struct tty_info *tmp;
 
 	if (is_ctty(info->driver)) {
-		list_for_each_entry(fle, list, ps_list) {
-			if (fle->desc->ops->type != FD_TYPES__TTY || fle->desc == &info->d)
-				continue;
+		/*
+		 * If session has been inherited via fork(),
+		 * we should wait until it's propagated.
+		 */
+		if (info->session_leader) {
+			list_for_each_entry(fle, &rsti(info->session_leader)->fds, ps_list) {
+				if (fle->desc->ops->type != FD_TYPES__TTY ||
+				    fle->fe->fd != get_service_fd(CTL_TTY_OFF))
+					continue;
 
-			/* ctty needs all others are restored */
-			if (fle->stage != FLE_RESTORED)
-				return false;
+				if (fle->stage != FLE_RESTORED)
+					return false;
+			}
+		} else {
+			list_for_each_entry(fle, list, ps_list) {
+				if (fle->desc->ops->type != FD_TYPES__TTY || fle->desc == &info->d)
+					continue;
+
+				/* ctty needs all others are restored */
+				if (fle->stage != FLE_RESTORED)
+					return false;
+			}
 		}
 	} else if (!tty_is_master(info)) {
 		list_for_each_entry(fle, list, ps_list) {
@@ -1356,6 +1451,7 @@ static struct pstree_item *find_session_leader(pid_t sid)
 static int tty_find_restoring_task(struct tty_info *info)
 {
 	struct pstree_item *item;
+	struct tty_info *peer;
 
 	/*
 	 * The overall scenario is the following (note
@@ -1434,6 +1530,26 @@ static int tty_find_restoring_task(struct tty_info *info)
 		 */
 		item = find_session_leader(info->tie->sid);
 		if (item) {
+			info->session_leader = item;
+			/*
+			 * Collect terminals which gonna wait for
+			 * session to be restored and propagated
+			 */
+			list_for_each_entry(peer, &all_ttys, list) {
+				if (!is_ctty(peer->driver) ||
+				    peer->tie->sid != info->tie->sid ||
+				    peer == info)
+					continue;
+
+				BUG_ON(peer->session_leader);
+
+				peer->session_leader = item;
+				list_add(&peer->session_waiters,
+					 &info->session_waiters);
+				pr_debug("Collect waiter %#x/%d to %#x/%d\n",
+					 peer->tfe->id, peer->tie->sid,
+					 info->tfe->id, info->tie->sid);
+			}
 			pr_info("Set a control terminal %#x to %d\n",
 				info->tfe->id, info->tie->sid);
 			return prepare_ctl_tty(vpid(item),
@@ -1779,6 +1895,9 @@ static int tty_info_setup(struct tty_info *info)
 	info->ctl_tty = NULL;
 	info->tty_data = NULL;
 	info->link = NULL;
+
+	INIT_LIST_HEAD(&info->session_waiters);
+	info->session_leader = NULL;
 
 	/*
 	 * The image might have no reg file record in old CRIU, so
@@ -2373,10 +2492,12 @@ static int tty_verify_ctty(void)
 			       d->sid);
 			return -ENOENT;
 		} else if (n->pid_real != d->pid_real) {
-			pr_err("ctty inheritance detected sid %d "
-			       "(ctty pid_real %d pty pid_real %d)\n",
-			       d->sid, d->pid_real, n->pid_real);
-			return -ENOENT;
+			if (!kdat.ve_can_inherit_ctty) {
+				pr_err("ctty inheritance detected sid %d "
+				       "(ctty pid_real %d pty pid_real %d)\n",
+				       d->sid, d->pid_real, n->pid_real);
+				return -ENOENT;
+			}
 		}
 	}
 
