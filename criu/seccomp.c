@@ -18,6 +18,21 @@
 #include "protobuf.h"
 #include "images/seccomp.pb-c.h"
 
+struct seccomp_entry *seccomp_find_entry(struct pstree_item *item, pid_t tid)
+{
+	struct dmp_info *dinfo = dmpi(item);
+	size_t i;
+
+	for (i = 0; i < dinfo->nr_seccomp_entry; i++) {
+		if (dinfo->seccomp_entry[i].tid == tid)
+			return &dinfo->seccomp_entry[i];
+	}
+
+	pr_err("Can't find entry on pid %d tid %d (%zu entries)\n",
+	       item->pid->real, tid, dinfo->nr_seccomp_entry);
+	return NULL;
+}
+
 int seccomp_collect_entry(struct pstree_item *item, pid_t tid, unsigned int mode)
 {
 	struct dmp_info *dinfo = dmpi(item);
@@ -76,12 +91,18 @@ static int collect_filter_for_pstree(struct pstree_item *item)
 {
 	struct seccomp_metadata meta_buf, *meta = &meta_buf;
 	struct seccomp_info *infos = NULL, *cursor;
+	struct seccomp_entry *entry;
 	int info_count, i, ret = -1;
 	struct sock_filter buf[BPF_MAXINSNS];
 	void *m;
 
-	if (item->pid->state == TASK_DEAD ||
-	    dmpi(item)->pi_creds->s.seccomp_mode != SECCOMP_MODE_FILTER)
+	if (item->pid->state == TASK_DEAD)
+		return 0;
+
+	entry = seccomp_find_entry(item, item->pid->real);
+	if (!entry)
+		return -1;
+	if (entry->mode != SECCOMP_MODE_FILTER)
 		return 0;
 
 	for (i = 0; true; i++) {

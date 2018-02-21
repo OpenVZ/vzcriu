@@ -34,6 +34,7 @@ struct seccomp_entry {
 	unsigned int		mode;
 };
 
+extern struct seccomp_entry *seccomp_find_entry(struct pstree_item *item, pid_t tid);
 extern int seccomp_collect_entry(struct pstree_item *item, pid_t tid, unsigned int mode);
 
 struct seccomp_info {
