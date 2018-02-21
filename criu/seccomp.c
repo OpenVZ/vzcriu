@@ -18,6 +18,9 @@
 #include "protobuf.h"
 #include "images/seccomp.pb-c.h"
 
+#undef	LOG_PREFIX
+#define LOG_PREFIX "seccomp: "
+
 struct seccomp_entry *seccomp_find_entry(struct pstree_item *item, pid_t tid)
 {
 	struct dmp_info *dinfo = dmpi(item);
