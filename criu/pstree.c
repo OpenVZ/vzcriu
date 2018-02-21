@@ -185,6 +185,7 @@ void free_pstree(struct pstree_item *root_item)
 		list_del(&item->sibling);
 		pstree_free_cores(item);
 		xfree(item->threads);
+		xfree(dmpi(item)->seccomp_entry);
 		xfree(item);
 		item = parent;
 	}

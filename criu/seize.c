@@ -17,6 +17,7 @@
 #include "criu-log.h"
 #include <compel/ptrace.h>
 #include "proc_parse.h"
+#include "seccomp.h"
 #include "seize.h"
 #include "stats.h"
 #include "xmalloc.h"
@@ -663,6 +664,10 @@ static int collect_children(struct pstree_item *item)
 		c->pid->state = ret;
 		list_add_tail(&c->sibling, &item->children);
 
+		ret = seccomp_collect_entry(c, pid, creds->s.seccomp_mode);
+		if (ret < 0)
+			goto free;
+
 		/* Here is a recursive call (Depth-first search) */
 		ret = collect_task(c);
 		if (ret < 0)
@@ -883,6 +888,9 @@ static int collect_threads(struct pstree_item *item)
 			goto err;
 		}
 
+		if (seccomp_collect_entry(item, pid, t_creds.s.seccomp_mode))
+			goto err;
+
 		if (!creds_dumpable(dmpi(item)->pi_creds, &t_creds))
 			goto err;
 
@@ -1007,6 +1015,10 @@ int collect_pstree(void)
 	pr_info("Seized task %d, state %d\n", pid, ret);
 	root_item->pid->state = ret;
 	dmpi(root_item)->pi_creds = creds;
+
+	ret = seccomp_collect_entry(root_item, pid, creds->s.seccomp_mode);
+	if (ret < 0)
+		goto err;
 
 	ret = collect_task(root_item);
 	if (ret < 0)

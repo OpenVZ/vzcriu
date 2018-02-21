@@ -18,6 +18,29 @@
 #include "protobuf.h"
 #include "images/seccomp.pb-c.h"
 
+int seccomp_collect_entry(struct pstree_item *item, pid_t tid, unsigned int mode)
+{
+	struct dmp_info *dinfo = dmpi(item);
+	struct seccomp_entry *entry;
+	size_t new_size;
+
+	new_size = sizeof(*dinfo->seccomp_entry) * (dinfo->nr_seccomp_entry + 1);
+	if (xrealloc_safe(&dinfo->seccomp_entry, new_size)) {
+		pr_err("Can't collect seccomp entry for item %d tid %d\n",
+		       item->pid->real, tid);
+		return -ENOMEM;
+	}
+
+	entry		= &dinfo->seccomp_entry[dinfo->nr_seccomp_entry];
+	entry->tid	= tid;
+	entry->mode	= mode;
+
+	dinfo->nr_seccomp_entry++;
+	pr_debug("Collected tid %d mode %#x (%zu entries)\n",
+		 tid, mode, dinfo->nr_seccomp_entry);
+	return 0;
+}
+
 /* populated on dump during collect_seccomp_filters() */
 static int next_filter_id = 0;
 static struct seccomp_info **filters = NULL;

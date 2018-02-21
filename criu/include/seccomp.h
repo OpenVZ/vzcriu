@@ -27,6 +27,15 @@
 #define SECCOMP_FILTER_FLAG_TSYNC 1
 #endif
 
+struct pstree_item;
+
+struct seccomp_entry {
+	pid_t			tid;
+	unsigned int		mode;
+};
+
+extern int seccomp_collect_entry(struct pstree_item *item, pid_t tid, unsigned int mode);
+
 struct seccomp_info {
 	struct seccomp_info	*prev;
 	int			id;
