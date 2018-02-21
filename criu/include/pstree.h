@@ -56,7 +56,7 @@ struct dmp_info {
 	struct ns_id *netns;
 	struct seccomp_entry *seccomp_entry;
 	size_t nr_seccomp_entry;
-	struct proc_status_creds *pi_creds;
+	unsigned int last_filter;
 	struct page_pipe *mem_pp;
 	struct parasite_ctl *parasite_ctl;
 };

@@ -139,7 +139,7 @@ static int collect_filter_for_pstree(struct pstree_item *item)
 			}
 		}
 
-		last_filter = dmpi(item->parent)->pi_creds->last_filter;
+		last_filter = dmpi(item->parent)->last_filter;
 		inherited = find_inherited(last_filter, buf, len, meta);
 		if (inherited) {
 			bool found = false;
@@ -200,7 +200,7 @@ save_infos:
 
 	next_filter_id += info_count;
 
-	dmpi(item)->pi_creds->last_filter = infos->id;
+	dmpi(item)->last_filter = infos->id;
 
 	/* Don't free the part of the tree we just successfully acquired */
 	infos = NULL;

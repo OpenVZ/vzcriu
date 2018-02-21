@@ -1030,7 +1030,7 @@ static int dump_task_core_all(struct parasite_ctl *ctl,
 	CoreEntry *core = item->core[0];
 	pid_t pid = item->pid->real;
 	int ret = -1;
-	struct proc_status_creds *creds;
+	struct seccomp_entry *entry;
 	struct parasite_dump_cgroup_args cgroup_args, *info = NULL;
 
 	BUILD_BUG_ON(sizeof(cgroup_args) < PARASITE_ARG_SIZE_MIN);
@@ -1043,15 +1043,20 @@ static int dump_task_core_all(struct parasite_ctl *ctl,
 	if (ret < 0)
 		goto err;
 
-	creds = dmpi(item)->pi_creds;
-	if (creds->s.seccomp_mode != SECCOMP_MODE_DISABLED) {
-		pr_info("got seccomp mode %d for %d\n", creds->s.seccomp_mode, vpid(item));
-		core->tc->has_seccomp_mode = true;
-		core->tc->seccomp_mode = creds->s.seccomp_mode;
+	entry = seccomp_find_entry(item, pid);
+	if (!entry) {
+		ret = -1;
+		goto err;
+	}
 
-		if (creds->s.seccomp_mode == SECCOMP_MODE_FILTER) {
+	if (entry->mode != SECCOMP_MODE_DISABLED) {
+		pr_info("got seccomp mode %d for %d\n", entry->mode, vpid(item));
+		core->tc->has_seccomp_mode = true;
+		core->tc->seccomp_mode = entry->mode;
+
+		if (entry->mode == SECCOMP_MODE_FILTER) {
 			core->tc->has_seccomp_filter = true;
-			core->tc->seccomp_filter = creds->last_filter;
+			core->tc->seccomp_filter = dmpi(item)->last_filter;
 		}
 	}
 
