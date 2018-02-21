@@ -63,8 +63,7 @@ int seccomp_collect_entry(struct pstree_item *item, pid_t tid, unsigned int mode
 static int next_filter_id = 0;
 static struct seccomp_info **filters = NULL;
 
-static struct seccomp_info *find_inherited(struct pstree_item *parent,
-					   struct sock_filter *filter,
+static struct seccomp_info *find_inherited(int last_filter, struct sock_filter *filter,
 					   int len, struct seccomp_metadata *meta)
 {
 	struct seccomp_info *info;
@@ -73,7 +72,7 @@ static struct seccomp_info *find_inherited(struct pstree_item *parent,
 	if (!filters)
 		return NULL;
 
-	for (info = filters[dmpi(parent)->pi_creds->last_filter]; info; info = info->prev) {
+	for (info = filters[last_filter]; info; info = info->prev) {
 
 		if (len != info->filter.filter.len)
 			continue;
@@ -95,7 +94,7 @@ static int collect_filter_for_pstree(struct pstree_item *item)
 	struct seccomp_metadata meta_buf, *meta = &meta_buf;
 	struct seccomp_info *infos = NULL, *cursor;
 	struct seccomp_entry *entry;
-	int info_count, i, ret = -1;
+	int info_count, i, last_filter, ret = -1;
 	struct sock_filter buf[BPF_MAXINSNS];
 	void *m;
 
@@ -140,7 +139,8 @@ static int collect_filter_for_pstree(struct pstree_item *item)
 			}
 		}
 
-		inherited = find_inherited(item->parent, buf, len, meta);
+		last_filter = dmpi(item->parent)->pi_creds->last_filter;
+		inherited = find_inherited(last_filter, buf, len, meta);
 		if (inherited) {
 			bool found = false;
 
