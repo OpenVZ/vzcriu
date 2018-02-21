@@ -30,12 +30,12 @@
 struct pstree_item;
 
 struct seccomp_entry {
-	pid_t			tid;
+	pid_t			tid_real;
 	unsigned int		mode;
 };
 
-extern struct seccomp_entry *seccomp_find_entry(struct pstree_item *item, pid_t tid);
-extern int seccomp_collect_entry(struct pstree_item *item, pid_t tid, unsigned int mode);
+extern struct seccomp_entry *seccomp_find_entry(struct pstree_item *item, pid_t tid_real);
+extern int seccomp_collect_entry(struct pstree_item *item, pid_t tid_real, unsigned int mode);
 
 struct seccomp_info {
 	struct seccomp_info	*prev;

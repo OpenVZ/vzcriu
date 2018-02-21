@@ -21,22 +21,22 @@
 #undef	LOG_PREFIX
 #define LOG_PREFIX "seccomp: "
 
-struct seccomp_entry *seccomp_find_entry(struct pstree_item *item, pid_t tid)
+struct seccomp_entry *seccomp_find_entry(struct pstree_item *item, pid_t tid_real)
 {
 	struct dmp_info *dinfo = dmpi(item);
 	size_t i;
 
 	for (i = 0; i < dinfo->nr_seccomp_entry; i++) {
-		if (dinfo->seccomp_entry[i].tid == tid)
+		if (dinfo->seccomp_entry[i].tid_real == tid_real)
 			return &dinfo->seccomp_entry[i];
 	}
 
-	pr_err("Can't find entry on pid %d tid %d (%zu entries)\n",
-	       item->pid->real, tid, dinfo->nr_seccomp_entry);
+	pr_err("Can't find entry on pid_real %d tid_real %d (%zu entries)\n",
+	       item->pid->real, tid_real, dinfo->nr_seccomp_entry);
 	return NULL;
 }
 
-int seccomp_collect_entry(struct pstree_item *item, pid_t tid, unsigned int mode)
+int seccomp_collect_entry(struct pstree_item *item, pid_t tid_real, unsigned int mode)
 {
 	struct dmp_info *dinfo = dmpi(item);
 	struct seccomp_entry *entry;
@@ -44,18 +44,18 @@ int seccomp_collect_entry(struct pstree_item *item, pid_t tid, unsigned int mode
 
 	new_size = sizeof(*dinfo->seccomp_entry) * (dinfo->nr_seccomp_entry + 1);
 	if (xrealloc_safe(&dinfo->seccomp_entry, new_size)) {
-		pr_err("Can't collect seccomp entry for item %d tid %d\n",
-		       item->pid->real, tid);
+		pr_err("Can't collect seccomp entry for item %d tid_real %d\n",
+		       item->pid->real, tid_real);
 		return -ENOMEM;
 	}
 
 	entry		= &dinfo->seccomp_entry[dinfo->nr_seccomp_entry];
-	entry->tid	= tid;
+	entry->tid_real	= tid_real;
 	entry->mode	= mode;
 
 	dinfo->nr_seccomp_entry++;
-	pr_debug("Collected tid %d mode %#x (%zu entries)\n",
-		 tid, mode, dinfo->nr_seccomp_entry);
+	pr_debug("Collected tid_real %d mode %#x (%zu entries)\n",
+		 tid_real, mode, dinfo->nr_seccomp_entry);
 	return 0;
 }
 
