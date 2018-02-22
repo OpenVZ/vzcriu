@@ -1059,7 +1059,7 @@ static int dump_task_core_all(struct parasite_ctl *ctl,
 
 		if (entry->mode == SECCOMP_MODE_FILTER) {
 			thread_core->has_seccomp_filter = true;
-			thread_core->seccomp_filter = dmpi(item)->last_filter;
+			thread_core->seccomp_filter = entry->last_filter;
 		}
 	}
 

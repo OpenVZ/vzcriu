@@ -93,8 +93,8 @@ static int collect_filter_for_pstree(struct pstree_item *item)
 {
 	struct seccomp_metadata meta_buf, *meta = &meta_buf;
 	struct seccomp_info *infos = NULL, *cursor;
-	struct seccomp_entry *entry;
-	int info_count, i, last_filter, ret = -1;
+	struct seccomp_entry *entry, *entry_parent;
+	int info_count, i, ret = -1;
 	struct sock_filter buf[BPF_MAXINSNS];
 	void *m;
 
@@ -139,8 +139,10 @@ static int collect_filter_for_pstree(struct pstree_item *item)
 			}
 		}
 
-		last_filter = dmpi(item->parent)->last_filter;
-		inherited = find_inherited(last_filter, buf, len, meta);
+		entry_parent = seccomp_find_entry(item->parent, item->parent->pid->real);
+		if (!entry_parent)
+			goto out;
+		inherited = find_inherited(entry_parent->last_filter, buf, len, meta);
 		if (inherited) {
 			bool found = false;
 
@@ -200,7 +202,7 @@ save_infos:
 
 	next_filter_id += info_count;
 
-	dmpi(item)->last_filter = infos->id;
+	entry->last_filter = infos->id;
 
 	/* Don't free the part of the tree we just successfully acquired */
 	infos = NULL;

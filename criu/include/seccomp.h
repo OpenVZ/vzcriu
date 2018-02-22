@@ -31,6 +31,7 @@ struct pstree_item;
 
 struct seccomp_entry {
 	pid_t			tid_real;
+	size_t			last_filter;
 	unsigned int		mode;
 };
 
