@@ -87,6 +87,27 @@ void seccomp_free_entries(void)
 	}
 }
 
+int seccomp_dump_thread(pid_t tid_real, ThreadCoreEntry *thread_core)
+{
+	struct seccomp_entry *entry = seccomp_find_entry(tid_real);
+	if (!entry) {
+		pr_err("Can't dump thread core on tid_real %d\n", tid_real);
+		return -1;
+	}
+
+	if (entry->mode != SECCOMP_MODE_DISABLED) {
+		thread_core->has_seccomp_mode = true;
+		thread_core->seccomp_mode = entry->mode;
+
+		if (entry->mode == SECCOMP_MODE_FILTER) {
+			thread_core->has_seccomp_filter = true;
+			thread_core->seccomp_filter = entry->last_filter;
+		}
+	}
+
+	return 0;
+}
+
 /* populated on dump during collect_seccomp_filters() */
 static int next_filter_id = 0;
 static struct seccomp_info **filters = NULL;

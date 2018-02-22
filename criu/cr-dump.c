@@ -1017,6 +1017,8 @@ int dump_thread_core(int pid, CoreEntry *core, const struct parasite_dump_thread
 			tc->pdeath_sig = ti->pdeath_sig;
 		}
 	}
+	if (!ret)
+		ret = seccomp_dump_thread(pid, tc);
 
 	return ret;
 }
@@ -1030,7 +1032,6 @@ static int dump_task_core_all(struct parasite_ctl *ctl,
 	CoreEntry *core = item->core[0];
 	pid_t pid = item->pid->real;
 	int ret = -1;
-	struct seccomp_entry *entry;
 	struct parasite_dump_cgroup_args cgroup_args, *info = NULL;
 
 	BUILD_BUG_ON(sizeof(cgroup_args) < PARASITE_ARG_SIZE_MIN);
@@ -1042,26 +1043,6 @@ static int dump_task_core_all(struct parasite_ctl *ctl,
 	ret = get_task_personality(pid, &core->tc->personality);
 	if (ret < 0)
 		goto err;
-
-	entry = seccomp_find_entry(pid);
-	if (!entry) {
-		ret = -1;
-		goto err;
-	}
-
-	if (entry->mode != SECCOMP_MODE_DISABLED) {
-		ThreadCoreEntry *thread_core = pstree_thread_core(item, pid);
-		BUG_ON(!thread_core);
-
-		pr_info("got seccomp mode %d for %d\n", entry->mode, vpid(item));
-		thread_core->has_seccomp_mode = true;
-		thread_core->seccomp_mode = entry->mode;
-
-		if (entry->mode == SECCOMP_MODE_FILTER) {
-			thread_core->has_seccomp_filter = true;
-			thread_core->seccomp_filter = entry->last_filter;
-		}
-	}
 
 	strlcpy((char *)core->tc->comm, stat->comm, TASK_COMM_LEN);
 	core->tc->flags = stat->flags;

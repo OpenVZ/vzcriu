@@ -41,6 +41,7 @@ extern struct seccomp_entry *seccomp_lookup(pid_t tid_real, bool create, bool ma
 #define seccomp_find_entry(tid_real) seccomp_lookup(tid_real, false, true)
 extern int seccomp_collect_entry(pid_t tid_real, unsigned int mode);
 extern void seccomp_free_entries(void);
+extern int seccomp_dump_thread(pid_t tid_real, ThreadCoreEntry *thread_core);
 
 struct seccomp_info {
 	struct seccomp_info	*prev;
