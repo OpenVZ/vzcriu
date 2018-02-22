@@ -28,15 +28,19 @@
 #endif
 
 struct pstree_item;
+struct rb_node;
 
 struct seccomp_entry {
+	struct rb_node		node;
 	pid_t			tid_real;
 	size_t			last_filter;
 	unsigned int		mode;
 };
 
-extern struct seccomp_entry *seccomp_find_entry(struct pstree_item *item, pid_t tid_real);
-extern int seccomp_collect_entry(struct pstree_item *item, pid_t tid_real, unsigned int mode);
+extern struct seccomp_entry *seccomp_lookup(pid_t tid_real, bool create, bool mandatory);
+#define seccomp_find_entry(tid_real) seccomp_lookup(tid_real, false, true)
+extern int seccomp_collect_entry(pid_t tid_real, unsigned int mode);
+extern void seccomp_free_entries(void);
 
 struct seccomp_info {
 	struct seccomp_info	*prev;

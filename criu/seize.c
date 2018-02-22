@@ -656,7 +656,7 @@ static int collect_children(struct pstree_item *item)
 		c->pid->state = ret;
 		list_add_tail(&c->sibling, &item->children);
 
-		ret = seccomp_collect_entry(c, pid, creds.s.seccomp_mode);
+		ret = seccomp_collect_entry(pid, creds.s.seccomp_mode);
 		if (ret < 0)
 			goto free;
 
@@ -776,7 +776,7 @@ static int collect_threads(struct pstree_item *item)
 	struct pid *threads = NULL;
 	int nr_threads = 0, i = 0, ret, nr_inprogress, nr_stopped = 0;
 
-	task_seccomp_entry = seccomp_find_entry(item, item->pid->real);
+	task_seccomp_entry = seccomp_find_entry(item->pid->real);
 	if (!task_seccomp_entry)
 		goto err;
 
@@ -844,7 +844,7 @@ static int collect_threads(struct pstree_item *item)
 			goto err;
 		}
 
-		if (seccomp_collect_entry(item, pid, t_creds.s.seccomp_mode))
+		if (seccomp_collect_entry(pid, t_creds.s.seccomp_mode))
 			goto err;
 
 		if (task_seccomp_entry->mode != t_creds.s.seccomp_mode) {
@@ -972,7 +972,7 @@ int collect_pstree(void)
 	pr_info("Seized task %d, state %d\n", pid, ret);
 	root_item->pid->state = ret;
 
-	ret = seccomp_collect_entry(root_item, pid, creds.s.seccomp_mode);
+	ret = seccomp_collect_entry(pid, creds.s.seccomp_mode);
 	if (ret < 0)
 		goto err;
 

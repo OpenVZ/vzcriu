@@ -1043,7 +1043,7 @@ static int dump_task_core_all(struct parasite_ctl *ctl,
 	if (ret < 0)
 		goto err;
 
-	entry = seccomp_find_entry(item, pid);
+	entry = seccomp_find_entry(pid);
 	if (!entry) {
 		ret = -1;
 		goto err;
@@ -1836,6 +1836,7 @@ static int cr_pre_dump_finish(int ret)
 	}
 
 	free_pstree(root_item);
+	seccomp_free_entries();
 
 	if (irmap_predump_run()) {
 		ret = -1;
@@ -2002,6 +2003,7 @@ static int cr_dump_finish(int ret)
 			    TASK_ALIVE : opts.final_state);
 	timing_stop(TIME_FROZEN);
 	free_pstree(root_item);
+	seccomp_free_entries();
 	free_file_locks();
 	free_link_remaps();
 	free_aufs_branches();

@@ -21,42 +21,70 @@
 #undef	LOG_PREFIX
 #define LOG_PREFIX "seccomp: "
 
-struct seccomp_entry *seccomp_find_entry(struct pstree_item *item, pid_t tid_real)
-{
-	struct dmp_info *dinfo = dmpi(item);
-	size_t i;
+static struct rb_root seccomp_tid_rb_root = RB_ROOT;
 
-	for (i = 0; i < dinfo->nr_seccomp_entry; i++) {
-		if (dinfo->seccomp_entry[i].tid_real == tid_real)
-			return &dinfo->seccomp_entry[i];
+struct seccomp_entry *seccomp_lookup(pid_t tid_real, bool create, bool mandatory)
+{
+	struct seccomp_entry *entry = NULL;
+
+	struct rb_node *node = seccomp_tid_rb_root.rb_node;
+	struct rb_node **new = &seccomp_tid_rb_root.rb_node;
+	struct rb_node *parent = NULL;
+
+	while (node) {
+		struct seccomp_entry *this = rb_entry(node, struct seccomp_entry, node);
+
+		parent = *new;
+		if (tid_real < this->tid_real)
+			node = node->rb_left, new = &((*new)->rb_left);
+		else if (tid_real > this->tid_real)
+			node = node->rb_right, new = &((*new)->rb_right);
+		else
+			return this;
 	}
 
-	pr_err("Can't find entry on pid_real %d tid_real %d (%zu entries)\n",
-	       item->pid->real, tid_real, dinfo->nr_seccomp_entry);
-	return NULL;
+	if (create) {
+		entry = xzalloc(sizeof(*entry));
+		if (!entry)
+			return NULL;
+		rb_init_node(&entry->node);
+		entry->tid_real	= tid_real;
+
+		rb_link_and_balance(&seccomp_tid_rb_root, &entry->node, parent, new);
+	} else {
+		if (mandatory)
+			pr_err("Can't find entry on tid_real %d\n", tid_real);
+	}
+
+	return entry;
 }
 
-int seccomp_collect_entry(struct pstree_item *item, pid_t tid_real, unsigned int mode)
+int seccomp_collect_entry(pid_t tid_real, unsigned int mode)
 {
-	struct dmp_info *dinfo = dmpi(item);
 	struct seccomp_entry *entry;
-	size_t new_size;
 
-	new_size = sizeof(*dinfo->seccomp_entry) * (dinfo->nr_seccomp_entry + 1);
-	if (xrealloc_safe(&dinfo->seccomp_entry, new_size)) {
-		pr_err("Can't collect seccomp entry for item %d tid_real %d\n",
-		       item->pid->real, tid_real);
-		return -ENOMEM;
+	entry = seccomp_lookup(tid_real, true, false);
+	if (!entry) {
+		pr_err("Can't create entry on tid_real %d\n", tid_real);
+		return -1;
 	}
 
-	entry		= &dinfo->seccomp_entry[dinfo->nr_seccomp_entry];
-	entry->tid_real	= tid_real;
-	entry->mode	= mode;
+	entry->mode = mode;
 
-	dinfo->nr_seccomp_entry++;
-	pr_debug("Collected tid_real %d mode %#x (%zu entries)\n",
-		 tid_real, mode, dinfo->nr_seccomp_entry);
+	pr_debug("Collected tid_real %d mode %#x\n", tid_real, mode);
 	return 0;
+}
+
+void seccomp_free_entries(void)
+{
+	struct seccomp_entry *entry;
+	struct rb_node *node;
+
+	while ((node = rb_first(&seccomp_tid_rb_root))) {
+		rb_erase(node, &seccomp_tid_rb_root);
+		entry = rb_entry(node, struct seccomp_entry, node);
+		xfree(entry);
+	}
 }
 
 /* populated on dump during collect_seccomp_filters() */
@@ -101,7 +129,7 @@ static int collect_filter_for_pstree(struct pstree_item *item)
 	if (item->pid->state == TASK_DEAD)
 		return 0;
 
-	entry = seccomp_find_entry(item, item->pid->real);
+	entry = seccomp_find_entry(item->pid->real);
 	if (!entry)
 		return -1;
 	if (entry->mode != SECCOMP_MODE_FILTER)
@@ -139,7 +167,7 @@ static int collect_filter_for_pstree(struct pstree_item *item)
 			}
 		}
 
-		entry_parent = seccomp_find_entry(item->parent, item->parent->pid->real);
+		entry_parent = seccomp_find_entry(item->parent->pid->real);
 		if (!entry_parent)
 			goto out;
 		inherited = find_inherited(entry_parent->last_filter, buf, len, meta);
