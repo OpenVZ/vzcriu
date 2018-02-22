@@ -2099,7 +2099,7 @@ int cr_dump_tasks(pid_t pid)
 	if (!glob_imgset)
 		goto err;
 
-	if (collect_seccomp_filters() < 0)
+	if (seccomp_collect_dump_filters() < 0)
 		goto err;
 
 	ve_bc_unlimit(&bc_set);

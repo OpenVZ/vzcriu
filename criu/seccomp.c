@@ -75,6 +75,21 @@ int seccomp_collect_entry(pid_t tid_real, unsigned int mode)
 	return 0;
 }
 
+static void seccomp_free_chain(struct seccomp_entry *entry)
+{
+	struct seccomp_filter_chain *chain, *prev;
+
+	for (chain = entry->chain; chain; chain = prev) {
+		prev = chain->prev;
+
+		xfree(chain->filter.filter.data);
+		xfree(chain);
+	}
+
+	entry->nr_chains = 0;
+	entry->chain = NULL;
+}
+
 void seccomp_free_entries(void)
 {
 	struct seccomp_entry *entry;
@@ -108,209 +123,159 @@ int seccomp_dump_thread(pid_t tid_real, ThreadCoreEntry *thread_core)
 	return 0;
 }
 
-/* populated on dump during collect_seccomp_filters() */
-static int next_filter_id = 0;
-static struct seccomp_info **filters = NULL;
-
-static struct seccomp_info *find_inherited(int last_filter, struct sock_filter *filter,
-					   int len, struct seccomp_metadata *meta)
-{
-	struct seccomp_info *info;
-
-	/* if we have no filters yet, this one has no parent */
-	if (!filters)
-		return NULL;
-
-	for (info = filters[last_filter]; info; info = info->prev) {
-
-		if (len != info->filter.filter.len)
-			continue;
-		if (!!meta ^ !!info->filter.has_flags)
-			continue;
-		if (info->filter.has_flags && meta) {
-			if (info->filter.flags != meta->flags)
-				continue;
-		}
-		if (!memcmp(filter, info->filter.filter.data, len))
-			return info;
-	}
-
-	return NULL;
-}
-
-static int collect_filter_for_pstree(struct pstree_item *item)
+static int collect_filter(struct seccomp_entry *entry)
 {
 	struct seccomp_metadata meta_buf, *meta = &meta_buf;
-	struct seccomp_info *infos = NULL, *cursor;
-	struct seccomp_entry *entry, *entry_parent;
-	int info_count, i, ret = -1;
+	struct seccomp_filter_chain *chain, *prev;
 	struct sock_filter buf[BPF_MAXINSNS];
-	void *m;
+	size_t pos;
+	int len;
 
-	if (item->pid->state == TASK_DEAD)
-		return 0;
-
-	entry = seccomp_find_entry(item->pid->real);
-	if (!entry)
-		return -1;
 	if (entry->mode != SECCOMP_MODE_FILTER)
 		return 0;
 
-	for (i = 0; true; i++) {
-		int len;
-		struct seccomp_info *info, *inherited = NULL;
-
-		len = ptrace(PTRACE_SECCOMP_GET_FILTER, item->pid->real, i, buf);
+	for (pos = 0; true; pos++) {
+		len = ptrace(PTRACE_SECCOMP_GET_FILTER, entry->tid_real, pos, buf);
 		if (len < 0) {
 			if (errno == ENOENT) {
-				/* end of the search */
-				BUG_ON(i == 0);
-				goto save_infos;
-			} else if (errno == EINVAL) {
-				pr_err("dumping seccomp infos not supported\n");
-				goto out;
+				break;
 			} else {
-				pr_perror("couldn't dump seccomp filter");
-				goto out;
+				pr_perror("Can't fetch filter on tid_real %d pos %zu",
+					  entry->tid_real, pos);
+				return -1;
 			}
 		}
 
 		if (!meta)
 			meta = &meta_buf;
 
-		if (ptrace(PTRACE_SECCOMP_GET_METADATA, item->pid->real, i, meta) < 0) {
+		if (ptrace(PTRACE_SECCOMP_GET_METADATA, entry->tid_real, pos, meta) < 0) {
 			if (errno == EIO) {
 				meta = NULL;
 			} else {
-				pr_perror("couldn't fetch seccomp metadata: pid %d pos %d",
-					  item->pid->real, i);
-				goto out;
+				pr_perror("Can't fetch seccomp metadataon tid_real %d pos %zu",
+					  entry->tid_real, pos);
+				return -1;
 			}
 		}
 
-		entry_parent = seccomp_find_entry(item->parent->pid->real);
-		if (!entry_parent)
-			goto out;
-		inherited = find_inherited(entry_parent->last_filter, buf, len, meta);
-		if (inherited) {
-			bool found = false;
+		chain = xzalloc(sizeof(*chain));
+		if (!chain)
+			return -1;
 
-			/* Small sanity check: if infos is already populated,
-			 * we should have inherited that filter too. */
-			for (cursor = infos; cursor; cursor = cursor->prev) {
-				if (inherited->prev== cursor) {
-					found = true;
-					break;
-				}
-			}
+		seccomp_filter__init(&chain->filter);
 
-			BUG_ON(!found);
-
-			infos = inherited;
-			continue;
+		chain->filter.filter.len = len * sizeof(struct sock_filter);
+		chain->filter.filter.data = xmalloc(chain->filter.filter.len);
+		if (!chain->filter.filter.data) {
+			xfree(chain);
+			return -1;
 		}
 
-		info = xmalloc(sizeof(*info));
-		if (!info)
-			goto out;
-		seccomp_filter__init(&info->filter);
+		memcpy(chain->filter.filter.data, buf, chain->filter.filter.len);
 
 		if (meta) {
-			info->filter.has_flags = true;
-			info->filter.flags = meta->flags;
+			chain->filter.has_flags = true;
+			chain->filter.flags = meta->flags;
 		}
 
-		info->filter.filter.len = len * sizeof(struct sock_filter);
-		info->filter.filter.data = xmalloc(info->filter.filter.len);
-		if (!info->filter.filter.data) {
-			xfree(info);
-			goto out;
+		prev = entry->chain, entry->chain = chain, chain->prev = prev;
+		entry->nr_chains++;
+	}
+
+	return 0;
+}
+
+static int collect_filters(struct pstree_item *item)
+{
+	struct seccomp_entry *parent, *leader, *entry;
+	size_t i;
+
+	if (item->pid->state == TASK_DEAD)
+		return 0;
+
+	parent = item->parent ? seccomp_find_entry(item->parent->pid->real) : NULL;
+	if (!parent && item->parent) {
+		pr_err("Can't collect filter on parent tid_real %d\n",
+		       item->parent->pid->real);
+		return -1;
+	}
+	leader = seccomp_find_entry(item->pid->real);
+	if (!leader) {
+		pr_err("Can't collect filter on leader tid_real %d\n",
+		       item->pid->real);
+		return -1;
+	}
+
+	for (i = 0; i < item->nr_threads; i++) {
+		entry = seccomp_find_entry(item->threads[i].real);
+		if (!leader) {
+			pr_err("Can't collect filter on tid_real %d\n",
+			       item->pid->real);
+			return -1;
 		}
 
-		memcpy(info->filter.filter.data, buf, info->filter.filter.len);
-
-		info->prev = infos;
-		infos = info;
+		if (collect_filter(entry))
+			return -1;
 	}
 
-save_infos:
-	info_count = i;
-
-	m = xrealloc(filters, sizeof(*filters) * (next_filter_id + info_count));
-	if (!m)
-		goto out;
-	filters = m;
-
-	for (cursor = infos, i = info_count + next_filter_id - 1;
-	     i >= next_filter_id; i--) {
-		BUG_ON(!cursor);
-		cursor->id = i;
-		filters[i] = cursor;
-		cursor = cursor->prev;
-	}
-
-	next_filter_id += info_count;
-
-	entry->last_filter = infos->id;
-
-	/* Don't free the part of the tree we just successfully acquired */
-	infos = NULL;
-	ret = 0;
-out:
-	while (infos) {
-		struct seccomp_info *freeme = infos;
-		infos = infos->prev;
-		xfree(freeme->filter.filter.data);
-		xfree(freeme);
-	}
-
-	return ret;
+	return 0;
 }
 
 static int dump_seccomp_filters(void)
 {
 	SeccompEntry se = SECCOMP_ENTRY__INIT;
-	int ret = -1, i;
+	struct seccomp_filter_chain *chain;
+	struct seccomp_entry *entry;
+	size_t last_filter = 0, nr_chains = 0;
+	struct rb_node *node;
+	int ret;
 
-	/* If we didn't collect any filters, don't create a seccomp image at all. */
-	if (next_filter_id == 0)
-		return 0;
+	for (node = rb_first(&seccomp_tid_rb_root); node; node = rb_next(node)) {
+		entry = rb_entry(node, struct seccomp_entry, node);
+		nr_chains += entry->nr_chains;
+	}
 
-	se.seccomp_filters = xzalloc(sizeof(*se.seccomp_filters) * next_filter_id);
+	se.n_seccomp_filters = nr_chains;
+	se.seccomp_filters = xmalloc(sizeof(*se.seccomp_filters) * nr_chains);
 	if (!se.seccomp_filters)
 		return -1;
 
-	se.n_seccomp_filters = next_filter_id;
+	for (node = rb_first(&seccomp_tid_rb_root); node; node = rb_next(node)) {
+		entry = rb_entry(node, struct seccomp_entry, node);
 
-	for (i = 0; i < next_filter_id; i++) {
-		SeccompFilter *sf;
-		struct seccomp_info *cur = filters[i];
+		if (!entry->nr_chains)
+			continue;
 
-		sf = se.seccomp_filters[cur->id] = &cur->filter;
-		if (cur->prev) {
-			sf->has_prev = true;
-			sf->prev = cur->prev->id;
+		for (chain = entry->chain; chain; chain = chain->prev) {
+			BUG_ON(last_filter >= nr_chains);
+
+			se.seccomp_filters[last_filter] = &chain->filter;
+			if (chain != entry->chain) {
+				chain->filter.has_prev = true;
+				chain->filter.prev = last_filter - 1;
+			}
+			last_filter++;
 		}
+
+		entry->last_filter = last_filter - 1;
 	}
 
 	ret = pb_write_one(img_from_set(glob_imgset, CR_FD_SECCOMP), &se, PB_SECCOMP);
 
 	xfree(se.seccomp_filters);
 
-	for (i = 0; i < next_filter_id; i++) {
-		struct seccomp_info *freeme = filters[i];
-
-		xfree(freeme->filter.filter.data);
-		xfree(freeme);
+	for (node = rb_first(&seccomp_tid_rb_root); node; node = rb_next(node)) {
+		entry = rb_entry(node, struct seccomp_entry, node);
+		seccomp_free_chain(entry);
 	}
-	xfree(filters);
 
 	return ret;
 }
 
-int collect_seccomp_filters(void)
+int seccomp_collect_dump_filters(void)
 {
-	if (preorder_pstree_traversal(root_item, collect_filter_for_pstree) < 0)
+	if (preorder_pstree_traversal(root_item, collect_filters) < 0)
 		return -1;
 
 	if (dump_seccomp_filters())

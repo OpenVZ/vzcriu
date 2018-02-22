@@ -30,11 +30,35 @@
 struct pstree_item;
 struct rb_node;
 
+/*
+ * seccomp filters are bound to @current->seccomp.filter
+ * in the kernel, ie they are per thread structures.
+ *
+ * If filter is assigned then every subsequent call
+ * to fork() makes a copy of this @current->seccomp.filter
+ * pointer into child process.
+ *
+ * The thread group can share a filter if the filter
+ * is assigned with SECCOMP_FILTER_FLAG_TSYNC on group
+ * which has no filters yet.
+ *
+ * To find identity we have to use memcmp because we
+ * don't have access to @current->seccomp.filter pointers
+ * FIXME: Provide kcmp mode for that.
+ */
+struct seccomp_filter_chain {
+	struct seccomp_filter_chain	*prev;
+	SeccompFilter			filter;
+};
+
 struct seccomp_entry {
-	struct rb_node		node;
-	pid_t			tid_real;
-	size_t			last_filter;
-	unsigned int		mode;
+	struct rb_node			node;
+	pid_t				tid_real;
+	size_t				last_filter;
+	unsigned int			mode;
+
+	struct seccomp_filter_chain	*chain;
+	size_t				nr_chains;
 };
 
 extern struct seccomp_entry *seccomp_lookup(pid_t tid_real, bool create, bool mandatory);
@@ -42,14 +66,8 @@ extern struct seccomp_entry *seccomp_lookup(pid_t tid_real, bool create, bool ma
 extern int seccomp_collect_entry(pid_t tid_real, unsigned int mode);
 extern void seccomp_free_entries(void);
 extern int seccomp_dump_thread(pid_t tid_real, ThreadCoreEntry *thread_core);
+extern int seccomp_collect_dump_filters(void);
 
-struct seccomp_info {
-	struct seccomp_info	*prev;
-	int			id;
-	SeccompFilter		filter;
-};
-
-extern int collect_seccomp_filters(void);
 extern int prepare_seccomp_filters(void);
 struct task_restore_args;
 extern int seccomp_filters_get_rst_pos(CoreEntry *item, struct task_restore_args *);
