@@ -54,7 +54,6 @@ static inline struct rst_info *rsti(struct pstree_item *i)
 struct ns_id;
 struct dmp_info {
 	struct ns_id *netns;
-	unsigned int last_filter;
 	struct page_pipe *mem_pp;
 	struct parasite_ctl *parasite_ctl;
 };
