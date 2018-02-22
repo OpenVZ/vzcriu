@@ -300,13 +300,13 @@ int seccomp_filters_get_rst_pos(CoreEntry *core, struct task_restore_args *ta)
 
 	ta->seccomp_filters_n = 0;
 
-	if (!core->tc->has_seccomp_filter)
+	if (!core->thread_core->has_seccomp_filter)
 		return 0;
 
 	ta->seccomp_filters = (struct sock_fprog *)rst_mem_align_cpos(RM_PRIVATE);
 
-	BUG_ON(core->tc->seccomp_filter > se->n_seccomp_filters);
-	sf = se->seccomp_filters[core->tc->seccomp_filter];
+	BUG_ON(core->thread_core->seccomp_filter > se->n_seccomp_filters);
+	sf = se->seccomp_filters[core->thread_core->seccomp_filter];
 
 	while (1) {
 		ta->seccomp_filters_n++;
@@ -324,7 +324,7 @@ int seccomp_filters_get_rst_pos(CoreEntry *core, struct task_restore_args *ta)
 		goto out;
 
 	filter_data = &arr[n_filters];
-	sf = se->seccomp_filters[core->tc->seccomp_filter];
+	sf = se->seccomp_filters[core->thread_core->seccomp_filter];
 	for (i = 0; i < n_filters; i++) {
 		struct sock_fprog *fprog = &arr[i];
 

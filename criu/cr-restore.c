@@ -740,10 +740,10 @@ static int open_core_VZ730(int pid, CoreEntry **pcore)
 		core->tc->has_cg_set		= tc.has_cg_set;
 		core->tc->cg_set		= tc.cg_set;
 		core->tc->signals_s		= tc.signals_s;
-		core->tc->has_seccomp_mode	= tc.has_seccomp_mode;
-		core->tc->seccomp_mode		= tc.seccomp_mode;
-		core->tc->has_seccomp_filter	= tc.has_seccomp_filter;
-		core->tc->seccomp_filter	= tc.seccomp_filter;
+		core->tc->has_old_seccomp_mode	= tc.has_old_seccomp_mode;
+		core->tc->old_seccomp_mode	= tc.old_seccomp_mode;
+		core->tc->has_old_seccomp_filter= tc.has_old_seccomp_filter;
+		core->tc->old_seccomp_filter	= tc.old_seccomp_filter;
 		core->tc->has_loginuid		= tc.has_loginuid;
 		core->tc->loginuid		= tc.loginuid;
 		core->tc->has_oom_score_adj	= tc.has_oom_score_adj;
@@ -1076,6 +1076,20 @@ static int check_core(CoreEntry *core, struct pstree_item *me)
 			pr_err("Core info data missed for non-zombie\n");
 			goto out;
 		}
+
+		/*
+		 * Seccomp are moved to per-thread origin,
+		 * so for old images we need to move per-task
+		 * data into proper place.
+		 */
+		if (core->tc->has_old_seccomp_mode) {
+			core->thread_core->has_seccomp_mode = core->tc->has_old_seccomp_mode;
+			core->thread_core->seccomp_mode = core->tc->old_seccomp_mode;
+		}
+		if (core->tc->has_old_seccomp_filter) {
+			core->thread_core->has_seccomp_filter = core->tc->has_old_seccomp_filter;
+			core->thread_core->seccomp_filter = core->tc->old_seccomp_filter;
+		}
 	}
 
 	ret = 0;
@@ -1244,7 +1258,7 @@ static inline int fork_with_pid(struct pstree_item *item)
 		item->pid->state = ca.core->tc->task_state;
 		rsti(item)->cg_set = ca.core->tc->cg_set;
 
-		rsti(item)->has_seccomp = ca.core->tc->seccomp_mode != SECCOMP_MODE_DISABLED;
+		rsti(item)->has_seccomp = ca.core->thread_core->seccomp_mode != SECCOMP_MODE_DISABLED;
 
 		if (item->pid->state != TASK_DEAD && !task_alive(item)) {
 			pr_err("Unknown task state %d\n", item->pid->state);
@@ -3382,8 +3396,8 @@ static int sigreturn_restore(pid_t pid, struct task_restore_args *task_args, uns
 	RST_MEM_FIXUP_PPTR(task_args->seccomp_filters);
 	RST_MEM_FIXUP_PPTR(task_args->vma_ios);
 
-	if (core->tc->has_seccomp_mode)
-		task_args->seccomp_mode = core->tc->seccomp_mode;
+	if (core->thread_core->has_seccomp_mode)
+		task_args->seccomp_mode = core->thread_core->seccomp_mode;
 
 	task_args->compatible_mode = core_is_compat(core);
 	/*

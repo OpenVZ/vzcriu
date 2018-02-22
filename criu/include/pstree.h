@@ -116,6 +116,7 @@ extern struct _TaskKobjIdsEntry *root_ids;
 
 extern void core_entry_free(CoreEntry *core);
 extern CoreEntry *core_entry_alloc(int alloc_thread_info, int alloc_tc);
+extern ThreadCoreEntry *pstree_thread_core(struct pstree_item *item, pid_t pid);
 extern int pstree_alloc_cores(struct pstree_item *item);
 extern void pstree_free_cores(struct pstree_item *item);
 

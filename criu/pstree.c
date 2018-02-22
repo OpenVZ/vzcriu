@@ -134,6 +134,18 @@ CoreEntry *core_entry_alloc(int th, int tsk)
 	return core;
 }
 
+ThreadCoreEntry *pstree_thread_core(struct pstree_item *item, pid_t pid)
+{
+	unsigned int i;
+
+	for (i = 0; i < item->nr_threads; i++) {
+		if (item->threads[i].real == pid)
+			return item->core[i]->thread_core;
+	}
+
+	return NULL;
+}
+
 int pstree_alloc_cores(struct pstree_item *item)
 {
 	unsigned int i;

@@ -1050,13 +1050,16 @@ static int dump_task_core_all(struct parasite_ctl *ctl,
 	}
 
 	if (entry->mode != SECCOMP_MODE_DISABLED) {
+		ThreadCoreEntry *thread_core = pstree_thread_core(item, pid);
+		BUG_ON(!thread_core);
+
 		pr_info("got seccomp mode %d for %d\n", entry->mode, vpid(item));
-		core->tc->has_seccomp_mode = true;
-		core->tc->seccomp_mode = entry->mode;
+		thread_core->has_seccomp_mode = true;
+		thread_core->seccomp_mode = entry->mode;
 
 		if (entry->mode == SECCOMP_MODE_FILTER) {
-			core->tc->has_seccomp_filter = true;
-			core->tc->seccomp_filter = dmpi(item)->last_filter;
+			thread_core->has_seccomp_filter = true;
+			thread_core->seccomp_filter = dmpi(item)->last_filter;
 		}
 	}
 
