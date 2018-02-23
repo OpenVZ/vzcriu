@@ -55,7 +55,7 @@ struct seccomp_entry {
 	struct rb_node			node;
 	struct seccomp_entry		*next;
 	pid_t				tid_real;
-	size_t				last_filter;
+	size_t				img_filter_pos;
 	unsigned int			mode;
 
 	struct seccomp_filter_chain	*chain;

@@ -120,7 +120,7 @@ int seccomp_dump_thread(pid_t tid_real, ThreadCoreEntry *thread_core)
 
 		if (entry->mode == SECCOMP_MODE_FILTER) {
 			thread_core->has_seccomp_filter = true;
-			thread_core->seccomp_filter = entry->last_filter;
+			thread_core->seccomp_filter = entry->img_filter_pos;
 		}
 	}
 
@@ -231,7 +231,7 @@ static int dump_seccomp_filters(void)
 	SeccompEntry se = SECCOMP_ENTRY__INIT;
 	struct seccomp_filter_chain *chain;
 	struct seccomp_entry *entry;
-	size_t last_filter = 0, nr_chains = 0;
+	size_t img_filter_pos = 0, nr_chains = 0;
 	struct rb_node *node;
 	int ret;
 
@@ -252,17 +252,17 @@ static int dump_seccomp_filters(void)
 			continue;
 
 		for (chain = entry->chain; chain; chain = chain->prev) {
-			BUG_ON(last_filter >= nr_chains);
+			BUG_ON(img_filter_pos >= nr_chains);
 
-			se.seccomp_filters[last_filter] = &chain->filter;
+			se.seccomp_filters[img_filter_pos] = &chain->filter;
 			if (chain != entry->chain) {
 				chain->filter.has_prev = true;
-				chain->filter.prev = last_filter - 1;
+				chain->filter.prev = img_filter_pos - 1;
 			}
-			last_filter++;
+			img_filter_pos++;
 		}
 
-		entry->last_filter = last_filter - 1;
+		entry->img_filter_pos = img_filter_pos - 1;
 	}
 
 	ret = pb_write_one(img_from_set(glob_imgset, CR_FD_SECCOMP), &se, PB_SECCOMP);
