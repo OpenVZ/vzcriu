@@ -22,6 +22,7 @@
 #define LOG_PREFIX "seccomp: "
 
 static struct rb_root seccomp_tid_rb_root = RB_ROOT;
+static struct seccomp_entry *seccomp_tid_entry_root;
 
 struct seccomp_entry *seccomp_lookup(pid_t tid_real, bool create, bool mandatory)
 {
@@ -50,6 +51,7 @@ struct seccomp_entry *seccomp_lookup(pid_t tid_real, bool create, bool mandatory
 		rb_init_node(&entry->node);
 		entry->tid_real	= tid_real;
 
+		entry->next = seccomp_tid_entry_root, seccomp_tid_entry_root = entry;
 		rb_link_and_balance(&seccomp_tid_rb_root, &entry->node, parent, new);
 	} else {
 		if (mandatory)
@@ -92,14 +94,16 @@ static void seccomp_free_chain(struct seccomp_entry *entry)
 
 void seccomp_free_entries(void)
 {
-	struct seccomp_entry *entry;
-	struct rb_node *node;
+	struct seccomp_entry *entry, *next;
 
-	while ((node = rb_first(&seccomp_tid_rb_root))) {
-		rb_erase(node, &seccomp_tid_rb_root);
-		entry = rb_entry(node, struct seccomp_entry, node);
+	for (entry = seccomp_tid_entry_root; entry; entry = next) {
+		next = entry->next;
+		seccomp_free_chain(entry);
 		xfree(entry);
 	}
+
+	seccomp_tid_rb_root = RB_ROOT;
+	seccomp_tid_entry_root = NULL;
 }
 
 int seccomp_dump_thread(pid_t tid_real, ThreadCoreEntry *thread_core)
