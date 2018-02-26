@@ -100,6 +100,8 @@ static int dump_one_eventpoll(int lfd, u32 id, const struct fd_parms *p)
 		e.tfd[j++] = e.tfd[i];
 	}
 
+	e.n_tfd = j; /* New amount of "semi-valid" fds */
+
 	pr_info_eventpoll("Dumping ", &e);
 	ret = pb_write_one(img_from_set(glob_imgset, CR_FD_FILES), &fe, PB_FILE);
 
@@ -109,7 +111,9 @@ static int dump_one_eventpoll(int lfd, u32 id, const struct fd_parms *p)
 		}
 	}
 
+	/* Restore former values to free resources */
 	memcpy(e.tfd, tfd_cpy, sizeof(e.tfd[0]) * n_tfd_cpy);
+	e.n_tfd = n_tfd_cpy;
 out:
 	for (i = 0; i < e.n_tfd; i++)
 		eventpoll_tfd_entry__free_unpacked(e.tfd[i], NULL);
