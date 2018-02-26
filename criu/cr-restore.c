@@ -321,7 +321,7 @@ static int root_prepare_shared(void)
 	if (prepare_remaps())
 		return -1;
 
-	if (prepare_seccomp_filters())
+	if (seccomp_read_image())
 		return -1;
 
 	if (collect_images(cinfos, ARRAY_SIZE(cinfos)))
@@ -914,7 +914,7 @@ static int restore_one_alive_task(int pid, CoreEntry *core)
 	if (prepare_timerfds(ta))
 		return -1;
 
-	if (seccomp_filters_get_rst_pos(core, ta) < 0)
+	if (seccomp_prepare_threads(current, ta) < 0)
 		return -1;
 
 	if (prepare_itimers(pid, ta, core) < 0)
@@ -3393,11 +3393,7 @@ static int sigreturn_restore(pid_t pid, struct task_restore_args *task_args, uns
 	RST_MEM_FIXUP_PPTR(task_args->rlims);
 	RST_MEM_FIXUP_PPTR(task_args->helpers);
 	RST_MEM_FIXUP_PPTR(task_args->zombies);
-	RST_MEM_FIXUP_PPTR(task_args->seccomp_filters);
 	RST_MEM_FIXUP_PPTR(task_args->vma_ios);
-
-	if (core->thread_core->has_seccomp_mode)
-		task_args->seccomp_mode = core->thread_core->seccomp_mode;
 
 	task_args->compatible_mode = core_is_compat(core);
 	/*
@@ -3471,6 +3467,8 @@ static int sigreturn_restore(pid_t pid, struct task_restore_args *task_args, uns
 		ret = prep_sched_info(&thread_args[i].sp, tcore->thread_core);
 		if (ret)
 			goto err;
+
+		seccomp_rst_reloc(&thread_args[i]);
 
 		thread_args[i].mz = mz + i;
 		sigframe = (struct rt_sigframe *)&mz[i].rt_sigframe;

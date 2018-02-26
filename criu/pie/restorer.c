@@ -378,65 +378,74 @@ static int restore_signals(siginfo_t *ptr, int nr, bool group)
 	return 0;
 }
 
-static int restore_seccomp(struct task_restore_args *args)
+static int restore_seccomp_filter(struct thread_restore_args *args)
+{
+	size_t i;
+	int ret;
+
+	for (i = 0; i < args->seccomp_filters_n; i++) {
+		struct thread_seccomp_filter *filter = &args->seccomp_filters[i];
+
+		ret = sys_seccomp(SECCOMP_SET_MODE_FILTER, filter->flags, (void *)&filter->sock_fprog);
+		if (ret < 0) {
+			if (ret == -ENOSYS) {
+				pr_debug("seccomp: sys_seccomp is not supported in kernel, "
+					 "switching to prctl interface\n");
+				ret = sys_prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER,
+						(long)(void *)&filter->sock_fprog, 0, 0);
+				if (ret) {
+					pr_err("seccomp: PR_SET_SECCOMP returned %d on tid %d\n",
+					       ret, args->pid);
+					return -1;
+				}
+			} else {
+				pr_err("seccomp: SECCOMP_SET_MODE_FILTER returned %d on tid %d\n",
+				       ret, args->pid);
+				return -1;
+			}
+		}
+	}
+
+	return 0;
+}
+
+static int restore_seccomp(struct thread_restore_args *args)
 {
 	int ret;
+
+	if (args->pid != sys_gettid()) {
+		pr_err("seccomp: Unexpected tid %d != %d\n",
+		       args->pid, (pid_t)sys_gettid());
+		return -1;
+	}
 
 	switch (args->seccomp_mode) {
 	case SECCOMP_MODE_DISABLED:
 		return 0;
+		break;
 	case SECCOMP_MODE_STRICT:
 		ret = sys_prctl(PR_SET_SECCOMP, SECCOMP_MODE_STRICT, 0, 0, 0);
 		if (ret < 0) {
-			pr_err("prctl(PR_SET_SECCOMP, SECCOMP_MODE_STRICT) returned %d\n", ret);
-			goto die;
+			pr_err("seccomp: SECCOMP_MODE_STRICT returned %d on tid %d\n",
+			       ret, args->pid);
 		}
-		return 0;
-	case SECCOMP_MODE_FILTER: {
-		int i;
-		void *filter_data;
-
-		filter_data = &args->seccomp_filters[args->seccomp_filters_n];
-
-		for (i = 0; i < args->seccomp_filters_n; i++) {
-			struct sock_fprog *fprog = &args->seccomp_filters[i];
-
-			fprog->filter = filter_data;
-
-			/* We always TSYNC here, since we require that the
-			 * creds for all threads be the same; this means we
-			 * don't have to restore_seccomp() in threads, and that
-			 * future TSYNC behavior will be correct.
-			 */
-			ret = sys_seccomp(SECCOMP_SET_MODE_FILTER, SECCOMP_FILTER_FLAG_TSYNC, (char *) fprog);
-			if (ret < 0) {
-				if (ret == -ENOSYS) {
-					pr_debug("sys_seccomp is not supported in kernel, "
-						 "switching to prctl interface\n");
-					ret = sys_prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER,
-							(long)(void *)fprog, 0, 0);
-					if (ret) {
-						pr_err("sys_prctl(PR_SET_SECCOMP) returned %d\n", ret);
-						goto die;
-					}
-				} else {
-					pr_err("sys_seccomp() returned %d\n", ret);
-					goto die;
-				}
-			}
-
-			filter_data += fprog->len * sizeof(struct sock_filter);
-		}
-
-		return 0;
-	}
+		break;
+	case SECCOMP_MODE_FILTER:
+		ret = restore_seccomp_filter(args);
+		break;
 	default:
-		goto die;
+		pr_err("seccomp: Unknown seccomp mode %d on tid %d\n",
+		       args->seccomp_mode, args->pid);
+		ret = -1;
+		break;
 	}
 
-	return 0;
-die:
-	return -1;
+	if (!ret) {
+		pr_debug("seccomp: Restored mode %d on tid %d\n",
+			 args->seccomp_mode, args->pid);
+	}
+
+	return ret;
 }
 
 static int restore_robust_futex(struct thread_restore_args *args)
@@ -518,6 +527,9 @@ long __export_restore_thread(struct thread_restore_args *args)
 	rt_sigframe = (void *)&args->mz->rt_sigframe;
 
 	if (restore_thread_common(args))
+		goto core_restore_end;
+
+	if (restore_seccomp(args))
 		goto core_restore_end;
 
 	ret = restore_creds(args->creds_args, args->ta->proc_fd);
@@ -1565,8 +1577,7 @@ long __export_restore_task(struct task_restore_args *args)
 	/* The kernel restricts setting seccomp to uid 0 in the current user
 	 * ns, so we must do this before restore_creds.
 	 */
-	pr_info("restoring seccomp mode %d for %ld\n", args->seccomp_mode, sys_getpid());
-	if (restore_seccomp(args))
+	if (restore_seccomp(args->t))
 		goto core_restore_end;
 
 	/*

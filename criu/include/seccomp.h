@@ -27,6 +27,8 @@
 #define SECCOMP_FILTER_FLAG_TSYNC 1
 #endif
 
+struct thread_restore_args;
+struct task_restore_args;
 struct pstree_item;
 struct rb_node;
 
@@ -69,7 +71,8 @@ extern void seccomp_free_entries(void);
 extern int seccomp_dump_thread(pid_t tid_real, ThreadCoreEntry *thread_core);
 extern int seccomp_collect_dump_filters(void);
 
-extern int prepare_seccomp_filters(void);
-struct task_restore_args;
-extern int seccomp_filters_get_rst_pos(CoreEntry *item, struct task_restore_args *);
+extern int seccomp_read_image(void);
+extern int seccomp_prepare_threads(struct pstree_item *item, struct task_restore_args *ta);
+extern void seccomp_rst_reloc(struct thread_restore_args *thread_arg);
+
 #endif

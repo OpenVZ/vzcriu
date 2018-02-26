@@ -4,6 +4,7 @@
 #include <signal.h>
 #include <limits.h>
 #include <sys/resource.h>
+#include <linux/filter.h>
 
 #include "types.h"
 #include "int.h"
@@ -75,6 +76,11 @@ struct thread_creds_args {
 	unsigned long			mem_pos_next;
 };
 
+struct thread_seccomp_filter {
+	struct sock_fprog		sock_fprog;
+	unsigned int			flags;
+};
+
 struct thread_restore_args {
 	struct restore_mem_zone		*mz;
 
@@ -97,6 +103,12 @@ struct thread_restore_args {
 	int				pdeath_sig;
 
 	struct thread_creds_args	*creds_args;
+
+	int				seccomp_mode;
+	unsigned long			seccomp_filters_pos;
+	struct thread_seccomp_filter	*seccomp_filters;
+	void				*seccomp_filters_data;
+	unsigned int			seccomp_filters_n;
 } __aligned(64);
 
 typedef long (*thread_restore_fcall_t) (struct thread_restore_args *args);
@@ -156,9 +168,6 @@ struct task_restore_args {
 
 	pid_t				*zombies;
 	unsigned int			zombies_n;
-
-	struct sock_fprog		*seccomp_filters;
-	unsigned int			seccomp_filters_n;
 
 	/* * * * * * * * * * * * * * * * * * * * */
 
