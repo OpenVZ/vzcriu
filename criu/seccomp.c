@@ -252,7 +252,12 @@ static int dump_seccomp_filters(void)
 			continue;
 
 		for (chain = entry->chain; chain; chain = chain->prev) {
-			BUG_ON(img_filter_pos >= nr_chains);
+			if (img_filter_pos >= nr_chains) {
+				pr_err("Unexpected position %zu > %zu\n",
+				       img_filter_pos, nr_chains);
+				xfree(se.seccomp_filters);
+				return -1;
+			}
 
 			se.seccomp_filters[img_filter_pos] = &chain->filter;
 			if (chain != entry->chain) {
