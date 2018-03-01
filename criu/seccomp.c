@@ -192,6 +192,78 @@ static int collect_filter(struct seccomp_entry *entry)
 	return 0;
 }
 
+/*
+ * When filter is being set up with SECCOMP_FILTER_FLAG_TSYNC then all
+ * threads share same filters chain. Still without kernel support we
+ * don't know if the chains are indeed were propagated by the flag above
+ * or application installed identical chains manually.
+ *
+ * Thus we do a trick: if all threads are sharing chains we just drop
+ * all ones except on a leader and assign SECCOMP_FILTER_FLAG_TSYNC there.
+ * The rationale is simple: if application is using tsync it always can
+ * assign new not-tsync filters after, but in reverse if we don't provide
+ * tsync on restore the further calls with tsync will fail later.
+ *
+ * Proper fix needs some support from kernel side (presumably kcmp mode).
+ */
+static void try_use_tsync(struct seccomp_entry *leader, struct pstree_item *item)
+{
+	struct seccomp_filter_chain *chain_a, *chain_b;
+	struct seccomp_entry *entry;
+	size_t i, j;
+
+	if (leader->mode != SECCOMP_MODE_FILTER)
+		return;
+
+	for (i = 0; i < item->nr_threads; i++) {
+		entry = seccomp_find_entry(item->threads[i].real);
+		BUG_ON(!entry);
+
+		if (entry == leader)
+			continue;
+
+		if (entry->mode != leader->mode ||
+		    entry->nr_chains != leader->nr_chains)
+			return;
+
+		chain_a = leader->chain;
+		chain_b = entry->chain;
+
+		for (j = 0; j < leader->nr_chains; j++) {
+			BUG_ON((!chain_a || !chain_b));
+
+			if (chain_a->filter.filter.len !=
+			    chain_b->filter.filter.len)
+				return;
+
+			if (memcmp(chain_a->filter.filter.data,
+				   chain_b->filter.filter.data,
+				   chain_a->filter.filter.len))
+				return;
+
+			chain_a = chain_a->prev;
+			chain_b = chain_b->prev;
+		}
+	}
+
+	/* OK, so threads can be restored with tsync */
+	pr_debug("Use SECCOMP_FILTER_FLAG_TSYNC for tid_real %d\n",
+		 leader->tid_real);
+
+	for (chain_a = leader->chain; chain_a; chain_a = chain_a->prev)
+		chain_a->filter.flags |= SECCOMP_FILTER_FLAG_TSYNC;
+
+	for (i = 0; i < item->nr_threads; i++) {
+		entry = seccomp_find_entry(item->threads[i].real);
+		BUG_ON(!entry);
+
+		if (entry == leader)
+			continue;
+
+		seccomp_free_chain(entry);
+	}
+}
+
 static int collect_filters(struct pstree_item *item)
 {
 	struct seccomp_entry *parent, *leader, *entry;
@@ -225,6 +297,7 @@ static int collect_filters(struct pstree_item *item)
 			return -1;
 	}
 
+	try_use_tsync(leader, item);
 	return 0;
 }
 
