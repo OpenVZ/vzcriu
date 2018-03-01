@@ -847,14 +847,6 @@ static int collect_threads(struct pstree_item *item)
 		if (seccomp_collect_entry(pid, t_creds.s.seccomp_mode))
 			goto err;
 
-		if (task_seccomp_entry->mode != t_creds.s.seccomp_mode) {
-			pr_err("Unsupported seccomp mode change: tids %d %d modes %d %d\n",
-			       item->pid->real, pid,
-			       task_seccomp_entry->mode,
-			       t_creds.s.seccomp_mode);
-			goto err;
-		}
-
 		if (ret == TASK_STOPPED) {
 			nr_stopped++;
 		}
