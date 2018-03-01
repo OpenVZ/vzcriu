@@ -171,6 +171,9 @@ static int collect_filter(struct seccomp_entry *entry)
 
 		seccomp_filter__init(&chain->filter);
 
+		chain->filter.has_flags = true;
+		chain->filter.flags = 0;
+
 		chain->filter.filter.len = len * sizeof(struct sock_filter);
 		chain->filter.filter.data = xmalloc(chain->filter.filter.len);
 		if (!chain->filter.filter.data) {
@@ -180,10 +183,8 @@ static int collect_filter(struct seccomp_entry *entry)
 
 		memcpy(chain->filter.filter.data, buf, chain->filter.filter.len);
 
-		if (meta) {
-			chain->filter.has_flags = true;
-			chain->filter.flags = meta->flags;
-		}
+		if (meta)
+			chain->filter.flags |= meta->flags;
 
 		prev = entry->chain, entry->chain = chain, chain->prev = prev;
 		entry->nr_chains++;
