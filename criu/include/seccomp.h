@@ -43,10 +43,6 @@ struct rb_node;
  * The thread group can share a filter if the filter
  * is assigned with SECCOMP_FILTER_FLAG_TSYNC on group
  * which has no filters yet.
- *
- * To find identity we have to use memcmp because we
- * don't have access to @current->seccomp.filter pointers
- * FIXME: Provide kcmp mode for that.
  */
 struct seccomp_filter_chain {
 	struct seccomp_filter_chain	*prev;
