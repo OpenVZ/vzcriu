@@ -261,6 +261,10 @@ static void try_use_tsync(struct seccomp_entry *leader, struct pstree_item *item
 		if (entry == leader)
 			continue;
 
+		pr_debug("\t Disable filter on tid_rea %d, will be propagated\n",
+			 entry->tid_real);
+
+		entry->mode = SECCOMP_MODE_DISABLED;
 		seccomp_free_chain(entry);
 	}
 }
