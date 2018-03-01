@@ -267,18 +267,12 @@ static void try_use_tsync(struct seccomp_entry *leader, struct pstree_item *item
 
 static int collect_filters(struct pstree_item *item)
 {
-	struct seccomp_entry *parent, *leader, *entry;
+	struct seccomp_entry *leader, *entry;
 	size_t i;
 
 	if (item->pid->state == TASK_DEAD)
 		return 0;
 
-	parent = item->parent ? seccomp_find_entry(item->parent->pid->real) : NULL;
-	if (!parent && item->parent) {
-		pr_err("Can't collect filter on parent tid_real %d\n",
-		       item->parent->pid->real);
-		return -1;
-	}
 	leader = seccomp_find_entry(item->pid->real);
 	if (!leader) {
 		pr_err("Can't collect filter on leader tid_real %d\n",
