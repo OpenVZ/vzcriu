@@ -311,9 +311,11 @@ static int dump_seccomp_filters(void)
 	}
 
 	se.n_seccomp_filters = nr_chains;
-	se.seccomp_filters = xmalloc(sizeof(*se.seccomp_filters) * nr_chains);
-	if (!se.seccomp_filters)
-		return -1;
+	if (nr_chains) {
+		se.seccomp_filters = xmalloc(sizeof(*se.seccomp_filters) * nr_chains);
+		if (!se.seccomp_filters)
+			return -1;
+	}
 
 	for (node = rb_first(&seccomp_tid_rb_root); node; node = rb_next(node)) {
 		entry = rb_entry(node, struct seccomp_entry, node);
