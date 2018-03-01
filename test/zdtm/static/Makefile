@@ -185,6 +185,7 @@ TST_NOFILE	:=				\
 		seccomp_strict			\
 		seccomp_filter			\
 		seccomp_filter_tsync			\
+		seccomp_filter_threads			\
 		seccomp_filter_inheritance		\
 		different_creds			\
 		vsx				\
@@ -460,6 +461,7 @@ different_creds:	LDLIBS += -pthread
 sigpending:		LDLIBS += -pthread
 sigaltstack:		LDLIBS += -pthread
 seccomp_filter_tsync:	LDLIBS += -pthread
+seccomp_filter_threads:	LDLIBS += -pthread
 shm:			CFLAGS += -DNEW_IPC_NS
 msgque:			CFLAGS += -DNEW_IPC_NS
 sem:			CFLAGS += -DNEW_IPC_NS
