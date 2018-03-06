@@ -22,6 +22,7 @@ enum sfd_type {
 	RPC_SK_OFF,
 	FDSTORE_SK_OFF,
 	LAZY_PAGES_SK_OFF, /* socket for communication with lazy-pages daemon */
+	SPFS_MNGR_SK,   /* Spfs manager socket */
 
 	SERVICE_FD_MAX
 };
