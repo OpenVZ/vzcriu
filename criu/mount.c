@@ -756,6 +756,11 @@ int validate_mounts(struct mount_info *info, bool for_dump)
 				}
 			}
 		}
+
+		if (!strcmp(m->fstype->name, "nfs") && !list_empty(&m->children)) {
+			pr_err("overmounted NFS (%s) is not supported yet\n", m->mountpoint);
+			return -1;
+		}
 	}
 
 	return 0;
