@@ -8,6 +8,8 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/socket.h>
+#include <sys/sendfile.h>
+#include <linux/socket.h>
 
 #include "common/list.h"
 #include "imgset.h"
@@ -160,7 +162,7 @@ static void release_cmsg(SkPacketEntry *pe)
 	pe->scm = NULL;
 }
 
-int dump_sk_queue(int sock_fd, int sock_id)
+int dump_sk_queue(int sock_fd, int sock_id, bool dump_addr)
 {
 	SkPacketEntry pe = SK_PACKET_ENTRY__INIT;
 	int ret, size, orig_peek_off;
@@ -211,6 +213,7 @@ int dump_sk_queue(int sock_fd, int sock_id)
 
 	while (1) {
 		char cmsg[CMSG_MAX_SIZE];
+		unsigned char addr[_K_SS_MAXSIZE];
 		struct iovec iov = {
 			.iov_base	= data,
 			.iov_len	= size,
@@ -221,6 +224,11 @@ int dump_sk_queue(int sock_fd, int sock_id)
 			.msg_control	= &cmsg,
 			.msg_controllen	= sizeof(cmsg),
 		};
+
+		if (dump_addr) {
+			msg.msg_name	= addr;
+			msg.msg_namelen	= _K_SS_MAXSIZE;
+		}
 
 		ret = pe.length = recvmsg(sock_fd, &msg, MSG_DONTWAIT | MSG_PEEK);
 		if (!ret)
@@ -247,6 +255,12 @@ int dump_sk_queue(int sock_fd, int sock_id)
 
 		if (dump_packet_cmsg(&msg, &pe))
 			goto err_set_sock;
+
+		if (msg.msg_namelen) {
+			pe.has_addr = true;
+			pe.addr.data = addr;
+			pe.addr.len = msg.msg_namelen;
+		}
 
 		ret = pb_write_one(img_from_set(glob_imgset, CR_FD_SK_QUEUES), &pe, PB_SK_QUEUES);
 		if (ret < 0) {
@@ -304,6 +318,11 @@ static int send_one_pkt(int fd, struct sk_packet *pkt)
 	 * sendfile() isn't suitable for DGRAM sockets, because message
 	 * boundaries messages should be saved.
 	 */
+
+	if (entry->has_addr) {
+		mh.msg_name = entry->addr.data;
+		mh.msg_namelen = entry->addr.len;
+	}
 
 	ret = sendmsg(fd, &mh, 0);
 	xfree(pkt->data);
