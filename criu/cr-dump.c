@@ -2101,6 +2101,7 @@ static int cr_dump_finish(int ret)
 	free_link_remaps();
 	free_aufs_branches();
 	free_userns_maps();
+	free_ttys();
 
 	close_service_fd(CR_PROC_FD_OFF);
 	close_image_dir();
