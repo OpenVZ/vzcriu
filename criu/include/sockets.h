@@ -37,6 +37,7 @@ extern int sk_collect_one(unsigned ino, int family, struct socket_desc *d, struc
 struct ns_id;
 extern int collect_sockets(struct ns_id *);
 extern struct collect_image_info inet_sk_cinfo;
+extern int fini_dump_sockets(struct ns_id *ns);
 extern struct collect_image_info unix_sk_cinfo;
 extern int add_fake_unix_queuers(void);
 extern int fix_external_unix_sockets(void);
@@ -57,6 +58,7 @@ extern const struct fdtype_ops packet_dump_ops;
 extern int inet_collect_one(struct nlmsghdr *h, int family, int type, struct ns_id *ns);
 extern int unix_receive_one(struct nlmsghdr *h, struct ns_id *ns, void *);
 extern int netlink_receive_one(struct nlmsghdr *hdr, struct ns_id *ns, void *arg);
+extern int netlink_final_check_one(struct nlmsghdr *hdr, struct ns_id *ns, void *arg);
 
 extern int unix_sk_id_add(unsigned int ino);
 extern int unix_sk_ids_parse(char *optarg);
