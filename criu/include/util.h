@@ -383,6 +383,8 @@ static inline void print_stack_trace(pid_t pid)
 	})
 
 extern int mount_detached_fs(const char *fsname);
+int cr_set_root(int fd, int *old_root);
+int cr_restore_root(int fd);
 
 extern char *get_legacy_iptables_bin(bool ipv6);
 
