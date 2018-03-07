@@ -42,7 +42,7 @@ message tty_data_entry {
 	required uint32			tty_id		= 1;
 	required bytes			data		= 2;
 
-	// optional sint32		mnt_id		= 3 [default = 0];
+	optional sint32			mnt_id		= 3 [default = 0];
 }
 
 message tty_info_entry {
@@ -78,7 +78,7 @@ message tty_info_entry {
 	optional uint32			uid		= 14;
 	optional uint32			gid		= 15;
 
-	// optional sint32		mnt_id		= 16 [default = 0];
+	optional sint32			mnt_id		= 16 [default = 0];
 };
 
 message tty_file_entry {
@@ -87,6 +87,6 @@ message tty_file_entry {
 
 	required uint32			flags		= 3 [(criu).hex = true];
 	required fown_entry		fown		= 4;
-	// optional sint32		mnt_id		= 5 [default = 0];
+	optional sint32			mnt_id		= 5 [default = 0];
 	optional uint32			regf_id		= 6;
 }
