@@ -948,6 +948,7 @@ int collect_sockets(struct ns_id *ns)
 
 	req.r.n.sdiag_family	= AF_NETLINK;
 	req.r.n.sdiag_protocol	= NDIAG_PROTO_ALL;
+	req.r.n.ndiag_show	= NDIAG_SHOW_GROUPS | NDIAG_SHOW_FLAGS;
 	req.r.n.ndiag_show	= NDIAG_SHOW_GROUPS;
 	tmp = do_collect_req(nl, &req, sizeof(req), netlink_receive_one, collect_err, ns, &req.r.n);
 	if (tmp)
