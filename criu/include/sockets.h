@@ -94,4 +94,12 @@ extern int set_netns(uint32_t ns_id);
 
 extern int kerndat_socket_netns(void);
 
+#ifndef NETLINK_REPAIR
+#define NETLINK_REPAIR                  11
+#endif
+
+#ifndef SOL_NETLINK
+#define SOL_NETLINK			270
+#endif
+
 #endif /* __CR_SOCKETS_H__ */
