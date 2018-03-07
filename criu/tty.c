@@ -1612,6 +1612,11 @@ static int collect_one_tty_info_entry(void *obj, ProtobufCMessage *msg, struct c
 
 	tie = pb_msg(msg, TtyInfoEntry);
 
+	if (!tie->has_mnt_id) {
+		tie->has_mnt_id = true;
+		tie->mnt_id = 0;
+	}
+
 	switch (tie->type) {
 	case TTY_TYPE__PTY:
 		if (!tie->pty) {
@@ -1697,6 +1702,11 @@ static int collect_one_tty(void *obj, ProtobufCMessage *msg, struct cr_img *i)
 	info->tfe = pb_msg(msg, TtyFileEntry);
 	list_add_tail(&info->list, &collected_ttys);
 
+	if (!info->tfe->has_mnt_id) {
+		info->tfe->has_mnt_id = true;
+		info->tfe->mnt_id = 0;
+	}
+
 	return 0;
 }
 
@@ -1758,6 +1768,11 @@ static int collect_one_tty_data(void *obj, ProtobufCMessage *msg, struct cr_img 
 	struct tty_info *info;
 
 	tdo->tde = pb_msg(msg, TtyDataEntry);
+	if (!tdo->tde->has_mnt_id) {
+		tdo->tde->has_mnt_id = true;
+		tdo->tde->mnt_id = 0;
+	}
+
 	pr_debug("Collected data for id %#x (size %zu bytes)\n", tdo->tde->tty_id, (size_t)tdo->tde->data.len);
 
 	list_for_each_entry(info, &all_ttys, list) {
@@ -1827,7 +1842,7 @@ int dump_verify_tty_sids(void)
 	return ret;
 }
 
-static int dump_tty_info(int lfd, u32 id, const struct fd_parms *p, struct tty_driver *driver, int index)
+static int dump_tty_info(int lfd, u32 id, const struct fd_parms *p, int mnt_id, struct tty_driver *driver, int index)
 {
 	TtyInfoEntry info = TTY_INFO_ENTRY__INIT;
 	TermiosEntry termios = TERMIOS_ENTRY__INIT;
@@ -1871,6 +1886,7 @@ static int dump_tty_info(int lfd, u32 id, const struct fd_parms *p, struct tty_d
 	dinfo->mnt_id = p->mnt_id;
 	dinfo->driver = driver;
 	dinfo->flags = p->flags;
+	dinfo->mnt_id = mnt_id;
 
 	if (is_pty(driver)) {
 		dinfo->lfd = dup(lfd);
@@ -1901,6 +1917,9 @@ static int dump_tty_info(int lfd, u32 id, const struct fd_parms *p, struct tty_d
 	info.uid = userns_uid(p->stat.st_uid);
 	info.has_gid = true;
 	info.gid = userns_gid(p->stat.st_gid);
+
+	info.has_mnt_id = true;
+	info.mnt_id = mnt_id;
 
 	info.type = driver->type;
 	if (info.type == TTY_TYPE__PTY) {
@@ -1970,7 +1989,7 @@ out:
 static int dump_one_tty(int lfd, u32 id, const struct fd_parms *p)
 {
 	TtyFileEntry e = TTY_FILE_ENTRY__INIT;
-	int ret = 0, index = -1;
+	int ret = 0, index = -1, mnt_id;
 	struct tty_driver *driver;
 
 	pr_info("Dumping tty %d with id %#x\n", lfd, id);
@@ -1996,6 +2015,18 @@ static int dump_one_tty(int lfd, u32 id, const struct fd_parms *p)
 	e.tty_info_id = tty_gen_id(driver, index);
 	e.flags = p->flags;
 	e.fown = (FownEntry *)&p->fown;
+
+	if (is_pty(driver)) {
+		mnt_id = mount_resolve_devpts_mnt_id(p->stat.st_dev);
+		if (mnt_id < 0) {
+			pr_info("Can't obtain mnt_id on tty %d id %#x\n", lfd, id);
+			return -1;
+		}
+	} else
+		mnt_id = p->mnt_id;
+
+	e.has_mnt_id = true;
+	e.mnt_id = mnt_id;
 
 	if (driver->type != TTY_TYPE__EXT_TTY) {
 		u32 rf_id;
@@ -2029,7 +2060,7 @@ static int dump_one_tty(int lfd, u32 id, const struct fd_parms *p)
 	 */
 
 	if (!tty_test_and_set(e.tty_info_id, tty_bitmap))
-		ret = dump_tty_info(lfd, e.tty_info_id, p, driver, index);
+		ret = dump_tty_info(lfd, e.tty_info_id, p, mnt_id, driver, index);
 
 	if (!ret) {
 		FileEntry fe = FILE_ENTRY__INIT;
@@ -2132,6 +2163,8 @@ static int tty_do_dump_queued_data(struct tty_dump_info *dinfo)
 		e.tty_id = dinfo->id;
 		e.data.data = (void *)buf;
 		e.data.len = off;
+		e.has_mnt_id = true;
+		e.mnt_id = dinfo->mnt_id;
 
 		ret = pb_write_one(img_from_set(glob_imgset, CR_FD_TTY_DATA), &e, PB_TTY_DATA);
 	} else {
