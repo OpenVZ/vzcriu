@@ -13,6 +13,7 @@
 #include "netlink_diag.h"
 #include "libnetlink.h"
 #include "namespaces.h"
+#include "sk-queue.h"
 
 #undef LOG_PREFIX
 #define LOG_PREFIX "netlink: "
@@ -24,6 +25,7 @@ struct netlink_sk_desc {
 	u32 gsize;
 	u32 dst_portid;
 	u32 dst_group;
+	u32 nl_flags;
 	u8 state;
 	u8 protocol;
 };
@@ -63,6 +65,19 @@ int netlink_receive_one(struct nlmsghdr *hdr, struct ns_id *ns, void *arg)
 	} else {
 		sd->groups = NULL;
 		sd->gsize = 0;
+	}
+
+	/*
+	 * It's imossible to dump a socket queue if a callback is running now.
+	 * We have to set NDIAG_FLAG_CB_RUNNING, if a kernel doesn't report
+	 * real flags.
+	 */
+	sd->nl_flags = NDIAG_FLAG_CB_RUNNING;
+
+	if (tb[NETLINK_DIAG_FLAGS]) {
+		u64 flags = nla_get_u32(tb[NETLINK_DIAG_FLAGS]);
+
+		sd->nl_flags = flags;
 	}
 
 	return sk_collect_one(m->ndiag_ino, PF_NETLINK, &sd->sd, ns);
@@ -130,7 +145,6 @@ static int dump_one_netlink_fd(int lfd, u32 id, const struct fd_parms *p)
 			ne.n_groups -= 1;
 
 		if (ne.n_groups > 1) {
-			pr_err("%d %x\n", sk->gsize, sk->groups[1]);
 			pr_err("The netlink socket 0x%x has more than 32 groups\n", ne.ino);
 			return -1;
 		}
