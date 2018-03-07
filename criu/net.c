@@ -2681,6 +2681,9 @@ int dump_net_ns(struct ns_id *ns)
 	struct cr_imgset *fds;
 	int ret;
 
+	if (fini_dump_sockets(ns))
+		return -1;
+
 	fds = cr_imgset_open(ns->id, NETNS, O_DUMP);
 	if (fds == NULL)
 		return -1;
