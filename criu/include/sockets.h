@@ -127,4 +127,12 @@ extern const char *socket_proto_name(unsigned int proto, char *nm, size_t size);
 #define SO_BUF_LOCK 72
 #endif
 
+#ifndef NETLINK_REPAIR
+#define NETLINK_REPAIR 11
+#endif
+
+#ifndef SOL_NETLINK
+#define SOL_NETLINK 270
+#endif
+
 #endif /* __CR_SOCKETS_H__ */
