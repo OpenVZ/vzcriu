@@ -777,10 +777,6 @@ int collect_sockets(struct ns_id *ns)
 			err = tmp;
 	}
 
-	/* don't need anymore */
-	close(nl);
-	ns->net.nlsk = -1;
-
 	if (err && (ns->type == NS_CRIU)) {
 		/*
 		 * If netns isn't dumped, criu will fail only
@@ -830,4 +826,39 @@ int set_netns(uint32_t ns_id)
 	close(nsfd);
 
 	return 0;
+}
+
+int fini_dump_sockets(struct ns_id *ns)
+{
+	int err = 0, tmp;
+	int nl = ns->net.nlsk;
+	struct sock_diag_req req;
+	struct stat st;
+
+	if (fstat(nl, &st)) {
+		pr_perror("Unable to stat the netlink socket %d\n", nl);
+		return -1;
+	}
+
+	memset(&req, 0, sizeof(req));
+	req.hdr.nlmsg_len	= sizeof(req);
+	req.hdr.nlmsg_type	= SOCK_DIAG_BY_FAMILY;
+	req.hdr.nlmsg_flags	= NLM_F_DUMP | NLM_F_REQUEST;
+	req.hdr.nlmsg_seq	= CR_NLMSG_SEQ;
+
+	req.r.n.sdiag_family	= AF_NETLINK;
+	req.r.n.sdiag_protocol	= NDIAG_PROTO_ALL;
+	req.r.n.ndiag_show	= NDIAG_SHOW_GROUPS | NDIAG_SHOW_FLAGS;
+	tmp = do_collect_req(nl, &req, sizeof(req), netlink_final_check_one, ns,
+						(void *)(unsigned long)st.st_ino);
+	if (tmp) {
+		pr_warn("The current kernel doesn't support netlink_diag\n");
+		if (ns->ns_pid == 0 || tmp != -ENOENT) /* Fedora 19 */
+			err = tmp;
+	}
+
+	/* don't need anymore */
+	close_safe(&ns->net.nlsk);
+
+	return err;
 }
