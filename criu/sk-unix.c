@@ -838,10 +838,10 @@ struct unix_sk_info {
 	 * These bits are set by task-owner of this unix_sk_info.
 	 * Another tasks can only read them.
 	 */
-	u8			bound:1;
-	u8			listen:1;
-	u8			is_connected:1;
-	u8			peer_queue_restored:1; /* Set in 1 after we restore peer's queue */
+	bool			bound;
+	bool			listen;
+	bool			is_connected;
+	bool			peer_queue_restored; /* Set in 1 after we restore peer's queue */
 };
 
 struct scm_fle {
@@ -1300,7 +1300,7 @@ static int bind_unix_sk(int sk, struct unix_sk_info *ui)
 	}
 
 	if (ui->ue->state != TCP_LISTEN) {
-		ui->bound = 1;
+		ui->bound = true;
 		wake_connected_sockets(ui);
 	}
 
@@ -1562,7 +1562,7 @@ static int open_unixsk_standalone(struct unix_sk_info *ui, int *new_fd)
 			pr_perror("Can't make usk listen");
 			return -1;
 		}
-		ui->listen = 1;
+		ui->listen = true;
 		wake_connected_sockets(ui);
 	}
 
@@ -1682,10 +1682,10 @@ static int init_unix_sk_info(struct unix_sk_info *ui, UnixSkEntry *ue)
 
 	ui->queuer = NULL;
 	ui->peer = NULL;
-	ui->bound = 0;
-	ui->listen = 0;
-	ui->is_connected = 0;
-	ui->peer_queue_restored = 0;
+	ui->bound = false;
+	ui->listen = false;
+	ui->is_connected = false;
+	ui->peer_queue_restored = false;
 	INIT_LIST_HEAD(&ui->connected);
 	INIT_LIST_HEAD(&ui->node);
 	INIT_LIST_HEAD(&ui->scm_fles);
