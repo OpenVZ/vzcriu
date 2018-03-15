@@ -47,6 +47,19 @@
 struct kerndat_s kdat = {
 };
 
+bool is_zdtm_run(void)
+{
+	static bool zdtm_obtained = false;
+	static bool zdtm_run = false;
+
+	if (!zdtm_obtained) {
+		zdtm_run = getenv("ZDTM_RUN") ? true : false;
+		zdtm_obtained = true;
+	}
+
+	return zdtm_run;
+}
+
 static int check_pagemap(void)
 {
 	int ret, fd;
