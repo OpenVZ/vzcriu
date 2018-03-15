@@ -97,5 +97,6 @@ extern int kerndat_fs_virtualized(unsigned int which, u32 kdev);
 extern int kerndat_tcp_repair();
 extern int kerndat_uffd(void);
 extern int kerndat_nl_repair();
+extern bool is_zdtm_run(void);
 
 #endif /* __CR_KERNDAT_H__ */
