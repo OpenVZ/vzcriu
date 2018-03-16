@@ -28,6 +28,7 @@
 #include "external.h"
 #include "clone-noasan.h"
 #include "fdstore.h"
+#include "kerndat.h"
 
 #include "images/mnt.pb-c.h"
 
@@ -1697,6 +1698,9 @@ char *get_dumpee_veid(pid_t pid_real)
 	static pid_t pid = 0;
 	bool found = false;
 
+	if (is_zdtm_run())
+		return ERR_PTR(-ENOENT);
+
 	if (veid) {
 		pr_debug("VEID from env %s\n", veid);
 		return veid;
@@ -1755,6 +1759,9 @@ static __maybe_unused int mount_cr_time_mount(struct ns_id *ns, unsigned int *s_
 	int veX_fd = -1, len = -1;
 	char buf[PATH_MAX];
 	char *veid;
+
+	if (is_zdtm_run())
+		return -ENOENT;
 
 	veid = get_dumpee_veid(root_item->pid->real);
 	if (IS_ERR_OR_NULL(veid)) {
