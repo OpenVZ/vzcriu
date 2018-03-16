@@ -2076,6 +2076,9 @@ int join_ve(pid_t pid, bool veX)
 	char buf[PATH_MAX];
 	char *veid;
 
+	if (is_zdtm_run())
+		return 0;
+
 	if (!may_join_ve) {
 		if (access(ve0_tasks_path, F_OK)) {
 			pr_warn_once("ve: Can't access %s, non VZ kernel?\n",
