@@ -2504,6 +2504,8 @@ def clean_stuff(opts):
 # main() starts here
 #
 
+os.environ['ZDTM_RUN'] = 'y'
+
 if 'CR_CT_TEST_INFO' in os.environ:
     # Fork here, since we're new pidns init and are supposed to
     # collect this namespace's zombies
