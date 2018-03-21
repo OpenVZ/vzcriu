@@ -300,12 +300,24 @@ err:
 	return NULL;
 }
 
-static int dump_ip_opts(int sk, IpOptsEntry *ioe)
+static int dump_ip_opts(int sk, int family, int type, IpOptsEntry *ioe)
 {
 	int ret = 0;
 
-	ret |= dump_opt(sk, SOL_IP, IP_FREEBIND, &ioe->freebind);
-	ioe->has_freebind = ioe->freebind;
+	if (type == SOCK_RAW) {
+		if (family == AF_INET6) {
+			ret |= dump_opt(sk, SOL_IPV6, IPV6_HDRINCL, &ioe->hdrincl);
+		} else {
+			ret |= dump_opt(sk, SOL_IP, IP_HDRINCL, &ioe->hdrincl);
+			ret |= dump_opt(sk, SOL_IP, IP_NODEFRAG, &ioe->nodefrag);
+			ioe->has_nodefrag = ioe->nodefrag;
+		}
+		ioe->has_hdrincl = ioe->hdrincl;
+	} else {
+		/* Due to kernel code we can use SOL_IP instead of SOL_IPV6 */
+		ret |= dump_opt(sk, SOL_IP, IP_FREEBIND, &ioe->freebind);
+		ioe->has_freebind = ioe->freebind;
+	}
 
 	return ret;
 }
@@ -359,21 +371,23 @@ static int do_dump_one_inet_fd(int lfd, u32 id, const struct fd_parms *p, int fa
 	}
 
 	sk->cork = false;
-	switch (proto) {
-	case IPPROTO_UDP:
-	case IPPROTO_UDPLITE:
-		if (dump_opt(lfd, SOL_UDP, UDP_CORK, &aux))
-			return -1;
-		if (aux) {
-			sk->cork = true;
-			/*
-			 * FIXME: it is possible to dump a corked socket with
-			 * the empty send queue.
-			 */
-			pr_err("Can't dump corked dgram socket %x\n", sk->sd.ino);
-			goto err;
+	if (type != SOCK_RAW) {
+		switch (proto) {
+		case IPPROTO_UDP:
+		case IPPROTO_UDPLITE:
+			if (dump_opt(lfd, SOL_UDP, UDP_CORK, &aux))
+				return -1;
+			if (aux) {
+				sk->cork = true;
+				/*
+				 * FIXME: it is possible to dump a corked socket with
+				 * the empty send queue.
+				 */
+				pr_err("Can't dump corked dgram socket %x\n", sk->sd.ino);
+				goto err;
+			}
+			break;
 		}
-		break;
 	}
 
 	if (!can_dump_inet_sk(sk))
@@ -444,7 +458,7 @@ static int do_dump_one_inet_fd(int lfd, u32 id, const struct fd_parms *p, int fa
 	memcpy(ie.src_addr, sk->src_addr, pb_repeated_size(&ie, src_addr));
 	memcpy(ie.dst_addr, sk->dst_addr, pb_repeated_size(&ie, dst_addr));
 
-	if (dump_ip_opts(lfd, &ipopts))
+	if (dump_ip_opts(lfd, family, type, &ipopts))
 		goto err;
 
 	if (dump_socket_opts(lfd, &skopts))
@@ -458,7 +472,7 @@ static int do_dump_one_inet_fd(int lfd, u32 id, const struct fd_parms *p, int fa
 
 	switch (proto) {
 	case IPPROTO_TCP:
-		err = dump_one_tcp(lfd, sk);
+		err = (type != SOCK_RAW) ? dump_one_tcp(lfd, sk) : 0;
 		break;
 	case IPPROTO_UDP:
 	case IPPROTO_UDPLITE:
@@ -466,7 +480,6 @@ static int do_dump_one_inet_fd(int lfd, u32 id, const struct fd_parms *p, int fa
 		/* Fallthrough! */
 	default:
 		err = 0;
-		break;
 	}
 
 	ie.state = sk->state;
