@@ -193,7 +193,7 @@ int restore_pipe_data(int img_type, int pfd, u32 id, struct pipe_data_rst **hash
 			.pipe_id	= pd->pde->pipe_id,
 			.size		= (size_t)pd->pde->size,
 		};
-		ret = userns_call(pipe_set_size, UNS_ASYNC, &args, sizeof(args), pfd);
+		ret = userns_call(pipe_set_size, 0, &args, sizeof(args), pfd);
 		if (ret < 0)
 			goto err;
 	}
