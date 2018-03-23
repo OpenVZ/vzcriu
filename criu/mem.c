@@ -313,13 +313,7 @@ static int detect_pid_reuse(struct pstree_item *item,
 			return -1;
 	}
 
-	if (!parent_se) {
-		pr_perror("No parent stats, for real error, please, " \
-			  "check warnings in get_parent_stats");
-		return -1;
-	}
-
-	if (parent_se->dump->has_dump_uptime) {
+	if (parent_se && parent_se->dump->has_dump_uptime) {
 		unsigned long long dump_ticks;
 
 		dump_ticks = parent_se->dump->dump_uptime/(USEC_PER_SEC/tps);
