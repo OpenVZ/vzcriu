@@ -59,6 +59,7 @@
 
 #define ATOP_ACCT_FILE "tmp/atop.d/atop.acct"
 #define PROCFS_SYSDIR	"proc/sys/"
+#define CGROUP_SYSDIR	"sys/fs/cgroup/"
 
 int setfsuid(uid_t fsuid);
 int setfsgid(gid_t fsuid);
@@ -2491,6 +2492,8 @@ ext:
 			 */
 			if (!strncmp(rfi->path, PROCFS_SYSDIR, strlen(PROCFS_SYSDIR)))
 				pr_warn("\tExpecting in VE environment. Ignore.\n");
+			else if (!strncmp(rfi->path, CGROUP_SYSDIR, strlen(CGROUP_SYSDIR)))
+				pr_warn("\tCgroup dirs might be modifed outside. Ignore.\n");
 			else
 				return -1;
 		}
