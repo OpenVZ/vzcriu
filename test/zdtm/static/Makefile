@@ -158,6 +158,7 @@ TST_NOFILE	:=				\
 		grow_map02			\
 		grow_map03			\
 		tun				\
+		tun_ns				\
 		stopped				\
 		stopped01			\
 		stopped02			\
@@ -478,6 +479,7 @@ socket_listen4v6:	CFLAGS += -D ZDTM_IPV4V6
 socket-tcp6-closed:	CFLAGS += -D ZDTM_IPV6
 socket-tcp6-closed:	CFLAGS += -D ZDTM_IPV4V6
 socket-tcp-closed-last-ack:	CFLAGS += -D ZDTM_TCP_LAST_ACK
+tun_ns:			CFLAGS += -DTUN_NS
 mnt_ext_manual:		CFLAGS += -D ZDTM_EXTMAP_MANUAL
 sigpending:		LDLIBS += -lrt
 vdso01:			LDLIBS += -lrt
