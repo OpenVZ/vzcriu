@@ -102,8 +102,13 @@ extern int kerndat_socket_unix_file(void);
 extern const char *tcp_state_name(unsigned int state);
 extern const char *socket_type_name(unsigned int type);
 
+/* Old kernels. Reused as NETLINK_EXT_ACK in latest vanila kernel */
 #ifndef NETLINK_REPAIR
 #define NETLINK_REPAIR                  11
+#endif
+
+#ifndef NETLINK_REPAIR2
+#define NETLINK_REPAIR2			127
 #endif
 
 #ifndef SOL_NETLINK
