@@ -130,8 +130,13 @@ extern const char *socket_proto_name(unsigned int proto, char *nm, size_t size);
 #define SO_BUF_LOCK 72
 #endif
 
+/* Old kernels. Reused as NETLINK_EXT_ACK in latest vanila kernel */
 #ifndef NETLINK_REPAIR
 #define NETLINK_REPAIR 11
+#endif
+
+#ifndef NETLINK_REPAIR2
+#define NETLINK_REPAIR2 127
 #endif
 
 #ifndef SOL_NETLINK
