@@ -38,6 +38,7 @@ struct kerndat_s {
 	bool has_memfd;
 	bool has_fdinfo_lock;
 	bool has_nl_repair;
+	int netlink_repair_nr;
 	unsigned long task_size;
 	bool ipv6;
 	enum loginuid_func luid;
