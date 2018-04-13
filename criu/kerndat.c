@@ -1359,18 +1359,27 @@ int kerndat_nl_repair(void)
 {
 	int sk, val = 1;
 
+	kdat.netlink_repair_nr = NETLINK_REPAIR2;
+
 	sk = socket(AF_NETLINK, SOCK_DGRAM, 0);
 	if (sk < 0) {
 		pr_perror("Unable to create a netlink socket");
 		return -1;
 	}
-
-	if (setsockopt(sk, SOL_NETLINK, NETLINK_REPAIR, &val, sizeof(val))) {
+again:
+	if (setsockopt(sk, SOL_NETLINK, kdat.netlink_repair_nr, &val, sizeof(val))) {
 		if (errno != ENOPROTOOPT) {
-			pr_perror("Unable to set NETLINK_REPAIR");
+			pr_perror("Unable to set netlink cmd:%d", kdat.netlink_repair_nr);
 			close(sk);
 			return -1;
 		}
+
+		if (kdat.netlink_repair_nr != NETLINK_REPAIR) {
+			kdat.netlink_repair_nr = NETLINK_REPAIR;
+			pr_err("Update your kernel! Fallback to NETLINK_REPAIR...\n");
+			goto again;
+		}
+
 		kdat.has_nl_repair = false;
 	} else
 		kdat.has_nl_repair = true;
