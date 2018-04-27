@@ -45,7 +45,7 @@ int get_seccomp_mode(pid_t pid)
 	char buf[PATH_MAX];
 
 	sprintf(buf, "/proc/%d/status", pid);
-	f = fopen(buf, "r+");
+	f = fopen(buf, "r");
 	if (!f) {
 		pr_perror("fopen failed");
 		return -1;
