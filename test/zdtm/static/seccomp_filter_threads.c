@@ -32,9 +32,9 @@
 const char *test_doc	= "Check threads to carry different seccomps";
 const char *test_author	= "Cyrill Gorcunov <gorcunov@openvz.org>";
 
-static long sys_gettid(void) { return syscall(__NR_gettid); }
-
 #ifdef __NR_seccomp
+
+static long sys_gettid(void) { return syscall(__NR_gettid); }
 
 static futex_t *wait_rdy;
 static futex_t *wait_run;
