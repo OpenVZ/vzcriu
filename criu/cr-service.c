@@ -301,6 +301,7 @@ static int setup_opts_from_req(int sk, CriuOpts *req)
 		pr_perror("Can't initiate log");
 		goto err;
 	}
+	compel_log_init(vprint_on_level, req->log_level);
 
 	if (log_keep_err()) {
 		pr_perror("Can't tune log");
