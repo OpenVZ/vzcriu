@@ -1714,9 +1714,9 @@ static char *socket_d_name(struct file_desc *d, char *buf, size_t s)
 }
 
 static struct file_desc_ops unix_desc_ops = {
-	.type = FD_TYPES__UNIXSK,
-	.open = open_unix_sk,
-	.name = socket_d_name,
+	.type		= FD_TYPES__UNIXSK,
+	.open		= open_unix_sk,
+	.name		= socket_d_name,
 };
 
 /*
