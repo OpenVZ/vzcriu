@@ -281,7 +281,7 @@ err:
 	return -ENOENT;
 }
 
-static int dump_one_unix_fd(int lfd, u32 id, const struct fd_parms *p)
+static int dump_one_unix_fd(int lfd, uint32_t id, const struct fd_parms *p)
 {
 	struct unix_sk_desc *sk, *peer;
 	UnixSkEntry *ue;
@@ -684,7 +684,7 @@ static int unix_collect_one(const struct unix_diag_msg *m,
 			goto err;
 
 		memcpy(d->icons, nla_data(tb[UNIX_DIAG_ICONS]), len);
-		d->nr_icons = len / sizeof(u32);
+		d->nr_icons = len / sizeof(uint32_t);
 
 		/*
 		 * Remember these sockets, we will need them
