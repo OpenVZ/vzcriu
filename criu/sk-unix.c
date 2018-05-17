@@ -927,10 +927,10 @@ struct unix_sk_info {
 	 * These bits are set by task-owner of this unix_sk_info.
 	 * Another tasks can only read them.
 	 */
-	bool			bound;
-	bool			listen;
-	bool			is_connected;
-	bool			peer_queue_restored; /* Set in 1 after we restore peer's queue */
+	uint8_t			bound:1;
+	uint8_t			listen:1;
+	uint8_t			is_connected:1;
+	uint8_t			peer_queue_restored:1; /* Set in 1 after we restore peer's queue */
 };
 
 struct scm_fle {
