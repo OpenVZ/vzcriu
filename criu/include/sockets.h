@@ -111,4 +111,7 @@ extern int kerndat_socket_netns(void);
 #define SOL_NETLINK			270
 #endif
 
+extern const char *tcp_state_name(unsigned int state);
+extern const char *socket_type_name(unsigned int type);
+
 #endif /* __CR_SOCKETS_H__ */
