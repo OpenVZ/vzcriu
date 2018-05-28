@@ -211,20 +211,6 @@ bool deprecated_ok(char *what)
 	return false;
 }
 
-static void print_kernel_version(void)
-{
-	struct utsname buf;
-
-	if (uname(&buf) < 0) {
-		pr_perror("Reading kernel version failed!");
-		/* This pretty unlikely, just keep on running. */
-		return;
-	}
-
-	pr_info("Running on %s %s %s %s %s\n", buf.nodename, buf.sysname,
-		buf.release, buf.version, buf.machine);
-}
-
 static void rlimit_unlimit_nofile_self(void)
 {
 	struct rlimit new;
@@ -744,10 +730,6 @@ int main(int argc, char *argv[], char *envp[])
 
 	if (log_init(opts.output))
 		return 1;
-
-	pr_info("Version: %s (gitid %s)\n", CRIU_VERSION, CRIU_GITID);
-
-	print_kernel_version();
 
 	if (opts.deprecated_ok)
 		pr_debug("DEPRECATED ON\n");
