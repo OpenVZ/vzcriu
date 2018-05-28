@@ -338,6 +338,7 @@ TST_DIR		=				\
 		autofs				\
 		del_standalone_un		\
 		pty05				\
+		sk-unix01			\
 
 TST_DIR_FILE	=				\
 		chroot				\
