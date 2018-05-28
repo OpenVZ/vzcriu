@@ -97,6 +97,7 @@ extern int set_netns(uint32_t ns_id);
 #endif
 
 extern int kerndat_socket_netns(void);
+extern int kerndat_socket_unix_file(void);
 
 /* Old kernels. Reused as NETLINK_EXT_ACK in latest vanila kernel */
 #ifndef NETLINK_REPAIR

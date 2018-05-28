@@ -1086,6 +1086,14 @@ static int check_sk_netns(void)
 	return 0;
 }
 
+static int check_sk_unix_file(void)
+{
+	if (!kdat.sk_unix_file)
+		return -1;
+
+	return 0;
+}
+
 static int check_net_diag_raw(void)
 {
 	check_sock_diag();
@@ -1290,6 +1298,7 @@ static struct feature_list feature_list[] = {
 	{ "can_map_vdso", check_can_map_vdso},
 	{ "sk_ns", check_sk_netns },
 	{ "net_diag_raw", check_net_diag_raw },
+	{ "sk_unix_file", check_sk_unix_file },
 	{ "nsid", check_nsid },
 	{ "link_nsid", check_link_nsid},
 	{ "nl_repair", check_nl_repair },
