@@ -248,6 +248,10 @@ static int early_init(void)
 	if (init_service_fd())
 		return 1;
 
+	/* kerndat may use cpu info */
+	if (cpu_init())
+		return 1;
+
 	if (kerndat_init())
 		return 1;
 
