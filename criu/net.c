@@ -1734,7 +1734,7 @@ static int __restore_links(struct ns_id *nsid, int *nrlinks, int *nrcreated)
 
 		(*nrlinks)++;
 
-		pr_debug("Try to restore a link %d:%d:%s",
+		pr_debug("Try to restore a link %d:%d:%s\n",
 				nsid->id, link->nde->ifindex, link->nde->name);
 		if (link->nde->has_master) {
 			mlink = lookup_net_link(nsid, link->nde->master);
