@@ -98,6 +98,7 @@ static mutex_t *mutex_ghost;
 
 static LIST_HEAD(unix_sockets);
 static LIST_HEAD(unix_ghost_addr);
+static LIST_HEAD(unix_mnt_sockets);
 
 static int unix_resolve_name(int lfd, uint32_t id, struct unix_sk_desc *d, UnixSkEntry *ue, const struct fd_parms *p);
 
@@ -1050,6 +1051,7 @@ int collect_unix_bindmounts(void)
 struct unix_sk_info {
 	UnixSkEntry *ue;
 	struct list_head list;
+	struct list_head mnt_list;
 	char *name;
 	char *name_dir;
 	unsigned flags;
@@ -2177,6 +2179,7 @@ static int init_unix_sk_info(struct unix_sk_info *ui, UnixSkEntry *ue)
 	memzero(&ui->d, sizeof(ui->d));
 
 	INIT_LIST_HEAD(&ui->list);
+	INIT_LIST_HEAD(&ui->mnt_list);
 	INIT_LIST_HEAD(&ui->connected);
 	INIT_LIST_HEAD(&ui->node);
 	INIT_LIST_HEAD(&ui->scm_fles);
@@ -2271,6 +2274,10 @@ static int collect_one_unixsk(void *o, ProtobufCMessage *base, struct cr_img *i)
 	}
 
 	hlist_add_head(&ui->hash, &sk_info_hash[ui->ue->ino % SK_INFO_HASH_SIZE]);
+
+	if (ui->ue->uflags & UNIX_UFLAGS__BINDMOUNT)
+		list_add_tail(&ui->mnt_list, &unix_mnt_sockets);
+
 	list_add_tail(&ui->list, &unix_sockets);
 	return file_desc_add(&ui->d, ui->ue->id, &unix_desc_ops);
 }
