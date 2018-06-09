@@ -225,4 +225,10 @@ extern int read_value(const char *path, char *value, int size);
 		(type *)((char *)__mptr - offsetof(type, member)); \
 	})
 
+#define sstrncpy(d, s)                        \
+	({                                    \
+		strncpy(d, s, sizeof(d) - 1); \
+		d[sizeof(d) - 1] = '\0';      \
+	})
+
 #endif /* _VIMITESU_H_ */
