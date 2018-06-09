@@ -202,4 +202,10 @@ static inline void cleanup_closep(void *p)
 		TEMP_FAILURE_RETRY(close(*pp));
 }
 
+#define sstrncpy(d, s)                        \
+	({                                    \
+		strncpy(d, s, sizeof(d) - 1); \
+		d[sizeof(d) - 1] = '\0';      \
+	})
+
 #endif /* _VIMITESU_H_ */
