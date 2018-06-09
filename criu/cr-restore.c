@@ -281,16 +281,30 @@ static struct collect_image_info *cinfos[] = {
 };
 
 static struct collect_image_info *cinfos_files[] = {
-	&unix_sk_cinfo,	      &fifo_cinfo,     &pipe_cinfo,    &nsfile_cinfo,	    &packet_sk_cinfo,
-	&netlink_sk_cinfo,    &eventfd_cinfo,  &epoll_cinfo,   &epoll_tfd_cinfo,    &signalfd_cinfo,
-	&tunfile_cinfo,	      &timerfd_cinfo,  &inotify_cinfo, &inotify_mark_cinfo, &fanotify_cinfo,
-	&fanotify_mark_cinfo, &ext_file_cinfo, &memfd_cinfo,
+	&fifo_cinfo,
+	&pipe_cinfo,
+	&nsfile_cinfo,
+	&packet_sk_cinfo,
+	&netlink_sk_cinfo,
+	&eventfd_cinfo,
+	&epoll_cinfo,
+	&epoll_tfd_cinfo,
+	&signalfd_cinfo,
+	&tunfile_cinfo,
+	&timerfd_cinfo,
+	&inotify_cinfo,
+	&inotify_mark_cinfo,
+	&fanotify_cinfo,
+	&fanotify_mark_cinfo,
+	&ext_file_cinfo,
+	&memfd_cinfo,
 };
 
 /* These images are required to restore namespaces */
 static struct collect_image_info *before_ns_cinfos[] = {
 	&tty_info_cinfo, /* Restore devpts content */
 	&tty_cdata,
+	&unix_sk_cinfo,
 };
 
 static struct pprep_head *post_prepare_heads = NULL;
