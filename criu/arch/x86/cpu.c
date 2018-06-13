@@ -29,6 +29,20 @@
 
 static compel_cpuinfo_t rt_cpu_info;
 
+static int cpu_has_unsupported_features(void)
+{
+	/*
+	 * We don't support yet compacted xsave format so
+	 * exit early if present.
+	 */
+	if (compel_cpu_has_feature(X86_FEATURE_XSAVES)) {
+		pr_err("Unsupported compact xsave frame on runtime cpu present\n");
+		return 1;
+	}
+
+	return 0;
+}
+
 int cpu_init(void)
 {
 	if (vz_cpu_parse_cpuid_override())
@@ -60,7 +74,7 @@ int cpu_init(void)
 		 !!compel_cpu_has_feature(X86_FEATURE_XGETBV1),
 		 !!compel_cpu_has_feature(X86_FEATURE_XSAVES));
 
-	return 0;
+	return cpu_has_unsupported_features() ? -1 : 0;
 }
 
 int cpu_dump_cpuinfo(void)
@@ -222,6 +236,9 @@ static int cpu_validate_ins_features(compel_cpuinfo_t *cpu_info)
 
 static int cpu_validate_features(compel_cpuinfo_t *cpu_info)
 {
+	if (cpu_has_unsupported_features())
+		return -1;
+
 	if (opts.cpu_cap == CPU_CAP_FPU) {
 		/*
 		 * If we're requested to check FPU only ignore
