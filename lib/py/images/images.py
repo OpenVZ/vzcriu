@@ -505,6 +505,7 @@ handlers = {
 	'SECCOMP'		: entry_handler(seccomp_entry),
 	'AUTOFS'		: entry_handler(autofs_entry),
 	'FILES'                 : entry_handler(file_entry),
+	'CPUINFO'		: entry_handler(cpuinfo_entry),
 	}
 
 def __rhandler(f):
