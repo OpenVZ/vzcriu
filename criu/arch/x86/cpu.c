@@ -48,8 +48,7 @@ int cpu_init(void)
 	if (vz_cpu_parse_cpuid_override())
 		return -1;
 
-	if (compel_cpuid(&rt_cpu_info))
-		return -1;
+	compel_cpu_copy_cpuinfo(&rt_cpu_info);
 
 	BUILD_BUG_ON(sizeof(struct xsave_struct) != XSAVE_SIZE);
 	BUILD_BUG_ON(sizeof(struct i387_fxsave_struct) != FXSAVE_SIZE);
