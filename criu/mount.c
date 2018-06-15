@@ -29,6 +29,7 @@
 #include "clone-noasan.h"
 #include "fdstore.h"
 #include "kerndat.h"
+#include "sockets.h"
 
 #include "images/mnt.pb-c.h"
 
@@ -2576,11 +2577,18 @@ do_bind:
 		}
 	}
 
+	if (unix_prepare_bindmount(mi)) {
+		pr_err("Failed to prepare bindmount on unix at %s\n",
+		       mi->mountpoint);
+		goto err;
+	}
+
 	fd = open(root, O_PATH); /* autofs hack*/
 	if (fd < 0) {
 		pr_perror("Unable to open %s", root);
 		goto err;
 	}
+
 	snprintf(mnt_fd_path, sizeof(mnt_fd_path),
 				"/proc/self/fd/%d", fd);
 	if (mount(mnt_fd_path, mi->mountpoint, NULL, MS_BIND | (mi->flags & MS_REC), NULL) < 0) {
