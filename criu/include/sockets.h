@@ -62,7 +62,6 @@ extern int netlink_final_check_one(struct nlmsghdr *hdr, struct ns_id *ns, void 
 
 extern int unix_sk_id_add(unsigned int ino);
 extern int unix_sk_ids_parse(char *optarg);
-extern int unix_prepare_root_shared(void);
 
 extern int do_dump_opt(int sk, int level, int name, void *val, int len);
 #define dump_opt(s, l, n, f)	do_dump_opt(s, l, n, f, sizeof(*f))
