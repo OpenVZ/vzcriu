@@ -226,12 +226,6 @@ StatsEntry *get_parent_stats(void)
 	}
 
 	img = open_image_at(dir, CR_FD_STATS, O_RSTR, "dump");
-	if (!img)
-		/*
-		 * Temporary fallback to reading stats of a previous pre-dump
-		 * from a workdir. https://jira.sw.ru/browse/PSBM-82864
-		 */
-		img = open_image_at(AT_FDCWD, CR_FD_STATS, O_RSTR, "dump");
 	if (!img) {
 		pr_warn("Failed to open parent dump stats");
 		close(dir);
