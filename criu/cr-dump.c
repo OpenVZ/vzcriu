@@ -1446,7 +1446,7 @@ err:
 	return ret;
 }
 
-static int pre_dump_one_task(struct pstree_item *item, StatsEntry *parent_se)
+static int pre_dump_one_task(struct pstree_item *item)
 {
 	pid_t pid = item->pid->real;
 	struct vm_area_list vmas;
@@ -1509,8 +1509,6 @@ static int pre_dump_one_task(struct pstree_item *item, StatsEntry *parent_se)
 
 	mdc.pre_dump = true;
 	mdc.lazy = false;
-	mdc.stat = NULL;
-	mdc.parent_se = parent_se;
 
 	ret = parasite_dump_pages_seized(item, &vmas, &mdc, parasite_ctl);
 	if (ret)
@@ -1530,7 +1528,7 @@ err_cure:
 	goto err_free;
 }
 
-static int dump_one_task(struct pstree_item *item, StatsEntry *parent_se)
+static int dump_one_task(struct pstree_item *item)
 {
 	pid_t pid = item->pid->real;
 	struct vm_area_list vmas;
@@ -1676,8 +1674,6 @@ static int dump_one_task(struct pstree_item *item, StatsEntry *parent_se)
 
 	mdc.pre_dump = false;
 	mdc.lazy = opts.lazy_pages;
-	mdc.stat = &pps_buf;
-	mdc.parent_se = parent_se;
 
 	ret = parasite_dump_pages_seized(item, &vmas, &mdc, parasite_ctl);
 	if (ret)
@@ -1872,7 +1868,6 @@ err:
 
 int cr_pre_dump_tasks(pid_t pid)
 {
-	StatsEntry *parent_se = NULL;
 	struct pstree_item *item;
 	int ret = -1;
 
@@ -1931,17 +1926,9 @@ int cr_pre_dump_tasks(pid_t pid)
 
 	ve_bc_unlimit(&bc_set);
 
-	/* Errors handled later in detect_pid_reuse */
-	parent_se = get_parent_stats();
-
 	for_each_pstree_item(item)
-		if (pre_dump_one_task(item, parent_se))
+		if (pre_dump_one_task(item))
 			goto err;
-
-	if (parent_se) {
-		stats_entry__free_unpacked(parent_se, NULL);
-		parent_se = NULL;
-	}
 
 	ret = cr_dump_shmem();
 	if (ret)
@@ -1952,9 +1939,6 @@ int cr_pre_dump_tasks(pid_t pid)
 
 	ret = 0;
 err:
-	if (parent_se)
-		stats_entry__free_unpacked(parent_se, NULL);
-
 	return cr_pre_dump_finish(ret);
 }
 
@@ -2072,7 +2056,6 @@ static int cr_dump_finish(int ret)
 int cr_dump_tasks(pid_t pid)
 {
 	InventoryEntry he = INVENTORY_ENTRY__INIT;
-	StatsEntry *parent_se = NULL;
 	struct pstree_item *item;
 	int pre_dump_ret = 0;
 	int ret = -1;
@@ -2170,17 +2153,9 @@ int cr_dump_tasks(pid_t pid)
 
 	ve_bc_unlimit(&bc_set);
 
-	/* Errors handled later in detect_pid_reuse */
-	parent_se = get_parent_stats();
-
 	for_each_pstree_item(item) {
-		if (dump_one_task(item, parent_se))
+		if (dump_one_task(item))
 			goto err;
-	}
-
-	if (parent_se) {
-		stats_entry__free_unpacked(parent_se, NULL);
-		parent_se = NULL;
 	}
 
 	/*
@@ -2242,8 +2217,5 @@ int cr_dump_tasks(pid_t pid)
 	if (ret)
 		goto err;
 err:
-	if (parent_se)
-		stats_entry__free_unpacked(parent_se, NULL);
-
 	return cr_dump_finish(ret);
 }
