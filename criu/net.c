@@ -52,6 +52,9 @@
 #include "images/netdev.pb-c.h"
 #include "images/inventory.pb-c.h"
 
+#undef LOG_PREFIX
+#define LOG_PREFIX "net: "
+
 #ifndef IFLA_NEW_IFINDEX
 #define IFLA_NEW_IFINDEX 49
 #endif
