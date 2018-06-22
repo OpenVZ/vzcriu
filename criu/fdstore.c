@@ -79,11 +79,25 @@ int fdstore_init(void)
 int fdstore_add(int fd)
 {
 	int sk = get_service_fd(FDSTORE_SK_OFF);
-	int id;
+	int id, ret, i;
 
 	mutex_lock(&desc->lock);
 
-	if (send_fd(sk, NULL, 0, fd)) {
+	ret = send_fd(sk, NULL, 0, fd);
+	if (ret) {
+		int err_cpy = errno;
+		pr_perror("Can't send fd %d into store\n", fd);
+		if (err_cpy == EAGAIN) {
+			static const char * const sysctl_params[] = {
+				"net.core.rmem_default",
+				"net.core.rmem_max",
+				"net.core.wmem_default",
+				"net.core.wmem_max",
+			};
+			pr_err("Too many fdstore entries are used. Increase sysctl:\n");
+			for (i = 0; i < ARRAY_SIZE(sysctl_params); i++)
+				pr_err("  %s\n", sysctl_params[i]);
+		}
 		mutex_unlock(&desc->lock);
 		return -1;
 	}
