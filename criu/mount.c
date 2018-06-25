@@ -2093,24 +2093,6 @@ static char *resolve_source(struct mount_info *mi)
 	return NULL;
 }
 
-static int __restore_shared_options(char *mountpoint, bool private, bool shared, bool slave)
-{
-	if (private && mount(NULL, mountpoint, NULL, MS_PRIVATE, NULL)) {
-		pr_perror("Unable to make %s private", mountpoint);
-		return -1;
-	}
-	if (slave && mount(NULL, mountpoint, NULL, MS_SLAVE, NULL)) {
-		pr_perror("Unable to make %s slave", mountpoint);
-		return -1;
-	}
-	if (shared && mount(NULL, mountpoint, NULL, MS_SHARED, NULL)) {
-		pr_perror("Unable to make %s shared", mountpoint);
-		return -1;
-	}
-
-	return 0;
-}
-
 static int restore_shared_options(struct mount_info *mi, bool private, bool shared, bool slave)
 {
 	pr_debug("%d:%s private %d shared %d slave %d\n",
@@ -2123,7 +2105,20 @@ static int restore_shared_options(struct mount_info *mi, bool private, bool shar
 			return mount(NULL, mi->mountpoint, NULL, MS_UNBINDABLE, NULL);
 	}
 
-	return __restore_shared_options(mi->mountpoint, private, shared, slave);
+	if (private && mount(NULL, mi->mountpoint, NULL, MS_PRIVATE, NULL)) {
+		pr_perror("Unable to make %s private", mi->mountpoint);
+		return -1;
+	}
+	if (slave && mount(NULL, mi->mountpoint, NULL, MS_SLAVE, NULL)) {
+		pr_perror("Unable to make %s slave", mi->mountpoint);
+		return -1;
+	}
+	if (shared && mount(NULL, mi->mountpoint, NULL, MS_SHARED, NULL)) {
+		pr_perror("Unable to make %s shared", mi->mountpoint);
+		return -1;
+	}
+
+	return 0;
 }
 
 /*
@@ -2534,10 +2529,6 @@ static int do_bind_mount(struct mount_info *mi)
 		pr_perror("Unable to open %s", mnt_clean_path);
 		return -1;
 	}
-	if (__restore_shared_options(mnt_path, private,
-				   mi->shared_id && !shared,
-				   mi->master_id && !master))
-		return -1;
 
 	if (mnt_path == NULL)
 		return -1;
@@ -2619,6 +2610,11 @@ do_bind:
 		}
 	}
 out:
+	if (restore_shared_options(mi, private,
+				   mi->shared_id && !shared,
+				   mi->master_id && !master))
+		return -1;
+
 	mi->mounted = true;
 	exit_code = 0;
 err:
