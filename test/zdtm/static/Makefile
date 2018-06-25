@@ -340,6 +340,7 @@ TST_DIR		=				\
 		pty05				\
 		sk-unix01			\
 		bind-mount-unix			\
+		private_bind_propagation	\
 
 TST_DIR_FILE	=				\
 		chroot				\
