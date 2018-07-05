@@ -1101,6 +1101,14 @@ static int check_net_diag_raw(void)
 		socket_test_collect_bit(AF_INET6, IPPROTO_RAW)) ? 0 : -1;
 }
 
+static int check_kcmp_epoll(void)
+{
+	if (!kdat.has_kcmp_epoll_tfd)
+		return -1;
+
+	return 0;
+}
+
 static int (*chk_feature)(void);
 
 /*
@@ -1209,6 +1217,7 @@ int cr_check(void)
 		ret |= check_uffd_noncoop();
 		ret |= check_sk_netns();
 		ret |= check_net_diag_raw();
+		ret |= check_kcmp_epoll();
 	}
 
 	/*
@@ -1302,6 +1311,7 @@ static struct feature_list feature_list[] = {
 	{ "nsid", check_nsid },
 	{ "link_nsid", check_link_nsid},
 	{ "nl_repair", check_nl_repair },
+	{ "kcmp_epoll", check_kcmp_epoll},
 	{ NULL, NULL },
 };
 
