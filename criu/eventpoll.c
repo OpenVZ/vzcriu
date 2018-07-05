@@ -130,7 +130,7 @@ static int dump_one_eventpoll(int lfd, u32 id, const struct fd_parms *p)
 	FileEntry fe = FILE_ENTRY__INIT;
 	EventpollFileEntry e = EVENTPOLL_FILE_ENTRY__INIT;
 	EventpollTfdEntry **tfd_cpy = NULL;
-	ssize_t i, j, n_tfd_cpy;
+	size_t i, j, n_tfd_cpy;
 	uint32_t *toff = NULL;
 	int ret = -1;
 
@@ -159,13 +159,15 @@ static int dump_one_eventpoll(int lfd, u32 id, const struct fd_parms *p)
 		toff = xzalloc(sizeof(*toff) * e.n_tfd);
 		if (!toff)
 			goto out;
-		for (i = e.n_tfd - 1; i >= 0; i--) {
+		for (i = e.n_tfd - 1; ; i--) {
 			for (j = i + 1; j < e.n_tfd; j++) {
 				if (e.tfd[i]->tfd == e.tfd[j]->tfd) {
 					toff[i] = toff[j] + 1;
 					break;
 				}
 			}
+			if (i == 0)
+				break;
 		}
 	}
 
