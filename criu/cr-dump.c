@@ -86,6 +86,7 @@
 #include "seize.h"
 #include "fault-injection.h"
 #include "dump.h"
+#include "eventpoll.h"
 
 struct rlim_ctl {
 	struct rlimit		old_rlimit;
@@ -1670,6 +1671,11 @@ static int dump_one_task(struct pstree_item *item, InventoryEntry *parent_ie)
 		ret = dump_task_files_seized(parasite_ctl, item, dfds);
 		if (ret) {
 			pr_err("Dump files (pid: %d) failed with %d\n", pid, ret);
+			goto err_cure;
+		}
+		ret = flush_eventpoll_dinfo_queue();
+		if (ret) {
+			pr_err("Dump eventpoll (pid: %d) failed with %d\n", pid, ret);
 			goto err_cure;
 		}
 	}
