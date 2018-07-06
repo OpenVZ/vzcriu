@@ -387,11 +387,11 @@ static int restore_socket_filter(int sk, SkOptsEntry *soe)
 
 static struct socket_desc *sockets[SK_HASH_SIZE];
 
-struct socket_desc *lookup_socket(unsigned ino, int family, int proto)
+struct socket_desc *lookup_socket(unsigned ino, int family, int proto, bool test_collect_bit)
 {
 	struct socket_desc *sd;
 
-	if (!socket_test_collect_bit(family, proto)) {
+	if (test_collect_bit && !socket_test_collect_bit(family, proto)) {
 		pr_err("Sockets (family %d, proto %d) are not collected\n",
 								family, proto);
 		return ERR_PTR(-EINVAL);

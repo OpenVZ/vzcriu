@@ -49,7 +49,7 @@ extern int unix_prepare_bindmount(struct mount_info *mi);
 
 extern struct collect_image_info netlink_sk_cinfo;
 
-extern struct socket_desc *lookup_socket(unsigned ino, int family, int proto);
+extern struct socket_desc *lookup_socket(unsigned ino, int family, int proto, bool test_collect_bit);
 
 extern const struct fdtype_ops unix_dump_ops;
 extern const struct fdtype_ops inet_dump_ops;
