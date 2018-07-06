@@ -46,7 +46,7 @@ extern int unix_note_scm_rights(int id_for, uint32_t *file_ids, int *fds, int n_
 
 extern struct collect_image_info netlink_sk_cinfo;
 
-extern struct socket_desc *lookup_socket(unsigned ino, int family, int proto);
+extern struct socket_desc *lookup_socket(unsigned ino, int family, int proto, bool test_collect_bit);
 
 extern const struct fdtype_ops unix_dump_ops;
 extern const struct fdtype_ops inet_dump_ops;
