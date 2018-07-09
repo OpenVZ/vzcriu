@@ -340,6 +340,7 @@ TST_DIR		=				\
 		sk-unix01			\
 		pty05				\
 		private_bind_propagation	\
+		unsupported_children_collision  \
 
 TST_DIR_FILE	=				\
 		chroot				\
