@@ -341,6 +341,7 @@ TST_DIR		=				\
 		pty05				\
 		private_bind_propagation	\
 		unsupported_children_collision  \
+		shared_slave_mount_children	\
 
 TST_DIR_FILE	=				\
 		chroot				\
