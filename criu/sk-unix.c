@@ -2295,6 +2295,21 @@ static int collect_one_unixsk(void *o, ProtobufCMessage *base, struct cr_img *i)
 		list_add_tail(&ui->ghost_node, &unix_ghost_addr);
 	}
 
+	/*
+	 * vz7-u7 has mnt_id field wich solely points to bindmount sockets,
+	 * which didn't reached vanilla criu, instead in vanilla instance
+	 * we started to use mnt_id for any sockets, thus here is
+	 * a clash in a members meaning.
+	 *
+	 * To workaround it we can use ns_id member which is not present
+	 * in vz7-u7 series to detect an old images.
+	 */
+	if (ui->ue->has_mnt_id && !ui->ue->has_ns_id) {
+		pr_debug("bindmount: Old image with mnt_id, socket id %#x\n",
+			 ui->ue->id);
+		ui->ue->uflags |= UNIX_UFLAGS__BINDMOUNT;
+	}
+
 	if (ui->ue->uflags & UNIX_UFLAGS__BINDMOUNT) {
 		/*
 		 * Make sure it is supported socket!
