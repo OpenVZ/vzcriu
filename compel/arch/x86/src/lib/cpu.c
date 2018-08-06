@@ -232,6 +232,13 @@ static inline unsigned int vz_cpuid_edx(unsigned int op)
 	return edx;
 }
 
+int compel_test_fpu_cap(compel_cpuinfo_t *c, unsigned int feature)
+{
+	if (likely(feature < XFEATURE_MAX))
+		return (c->xfeatures_mask & (1UL << feature));
+	return 0;
+}
+
 static int compel_fpuid(compel_cpuinfo_t *c)
 {
 	unsigned int last_good_offset;
