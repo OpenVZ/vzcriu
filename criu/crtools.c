@@ -118,6 +118,7 @@ static int parse_cpu_cap(struct cr_options *opts, const char *optarg)
 
 	if (!optarg) {
 		____cpu_set_cap(opts, CPU_CAP_ALL, false);
+		____cpu_set_cap(opts, CPU_CAP_IMAGE, false);
 		return 0;
 	}
 
@@ -153,6 +154,9 @@ static int parse_cpu_cap(struct cr_options *opts, const char *optarg)
 		} else
 			goto Esyntax;
 	}
+
+	if (opts->cpu_cap != CPU_CAP_NONE)
+		____cpu_set_cap(opts, CPU_CAP_IMAGE, false);
 #undef ____cpu_set_cap
 
 	return 0;
