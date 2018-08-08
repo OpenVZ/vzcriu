@@ -217,17 +217,34 @@ static int spfs_request_mount(int sock, struct mount_info *mi, const char *sourc
 		return err;
 	}
 
-	list_for_each_entry(bm, &mi->mnt_bind, mnt_bind) {
-		bindmounts = xstrcat(bindmounts, "%s,", bm->ns_mountpoint);
+	err = -ENOMEM;
+
+	/*
+	 * Binmounts might not exist, so we might need to zap
+	 * this parameter completely.
+	 */
+	if (!list_empty(&mi->mnt_bind)) {
+		bindmounts = xstrdup("bindmounts=");
 		if (!bindmounts) {
-			pr_err("failed to construct bindmounts parameter\n");
-			return -ENOMEM;
+			pr_err("failed to define bindmounts parameter\n");
+			goto out;
+		}
+		list_for_each_entry(bm, &mi->mnt_bind, mnt_bind) {
+			bindmounts = xstrcat(bindmounts, "%s,", bm->ns_mountpoint);
+			if (!bindmounts) {
+				pr_err("failed to construct bindmounts parameter\n");
+				goto out;
+			}
+		}
+		/* Change last comma to close params */
+		bindmounts[strlen(bindmounts) - 1] = ';';
+	} else {
+		bindmounts = xstrdup("");
+		if (!bindmounts) {
+			pr_err("failed to construct empty bindmounts parameter\n");
+			goto out;
 		}
 	}
-	/* Trim last comma */
-	bindmounts[strlen(bindmounts)] = '\0';
-
-	err = -ENOMEM;
 
 	freeze_cgroup = xsprintf("/sys/fs/cgroup/freezer%s", freezer_root);
 	if (!freeze_cgroup) {
@@ -244,8 +261,8 @@ static int spfs_request_mount(int sock, struct mount_info *mi, const char *sourc
 		goto free_freeze_cgroup;
 	}
 
-	replace = xsprintf("replace;id=%d;source=%s;type=%s;flags=%ld;bindmounts=%s;freeze_cgroup=%s;",
-			   mi->mnt_id, source, type, mountflags, bindmounts, freeze_cgroup);
+	replace = xsprintf("replace;id=%d;source=%s;type=%s;flags=%ld;freeze_cgroup=%s;%s",
+			   mi->mnt_id, source, type, mountflags, freeze_cgroup, bindmounts);
 	if (!replace) {
 		pr_err("failed to allocate replace request\n");
 		goto free_mount;
@@ -284,6 +301,7 @@ free_freeze_cgroup:
 	free(freeze_cgroup);
 free_bindmounts:
 	free(bindmounts);
+out:
 	return err;
 }
 
