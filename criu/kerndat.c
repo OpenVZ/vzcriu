@@ -17,6 +17,7 @@
 #include <sys/inotify.h>
 #include <sched.h>
 #include <sys/mount.h>
+#include <linux/netlink.h>
 
 #if defined(CONFIG_HAS_NFTABLES_LIB_API_0) || defined(CONFIG_HAS_NFTABLES_LIB_API_1)
 #include <nftables/libnftables.h>
@@ -1354,6 +1355,30 @@ out_unmap:
 	return ret;
 }
 
+int kerndat_nl_repair(void)
+{
+	int sk, val = 1;
+
+	sk = socket(AF_NETLINK, SOCK_DGRAM, 0);
+	if (sk < 0) {
+		pr_perror("Unable to create a netlink socket");
+		return -1;
+	}
+
+	if (setsockopt(sk, SOL_NETLINK, NETLINK_REPAIR, &val, sizeof(val))) {
+		if (errno != ENOPROTOOPT) {
+			pr_perror("Unable to set NETLINK_REPAIR");
+			close(sk);
+			return -1;
+		}
+		kdat.has_nl_repair = false;
+	} else
+		kdat.has_nl_repair = true;
+	close(sk);
+
+	return 0;
+}
+
 static int kerndat_tun_netns(void)
 {
 	return check_tun_netns_cr(&kdat.tun_ns);
@@ -1830,6 +1855,10 @@ int kerndat_init(void)
 	}
 	if (!ret && kerndat_ve_ctty()) {
 		pr_err("kerndat_ve_ctty failed when initializing kerndat.\n");
+		ret = -1;
+	}
+	if (!ret && kerndat_nl_repair()) {
+		pr_err("kerndat_nl_repair failed when initializing kerndat.\n");
 		ret = -1;
 	}
 
