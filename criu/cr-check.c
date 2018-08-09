@@ -1189,6 +1189,19 @@ static int check_loginuid(void)
 	return 0;
 }
 
+static int check_nl_repair(void)
+{
+	if (kerndat_nl_repair() < 0)
+		return -1;
+
+	if (!kdat.has_nl_repair) {
+		pr_warn("NETLINK_REPAIR isn't supported.\n");
+		return -1;
+	}
+
+	return 0;
+}
+
 static int check_compat_cr(void)
 {
 #ifdef CONFIG_COMPAT
@@ -1402,6 +1415,7 @@ int cr_check(void)
 	if (opts.check_experimental_features) {
 		ret |= check_autofs();
 		ret |= check_compat_cr();
+		ret |= check_nl_repair();
 	}
 
 	pr_msg("%s\n", ret ? CHECK_MAYBE : CHECK_GOOD);
@@ -1499,6 +1513,7 @@ static struct feature_list feature_list[] = {
 	{ "timens", check_time_namespace},
 	{ "external_net_ns", check_external_net_ns},
 	{ "clone3_set_tid", check_clone3_set_tid},
+	{ "nl_repair", check_nl_repair },
 	{ NULL, NULL },
 };
 
