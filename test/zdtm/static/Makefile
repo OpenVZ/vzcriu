@@ -161,6 +161,7 @@ TST_NOFILE	:=				\
 		sigpending			\
 		sigaltstack			\
 		sk-netlink			\
+		sk-netlink02			\
 		mem-touch			\
 		grow_map			\
 		grow_map02			\
