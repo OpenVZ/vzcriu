@@ -432,6 +432,7 @@ TST_DIR		=				\
 		symlink				\
 		symlink01			\
 		unbindable			\
+		pty05				\
 
 TST_DIR_FILE	=				\
 		chroot				\
