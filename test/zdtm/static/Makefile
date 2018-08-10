@@ -177,6 +177,7 @@ TST_NOFILE	:=				\
 		sigpending			\
 		sigaltstack			\
 		sk-netlink			\
+		sk-netlink02			\
 		mem-touch			\
 		grow_map			\
 		grow_map02			\
@@ -690,6 +691,8 @@ sk-unix-listen03: CFLAGS += -DSK_UNIX_LISTEN03
 sk-unix-listen04: CFLAGS += -DSK_UNIX_LISTEN02 -DSK_UNIX_LISTEN03
 
 cgroupv2_01:		LDLIBS += -pthread
+
+sk-netlink02: 		CFLAGS += -DZDTM_NETLINK_DATA
 
 $(LIB):	force
 	$(Q) $(MAKE) -C $(LIBDIR)
