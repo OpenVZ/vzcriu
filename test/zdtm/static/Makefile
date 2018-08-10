@@ -175,6 +175,7 @@ TST_NOFILE	:=				\
 		sigpending			\
 		sigaltstack			\
 		sk-netlink			\
+		sk-netlink02			\
 		mem-touch			\
 		grow_map			\
 		grow_map02			\
@@ -666,6 +667,8 @@ bpf_hash:		LDLIBS += -lbpf
 bpf_array:		LDLIBS += -lbpf
 
 fifo_upon_unix_socket01:	CFLAGS += -DFIFO_UPON_UNIX01
+
+sk-netlink02: 		CFLAGS += -DZDTM_NETLINK_DATA
 
 $(LIB):	force
 	$(Q) $(MAKE) -C $(LIBDIR)
