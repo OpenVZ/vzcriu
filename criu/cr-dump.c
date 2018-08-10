@@ -89,6 +89,243 @@
 #include "asm/dump.h"
 #include "devices.h"
 
+typedef struct {
+	const char *name;
+	const char fmt_barrier[64];
+	const char fmt_limit[64];
+	unsigned long barrier;
+	unsigned long limit;
+} bc_val_t;
+
+#define declare_ub(_u, _b, _l)							\
+	{									\
+		.name		= __stringify_1(_u),				\
+		.fmt_barrier	= "beancounter." __stringify_1(_u) ".barrier",	\
+		.fmt_limit	= "beancounter." __stringify_1(_u) ".limit",	\
+		.barrier	= _b,						\
+		.limit		= _l,						\
+	}
+
+#define declare_ub_unlimited(_u) declare_ub(_u, LONG_MAX, LONG_MAX)
+
+static bc_val_t bc_vals[] = {
+	declare_ub_unlimited(lockedpages),
+	declare_ub_unlimited(privvmpages),
+	declare_ub_unlimited(shmpages),
+	declare_ub_unlimited(numproc),
+	declare_ub_unlimited(vmguarpages),
+	declare_ub_unlimited(numflock),
+	declare_ub_unlimited(numpty),
+	declare_ub_unlimited(numsiginfo),
+	declare_ub_unlimited(numfile),
+	declare_ub_unlimited(numiptent),
+};
+
+typedef struct {
+	const char *name;
+	unsigned long value;
+} memcg_val_t;
+
+static memcg_val_t memcg_vals[] = {
+	{
+		.name = "memory.memsw.limit_in_bytes",
+		.value = LONG_MAX,
+	},
+	{
+		.name = "memory.limit_in_bytes",
+		.value = LONG_MAX,
+	},
+};
+
+#define VE_BC_STATUS_UNDEF     0
+#define VE_BC_STATUS_READ      1
+#define VE_BC_STATUS_UNLIMITED 2
+
+typedef struct {
+	char veid[512];
+	unsigned int status;
+
+	int bc_dirfd;
+	bc_val_t *bc_vals;
+	size_t nr_bc_vals;
+
+	int memcg_dirfd;
+	memcg_val_t *memcg_vals;
+	size_t nr_memcg_vals;
+} bc_set_t;
+
+static bc_set_t bc_set = {
+	.bc_vals = bc_vals,
+	.nr_bc_vals = ARRAY_SIZE(bc_vals),
+	.memcg_vals = memcg_vals,
+	.nr_memcg_vals = ARRAY_SIZE(memcg_vals),
+	.bc_dirfd = -1,
+	.memcg_dirfd = -1,
+};
+
+static int __maybe_unused ve_read_cg(int dirfd, const char *path, unsigned long *value)
+{
+	int fd, ret = -1;
+	char buf[256];
+
+	fd = openat(dirfd, path, O_RDONLY);
+	if (fd < 0) {
+		pr_perror("ubc: Can't open %s", path);
+		goto out;
+	}
+
+	ret = read(fd, buf, sizeof(buf));
+	close(fd);
+	if (ret <= 0) {
+		ret = -1;
+		pr_perror("ubc: Can't read %s", path);
+		goto out;
+	}
+	*value = atol(buf);
+	ret = 0;
+out:
+	return ret;
+}
+
+static int __maybe_unused ve_write_cg(int dirfd, const char *path, unsigned long value)
+{
+	int fd, ret = -1;
+	char buf[256];
+
+	fd = openat(dirfd, path, O_RDWR);
+	if (fd < 0) {
+		pr_perror("ubc: Can't open %s", path);
+		goto out;
+	}
+
+	snprintf(buf, sizeof(buf), "%lu", value);
+	ret = write(fd, buf, strlen(buf));
+	close(fd);
+	if (ret <= 0) {
+		ret = -1;
+		pr_perror("ubc: Can't write %s", path);
+		goto out;
+	}
+	ret = 0;
+out:
+	return ret;
+}
+
+static void __maybe_unused ve_bc_read(pid_t pid, bc_set_t *bc_set)
+{
+	char path[PATH_MAX];
+	int i;
+
+	if (!kdat.has_beancounters)
+		return;
+
+	if (!opts.ve)
+		return;
+
+	strlcpy(bc_set->veid, opts.ve, sizeof(bc_set->veid));
+
+	pr_debug("ubc: reading %s\n", bc_set->veid);
+
+	snprintf(path, sizeof(path), "/sys/fs/cgroup/beancounter/%s", opts.ve);
+	bc_set->bc_dirfd = open(path, O_DIRECTORY | O_PATH);
+	if (bc_set->bc_dirfd < 0) {
+		pr_perror("ubc: Can't open %s", path);
+		return;
+	}
+
+	snprintf(path, sizeof(path), "/sys/fs/cgroup/memory/machine.slice/%s", opts.ve);
+	bc_set->memcg_dirfd = open(path, O_DIRECTORY | O_PATH);
+	if (bc_set->memcg_dirfd < 0) {
+		pr_perror("ubc: Can't open %s", path);
+		return;
+	}
+
+	for (i = 0; i < bc_set->nr_bc_vals; i++) {
+		if (ve_read_cg(bc_set->bc_dirfd, bc_set->bc_vals[i].fmt_barrier, &bc_set->bc_vals[i].barrier) ||
+		    ve_read_cg(bc_set->bc_dirfd, bc_set->bc_vals[i].fmt_limit, &bc_set->bc_vals[i].limit))
+			return;
+
+		pr_debug("ubc: %s: %s: barrier %lu limit %lu\n",
+			 opts.ve, bc_set->bc_vals[i].name, bc_set->bc_vals[i].barrier, bc_set->bc_vals[i].limit);
+	}
+
+	for (i = 0; i < bc_set->nr_memcg_vals; i++) {
+		if (ve_read_cg(bc_set->memcg_dirfd, bc_set->memcg_vals[i].name, &bc_set->memcg_vals[i].value))
+			return;
+
+		pr_debug("ubc: %s: %s: %lu\n",
+			 opts.ve, bc_set->memcg_vals[i].name, bc_set->memcg_vals[i].value);
+	}
+
+	pr_debug("ubc: read %s\n", bc_set->veid);
+	bc_set->status |= VE_BC_STATUS_READ;
+}
+
+static void __maybe_unused ve_bc_unlimit(bc_set_t *bc_set)
+{
+	int i, j;
+
+	if (!kdat.has_beancounters)
+		return;
+
+	if (!(bc_set->status & VE_BC_STATUS_READ))
+		return;
+
+	pr_debug("ubc: unlimiting %s\n", bc_set->veid);
+
+	for (i = 0; i < bc_set->nr_bc_vals; i++) {
+		if (ve_write_cg(bc_set->bc_dirfd, bc_set->bc_vals[i].fmt_barrier, LONG_MAX) ||
+		    ve_write_cg(bc_set->bc_dirfd, bc_set->bc_vals[i].fmt_limit, LONG_MAX)) {
+			pr_err("ubc: Can't unlimit %s/%s for %s\n", bc_set->bc_vals[i].fmt_barrier,
+			       bc_set->bc_vals[i].fmt_limit, bc_set->veid);
+			for (j = i; j >= 0; j--) {
+				ve_write_cg(bc_set->bc_dirfd, bc_set->bc_vals[j].fmt_barrier,
+					    bc_set->bc_vals[j].barrier);
+				ve_write_cg(bc_set->bc_dirfd, bc_set->bc_vals[j].fmt_limit, bc_set->bc_vals[j].limit);
+			}
+			return;
+		}
+	}
+
+	for (i = 0; i < bc_set->nr_memcg_vals; i++) {
+		if (ve_write_cg(bc_set->memcg_dirfd, bc_set->memcg_vals[i].name, LONG_MAX)) {
+			pr_err("ubc: Can't unlimit %s for %s\n", bc_set->memcg_vals[i].name, bc_set->veid);
+			for (j = i; j >= 0; j--) {
+				ve_write_cg(bc_set->memcg_dirfd, bc_set->memcg_vals[i].name,
+					    bc_set->memcg_vals[i].value);
+			}
+			return;
+		}
+	}
+
+	pr_debug("ubc: unlimited %s\n", bc_set->veid);
+	bc_set->status |= VE_BC_STATUS_UNLIMITED;
+}
+
+static void __maybe_unused ve_bc_finish(bc_set_t *bc_set)
+{
+	int i;
+
+	if (!kdat.has_beancounters)
+		return;
+
+	pr_debug("ubc: restore limits %s\n", bc_set->veid);
+
+	if (!(bc_set->status & VE_BC_STATUS_UNLIMITED))
+		return;
+
+	for (i = 0; i < bc_set->nr_bc_vals; i++) {
+		ve_write_cg(bc_set->bc_dirfd, bc_set->bc_vals[i].fmt_barrier, bc_set->bc_vals[i].barrier);
+		ve_write_cg(bc_set->bc_dirfd, bc_set->bc_vals[i].fmt_limit, bc_set->bc_vals[i].limit);
+	}
+
+	for (i = bc_set->nr_memcg_vals - 1; i >= 0; i--) {
+		ve_write_cg(bc_set->memcg_dirfd, bc_set->memcg_vals[i].name, bc_set->memcg_vals[i].value);
+	}
+
+	pr_debug("ubc: restored %s\n", bc_set->veid);
+}
+
 /*
  * Architectures can overwrite this function to restore register sets that
  * are not covered by ptrace_set/get_regs().
@@ -1808,6 +2045,8 @@ static int cr_pre_dump_finish(int status)
 	struct pstree_item *item;
 	int ret;
 
+	ve_bc_finish(&bc_set);
+
 	/*
 	 * Restore registers for tasks only. The threads have not been
 	 * infected. Therefore, the thread register sets have not been changed.
@@ -1904,6 +2143,8 @@ int cr_pre_dump_tasks(pid_t pid)
 	struct pstree_item *item;
 	int ret = -1;
 
+	ve_bc_read(pid, &bc_set);
+
 	/*
 	 * We might need a lot of pipes to fetch huge number of pages to dump.
 	 */
@@ -1956,6 +2197,8 @@ int cr_pre_dump_tasks(pid_t pid)
 
 	if (collect_namespaces(false) < 0)
 		goto err;
+
+	ve_bc_unlimit(&bc_set);
 
 	if (collect_and_suspend_lsm() < 0)
 		goto err;
@@ -2014,6 +2257,8 @@ static int cr_lazy_mem_dump(void)
 static int cr_dump_finish(int ret)
 {
 	int post_dump_ret = 0;
+
+	ve_bc_finish(&bc_set);
 
 	if (disconnect_from_page_server())
 		ret = -1;
@@ -2107,6 +2352,8 @@ int cr_dump_tasks(pid_t pid)
 	int pre_dump_ret = 0;
 	int ret = -1;
 
+	ve_bc_read(pid, &bc_set);
+
 	pr_info("========================================\n");
 	pr_info("Dumping processes (pid: %d)\n", pid);
 	pr_info("========================================\n");
@@ -2193,6 +2440,8 @@ int cr_dump_tasks(pid_t pid)
 
 	if (seccomp_collect_dump_filters() < 0)
 		goto err;
+
+	ve_bc_unlimit(&bc_set);
 
 	/* Errors handled later in detect_pid_reuse */
 	parent_ie = get_parent_inventory();
