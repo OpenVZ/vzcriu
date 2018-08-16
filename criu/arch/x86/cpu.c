@@ -288,12 +288,6 @@ static int cpu_validate_features(compel_cpuinfo_t *cpu_info)
 	}
 
 	/*
-	 * Capability on instructions level only.
-	 */
-	if (opts.cpu_cap & CPU_CAP_INS)
-		return cpu_validate_ins_features(cpu_info);
-
-	/*
 	 * Strict capability mode. Everything must match.
 	 */
 	if (opts.cpu_cap & CPU_CAP_CPU) {
@@ -302,7 +296,11 @@ static int cpu_validate_features(compel_cpuinfo_t *cpu_info)
 			pr_err("CPU capabilites do not match run time\n");
 			return -1;
 		}
-	}
+	} else if (opts.cpu_cap & CPU_CAP_INS)
+		/*
+		 * Capability on instructions level only.
+		 */
+		return cpu_validate_ins_features(cpu_info);
 
 	return 0;
 }
