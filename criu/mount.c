@@ -2608,7 +2608,8 @@ static int do_bind_mount(struct mount_info *mi)
 		root = mnt_path;
 	}
 do_bind:
-	pr_info("\tBind %s to %s\n", root, mi->mountpoint);
+	pr_info("\tBind %s[%s] to %s\n", root,
+		mi->external ? "" : mi->bind->mountpoint, mi->mountpoint);
 
 	if (unlikely(mi->deleted)) {
 		if (stat(mi->mountpoint, &st)) {
