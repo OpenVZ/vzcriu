@@ -86,22 +86,26 @@ int spfs_remap_path(const char *path, const char *link_remap)
 	return 0;
 }
 
+#define WORK_DIR_MAX 32
+
 static char *spfs_manager_work_dir(void)
 {
-	static char work_dir[PATH_MAX] = {};
+	static char work_dir[WORK_DIR_MAX] = {};
 
-	snprintf(work_dir, PATH_MAX, SPFS_MANAGER_WORK_DIR, root_item->pid->real);
+	snprintf(work_dir, WORK_DIR_MAX, SPFS_MANAGER_WORK_DIR, root_item->pid->real);
 	return work_dir;
 }
 
+#define SOCK_PATH_MAX 64
+
 char *spfs_manager_socket_path(void)
 {
-	static char socket_path[PATH_MAX] = {};
+	static char socket_path[SOCK_PATH_MAX] = {};
 
 	if (strlen(socket_path) == 0) {
-		int ret = snprintf(socket_path, PATH_MAX, "%s/%s",
+		int ret = snprintf(socket_path, SOCK_PATH_MAX, "%s/%s",
 				   spfs_manager_work_dir(), SPFS_MANAGER_SOCK_FILE);
-		BUG_ON(ret >= PATH_MAX);
+		BUG_ON(ret >= SOCK_PATH_MAX);
 	}
 	return socket_path;
 }
