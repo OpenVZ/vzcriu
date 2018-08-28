@@ -34,6 +34,7 @@
 #include "fdinfo.h"
 #include "kerndat.h"
 #include "rst-malloc.h"
+#include "sysctl.h"
 
 #include "protobuf.h"
 #include "images/sk-unix.pb-c.h"
@@ -2026,6 +2027,40 @@ static int post_prepare_unix_sk(struct pprep_head *ph)
 	return 0;
 }
 
+/*
+ * FIXME: Instead of hardcoding the value
+ * we should improve dump and carry the settings
+ * inside netns image (see prepare_namespace).
+ */
+static int setup_sysctl_cb(struct pprep_head *ph)
+{
+	uint32_t value = 0, prev;
+
+	struct sysctl_req req[] = {
+		{
+			.name	= "net/unix/max_dgram_qlen",
+			.arg	= &value,
+			.type	= CTL_U32,
+		},
+	};
+
+	if (sysctl_op(req, ARRAY_SIZE(req), CTL_READ, CLONE_NEWNET))
+		pr_warn("Can't fetch %s value, use default\n", req[0].name);
+
+	/*
+	 * The limit from systemd source code.
+	 */
+	prev = value, value = 512;
+	pr_debug("Adjust %s: %u -> %u\n", req[0].name, prev, value);
+
+	if (sysctl_op(req, ARRAY_SIZE(req), CTL_WRITE, CLONE_NEWNET))
+		pr_warn("Can't adjust %s value, use default\n", req[0].name);
+
+	return 0;
+}
+
+static MAKE_PPREP_HEAD(setup_sysctl);
+
 static int init_unix_sk_info(struct unix_sk_info *ui, UnixSkEntry *ue)
 {
 	ui->ue = ue;
@@ -2107,6 +2142,8 @@ static int collect_one_unixsk(void *o, ProtobufCMessage *base, struct cr_img *i)
 
 	if (init_unix_sk_info(ui, pb_msg(base, UnixSkEntry)))
 		return -1;
+
+	add_post_prepare_cb_once(&setup_sysctl);
 
 	uname = ui->name;
 	ulen = ui->ue->name.len;
