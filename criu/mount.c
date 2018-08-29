@@ -31,6 +31,7 @@
 #include "rst-malloc.h"
 #include "crtools.h"
 #include "kerndat.h"
+#include "sockets.h"
 
 #include "images/mnt.pb-c.h"
 
@@ -2619,6 +2620,12 @@ static int do_bind_mount(struct mount_info *mi)
 			continue;
 		if (issubpath(cut_root, service_mountpoint(c) + mp_len))
 			break; /* a source path is overmounted */
+	}
+
+	if (unix_prepare_bindmount(mi)) {
+		pr_err("Failed to prepare bindmount on unix at %s\n",
+		       mi->mountpoint);
+		goto err;
 	}
 
 	if (&c->siblings != &mi->bind->children) {
