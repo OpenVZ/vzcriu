@@ -284,8 +284,9 @@ static int resolve_rel_name(uint32_t id, struct unix_sk_desc *sk, const struct f
 
 	for (i = 0; i < ARRAY_SIZE(dirs); i++) {
 		char dir[PATH_MAX], path[PATH_MAX];
+		int ret, root_fd;
 		struct stat st;
-		int ret;
+		int errno_save;
 
 		snprintf(path, sizeof(path), "/proc/%d/%s", p->pid, dirs[i]);
 		ret = readlink(path, dir, sizeof(dir));
@@ -295,13 +296,23 @@ static int resolve_rel_name(uint32_t id, struct unix_sk_desc *sk, const struct f
 		}
 		dir[ret] = 0;
 
+		if (cr_set_root(mntns_root, &root_fd))
+			goto err;
+
 		if (snprintf(path, sizeof(path), ".%s/%s", dir, sk->name) >= sizeof(path)) {
 			pr_err("The path .%s/%s is too long\n", dir, sk->name);
 			goto err;
 		}
-		if (fstatat(mntns_root, path, &st, 0)) {
-			if (errno == ENOENT)
+
+		ret = fstatat(mntns_root, path, &st, 0);
+		errno_save = errno;
+		if (cr_restore_root(root_fd))
+			goto err;
+
+		if (ret) {
+			if (errno_save == ENOENT)
 				continue;
+			pr_perror("Unable to stat %s", path);
 			goto err;
 		}
 
@@ -578,6 +589,7 @@ static int unix_resolve_name_old(int lfd, uint32_t id, struct unix_sk_desc *d, U
 	struct ns_id *ns;
 	struct stat st;
 	int mntns_root;
+	int root_fd;
 	int ret, mnt_id;
 
 	if (d->namelen == 0 || name[0] == '\0')
@@ -617,10 +629,15 @@ static int unix_resolve_name_old(int lfd, uint32_t id, struct unix_sk_desc *d, U
 		return 0;
 	}
 
+	ret = cr_set_root(mntns_root, &root_fd);
+	if (ret)
+		return -1;
+
 	snprintf(rpath, sizeof(rpath), ".%s", name);
 	if (fstatat(mntns_root, rpath, &st, 0)) {
 		if (errno != ENOENT) {
 			pr_perror("Can't stat socket %#" PRIx32 "(%s)", id, rpath);
+			cr_restore_root(root_fd);
 			return -1;
 		}
 
@@ -632,6 +649,10 @@ static int unix_resolve_name_old(int lfd, uint32_t id, struct unix_sk_desc *d, U
 			name, (int)st.st_dev, (int)st.st_ino, (int)d->vfs_dev, (int)d->vfs_ino);
 		deleted = true;
 	}
+
+	ret = cr_restore_root(root_fd);
+	if (ret)
+		return -1;
 
 	d->mode = st.st_mode;
 	d->uid = st.st_uid;
