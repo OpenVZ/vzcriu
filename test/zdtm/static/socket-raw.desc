@@ -1,1 +1,1 @@
-{'flags': 'suid crfail noauto', 'feature': 'net_diag_raw'}
+{'flags': 'suid', 'feature': 'net_diag_raw'}
