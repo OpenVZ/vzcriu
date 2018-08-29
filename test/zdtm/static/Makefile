@@ -341,6 +341,7 @@ TST_DIR		=				\
 		sk-unix01			\
 		pty05				\
 		private_bind_propagation	\
+		bind-mount-unix			\
 		unsupported_children_collision  \
 		shared_slave_mount_children	\
 		non_uniform_share_propagation	\
