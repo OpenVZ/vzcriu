@@ -433,6 +433,7 @@ TST_DIR		=				\
 		sk-unix01			\
 		sk-unix01-seqpacket		\
 		sk-unix-dgram-ghost		\
+		bind-mount-unix			\
 		unsupported_children_collision  \
 		shared_slave_mount_children	\
 		non_uniform_share_propagation	\
