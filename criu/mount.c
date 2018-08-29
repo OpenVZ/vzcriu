@@ -2534,6 +2534,12 @@ static int do_bind_mount(struct mount_info *mi)
 		mnt_path = mnt_fd_path;
 	}
 
+	if (unix_prepare_bindmount(mi)) {
+		pr_err("Failed to prepare bindmount on unix at %s\n",
+		       mi->mountpoint);
+		goto err;
+	}
+
 	/* mi->bind->mountpoint may be overmounted */
 	if (mount(mnt_path, mnt_clean_path, NULL, MS_BIND, NULL)) {
 		pr_perror("Unable to bind-mount %s to %s",
@@ -2597,12 +2603,6 @@ do_bind:
 	}
 	snprintf(mnt_fd_path, sizeof(mnt_fd_path),
 				"/proc/self/fd/%d", fd);
-
-	if (unix_prepare_bindmount(mi)) {
-		pr_err("Failed to prepare bindmount on unix at %s\n",
-		       mi->mountpoint);
-		goto err;
-	}
 
 	if (mount(mnt_fd_path, mi->mountpoint, NULL, MS_BIND | (mi->flags & MS_REC), NULL) < 0) {
 		pr_perror("Can't mount at %s", mi->mountpoint);
