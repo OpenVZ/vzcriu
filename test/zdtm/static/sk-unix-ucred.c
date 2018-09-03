@@ -54,7 +54,7 @@ int main(int argc, char *argv[])
 	unlink(path);
 
 	addr.sun_family = AF_UNIX;
-	strncpy(addr.sun_path, filename, sizeof(addr.sun_path));
+	sstrncpy(addr.sun_path, filename);
 	addrlen = sizeof(addr.sun_family) + strlen(filename);
 
 	sock[0] = socket(AF_UNIX, SOCK_STREAM, 0);
