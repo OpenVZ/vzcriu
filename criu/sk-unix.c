@@ -2530,6 +2530,11 @@ int unix_prepare_bindmount(struct mount_info *mi)
 		}
 	}
 
+	/*
+	 * Once we are pre-created and bounded, clear the USK_NOCWD flag so
+	 * other sockets might connect to us via relative name.
+	 */
+	ui->flags &= ~USK_NOCWD;
 	ret = 0;
 out:
 	close_safe(&prev_cwd_fd);
