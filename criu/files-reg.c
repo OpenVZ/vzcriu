@@ -398,7 +398,13 @@ static int create_ghost(struct ghost_file *gf, GhostFileEntry *gfe, struct cr_im
 		return -1;
 	}
 
-	snprintf(path + ret, sizeof(path) - ret, "/%s", gf->remap.rpath);
+	/* Add a '/' only if we have no at the end */
+	if (path[root_len-1] != '/') {
+		path[root_len++] = '/';
+		path[root_len] = '\0';
+	}
+
+	snprintf(path + root_len, sizeof(path) - root_len, "%s", gf->remap.rpath);
 
 	ret = create_ghost_dentry(path, gfe, img);
 	if (ret)
@@ -407,7 +413,7 @@ static int create_ghost(struct ghost_file *gf, GhostFileEntry *gfe, struct cr_im
 	if (ghost_apply_metadata(path, gfe))
 		return -1;
 
-	strcpy(gf->remap.rpath, path + root_len + 1);
+	strcpy(gf->remap.rpath, path + root_len);
 	pr_debug("Remap rpath is %s\n", gf->remap.rpath);
 	return 0;
 }
