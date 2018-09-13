@@ -2376,10 +2376,10 @@ static int collect_one_unixsk(void *o, ProtobufCMessage *base, struct cr_img *i)
 			pr_err("bindmount: Unsupported socket id %#x "
 			       "(expect %x:%s:%s got %x:%s:%s)\n",
 			       ui->ue->id, UNIX_UFLAGS__BINDMOUNT,
-			       socket_type_name(SOCK_DGRAM),
-			       tcp_state_name(TCP_CLOSE),
-			       ui->ue->uflags, socket_type_name(ui->ue->type),
-			       tcp_state_name(ui->ue->state));
+			       ___socket_type_name(SOCK_DGRAM),
+			       ___tcp_state_name(TCP_CLOSE),
+			       ui->ue->uflags, ___socket_type_name(ui->ue->type),
+			       ___tcp_state_name(ui->ue->state));
 			return -1;
 		}
 		list_add_tail(&ui->mnt_list, &unix_mnt_sockets);
@@ -2405,10 +2405,11 @@ int unix_prepare_bindmount(struct mount_info *mi)
 	char path[PATH_MAX];
 
 	list_for_each_entry(ui, &unix_mnt_sockets, mnt_list) {
+		char stype[32], sstate[32];
 		if (ui->ue->mnt_id == mi->mnt_id) {
 			pr_info("bindmount: id %#x ino %d type %s state %s (queuer id %#x ino %d) peer %d (name %.*s dir %s)\n",
-				ui->ue->id, ui->ue->ino, socket_type_name(ui->ue->type),
-				tcp_state_name(ui->ue->state),
+				ui->ue->id, ui->ue->ino, __socket_type_name(ui->ue->type, stype),
+				__tcp_state_name(ui->ue->state, sstate),
 				ui->queuer ? ui->queuer->ue->id : -1,
 				ui->queuer ? ui->queuer->ue->ino : -1,
 				ui->ue->peer, (int)ui->ue->name.len,
