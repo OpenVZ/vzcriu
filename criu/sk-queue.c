@@ -30,6 +30,9 @@
 #include "protobuf.h"
 #include "images/sk-packet.pb-c.h"
 
+#undef  LOG_PREFIX
+#define LOG_PREFIX "skqueue: "
+
 struct sk_packet {
 	struct list_head	list;
 	SkPacketEntry		*entry;
