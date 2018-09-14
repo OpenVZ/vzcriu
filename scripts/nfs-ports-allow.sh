@@ -21,7 +21,7 @@ if [ ! -x ${NS_ENTER} ]; then
 	exit 2
 fi
 
-JOIN_CT="${NS_ENTER} -t $CRTOOLS_INIT_PID -m -u -p -n"
+JOIN_CT="${NS_ENTER} -t $CRTOOLS_INIT_PID -u -p -n"
 
 ${JOIN_CT} test -e /proc/self/net/nfsfs || exit 0
 
