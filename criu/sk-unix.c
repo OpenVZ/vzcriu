@@ -1712,7 +1712,7 @@ out_rename:
 	return exit_code;
 }
 
-static int bind_unix_sk(int sk, struct unix_sk_info *ui)
+static int bind_unix_sk(int sk, struct unix_sk_info *ui, bool notify)
 {
 	struct sockaddr_un addr;
 	int cwd_fd = -1, root_fd = -1, ns_fd = -1;
@@ -1765,8 +1765,8 @@ static int bind_unix_sk(int sk, struct unix_sk_info *ui)
 		goto done;
 	}
 
-	if (ui->ue->state != TCP_LISTEN) {
-		ui->bound = 1;
+	if (notify && ui->ue->state != TCP_LISTEN) {
+		ui->bound = true;
 		wake_connected_sockets(ui);
 	}
 
@@ -1853,10 +1853,10 @@ static int open_unixsk_pair_master(struct unix_sk_info *ui, int *new_fd)
 	}
 	sk[1] = fle_peer->fe->fd;
 
-	if (bind_unix_sk(sk[0], ui))
+	if (bind_unix_sk(sk[0], ui, true))
 		return -1;
 
-	if (bind_unix_sk(sk[1], peer))
+	if (bind_unix_sk(sk[1], peer, true))
 		return -1;
 
 	*new_fd = sk[0];
@@ -2061,10 +2061,13 @@ static int open_unixsk_standalone(struct unix_sk_info *ui, int *new_fd)
 	}
 
 	if (!(ui->ue->uflags & UNIX_UFLAGS__BINDMOUNT)) {
-		if (bind_unix_sk(sks[0], ui)) {
+		if (bind_unix_sk(sks[0], ui, true)) {
 			close(sks[0]);
 			return -1;
 		}
+	} else {
+		ui->bound = true;
+		wake_connected_sockets(ui);
 	}
 
 	if (ui->ue->state == TCP_LISTEN) {
@@ -2493,7 +2496,7 @@ int unix_prepare_bindmount(struct mount_info *mi)
 		goto out;
 	}
 
-	if (bind_unix_sk(sks[0], ui))
+	if (bind_unix_sk(sks[0], ui, false))
 		goto out;
 
 	ui->fdstore_mnt_id[0] = fdstore_add(sks[0]);
