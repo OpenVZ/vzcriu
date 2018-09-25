@@ -139,8 +139,14 @@ static struct tun_link *find_tun_link(char *name, unsigned int ns_id)
 	struct tun_link *tl;
 
 	list_for_each_entry(tl, &tun_links, l) {
-		if (!strcmp(tl->name, name) &&
-		    tl->ns_id == ns_id)
+		if (strcmp(tl->name, name))
+			continue;
+		/*
+		 * Old images or kernel do not have SIOCGSKNS support,
+		 * and ns_id = 0, so then we can rely on names matching
+		 * only.
+		 */
+		if (ns_id == 0 || tl->ns_id == ns_id)
 			return tl;
 	}
 	return NULL;
