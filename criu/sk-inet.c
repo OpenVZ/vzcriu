@@ -816,6 +816,20 @@ int restore_ip_opts(int sk, int family, int proto, IpOptsEntry *ioe)
 
 	if (ioe->raw)
 		ret |= restore_ip_raw_opts(sk, family, proto, ioe->raw);
+
+	/* Compat layer for old images */
+	if (!ioe->raw) {
+		if (ioe->has_vz7_hdrincl || ioe->has_vz7_nodefrag) {
+			IpOptsRawEntry raw = IP_OPTS_RAW_ENTRY__INIT;
+
+			raw.has_hdrincl	= ioe->has_vz7_hdrincl;
+			raw.hdrincl	= ioe->vz7_hdrincl;
+			raw.has_nodefrag= ioe->has_vz7_nodefrag;
+			raw.nodefrag	= ioe->vz7_nodefrag;
+
+			ret |= restore_ip_raw_opts(sk, family, proto, &raw);
+		}
+	}
 	return ret;
 }
 
