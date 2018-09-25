@@ -105,8 +105,10 @@ static void show_one_inet_img(const char *act, const InetSkEntry *e)
 static int can_dump_ipproto(int ino, int proto, int type)
 {
 	/* Raw sockets may have any protocol inside */
-	if (type == SOCK_RAW)
-		return 1;
+	if (type == SOCK_RAW) {
+		pr_err("Unsupported raw socket %x\n", ino);
+		return 0;
+	}
 
 	/* Make sure it's a proto we support */
 	switch (proto) {
@@ -658,18 +660,13 @@ static int post_open_inet_sk(struct file_desc *d, int sk)
 	return 0;
 }
 
-int restore_ip_opts(int sk, int family, IpOptsEntry *ioe)
+int restore_ip_opts(int sk, IpOptsEntry *ioe)
 {
 	int ret = 0;
 
 	if (ioe->has_freebind)
 		ret |= restore_opt(sk, SOL_IP, IP_FREEBIND, &ioe->freebind);
-	if (ioe->has_nodefrag)
-		ret |= restore_opt(sk, SOL_IP, IP_NODEFRAG, &ioe->nodefrag);
-	if (ioe->has_hdrincl)
-		ret |= restore_opt(sk, family == AF_INET6 ? SOL_IPV6 : SOL_IP,
-				   family == AF_INET6 ? IPV6_HDRINCL : IP_HDRINCL,
-				   &ioe->hdrincl);
+
 	return ret;
 }
 static int open_inet_sk(struct file_desc *d, int *new_fd)
@@ -692,7 +689,7 @@ static int open_inet_sk(struct file_desc *d, int *new_fd)
 		return -1;
 	}
 
-	if ((ie->type != SOCK_STREAM) && (ie->type != SOCK_DGRAM) && (ie->type != SOCK_RAW)) {
+	if ((ie->type != SOCK_STREAM) && (ie->type != SOCK_DGRAM)) {
 		pr_err("Unsupported socket type: %d\n", ie->type);
 		return -1;
 	}
@@ -772,7 +769,7 @@ done:
 	if (rst_file_params(sk, ie->fown, ie->flags))
 		goto err;
 
-	if (ie->ip_opts && restore_ip_opts(sk, ie->family, ie->ip_opts))
+	if (ie->ip_opts && restore_ip_opts(sk, ie->ip_opts))
 		goto err;
 
 	if (restore_socket_opts(sk, ie->opts))
