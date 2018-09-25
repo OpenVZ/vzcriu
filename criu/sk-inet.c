@@ -359,7 +359,7 @@ static int do_dump_one_inet_fd(int lfd, u32 id, const struct fd_parms *p, int fa
 	if (!can_dump_ipproto(p->stat.st_ino, proto, type))
 		goto err;
 
-	sk = (struct inet_sk_desc *)lookup_socket(p->stat.st_ino, family, proto, type != SOCK_RAW);
+	sk = (struct inet_sk_desc *)lookup_socket(p->stat.st_ino, family, proto);
 	if (IS_ERR(sk))
 		goto err;
 	if (!sk) {
