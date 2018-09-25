@@ -13,7 +13,10 @@ message ip_opts_raw_entry {
 
 message ip_opts_entry {
 	optional bool			freebind	= 1;
-	optional ip_opts_raw_entry	raw		= 2;
+	// These two are deprecated
+	optional bool			vz7_hdrincl	= 2;
+	optional bool			vz7_nodefrag	= 3;
+	optional ip_opts_raw_entry	raw		= 4;
 }
 
 message inet_sk_entry {
