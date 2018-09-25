@@ -6,6 +6,8 @@
 #include <linux/if.h>
 #include <linux/if_tun.h>
 #include <sched.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 
 #include "zdtmtst.h"
 
@@ -23,6 +25,17 @@ const char *test_author	= "Pavel Emelianov <xemul@parallels.com>";
 #ifndef TUNSETQUEUE
 #define TUNSETQUEUE  _IOW('T', 217, int)
 #endif
+
+static char *tun_names[] = { "tunx0", "tunx1", "tunx2", "tunx3", "tapx0" };
+enum {
+	TUNX0 = 0,
+	TUNX1 = 1,
+	TUNX2 = 2,
+	TUNX3 = 3,
+	TAPX0 = 4,
+
+	TUN_MAX,
+};
 
 static int any_fail = 0;
 
@@ -113,19 +126,90 @@ static int dev_get_hwaddr(int fd, char *a)
 	return 0;
 }
 
+#ifdef TUN_NS
+static task_waiter_t subns_wait;
+static int subns_fds[TUN_MAX];
+static pid_t subns_pid;
+
+static int prepare_ns(unsigned int nr)
+{
+	if (unshare(CLONE_NEWNET)) {
+		pr_perror("unshare (%u)", nr);
+		return -1;
+	}
+	system("ip link set up dev lo");
+	return 0;
+}
+
+static int subns_init(void)
+{
+	int i, flags = IFF_TUN | IFF_TUN_EXCL;
+	task_waiter_init(&subns_wait);
+
+	if (prepare_ns(1))
+		return -1;
+
+	for (i = 0; i < ARRAY_SIZE(subns_fds); i++)
+		subns_fds[i] = -1;
+
+	subns_pid = test_fork();
+	if (subns_pid < 0) {
+		pr_perror("Can't fork");
+		return -1;
+	} else if (subns_pid == 0) {
+		if (prepare_ns(2))
+			exit(1);
+
+		test_msg("Preparing subns tuns\n");
+		for (i = 0; i < ARRAY_SIZE(subns_fds); i++) {
+			subns_fds[i] = open_tun(tun_names[i], flags);
+			if (subns_fds[i] < 0)
+				exit(1);
+		}
+		task_waiter_complete(&subns_wait, 1);
+		task_waiter_wait4(&subns_wait, 2);
+
+		test_msg("Testing subns tuns\n");
+		for (i = 0; i < ARRAY_SIZE(subns_fds); i++) {
+			check_tun(subns_fds[i], tun_names[i], flags);
+			close(subns_fds[i]);
+			subns_fds[i] = -1;
+		}
+		task_waiter_complete(&subns_wait, 2);
+		exit(0);
+	}
+
+	task_waiter_wait4(&subns_wait, 1);
+	return 0;
+}
+
+static void subns_fini(void)
+{
+	int ret, status;
+
+	task_waiter_complete(&subns_wait, 2);
+	ret = wait(&status);
+	if (ret == -1 || !WIFEXITED(status) || WEXITSTATUS(status)) {
+		kill(subns_pid, SIGKILL);
+		fail("Unable to wait subns child %d", subns_pid);
+		any_fail = 1;
+	}
+}
+#else
+static int subns_init(void) { return 0; }
+static void subns_fini(void) { }
+#endif
+
 int main(int argc, char **argv)
 {
 	int fds[5], ret;
 	char addr[ETH_ALEN], a2[ETH_ALEN];
 
 	test_init(argc, argv);
-#ifdef TUN_NS
-	if (unshare(CLONE_NEWNET)) {
-		pr_perror("unshare");
+
+	if (subns_init())
 		return -1;
-	}
-	system("ip link set up dev lo");
-#endif
+
 	/* fd[0] -- opened file */
 	fds[0] = __open_tun();
 	if (fds[0] < 0) {
@@ -134,20 +218,20 @@ int main(int argc, char **argv)
 	}
 
 	/* fd[1] -- opened file with tun device */
-	fds[1] = open_tun("tunx0", IFF_TUN);
+	fds[1] = open_tun(tun_names[TUNX0], IFF_TUN);
 	if (fds[1] < 0) {
 		pr_perror("No file 1");
 		return -1;
 	}
 
 	/* fd[2] and [3] -- two-queued device, with 3 detached */
-	fds[2] = open_tun("tunx1", IFF_TUN | IFF_MULTI_QUEUE);
+	fds[2] = open_tun(tun_names[TUNX1], IFF_TUN | IFF_MULTI_QUEUE);
 	if (fds[2] < 0) {
 		pr_perror("No file 2");
 		return -1;
 	}
 
-	fds[3] = open_tun("tunx1", IFF_TUN | IFF_MULTI_QUEUE);
+	fds[3] = open_tun(tun_names[TUNX1], IFF_TUN | IFF_MULTI_QUEUE);
 	if (fds[3] < 0) {
 		pr_perror("No file 3");
 		return -1;
@@ -158,7 +242,7 @@ int main(int argc, char **argv)
 		return -1;
 
 	/* special case -- persistent device */
-	ret = open_tun("tunx2", IFF_TUN);
+	ret = open_tun(tun_names[TUNX2], IFF_TUN);
 	if (ret < 0) {
 		pr_perror("No persistent device");
 		return -1;
@@ -170,7 +254,7 @@ int main(int argc, char **argv)
 	}
 
 	/* and one tap in fd[4] */
-	fds[4] = open_tun("tapx0", IFF_TAP);
+	fds[4] = open_tun(tun_names[TAPX0], IFF_TAP);
 	if (fds[4] < 0) {
 		pr_perror("No tap");
 		return -1;
@@ -187,18 +271,18 @@ int main(int argc, char **argv)
 	test_waitsig();
 
 	/* check fds[0] is not attached to device */
-	ret = __attach_tun(fds[0], "tunx3", IFF_TUN);
+	ret = __attach_tun(fds[0], tun_names[TUNX3], IFF_TUN);
 	if (ret < 0) {
 		any_fail = 1;
 		fail("Opened tun file broken");
 	}
 
 	/* check that fds[1] has device */
-	check_tun(fds[1], "tunx0", IFF_TUN);
+	check_tun(fds[1], tun_names[TUNX0], IFF_TUN);
 
 	/* check that fds[2] and [3] are at MQ device with */
-	check_tun(fds[2], "tunx1", IFF_TUN | IFF_MULTI_QUEUE);
-	check_tun(fds[3], "tunx1", IFF_TUN | IFF_MULTI_QUEUE);
+	check_tun(fds[2], tun_names[TUNX1], IFF_TUN | IFF_MULTI_QUEUE);
+	check_tun(fds[3], tun_names[TUNX1], IFF_TUN | IFF_MULTI_QUEUE);
 
 	ret = set_tun_queue(fds[2], IFF_DETACH_QUEUE);
 	if (ret < 0) {
@@ -213,19 +297,19 @@ int main(int argc, char **argv)
 	}
 
 	/* check persistent device */
-	ret = open_tun("tunx2", IFF_TUN | IFF_TUN_EXCL);
+	ret = open_tun(tun_names[TUNX2], IFF_TUN | IFF_TUN_EXCL);
 	if (ret >= 0) {
 		any_fail = 1;
 		fail("Persistent device lost");
 	} else {
-		ret = open_tun("tunx2", IFF_TUN);
+		ret = open_tun(tun_names[TUNX2], IFF_TUN);
 		if (ret < 0)
 			pr_perror("Can't attach tun2");
 		else
 			ioctl(ret, TUNSETPERSIST, 0);
 	}
 
-	check_tun(fds[4], "tapx0", IFF_TAP);
+	check_tun(fds[4], tun_names[TAPX0], IFF_TAP);
 	if (dev_get_hwaddr(fds[4], a2) < 0) {
 		pr_perror("No hwaddr for tap? (2)");
 		any_fail = 1;
@@ -235,6 +319,8 @@ int main(int argc, char **argv)
 				(int)a2[0], (int)a2[1]);
 		any_fail = 1;
 	}
+
+	subns_fini();
 
 	if (!any_fail)
 		pass();
