@@ -1271,8 +1271,9 @@ static int prepare_vma_ios(struct pstree_item *t, struct task_restore_args *ta)
 {
 	struct cr_img *pages;
 
-	/* if auto-dedup is on we need RDWR mode to be able to punch holes
-	 * in the input files (in restorer.c)
+	/*
+	 * If auto-dedup is on we need RDWR mode to be able to punch holes in
+	 * the input files (in restorer.c)
 	 */
 	pages = open_image(CR_FD_PAGES, opts.auto_dedup ? O_RDWR : O_RSTR,
 				rsti(t)->pages_img_id);
