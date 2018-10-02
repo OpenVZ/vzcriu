@@ -33,6 +33,7 @@
 #include "sockets.h"
 #include "net.h"
 #include "tun.h"
+#include "tty.h"
 #include <compel/plugins/std/syscall-codes.h>
 #include <compel/compel.h>
 #include "netfilter.h"
@@ -824,6 +825,11 @@ out:
 	return ret;
 }
 
+static void kerndat_ve_ctty(void)
+{
+	kdat.has_ve_ctty = !!!access(VE_CTTY_PATH, F_OK);
+}
+
 int __attribute__((weak)) kdat_x86_has_ptrace_fpu_xsave_bug(void)
 {
 	return 0;
@@ -1135,6 +1141,7 @@ int kerndat_init(void)
 	if (!ret)
 		ret = kerndat_nl_repair();
 
+	kerndat_ve_ctty();
 	kerndat_lsm();
 	kerndat_mmap_min_addr();
 	kerndat_files_stat(false);
