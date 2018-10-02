@@ -485,9 +485,10 @@ err:
 static int create_ghost_dentry(char *path, GhostFileEntry *gfe, struct cr_img *img)
 {
 	int ret = -1;
-	char *msg;
+	char *msg = "";
 
 again:
+	errno = 0;
 	if (S_ISFIFO(gfe->mode)) {
 		if ((ret = mknod(path, gfe->mode, 0)) < 0)
 			msg = "Can't create node for ghost file";
@@ -519,7 +520,7 @@ again:
 			goto again;
 		}
 
-		pr_perror("%s", msg);
+		pr_perror("%s %s", msg, path);
 		goto err;
 	}
 
