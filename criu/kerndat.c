@@ -53,6 +53,7 @@
 #include "memfd.h"
 #include "mount-v2.h"
 #include "util-caps.h"
+#include "tty.h"
 
 struct kerndat_s kdat = {};
 
@@ -885,6 +886,21 @@ static int has_time_namespace(void)
 		return -1;
 	}
 	kdat.has_timens = true;
+	return 0;
+}
+
+static int kerndat_ve_ctty(void)
+{
+	if (access(VE_CTTY_PATH, F_OK) < 0) {
+		if (errno == ENOENT) {
+			pr_debug("ve.ctty is not supported.\n");
+			kdat.has_ve_ctty = false;
+			return 0;
+		}
+		pr_perror("Unable to access %s", VE_CTTY_PATH);
+		return -1;
+	}
+	kdat.has_ve_ctty = true;
 	return 0;
 }
 
@@ -1810,6 +1826,10 @@ int kerndat_init(void)
 	}
 	if (!ret && (kerndat_has_ipv6_freebind() < 0)) {
 		pr_err("kerndat_has_ipv6_freebind failed when initializing kerndat.\n");
+		ret = -1;
+	}
+	if (!ret && kerndat_ve_ctty()) {
+		pr_err("kerndat_ve_ctty failed when initializing kerndat.\n");
 		ret = -1;
 	}
 
