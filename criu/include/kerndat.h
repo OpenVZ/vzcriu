@@ -82,6 +82,7 @@ struct kerndat_s {
 	bool has_openat2;
 	bool has_rseq;
 	bool has_ptrace_get_rseq_conf;
+	bool has_ve_ctty;
 };
 
 extern struct kerndat_s kdat;
