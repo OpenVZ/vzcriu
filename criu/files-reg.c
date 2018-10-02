@@ -346,7 +346,7 @@ err:
 
 static int create_ghost_dentry(char *path, GhostFileEntry *gfe, struct cr_img *img)
 {
-	char *msg;
+	char *msg = "";
 	int ret = -1;
 
 again:
@@ -378,7 +378,7 @@ again:
 			goto again;
 		}
 
-		pr_perror("%s", msg);
+		pr_perror("%s %s", msg, path);
 		goto err;
 	}
 
