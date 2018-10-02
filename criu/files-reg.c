@@ -391,7 +391,7 @@ err:
 static int create_ghost_dentry(char *path, GhostFileEntry *gfe, struct cr_img *img)
 {
 	int ret = -1;
-	char *msg;
+	char *msg = "";
 
 again:
 	if (S_ISFIFO(gfe->mode)) {
@@ -425,7 +425,7 @@ again:
 			goto again;
 		}
 
-		pr_perror("%s", msg);
+		pr_perror("%s %s", msg, path);
 		goto err;
 	}
 
