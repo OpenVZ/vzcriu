@@ -39,4 +39,6 @@ extern int devpts_check_bindmount(struct mount_info *m);
 
 #define OPT_SHELL_JOB	"shell-job"
 
+#define VE_CTTY_PATH	"/sys/fs/cgroup/ve/ve.ctty"
+
 #endif /* __CR_TTY_H__ */

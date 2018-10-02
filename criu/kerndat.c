@@ -33,6 +33,7 @@
 #include "sockets.h"
 #include "net.h"
 #include "tun.h"
+#include "tty.h"
 #include <compel/plugins/std/syscall-codes.h>
 #include "netfilter.h"
 #include "fsnotify.h"
@@ -818,6 +819,21 @@ static int has_time_namespace(void)
 	return 0;
 }
 
+static int kerndat_ve_ctty(void)
+{
+	if (access(VE_CTTY_PATH, F_OK) < 0) {
+		if (errno == ENOENT) {
+			pr_debug("ve.ctty is not supported.\n");
+			kdat.has_ve_ctty = false;
+			return 0;
+		}
+		pr_perror("Unable to access %s", VE_CTTY_PATH);
+		return -1;
+	}
+	kdat.has_ve_ctty = true;
+	return 0;
+}
+
 int __attribute__((weak)) kdat_x86_has_ptrace_fpu_xsave_bug(void)
 {
 	return 0;
@@ -1234,6 +1250,10 @@ int kerndat_init(void)
 	}
 	if (!ret && kerndat_nl_repair()) {
 		pr_err("kerndat_nl_repair failed when initializing kerndat.\n");
+		ret = -1;
+	}
+	if (!ret && kerndat_ve_ctty()) {
+		pr_err("kerndat_ve_ctty failed when initializing kerndat.\n");
 		ret = -1;
 	}
 
