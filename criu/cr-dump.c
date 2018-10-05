@@ -1573,6 +1573,10 @@ static int dump_one_task(struct pstree_item *item, InventoryEntry *parent_ie)
 	if (ret < 0)
 		goto err;
 
+	item->pid->real_ppid = pps_buf.ppid;
+	item->pid->real_pgid = pps_buf.pgid;
+	item->pid->real_sid = pps_buf.sid;
+
 	ret = collect_mappings(pid, &vmas, dump_filemap);
 	if (ret) {
 		pr_err("Collect mappings (pid: %d) failed with %d\n", pid, ret);
