@@ -128,6 +128,7 @@ TST_NOFILE	:=				\
 		uptime_grow			\
 		session00			\
 		rlimits00			\
+		tty-inherit			\
 		pty00				\
 		pty01				\
 		pty-console			\
