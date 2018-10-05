@@ -1075,10 +1075,29 @@ static int dump_task_core_all(struct parasite_ctl *ctl,
 	core->tc->exit_code = 0;
 
 	if (stat->tty_nr) {
+		struct pstree_item *p = item;
+
 		core->tc->has_tty_nr = true;
-		core->tc->has_tty_pgrp = true;
 		core->tc->tty_nr = stat->tty_nr;
-		core->tc->tty_pgrp = stat->tty_pgrp;
+
+		/*
+		 * It is a linear search for simplicity,
+		 * if it become a problem we should switch
+		 * to rbtree or hashing. Because this facility
+		 * is out of vanilla criu I don't wanna bloat
+		 * code until really needed.
+		 */
+		for (p = item; p; p = p->parent) {
+			if (p->pid->real_pgid != p->pid->real)
+				continue;
+			if (p->pid->real_pgid != stat->tty_pgrp)
+				continue;
+			pr_debug("tty: Inherit tty_pgrp real %u virt %u\n",
+				 stat->tty_pgrp, vpid(p));
+			core->tc->has_tty_pgrp = true;
+			core->tc->tty_pgrp = vpid(p);
+			break;
+		}
 	}
 
 	ret = parasite_dump_thread_leader_seized(ctl, pid, core);
