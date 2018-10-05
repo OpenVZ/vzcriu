@@ -29,6 +29,13 @@ struct pid {
 	 * is running.
 	 */
 	pid_t real;
+	/*
+	 * These entries are collected on dump to be able to resolve
+	 * tty inheritance.
+	 */
+	pid_t real_ppid;
+	pid_t real_pgid;
+	pid_t real_sid;
 
 	int state; /* TASK_XXX constants */
 
