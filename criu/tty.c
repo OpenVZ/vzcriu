@@ -1272,7 +1272,9 @@ static bool tty_deps_restored(struct tty_info *info)
 		list_for_each_entry(fle, list, ps_list) {
 			if (fle->desc->ops->type != FD_TYPES__TTY || fle->desc == &info->d)
 				continue;
-
+			tmp = container_of(fle->desc, struct tty_info, d);
+			if (is_ctty(tmp->driver))
+				continue;
 			/* ctty needs all others are restored */
 			if (fle->stage != FLE_RESTORED)
 				return false;
