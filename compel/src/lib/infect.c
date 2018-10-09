@@ -1383,6 +1383,7 @@ int compel_cure_remote(struct parasite_ctl *ctl)
 		return -1;
 	}
 
+	ctl->remote_map = NULL;
 	return 0;
 }
 
