@@ -1825,10 +1825,11 @@ static int setup_alarm_handler()
 	return 0;
 }
 
-static int cr_pre_dump_finish(int ret)
+static int cr_pre_dump_finish(int rc)
 {
 	InventoryEntry he = INVENTORY_ENTRY__INIT;
 	struct pstree_item *item;
+	int ret;
 
 	ve_bc_finish(&bc_set);
 
@@ -1847,6 +1848,9 @@ static int cr_pre_dump_finish(int ret)
 	pstree_switch_state(root_item, TASK_ALIVE);
 
 	timing_stop(TIME_FROZEN);
+
+	if (rc < 0)
+		goto err_rc;
 
 	pr_info("Pre-dumping tasks' memory\n");
 	for_each_pstree_item(item) {
@@ -1902,6 +1906,20 @@ err:
 		pr_info("Pre-dumping finished successfully\n");
 	}
 	return ret;
+
+err_rc:
+	pr_debug("Skip pre-dumping tasks' memory due to earlier errors\n");
+	for_each_pstree_item(item) {
+		if (!dmpi(item)->parasite_ctl)
+			continue;
+		if (dmpi(item)->mem_pp)
+			destroy_page_pipe(dmpi(item)->mem_pp);
+		compel_cure_local(dmpi(item)->parasite_ctl);
+	}
+	free_pstree(root_item);
+	seccomp_free_entries();
+	ret = -1;
+	goto err;
 }
 
 int cr_pre_dump_tasks(pid_t pid)
