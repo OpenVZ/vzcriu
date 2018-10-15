@@ -312,6 +312,7 @@ static int resolve_rel_name(uint32_t id, struct unix_sk_desc *sk, const struct f
 		if (ret) {
 			if (errno_save == ENOENT)
 				continue;
+			errno = errno_save;
 			pr_perror("Unable to stat %s", path);
 			goto err;
 		}
