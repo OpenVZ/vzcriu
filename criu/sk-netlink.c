@@ -138,7 +138,7 @@ static int dump_nl_opts(int sk, NlSkOptsEntry *e)
 	len = sizeof(e->listen_all_nsid);
 	if (getsockopt(sk, SOL_NETLINK, NETLINK_LISTEN_ALL_NSID, &e->listen_all_nsid, &len)) {
 		if (errno == ENOPROTOOPT) {
-			pr_warn("Unable to get NETLINK_LISTEN_ALL_NSID");
+			pr_warn("Unable to get NETLINK_LISTEN_ALL_NSID\n");
 		} else {
 			pr_perror("Can't get NETLINK_LISTEN_ALL_NSID opt");
 			ret = -1;
