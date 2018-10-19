@@ -2454,8 +2454,13 @@ static int tty_verify_ctty(void)
 {
 	struct tty_dump_info *d, *p;
 
+	pr_debug("Verify current terminals\n");
+
 	list_for_each_entry(d, &all_ttys, list) {
 		struct tty_dump_info *n = NULL;
+
+		pr_debug("%10s id %#8x sid %8d pgrp %8d pid_real %8d\n",
+			 d->driver->name, d->id, d->sid, d->pgrp, d->pid_real);
 
 		if (!is_ctty(d->driver))
 			continue;
