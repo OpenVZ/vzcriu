@@ -99,6 +99,7 @@ struct tty_info {
 	bool				inherit;
 
 	struct tty_info			*ctl_tty;
+	pid_t				ctl_tty_vpid;
 	struct tty_info			*link;
 	struct tty_data_entry		*tty_data;
 
@@ -1573,8 +1574,9 @@ static int tty_find_restoring_task(struct tty_info *info)
 		 */
 		item = find_session_leader(info->tie->sid);
 		if (item) {
-			pr_info("Set a control terminal %#x to %d\n",
-				info->tfe->id, info->tie->sid);
+			info->ctl_tty_vpid = vpid(item);
+			pr_info("Set a control terminal %#x to sid %d pgrp %d by %d\n",
+				info->tfe->id, info->tie->sid, info->tie->pgrp, vpid(item));
 			return prepare_ctl_tty(item, info->tfe->id);
 		}
 
@@ -1914,6 +1916,7 @@ static int tty_info_setup(struct tty_info *info)
 	info->create = tty_is_master(info);
 	info->inherit = false;
 	info->ctl_tty = NULL;
+	info->ctl_tty_vpid = -1;
 	info->tty_data = NULL;
 	info->link = NULL;
 
