@@ -359,12 +359,6 @@ static int root_prepare_shared(void)
 		ret = prepare_fs_pid(pi);
 		if (ret < 0)
 			break;
-
-		if (rsti(pi)->tty_pgrp) {
-			ret = ve_itty_insert(rsti(pi)->tty_pgrp, vpid(pi));
-			if (ret < 0)
-				break;
-		}
 	}
 
 	if (ret < 0)
@@ -1410,8 +1404,10 @@ static inline int fork_with_pid(struct pstree_item *item)
 		if (unlikely(item == root_item))
 			maybe_clone_parent(item, &ca);
 
-		if (ca.core->tc->has_tty_pgrp)
-			rsti(item)->tty_pgrp = ca.core->tc->tty_pgrp;
+		if (ca.core->tc->has_tty_pgrp) {
+			if (ve_itty_insert(ca.core->tc->tty_pgrp, vpid(item)))
+				return -1;
+		}
 	} else {
 		/*
 		 * Helper entry will not get moved around and thus

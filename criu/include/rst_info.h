@@ -43,7 +43,6 @@ struct rst_info {
 	unsigned int		pages_img_id;
 
 	u32			cg_set;
-	pid_t			tty_pgrp;
 
 	union {
 		struct pstree_item	*pgrp_leader;
