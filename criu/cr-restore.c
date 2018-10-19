@@ -1403,11 +1403,6 @@ static inline int fork_with_pid(struct pstree_item *item)
 
 		if (unlikely(item == root_item))
 			maybe_clone_parent(item, &ca);
-
-		if (ca.core->tc->has_tty_pgrp) {
-			if (ve_itty_insert(ca.core->tc->tty_pgrp, vpid(item)))
-				return -1;
-		}
 	} else {
 		/*
 		 * Helper entry will not get moved around and thus
@@ -2576,9 +2571,6 @@ int cr_restore_tasks(void)
 		goto err;
 
 	if (fdstore_init())
-		goto err;
-
-	if (ve_itty_init())
 		goto err;
 
 	if (crtools_prepare_shared() < 0)

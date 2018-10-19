@@ -43,7 +43,6 @@
 #include "pstree.h"
 #include "fdstore.h"
 #include "tty.h"
-#include "kerndat.h"
 
 /*
  * Here are some notes about overall TTY c/r design. At moment
@@ -183,201 +182,6 @@ typedef struct tty_bitmap_s {
 static tty_bitmap_t *tty_info_id_bitmap;
 static tty_bitmap_t *tty_active_pairs_bitmap;
 
-/*
- * Due to shmem engine specifics we have to use
- * this list based tracker.
- */
-typedef struct {
-	struct list_head		list;
-	pid_t				master;
-	pid_t				slave;
-	bool				restored;
-} ve_itty_entry_t;
-
-static struct list_head *ve_itty_list;
-static mutex_t *ve_itty_mutex;
-
-static bool ve_can_inherit_tty(pid_t pid)
-{
-	struct tty_dump_info *dinfo;
-
-	if (!kdat.has_ve_ctty) {
-		pr_warn_once("Kernel provides no %s interface\n",
-			     VE_CTTY_PATH);
-		return false;
-	}
-
-	list_for_each_entry(dinfo, &all_ttys, list) {
-		if (dinfo->driver->type == TTY_TYPE__CTTY)
-			continue;
-		if (dinfo->pid_real == pid &&
-		    dinfo->pgrp == dinfo->sid)
-			return true;
-	}
-
-	pr_debug("No controlling terminal with real pid %d found\n", pid);
-	return false;
-}
-
-int ve_itty_init(void)
-{
-	ve_itty_list = shmalloc(sizeof(*ve_itty_list));
-	if (!ve_itty_list)
-		return -ENOMEM;
-	INIT_LIST_HEAD(ve_itty_list);
-
-	ve_itty_mutex = shmalloc(sizeof(*ve_itty_mutex));
-	if (!ve_itty_mutex) {
-		pr_err("Can't create itty mutex\n");
-		return -ENOMEM;
-	}
-	mutex_init(ve_itty_mutex);
-	return 0;
-}
-
-int ve_itty_insert(pid_t master, pid_t slave)
-{
-	if (master != slave) {
-		ve_itty_entry_t *e = shmalloc(sizeof(*e));
-		if (!e) {
-			pr_err("Can't insert tty for inheritance\n");
-			return -ENOMEM;
-		}
-
-		e->master	= master;
-		e->slave	= slave;
-		e->restored	= false;
-
-		mutex_lock(ve_itty_mutex);
-		list_add_tail(&e->list, ve_itty_list);
-		mutex_unlock(ve_itty_mutex);
-
-		pr_debug("Will inherit terminal %d to %d\n", master, slave);
-	} else
-		pr_debug("Skip terminal inheritance %d to %d\n", master, slave);
-	return 0;
-}
-
-static int do_ve_itty_propagate(void *arg, int fd, int pid)
-{
-	struct pid *pid_master, *pid_slave;
-	ve_itty_entry_t *e = arg;
-	ssize_t ret, size;
-	char buf[128];
-	int fdx;
-
-	pid_master = pstree_pid_by_virt(e->master);
-	pid_slave = pstree_pid_by_virt(e->slave);
-
-	if (!pid_master || !pid_slave) {
-		pr_err("Can't find virt/real pids master %d %d slave %d %d\n",
-		       e->master, pid_master ? pid_master->real : -1,
-		       e->slave, pid_slave ? pid_slave->real : -1);
-		return -ENOENT;
-	}
-
-	size = snprintf(buf, sizeof(buf), "%d %d", pid_master->real, pid_slave->real) + 1;
-	pr_debug("Propagating terminal inheritance (virt %d to %d (real %d to %d))\n",
-		 e->master, e->slave, pid_master->real, pid_slave->real);
-
-	fdx = open(VE_CTTY_PATH, O_WRONLY);
-	if (fdx >= 0) {
-		ret = write(fdx, buf, size);
-		if (ret != size) {
-			ret = 0;
-			switch (-errno) {
-			case -EBUSY:
-				pr_debug("Target is busy, ignore\n");
-				break;
-			case -ESRCH:
-				pr_debug("Task not found, ignore\n");
-				break;
-			case -ENOTTY:
-				pr_debug("Terminal not found, ignore\n");
-				break;
-			default:
-				pr_perror("Can't write '%s' to %s", buf, VE_CTTY_PATH);
-				ret = -1;
-				break;
-			}
-			close(fdx);
-			return ret;
-		}
-	} else {
-		/*
-		 * When entry is not available we're likely
-		 * to run tests and because dump passed there
-		 * is no ctty opened, so should be safe to
-		 * simply ignore the propagation.
-		 */
-		if (errno == ENOENT) {
-			pr_warn_once("Can't open %s\n", VE_CTTY_PATH);
-			return 0;
-		} else {
-			pr_perror("Can't open %s", VE_CTTY_PATH);
-			return -1;
-		}
-	}
-	return 0;
-}
-
-static int ve_itty_propagate(pid_t master)
-{
-	ve_itty_entry_t *e;
-	int ret = 0;
-
-	mutex_lock(ve_itty_mutex);
-	list_for_each_entry(e, ve_itty_list, list) {
-		if (e->restored || e->master != master)
-			continue;
-		ret = userns_call(do_ve_itty_propagate, 0,
-				  e, sizeof(*e), -1);
-		if (ret)
-			break;
-		e->restored = true;
-	}
-	mutex_unlock(ve_itty_mutex);
-	return ret;
-}
-
-static int ve_itty_master_ready(pid_t slave)
-{
-	struct fdinfo_list_entry *fle;
-	struct list_head *list;
-	struct pid *pid_master;
-	struct tty_info *tmp;
-	ve_itty_entry_t *e;
-	bool ret = true;
-
-	mutex_lock(ve_itty_mutex);
-	list_for_each_entry(e, ve_itty_list, list) {
-		if (!e->restored || e->slave != slave)
-			continue;
-
-		pid_master = pstree_pid_by_virt(e->master);
-		if (!pid_master) {
-			pr_err("Can't find virt %d master\n", e->master);
-			continue;
-		}
-
-		list = &rsti(pid_master->item)->fds;
-		list_for_each_entry(fle, list, ps_list) {
-			if (fle->desc->ops->type != FD_TYPES__TTY)
-				continue;
-			tmp = container_of(fle->desc, struct tty_info, d);
-			if (tmp->driver->type == TTY_TYPE__CTTY)
-				continue;
-			if (fle->stage != FLE_RESTORED) {
-				ret = false;
-				goto out;
-			}
-		}
-	}
-out:
-	mutex_unlock(ve_itty_mutex);
-	return ret;
-}
-
 static void tty_free_bitmap(tty_bitmap_t *root)
 {
 	tty_bitmap_t *t, *next;
@@ -465,13 +269,6 @@ static int ctty_fd_get_index(int fd, const struct fd_parms *p)
 	}
 
 	if (!pti->sid) {
-		/*
-		 * If no sid provided it means we're
-		 * likely to inherit the terminal
-		 * from a parent.
-		 */
-		if (ve_can_inherit_tty(p->pid))
-		    goto new_ctty;
 		pr_err("Can't fetch tty SID\n");
 		return INDEX_ERR;
 	}
@@ -483,7 +280,6 @@ static int ctty_fd_get_index(int fd, const struct fd_parms *p)
 			return dinfo->index;
 	}
 
-new_ctty:
 	if (next_index < MAX_CTTY_INDEX)
 		return MIN_CTTY_INDEX + next_index++;
 
@@ -1054,8 +850,6 @@ out:
 	ret = tty_set_sid(slave);
 	if (!ret)
 		ret = tty_set_prgp(slave, info->tie->pgrp);
-	if (!ret)
-		ret = ve_itty_propagate(info->tie->pgrp);
 
 	close(slave);
 err:
@@ -1483,14 +1277,6 @@ static bool tty_deps_restored(struct tty_info *info)
 	struct tty_info *tmp;
 
 	if (is_ctty(info->driver)) {
-		/*
-		 * Make sure that if we're waiting for
-		 * tty propagation the master peer
-		 * is already restored.
-		 */
-		if (!ve_itty_master_ready(vpid(current)))
-			return false;
-
 		list_for_each_entry(fle, list, ps_list) {
 			if (fle->desc->ops->type != FD_TYPES__TTY || fle->desc == &info->d)
 				continue;
@@ -2713,15 +2499,11 @@ static int tty_verify_ctty(void)
 		}
 
 		if (!n) {
-			if (ve_can_inherit_tty(n->pid_real))
-				continue;
 			pr_err("ctty inheritance detected sid %d, "
 			       "no PTY peer with sid needed\n",
 			       d->sid);
 			return -ENOENT;
 		} else if (n->pid_real != d->pid_real) {
-			if (ve_can_inherit_tty(n->pid_real))
-				continue;
 			pr_err("ctty inheritance detected sid %d "
 			       "(ctty pid_real %d pty pid_real %d)\n",
 			       d->sid, d->pid_real, n->pid_real);
