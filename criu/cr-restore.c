@@ -1387,6 +1387,9 @@ static inline int fork_with_pid(struct pstree_item *item)
 
 		if (unlikely(item == root_item))
 			maybe_clone_parent(item, &ca);
+
+		if (ca.core->tc->has_tty_pgrp)
+			item->tty_pgrp = ca.core->tc->tty_pgrp;
 	} else {
 		/*
 		 * Helper entry will not get moved around and thus

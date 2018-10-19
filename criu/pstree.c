@@ -227,6 +227,7 @@ struct pstree_item *__alloc_pstree_item(bool rst)
 	item->pid->state = TASK_UNDEF;
 	item->pid->stop_signo = -1;
 	item->born_sid = -1;
+	item->tty_pgrp = -1;
 	item->pid->item = item;
 	futex_init(&item->task_st);
 
