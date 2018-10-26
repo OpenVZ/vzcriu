@@ -118,6 +118,7 @@ TST_NOFILE	:=				\
 		groups				\
 		pdeath_sig			\
 		file_fown			\
+		file_fown_dead			\
 		proc-self			\
 		eventfs00			\
 		epoll				\
