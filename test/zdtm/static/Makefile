@@ -141,6 +141,7 @@ TST_NOFILE	:=				\
 		groups				\
 		pdeath_sig			\
 		file_fown			\
+		file_fown_dead			\
 		file_cloexec			\
 		proc-self			\
 		eventfs00			\
