@@ -118,7 +118,6 @@ TST_NOFILE	:=				\
 		groups				\
 		pdeath_sig			\
 		file_fown			\
-		file_fown_dead			\
 		proc-self			\
 		eventfs00			\
 		epoll				\
@@ -281,6 +280,7 @@ TST_FILE	=				\
 		netns-nf			\
 		maps_file_prot			\
 		socket_close_data01		\
+		file_fown_dead			\
 
 TST_DIR		=				\
 		cwd00				\
