@@ -141,7 +141,6 @@ TST_NOFILE	:=				\
 		groups				\
 		pdeath_sig			\
 		file_fown			\
-		file_fown_dead			\
 		file_cloexec			\
 		proc-self			\
 		eventfs00			\
@@ -373,6 +372,7 @@ TST_FILE	=				\
 		sk-unix-listen02		\
 		sk-unix-listen03		\
 		sk-unix-listen04		\
+		file_fown_dead			\
 
 TST_DIR		=				\
 		cwd00				\
