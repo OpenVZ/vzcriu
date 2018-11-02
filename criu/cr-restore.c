@@ -1066,7 +1066,7 @@ static int wait_on_helpers_zombies(void)
 	return 0;
 }
 
-static int wait_exiting_children(void);
+static int wait_exiting_children(char *prefix);
 
 static int restore_one_zombie(CoreEntry *core)
 {
@@ -1083,7 +1083,7 @@ static int restore_one_zombie(CoreEntry *core)
 	prctl(PR_SET_NAME, (long)(void *)core->tc->comm, 0, 0, 0);
 
 	if (task_entries != NULL) {
-		wait_exiting_children();
+		wait_exiting_children("zombie");
 		zombie_prepare_signals();
 	}
 
@@ -1194,6 +1194,9 @@ static bool child_death_expected(void)
 		switch (pi->pid->state) {
 		case TASK_DEAD:
 		case TASK_HELPER:
+			pr_debug("\texpecting %s child %d to exit\n",
+				 pi->pid->state == TASK_DEAD ?
+				 "zombie" : "helper", vpid(pi));
 			return true;
 		}
 	}
@@ -1201,11 +1204,12 @@ static bool child_death_expected(void)
 	return false;
 }
 
-static int wait_exiting_children(void)
+static int wait_exiting_children(char *prefix)
 {
 	siginfo_t info;
 
 	if (!child_death_expected()) {
+		pr_debug("%s: no exiting children expected\n", prefix);
 		/*
 		 * Restoree has no children that should die, during restore,
 		 * wait for the next stage on futex.
@@ -1215,6 +1219,8 @@ static int wait_exiting_children(void)
 		restore_finish_stage(task_entries, CR_STATE_RESTORE);
 		return 0;
 	}
+
+	pr_debug("%s: gonna wait for children to exit", prefix);
 
 	/*
 	 * The restoree has children which will die - decrement itself from
@@ -1244,6 +1250,7 @@ static int wait_exiting_children(void)
 		return -1;
 	}
 
+	pr_debug("%s: finished waiting for children to exit\n", prefix);
 	return 0;
 }
 
@@ -1262,7 +1269,7 @@ static int restore_one_helper(void)
 	if (prepare_fds(current))
 		return -1;
 
-	if (wait_exiting_children())
+	if (wait_exiting_children("helper"))
 		return -1;
 
 	sfds_protected = false;
