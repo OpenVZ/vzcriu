@@ -1072,7 +1072,8 @@ static int restore_one_zombie(CoreEntry *core)
 	prctl(PR_SET_NAME, (long)(void *)core->tc->comm, 0, 0, 0);
 
 	if (task_entries != NULL) {
-		wait_exiting_children("zombie");
+		if (wait_exiting_children("zombie"))
+			return -1;
 		zombie_prepare_signals();
 	}
 
