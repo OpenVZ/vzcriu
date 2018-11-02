@@ -1083,7 +1083,8 @@ static int restore_one_zombie(CoreEntry *core)
 	prctl(PR_SET_NAME, (long)(void *)core->tc->comm, 0, 0, 0);
 
 	if (task_entries != NULL) {
-		wait_exiting_children("zombie");
+		if (wait_exiting_children("zombie"))
+			return -1;
 		zombie_prepare_signals();
 	}
 
@@ -1220,7 +1221,7 @@ static int wait_exiting_children(char *prefix)
 		return 0;
 	}
 
-	pr_debug("%s: gonna wait for children to exit", prefix);
+	pr_debug("%s: gonna wait for children to exit\n", prefix);
 
 	/*
 	 * The restoree has children which will die - decrement itself from
