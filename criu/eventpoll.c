@@ -123,13 +123,32 @@ static void dequeue_dinfo(struct eventpoll_dinfo *dinfo)
 	xfree(dinfo);
 }
 
+static int etfd_cmp(const void *__a, const void *__b)
+{
+	EventpollTfdEntry *a = (EventpollTfdEntry *)__a;
+	EventpollTfdEntry *b = (EventpollTfdEntry *)__b;
+
+	if (a->tfd > b->tfd)
+		return 1;
+	if (a->tfd < b->tfd)
+		return -1;
+	if (a->pid < b->pid)
+		return 1;
+	if (a->pid > b->pid)
+		return -1;
+	return 0;
+}
+
 int flush_eventpoll_dinfo_queue(void)
 {
 	struct eventpoll_dinfo *dinfo, *tmp;
-	ssize_t i;
+	size_t i, j;
 
 	list_for_each_entry_safe(dinfo, tmp, &dinfo_list, list) {
 		EventpollFileEntry *e = dinfo->e;
+		EventpollTfdEntry *tfde_copy = NULL;
+		size_t n_tfd_copy = e->n_tfd;
+		int ret;
 
 		for (i = 0; i < e->n_tfd; i++) {
 			EventpollTfdEntry *tfde = e->tfd[i];
@@ -155,22 +174,70 @@ int flush_eventpoll_dinfo_queue(void)
 			pr_debug("kid_lookup_epoll: rbsearch match pid %d efd %d tfd %d toff %u -> %d\n",
 				 dinfo->pid, dinfo->efd, tfde->tfd, dinfo->toff[i].off, t->idx);
 
-			/* Make sure the pid matches */
+			/*
+			 * If PIDs are mismatched it means the target file is
+			 * came from another process (either by SCM or via
+			 * inheritance: epoll inhereted but new targed in child
+			 * opened and added).
+			 */
 			if (t->pid != dinfo->pid) {
-				pr_debug("kid_lookup_epoll: pid mismatch %d %d efd %d tfd %d toff %u\n",
-					 dinfo->pid, t->pid, dinfo->efd, tfde->tfd, dinfo->toff[i].off);
+				pr_err("kid_lookup_epoll: pid mismatch %d %d efd %d tfd %d toff %u\n",
+				       dinfo->pid, t->pid, dinfo->efd, tfde->tfd, dinfo->toff[i].off);
+				tfde->has_pid = true;
+				tfde->pid = t->pid;
 				goto err;
 			}
 
 			tfde->tfd = t->idx;
 		}
 
-		pr_info_eventpoll("Dumping ", e);
-		if (pb_write_one(img_from_set(glob_imgset, CR_FD_FILES), dinfo->fe, PB_FILE))
-			goto err;
+		/*
+		 * Once we've resolved all targets we should drop those
+		 * which are in state of dup/add/close (epoll kernel engine
+		 * saves all records while the target may simply not exist).
+		 *
+		 * tfd:        4 events:       1d data: ...
+		 * tfd:      704 events:       1d data: ...
+		 *
+		 * Here an application added fd=4 to an epoll, then dup'ed
+		 * fd=4 to fd=704, added it to the epoll and then closed fd=704.
+		 * Thus after resolve we will have two tf=4 records in
+		 * the queue.
+		 */
+		if (e->n_tfd) {
+			qsort(e->tfd, e->n_tfd, sizeof(e->tfd[0]), etfd_cmp);
+			tfde_copy = xmemdup(e->tfd, sizeof(e->tfd[0]) * n_tfd_copy);
+			if (!tfde_copy) {
+				pr_err("kid_lookup_epoll: Can't allocate copy of tfds\n");
+				goto err;
+			}
 
-		for (i = 0; i < e->n_tfd; i++)
-			pr_info_eventpoll_tfd("Dumping: ", e->id, e->tfd[i]);
+			for (j = i = 1; i < n_tfd_copy; i++) {
+				if (!etfd_cmp(e->tfd[i], e->tfd[i-1])) {
+					pr_debug("kid_lookup_epoll: id %#x same tfd %u pid %d\n",
+						 e->id, e->tfd[i]->pid, e->tfd[i]->tfd);
+					continue;
+				}
+				e->tfd[j++] = e->tfd[i];
+			}
+			e->n_tfd = j;
+		}
+
+		pr_info_eventpoll("Dumping ", e);
+		ret = pb_write_one(img_from_set(glob_imgset, CR_FD_FILES), dinfo->fe, PB_FILE);
+		if (!ret) {
+			for (i = 0; i < e->n_tfd; i++)
+				pr_info_eventpoll_tfd("Dumping: ", e->id, e->tfd[i]);
+		}
+
+		if (tfde_copy) {
+			memcpy(e->tfd, tfde_copy, sizeof(e->tfd[0]) * n_tfd_copy);
+			e->n_tfd = n_tfd_copy;
+			xfree(tfde_copy);
+		}
+
+		if (ret)
+			goto err;
 
 		dequeue_dinfo(dinfo);
 	}
