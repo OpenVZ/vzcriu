@@ -1704,11 +1704,6 @@ static int dump_one_task(struct pstree_item *item, InventoryEntry *parent_ie)
 			pr_err("Dump files (pid: %d) failed with %d\n", pid, ret);
 			goto err_cure;
 		}
-		ret = flush_eventpoll_dinfo_queue();
-		if (ret) {
-			pr_err("Dump eventpoll (pid: %d) failed with %d\n", pid, ret);
-			goto err_cure;
-		}
 	}
 
 	mdc.pre_dump = false;
@@ -2259,6 +2254,9 @@ int cr_dump_tasks(pid_t pid)
 		inventory_entry__free_unpacked(parent_ie, NULL);
 		parent_ie = NULL;
 	}
+
+	if (flush_eventpoll_dinfo_queue())
+		goto err;
 
 	/*
 	 * It may happen that a process has completed but its files in
