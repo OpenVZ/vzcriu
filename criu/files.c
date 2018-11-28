@@ -1168,6 +1168,10 @@ int setup_and_serve_out(struct fdinfo_list_entry *fle, int new_fd)
 
 	if (serve_out_fd(pid, fle->fe->fd, d))
 		return -1;
+
+	if (eventpoll_notify_target(pid, fle->fe->fd))
+		return -1;
+
 	return 0;
 }
 

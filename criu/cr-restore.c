@@ -260,6 +260,9 @@ static int crtools_prepare_shared(void)
 	if (unix_prepare_shared())
 		return -1;
 
+	if (eventpoll_prepare_shared())
+		return -1;
+
 	return 0;
 }
 
@@ -387,6 +390,10 @@ static int root_prepare_shared(void)
 		goto err;
 
 	ret = add_fake_unix_queuers();
+	if (ret)
+		goto err;
+
+	ret = eventpoll_prepare_targets();
 	if (ret)
 		goto err;
 
