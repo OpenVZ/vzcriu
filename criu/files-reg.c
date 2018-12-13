@@ -1540,7 +1540,7 @@ static bool unsupported_nfs_file(const struct fd_link *link,
 int dump_one_reg_file(int lfd, u32 id, const struct fd_parms *p)
 {
 	struct fd_link _link, *link;
-	struct ns_id *nsid;
+	struct mount_info *mi;
 	struct cr_img *rimg;
 	char ext_id[64];
 	FileEntry fe = FILE_ENTRY__INIT;
@@ -1564,10 +1564,15 @@ int dump_one_reg_file(int lfd, u32 id, const struct fd_parms *p)
 		goto ext;
 	}
 
-	nsid = lookup_nsid_by_mnt_id(p->mnt_id);
-	if (nsid == NULL) {
+	mi = lookup_mnt_id(p->mnt_id);
+	if (mi == NULL) {
 		pr_err("Can't lookup mount=%d for fd=%d path=%s\n",
 			p->mnt_id, p->fd, link->name + 1);
+		return -1;
+	}
+
+	if (mnt_is_overmounted(mi)) {
+		pr_err("Open files on overmounted mounts are not supported yet\n");
 		return -1;
 	}
 
@@ -1592,7 +1597,7 @@ int dump_one_reg_file(int lfd, u32 id, const struct fd_parms *p)
 		return -1;
 	}
 
-	if (check_path_remap(link, p, lfd, id, nsid))
+	if (check_path_remap(link, p, lfd, id, mi->nsid))
 		return -1;
 	rfe.name	= &link->name[1];
 ext:
