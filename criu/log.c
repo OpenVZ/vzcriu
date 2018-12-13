@@ -397,15 +397,18 @@ void print_on_level(unsigned int loglevel, const char *format, ...)
 
 int write_pidfile(int pid)
 {
-	int fd;
+	int fd, ret;
 
 	fd = open(opts.pidfile, O_WRONLY | O_EXCL | O_CREAT, 0600);
 	if (fd == -1) {
-		pr_perror("Can't open %s", opts.pidfile);
+		pr_perror("pidfile: Can't open %s", opts.pidfile);
 		return -1;
 	}
 
-	dprintf(fd, "%d", pid);
-	close(fd);
-	return 0;
+	ret = dprintf(fd, "%d", pid);
+	if (ret < 0)
+		pr_perror("pidfile: Can't write pid %d to %s", pid, opts.pidfile);
+	pr_debug("pidfile: Wrote pid %d to %s (%d bytes)\n", pid, opts.pidfile, ret);
+	close_safe(&fd);
+	return ret > 0 ? 0 : -1;
 }
