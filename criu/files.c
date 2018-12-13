@@ -815,10 +815,22 @@ static struct fdinfo_list_entry *alloc_fle(int pid, FdinfoEntry *fe)
 static void __collect_desc_fle(struct fdinfo_list_entry *new_le, struct file_desc *fdesc)
 {
 	struct fdinfo_list_entry *le;
+	int ret;
 
-	list_for_each_entry_reverse(le, &fdesc->fd_info_head, desc_list)
-		if (pid_rst_prio_eq(le->pid, new_le->pid))
+	list_for_each_entry_reverse(le, &fdesc->fd_info_head, desc_list) {
+		ret = pstree_pid_cmp(le->pid, new_le->pid);
+		if (ret < 0) {
+			/*
+			 * Fall back into old algo, should not
+			 * happen though.
+			 */
+			pr_warn("Can't compare pids %d, %d (%d)\n",
+				new_le->pid, le->pid, ret);
+			if (pid_rst_prio_eq(le->pid, new_le->pid))
+				break;
+		} else if (ret == 0 || ret == 1)
 			break;
+	}
 	list_add(&new_le->desc_list, &le->desc_list);
 }
 
