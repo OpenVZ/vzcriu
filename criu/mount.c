@@ -1336,13 +1336,25 @@ static bool mnt_is_overmounted(struct mount_info *mi)
 {
 	struct mount_info *t, *c, *m = mi;
 
+	if (mi->is_overmounted != -1)
+		goto exit;
+
+	mi->is_overmounted = 0;
+
 	while (m->parent) {
+		if (mi->parent->is_overmounted == 1) {
+			mi->is_overmounted = 1;
+			goto exit;
+		}
+
 		/* Check there is no sibling-overmount */
 		list_for_each_entry(t, &m->parent->children, siblings) {
 			if (m == t)
 				continue;
-			if (issubpath(m->mountpoint, t->mountpoint))
-				return true;
+			if (issubpath(m->mountpoint, t->mountpoint)) {
+				mi->is_overmounted = 1;
+				goto exit;
+			}
 		}
 
 		/*
@@ -1355,10 +1367,19 @@ static bool mnt_is_overmounted(struct mount_info *mi)
 
 	/* Check there is no children-overmount */
 	list_for_each_entry(c, &mi->children, siblings)
-		if (!strcmp(c->mountpoint, mi->mountpoint))
-			return true;
+		if (!strcmp(c->mountpoint, mi->mountpoint)) {
+			mi->is_overmounted = 1;
+			goto exit;
+		}
 
-	return false;
+exit:
+	return mi->is_overmounted;
+}
+
+static int set_is_overmounted(struct mount_info *mi)
+{
+	mnt_is_overmounted(mi);
+	return 0;
 }
 
 /*
@@ -3086,6 +3107,7 @@ struct mount_info *mnt_entry_alloc()
 	new = xzalloc(sizeof(struct mount_info));
 	if (new) {
 		new->fd = -1;
+		new->is_overmounted = -1;
 		INIT_LIST_HEAD(&new->children);
 		INIT_LIST_HEAD(&new->siblings);
 		INIT_LIST_HEAD(&new->mnt_slave_list);
@@ -3565,6 +3587,8 @@ static int populate_mnt_ns(void)
 
 	if (validate_mounts(mntinfo, false))
 		return -1;
+
+	mnt_tree_for_each(pms, set_is_overmounted);
 
 	if (find_remap_mounts(pms))
 		return -1;
