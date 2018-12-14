@@ -2412,9 +2412,6 @@ skip_ns_bouncing:
 			goto out_kill;
 	}
 
-	if (write_restored_pid())
-		goto out_kill;
-
 	/* Unlock network before disabling repair mode on sockets */
 	network_unlock();
 
@@ -2444,6 +2441,12 @@ skip_ns_bouncing:
 	__restore_switch_stage(CR_STATE_COMPLETE);
 
 	join_ve0(getpid());
+
+	/*
+	 * Write pid from inside of ve0 context. Otherwise
+	 * there might be some limitations by the kernel.
+	 */
+	write_restored_pid();
 
 	if (ret == 0)
 		ret = compel_stop_on_syscall(task_entries->nr_threads,
