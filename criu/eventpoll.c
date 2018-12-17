@@ -213,10 +213,17 @@ int flush_eventpoll_dinfo_queue(void)
 			 * opened and added).
 			 */
 			if (t->pid != dinfo->pid) {
-				pr_debug("kid_lookup_epoll: pid mismatch %d %d efd %d tfd %d toff %u\n",
-					 dinfo->pid, t->pid, dinfo->efd, tfde->tfd, dinfo->toff[i].off);
+				struct pstree_item *task = pstree_item_by_real(t->pid);
+				if (!task) {
+					pr_err("kid_lookup_epoll: can't find process for pid %d\n", t->pid);
+					goto err;
+				}
+
+				pr_debug("kid_lookup_epoll: pid mismatch %d %d (%d) efd %d tfd %d toff %u\n",
+					 dinfo->pid, t->pid, vpid(task), dinfo->efd, tfde->tfd, dinfo->toff[i].off);
+
 				tfde->has_pid = true;
-				tfde->pid = t->pid;
+				tfde->pid = vpid(task);
 			}
 
 			tfde->tfd = t->idx;
