@@ -1245,6 +1245,7 @@ static int open_fdinfos(struct pstree_item *me)
 		progress = again = false;
 		clear_fds_event();
 
+		mutex_lock(&rsti(me)->fds_mutex);
 		list_for_each_entry_safe(fle, tmp, list, ps_list) {
 			st = fle->stage;
 			BUG_ON(st == FLE_RESTORED);
@@ -1252,6 +1253,7 @@ static int open_fdinfos(struct pstree_item *me)
 			if (ret == -1) {
 				pr_err("Unable to open fd=%d id=%#x\n",
 					fle->fe->fd, fle->fe->id);
+				mutex_unlock(&rsti(me)->fds_mutex);
 				goto splice;
 			}
 			if (st != fle->stage || ret == 0)
@@ -1271,6 +1273,7 @@ static int open_fdinfos(struct pstree_item *me)
 			if (ret == 1)
 			       again = true;
 		}
+		mutex_unlock(&rsti(me)->fds_mutex);
 		if (!progress && again)
 			wait_fds_event();
 	} while (again || progress);
