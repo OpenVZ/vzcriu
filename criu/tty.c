@@ -497,7 +497,7 @@ static int ve_itty_propagate(pid_t master, pid_t slave)
 static int ve_itty_master_ready(pid_t slave)
 {
 	struct fdinfo_list_entry *fle;
-	struct list_head *list;
+	struct rst_info *rinfo;
 	struct pid *pid_master;
 	struct tty_info *tmp;
 	ve_itty_entry_t *e;
@@ -514,18 +514,21 @@ static int ve_itty_master_ready(pid_t slave)
 			continue;
 		}
 
-		list = &rsti(pid_master->item)->fds;
-		list_for_each_entry(fle, list, ps_list) {
+		rinfo = rsti(pid_master->item);
+		mutex_lock(&rinfo->fds_mutex);
+		list_for_each_entry(fle, &rinfo->fds, ps_list) {
 			if (fle->desc->ops->type != FD_TYPES__TTY)
 				continue;
 			tmp = container_of(fle->desc, struct tty_info, d);
 			if (tmp->driver->type == TTY_TYPE__CTTY)
 				continue;
 			if (fle->stage != FLE_RESTORED) {
+				mutex_unlock(&rinfo->fds_mutex);
 				ret = false;
 				goto out;
 			}
 		}
+		mutex_unlock(&rinfo->fds_mutex);
 	}
 out:
 	mutex_unlock(ve_itty_mutex);
