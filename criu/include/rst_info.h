@@ -29,6 +29,7 @@ struct _MmEntry;
 
 struct rst_info {
 	struct list_head	fds;
+	mutex_t			fds_mutex;
 
 	void			*premmapped_addr;
 	unsigned long		premmapped_len;
