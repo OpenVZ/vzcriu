@@ -490,7 +490,6 @@ static int ve_itty_propagate(pid_t master, pid_t slave)
 
 	mutex_lock(ve_itty_mutex);
 	list_for_each_entry(e, ve_itty_list, list) {
-		//if (e->restored || e->master != master || e->slave != slave)
 		if (e->restored || e->master != master)
 			continue;
 		ret = userns_call(do_ve_itty_propagate, 0,
