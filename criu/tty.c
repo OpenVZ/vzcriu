@@ -364,16 +364,17 @@ static int ve_itty_insert(pid_t master, pid_t slave)
 				break;
 			}
 		}
-		mutex_unlock(ve_itty_mutex);
 
 		if (&e->list != ve_itty_list) {
 			pr_debug("   `- early exit\n");
+			mutex_unlock(ve_itty_mutex);
 			return 0;
 		}
 
 		e = shmalloc(sizeof(*e));
 		if (!e) {
 			pr_err("Can't insert itty %d to %d\n", master, slave);
+			mutex_unlock(ve_itty_mutex);
 			return -ENOMEM;
 		}
 
@@ -381,11 +382,10 @@ static int ve_itty_insert(pid_t master, pid_t slave)
 		e->slave	= slave;
 		e->restored	= false;
 
-		mutex_lock(ve_itty_mutex);
 		list_add_tail(&e->list, ve_itty_list);
-		mutex_unlock(ve_itty_mutex);
 
 		pr_debug("   `- inherit terminal %d to %d\n", master, slave);
+		mutex_unlock(ve_itty_mutex);
 	}
 	return 0;
 }
