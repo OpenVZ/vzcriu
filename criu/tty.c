@@ -197,6 +197,11 @@ typedef struct {
 	bool				restored;
 } ve_itty_entry_t;
 
+typedef struct {
+	ve_itty_entry_t			*pool;
+	size_t				nr_elems;
+} ve_itty_pool_t;
+
 typedef struct ve_ctty_entry_s {
 	struct list_head			list;
 	union {
@@ -212,6 +217,7 @@ typedef struct ve_ctty_entry_s {
 	};
 } ve_ctty_entry_t;
 
+static ve_itty_pool_t *ve_itty_pool;
 static struct list_head *ve_itty_list;
 static struct list_head *ve_ctty_list;
 
@@ -245,6 +251,10 @@ int ve_itty_init(void)
 	if (!ve_itty_list)
 		return -ENOMEM;
 	INIT_LIST_HEAD(ve_itty_list);
+
+	ve_itty_pool = shmalloc(sizeof(*ve_itty_pool));
+	if (!ve_itty_pool)
+		return -ENOMEM;
 
 	ve_itty_mutex = shmalloc(sizeof(*ve_itty_mutex));
 	if (!ve_itty_mutex) {
@@ -371,12 +381,14 @@ static int ve_itty_insert(pid_t master, pid_t slave)
 			return 0;
 		}
 
-		e = shmalloc(sizeof(*e));
-		if (!e) {
+		if (!ve_itty_pool->nr_elems) {
 			pr_err("Can't insert itty %d to %d\n", master, slave);
 			mutex_unlock(ve_itty_mutex);
 			return -ENOMEM;
 		}
+
+		e = &ve_itty_pool->pool[ve_itty_pool->nr_elems-1];
+		ve_itty_pool->nr_elems--;
 
 		e->master	= master;
 		e->slave	= slave;
@@ -387,6 +399,29 @@ static int ve_itty_insert(pid_t master, pid_t slave)
 		pr_debug("   `- inherit terminal %d to %d\n", master, slave);
 		mutex_unlock(ve_itty_mutex);
 	}
+	return 0;
+}
+
+static int ve_itty_setup(void)
+{
+	size_t nr_elems = 0, bytes = 0;
+	struct pstree_item *item;
+	struct list_head *h;
+
+	for_each_pstree_item(item)
+		nr_elems++;
+	list_for_each(h, &all_ttys)
+		nr_elems++;
+
+	bytes = sizeof(*ve_itty_pool->pool) * nr_elems;
+	ve_itty_pool->pool = shmalloc(bytes);
+	if (!ve_itty_pool->pool) {
+		pr_err("Can't allocate itty pool\n");
+		return -ENOMEM;
+	}
+	ve_itty_pool->nr_elems = nr_elems;
+
+	pr_debug("itty pool took %zu bytes\n", bytes);
 	return 0;
 }
 
@@ -2279,6 +2314,8 @@ static int prep_tty_restore_cb(struct pprep_head *ph)
 	if (tty_verify_active_pairs())
 		return -1;
 	if (tty_setup_slavery())
+		return -1;
+	if (ve_itty_setup())
 		return -1;
 	return 0;
 }
