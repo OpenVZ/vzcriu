@@ -212,7 +212,7 @@ static int probe_recv_one(struct nlmsghdr *h, struct ns_id *ns, void *arg)
 	return -1;
 }
 
-static int probe_err(int err, void *arg)
+static int probe_err(int err, struct ns_id *ns, void *arg)
 {
 	int expected_err = *(int *)arg;
 
@@ -722,16 +722,55 @@ static int inet_receive_one(struct nlmsghdr *h, struct ns_id *ns, void *arg)
 
 static int do_collect_req(int nl, struct sock_diag_req *req, int size,
 		int (*receive_callback)(struct nlmsghdr *h, struct ns_id *ns, void *),
+		int (*error_callback)(int err, struct ns_id *ns, void *),
 		struct ns_id *ns, void *arg)
 {
-	int tmp;
-
-	tmp = do_rtnl_req(nl, req, size, receive_callback, NULL, ns, arg);
-
+	int tmp = do_rtnl_req(nl, req, size, receive_callback, error_callback, ns, arg);
 	if (tmp == 0)
 		set_collect_bit(req->r.n.sdiag_family, req->r.n.sdiag_protocol);
-
 	return tmp;
+}
+
+static int collect_err(int err, struct ns_id *ns, void *arg)
+{
+	struct sock_diag_greq *gr = arg;
+	char family[32], proto[32];
+	char msg[256];
+
+	/*
+	 * If module is not compiled or unloaded,
+	 * we should simply pass error up to a caller
+	 * which then warn a user.
+	 */
+	if (err == -ENOENT)
+		return -ENOENT;
+
+	/*
+	 * Diag modules such as unix, packet, netlink
+	 * may return EINVAL on older kernels.
+	 */
+	if (err == -EINVAL) {
+		if (gr->family == AF_UNIX ||
+		    gr->family == AF_PACKET ||
+		    gr->family == AF_NETLINK)
+			return -EINVAL;
+	}
+
+	/*
+	 * Rest is more serious, just print enough information.
+	 * In case if everything is OK -- point as well.
+	 */
+	snprintf(msg, sizeof(msg),
+		 "Sockects collect procedure family %s proto %s\n",
+		 socket_family_name(gr->family, family, sizeof(family)),
+		 socket_proto_name(gr->protocol, proto, sizeof(proto)));
+
+	if (!err)
+		pr_info("%s: OK\n", msg);
+	else
+		pr_err("%s: %s\n", msg, strerror(-err));
+
+	return err;
 }
 
 int collect_sockets(struct ns_id *ns)
@@ -752,7 +791,7 @@ int collect_sockets(struct ns_id *ns)
 	req.r.u.udiag_show	= UDIAG_SHOW_NAME | UDIAG_SHOW_VFS |
 				  UDIAG_SHOW_PEER | UDIAG_SHOW_ICONS |
 				  UDIAG_SHOW_RQLEN;
-	tmp = do_collect_req(nl, &req, sizeof(req), unix_receive_one, ns, NULL);
+	tmp = do_collect_req(nl, &req, sizeof(req), unix_receive_one, collect_err, ns, &req.r.u);
 	if (tmp)
 		err = tmp;
 
@@ -765,7 +804,7 @@ int collect_sockets(struct ns_id *ns)
 					(1 << TCP_FIN_WAIT1) | (1 << TCP_FIN_WAIT2) |
 					(1 << TCP_CLOSE_WAIT) | (1 << TCP_LAST_ACK) |
 					(1 << TCP_CLOSING) | (1 << TCP_SYN_SENT);
-	tmp = do_collect_req(nl, &req, sizeof(req), inet_receive_one, ns, &req.r.i);
+	tmp = do_collect_req(nl, &req, sizeof(req), inet_receive_one, collect_err, ns, &req.r.i);
 	if (tmp)
 		err = tmp;
 
@@ -774,7 +813,7 @@ int collect_sockets(struct ns_id *ns)
 	req.r.i.sdiag_protocol	= IPPROTO_UDP;
 	req.r.i.idiag_ext	= 0;
 	req.r.i.idiag_states	= -1; /* All */
-	tmp = do_collect_req(nl, &req, sizeof(req), inet_receive_one, ns, &req.r.i);
+	tmp = do_collect_req(nl, &req, sizeof(req), inet_receive_one, collect_err, ns, &req.r.i);
 	if (tmp)
 		err = tmp;
 
@@ -783,7 +822,7 @@ int collect_sockets(struct ns_id *ns)
 	req.r.i.sdiag_protocol	= IPPROTO_UDPLITE;
 	req.r.i.idiag_ext	= 0;
 	req.r.i.idiag_states	= -1; /* All */
-	tmp = do_collect_req(nl, &req, sizeof(req), inet_receive_one, ns, &req.r.i);
+	tmp = do_collect_req(nl, &req, sizeof(req), inet_receive_one, collect_err, ns, &req.r.i);
 	if (tmp)
 		err = tmp;
 
@@ -792,12 +831,9 @@ int collect_sockets(struct ns_id *ns)
 	req.r.i.sdiag_protocol	= IPPROTO_RAW;
 	req.r.i.idiag_ext	= 0;
 	req.r.i.idiag_states	= -1; /* All */
-	tmp = do_collect_req(nl, &req, sizeof(req), inet_receive_one, ns, &req.r.i);
-	if (tmp) {
-		pr_warn("The current kernel doesn't support ipv4 raw_diag module\n");
-		if (tmp != -ENOENT)
-			err = tmp;
-	}
+	tmp = do_collect_req(nl, &req, sizeof(req), inet_receive_one, collect_err, ns, &req.r.i);
+	if (tmp)
+		err = tmp;
 
 	/* Collect IPv6 TCP sockets */
 	req.r.i.sdiag_family	= AF_INET6;
@@ -808,7 +844,7 @@ int collect_sockets(struct ns_id *ns)
 					(1 << TCP_FIN_WAIT1) | (1 << TCP_FIN_WAIT2) |
 					(1 << TCP_CLOSE_WAIT) | (1 << TCP_LAST_ACK) |
 					(1 << TCP_CLOSING) | (1 << TCP_SYN_SENT);
-	tmp = do_collect_req(nl, &req, sizeof(req), inet_receive_one, ns, &req.r.i);
+	tmp = do_collect_req(nl, &req, sizeof(req), inet_receive_one, collect_err, ns, &req.r.i);
 	if (tmp)
 		err = tmp;
 
@@ -817,7 +853,7 @@ int collect_sockets(struct ns_id *ns)
 	req.r.i.sdiag_protocol	= IPPROTO_UDP;
 	req.r.i.idiag_ext	= 0;
 	req.r.i.idiag_states	= -1; /* All */
-	tmp = do_collect_req(nl, &req, sizeof(req), inet_receive_one, ns, &req.r.i);
+	tmp = do_collect_req(nl, &req, sizeof(req), inet_receive_one, collect_err, ns, &req.r.i);
 	if (tmp)
 		err = tmp;
 
@@ -826,7 +862,7 @@ int collect_sockets(struct ns_id *ns)
 	req.r.i.sdiag_protocol	= IPPROTO_UDPLITE;
 	req.r.i.idiag_ext	= 0;
 	req.r.i.idiag_states	= -1; /* All */
-	tmp = do_collect_req(nl, &req, sizeof(req), inet_receive_one, ns, &req.r.i);
+	tmp = do_collect_req(nl, &req, sizeof(req), inet_receive_one, collect_err, ns, &req.r.i);
 	if (tmp)
 		err = tmp;
 
@@ -835,33 +871,24 @@ int collect_sockets(struct ns_id *ns)
 	req.r.i.sdiag_protocol	= IPPROTO_RAW;
 	req.r.i.idiag_ext	= 0;
 	req.r.i.idiag_states	= -1; /* All */
-	tmp = do_collect_req(nl, &req, sizeof(req), inet_receive_one, ns, &req.r.i);
-	if (tmp) {
-		pr_warn("The current kernel doesn't support ipv6 raw_diag module\n");
-		if (tmp != -ENOENT)
-			err = tmp;
-	}
+	tmp = do_collect_req(nl, &req, sizeof(req), inet_receive_one, collect_err, ns, &req.r.i);
+	if (tmp)
+		err = tmp;
 
 	req.r.p.sdiag_family	= AF_PACKET;
 	req.r.p.sdiag_protocol	= 0;
 	req.r.p.pdiag_show	= PACKET_SHOW_INFO | PACKET_SHOW_MCLIST |
 					PACKET_SHOW_FANOUT | PACKET_SHOW_RING_CFG;
-	tmp = do_collect_req(nl, &req, sizeof(req), packet_receive_one, ns, NULL);
-	if (tmp) {
-		pr_warn("The current kernel doesn't support packet_diag\n");
-		if (ns->ns_pid == 0 || tmp != -ENOENT) /* Fedora 19 */
-			err = tmp;
-	}
+	tmp = do_collect_req(nl, &req, sizeof(req), packet_receive_one, collect_err, ns, &req.r.p);
+	if (tmp)
+		err = tmp;
 
 	req.r.n.sdiag_family	= AF_NETLINK;
 	req.r.n.sdiag_protocol	= NDIAG_PROTO_ALL;
 	req.r.n.ndiag_show	= NDIAG_SHOW_GROUPS | NDIAG_SHOW_FLAGS;
-	tmp = do_collect_req(nl, &req, sizeof(req), netlink_receive_one, ns, NULL);
-	if (tmp) {
-		pr_warn("The current kernel doesn't support netlink_diag\n");
-		if (ns->ns_pid == 0 || tmp != -ENOENT) /* Fedora 19 */
-			err = tmp;
-	}
+	tmp = do_collect_req(nl, &req, sizeof(req), netlink_receive_one, collect_err, ns, &req.r.n);
+	if (tmp)
+		err = tmp;
 
 	if (err && (ns->type == NS_CRIU)) {
 		/*
@@ -935,8 +962,8 @@ int fini_dump_sockets(struct ns_id *ns)
 	req.r.n.sdiag_family	= AF_NETLINK;
 	req.r.n.sdiag_protocol	= NDIAG_PROTO_ALL;
 	req.r.n.ndiag_show	= NDIAG_SHOW_GROUPS | NDIAG_SHOW_FLAGS;
-	tmp = do_collect_req(nl, &req, sizeof(req), netlink_final_check_one, ns,
-						(void *)(unsigned long)st.st_ino);
+	tmp = do_collect_req(nl, &req, sizeof(req), netlink_final_check_one,
+			     collect_err, ns, (void *)(unsigned long)st.st_ino);
 	if (tmp) {
 		pr_warn("The current kernel doesn't support netlink_diag\n");
 		if (ns->ns_pid == 0 || tmp != -ENOENT) /* Fedora 19 */
