@@ -1881,8 +1881,6 @@ static int restore_task_with_children(void *_arg)
 		 */
 		if (restore_wait_other_tasks())
 			goto err;
-		if (ve_itty_resolve())
-			goto err;
 		fini_restore_mntns();
 		__restore_switch_stage(CR_STATE_RESTORE);
 	} else {
@@ -2585,9 +2583,6 @@ int cr_restore_tasks(void)
 		goto err;
 
 	if (fdstore_init())
-		goto err;
-
-	if (ve_itty_init())
 		goto err;
 
 	if (crtools_prepare_shared() < 0)
