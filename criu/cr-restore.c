@@ -2381,6 +2381,9 @@ skip_ns_bouncing:
 	if (fault_injected(FI_POST_RESTORE))
 		goto out_kill;
 
+	if (write_restored_pid())
+		goto out_kill;
+
 	ret = run_scripts(ACT_POST_RESTORE);
 	if (ret != 0) {
 		pr_err("Aborting restore due to post-restore script ret code %d\n", ret);
@@ -2397,9 +2400,6 @@ skip_ns_bouncing:
 		goto out_kill;
 
 	close_safe(&mnt_ns_fd);
-
-	if (write_restored_pid())
-		goto out_kill;
 
 	/* Unlock network before disabling repair mode on sockets */
 	network_unlock();
