@@ -261,8 +261,9 @@ char *spfs_manager_socket_path(void)
 	static char socket_path[PATH_MAX] = { };
 
 	if (strlen(socket_path) == 0) {
-		snprintf(socket_path, PATH_MAX, "%s/%s",
-			 spfs_manager_work_dir(), SPFS_MANAGER_SOCK_FILE);
+		int n = snprintf(socket_path, PATH_MAX, "%s/%s",
+				 spfs_manager_work_dir(), SPFS_MANAGER_SOCK_FILE);
+		BUG_ON(n >= PATH_MAX);
 	}
 	return socket_path;
 }
