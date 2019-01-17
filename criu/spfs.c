@@ -35,7 +35,8 @@ static int sock_seqpacket_connect(char *path)
 	memset(&addr, 0, sizeof(struct sockaddr_un));
 
 	addr.sun_family = AF_UNIX;
-	strncpy(addr.sun_path, path, sizeof(addr.sun_path) - 1);
+	strncpy(addr.sun_path, path, sizeof(addr.sun_path));
+	addr.sun_path[(sizeof(addr.sun_path) - 1)] = 0;
 
 	err = connect(sock, (struct sockaddr *)&addr, sizeof(addr));
 	if (err) {
