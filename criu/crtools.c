@@ -149,6 +149,9 @@ int main(int argc, char *argv[], char *envp[])
 
 	log_set_loglevel(opts.log_level);
 
+	if (vz_cpu_parse_cpuid_override())
+		return 1;
+
 	/*
 	 * There kernel might send us lethal signals in the following cases:
 	 * 1) Writing a pipe which reader has disappeared.
