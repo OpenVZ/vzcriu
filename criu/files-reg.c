@@ -819,6 +819,11 @@ static int collect_one_remap(void *obj, ProtobufCMessage *msg, struct cr_img *i)
 	return 0;
 }
 
+static int open_remap_spfs(struct reg_file_info *rfi, RemapFilePathEntry *rfe)
+{
+	return spfs_create_file(rfi->rfe->mnt_id, rfi->path, rfi->rfe->mode, rfi->rfe->size);
+}
+
 static int prepare_one_remap(struct remap_info *ri)
 {
 	int ret = -1;
@@ -837,6 +842,9 @@ static int prepare_one_remap(struct remap_info *ri)
 	case REMAP_TYPE__PROCFS:
 		/* handled earlier by collect_remap_dead_process */
 		ret = 0;
+		break;
+	case REMAP_TYPE__SPFS:
+		ret = open_remap_spfs(rfi, rpe);
 		break;
 	default:
 		pr_err("unknown remap type %u\n", rpe->remap_type);
@@ -1247,6 +1255,18 @@ static int dump_linked_remap(char *path, int len, const struct fd_parms *parms, 
 	return pb_write_one(img_from_set(glob_imgset, CR_FD_REMAP_FPATH), &rpe, PB_REMAP_FPATH);
 }
 
+static int dump_spfs_remap(char *path, int lfd, u32 id, const struct stat *ost)
+{
+	RemapFilePathEntry rpe = REMAP_FILE_PATH_ENTRY__INIT;
+
+	rpe.orig_id = id;
+	rpe.remap_id = ost->st_ino;
+	rpe.has_remap_type = true;
+	rpe.remap_type = REMAP_TYPE__SPFS;
+
+	return pb_write_one(img_from_set(glob_imgset, CR_FD_REMAP_FPATH), &rpe, PB_REMAP_FPATH);
+}
+
 static pid_t *dead_pids;
 static int n_dead_pids;
 
@@ -1338,6 +1358,11 @@ static bool is_sillyrename_name(char *name)
 			return false;
 
 	return true;
+}
+
+static inline bool spfs_file(const struct fd_parms *parms)
+{
+	return parms->fs_type == NFS_SUPER_MAGIC;
 }
 
 static inline bool nfs_silly_rename(char *rpath, const struct fd_parms *parms)
@@ -1447,6 +1472,12 @@ static int check_path_remap(struct fd_link *link, const struct fd_parms *parms, 
 		 */
 		pr_debug("Dump silly-rename linked remap for %x\n", id);
 		return dump_linked_remap(rpath + 1, plen - 1, parms, lfd, id, nsid, NULL);
+	}
+
+	if (spfs_file(parms)) {
+		pr_debug("Dump SPFS file remap for %x [%s]\n", id, rpath + 1);
+		if (dump_spfs_remap(rpath + 1, lfd, id, ost))
+			return -1;
 	}
 
 	mntns_root = mntns_get_root_fd(nsid);
@@ -2250,7 +2281,6 @@ int open_path(struct file_desc *d, int (*open_cb)(int mntns_root, struct reg_fil
 	int tmp = -1, mntns_root, level = 0;
 	struct reg_file_info *rfi;
 	char *orig_path = NULL;
-	struct mount_info *mi;
 	char path[PATH_MAX];
 	int inh_fd = -1;
 	int ret;
@@ -2319,14 +2349,6 @@ int open_path(struct file_desc *d, int (*open_cb)(int mntns_root, struct reg_fil
 	}
 
 	mntns_root = mntns_get_root_by_mnt_id(rfi->rfe->mnt_id);
-
-	mi = lookup_mnt_id(rfi->rfe->mnt_id);
-	if (mi && mi->fstype->mount == spfs_mount) {
-		if (spfs_create_file(rfi->rfe->mnt_id, rfi->path, rfi->rfe->mode, rfi->rfe->size) < 0) {
-			pr_err("Failed to create SPFS path\n");
-			return -1;
-		}
-	}
 
 ext:
 	tmp = open_cb(mntns_root, rfi, arg);
