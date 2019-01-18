@@ -14,4 +14,6 @@ extern uint32_t compel_fpu_feature_offset(unsigned int feature);
 extern void compel_cpu_clear_feature(unsigned int feature);
 extern void compel_cpu_copy_cpuinfo(compel_cpuinfo_t *c);
 
+extern int vz_cpu_parse_cpuid_override(void);
+
 #endif /* UAPI_COMPEL_CPU_H__ */
