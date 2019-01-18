@@ -38,6 +38,9 @@ static int cpu_has_unsupported_features(void)
 
 int cpu_init(void)
 {
+	if (vz_cpu_parse_cpuid_override())
+		return -1;
+
 	compel_cpu_copy_cpuinfo(&rt_cpu_info);
 
 	BUILD_BUG_ON(sizeof(struct xsave_struct) != XSAVE_SIZE);
