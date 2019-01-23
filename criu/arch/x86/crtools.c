@@ -126,7 +126,8 @@ int save_task_regs(void *x, user_regs_struct_t *regs, user_fpregs_struct_t *fpre
 		assign_xsave(XFEATURE_OPMASK, xsave, opmask_reg, extended_state_area);
 		assign_xsave(XFEATURE_ZMM_Hi256, xsave, zmm_upper, extended_state_area);
 		assign_xsave(XFEATURE_Hi16_ZMM, xsave, hi16_zmm, extended_state_area);
-		assign_xsave(XFEATURE_PKRU, xsave, pkru, extended_state_area);
+		if (compel_cpu_has_feature(X86_FEATURE_OSPKE))
+			assign_xsave(XFEATURE_PKRU, xsave, pkru, extended_state_area);
 	}
 
 #undef assign_reg
@@ -498,7 +499,8 @@ int restore_fpu(struct rt_sigframe *sigframe, CoreEntry *core)
 			assign_xsave(XFEATURE_OPMASK, xsave, opmask_reg, extended_state_area);
 			assign_xsave(XFEATURE_ZMM_Hi256, xsave, zmm_upper, extended_state_area);
 			assign_xsave(XFEATURE_Hi16_ZMM, xsave, hi16_zmm, extended_state_area);
-			assign_xsave(XFEATURE_PKRU, xsave, pkru, extended_state_area);
+			if (compel_cpu_has_feature(X86_FEATURE_OSPKE))
+				assign_xsave(XFEATURE_PKRU, xsave, pkru, extended_state_area);
 		}
 
 		x->xsave_hdr.xstate_bv = xstate_bv;
