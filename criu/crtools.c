@@ -57,6 +57,9 @@ static int early_init(void)
 	if (init_service_fd())
 		return 1;
 
+	if (vz_cpu_parse_cpuid_override())
+		return -1;
+
 	return 0;
 }
 
