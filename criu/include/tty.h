@@ -41,4 +41,7 @@ extern int devpts_check_bindmount(struct mount_info *m);
 
 #define VE_CTTY_PATH	"/sys/fs/cgroup/ve/ve.ctty"
 
+extern int ve_itty_init(void);
+extern int ve_itty_resolve(void);
+
 #endif /* __CR_TTY_H__ */
