@@ -48,6 +48,7 @@
 #include "lsm.h"
 #include "proc_parse.h"
 #include "kerndat.h"
+#include "istor/istor.h"
 
 #include "setproctitle.h"
 #include "sysctl.h"
@@ -295,6 +296,12 @@ int main(int argc, char *argv[], char *envp[])
 
 	if (!strcmp(argv[optind], "check"))
 		return cr_check() != 0;
+
+	if (!strcmp(argv[optind], "image-store")) {
+		DECLARE_ISTOR_OPTS(istor_opts);
+		istor_map_opts(&opts, &istor_opts);
+		return istor_server(&istor_opts);
+	}
 
 	if (!strcmp(argv[optind], "page-server"))
 		return cr_page_server(opts.daemon_mode, false, -1) != 0;
