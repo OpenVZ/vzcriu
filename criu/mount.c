@@ -3398,6 +3398,11 @@ int read_mnt_ns_img(void)
 	struct mount_info *pms = NULL;
 	struct ns_id *nsid;
 
+	if (!(root_ns_mask & CLONE_NEWNS)) {
+		mntinfo = 0;
+		return 0;
+	}
+
 	for (nsid = ns_ids; nsid != NULL; nsid = nsid->next) {
 		if (nsid->nd != &mnt_ns_desc)
 			continue;
