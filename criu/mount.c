@@ -4342,20 +4342,149 @@ int remount_readonly_mounts(void)
 	return call_helper_process(ns_remount_readonly_mounts, NULL);
 }
 
+/*
+ * These indicate the steps of DFS-next algoritm. If two trees have same
+ * sequence of steps during DFS-next walk, they have the same topology.
+ */
+enum tree_step {
+	STEP_STOP = -2,		/* no more nodes, DFS stopped */
+	STEP_CHILD = -1,	/* next node is our first child */
+	STEP_SIBLING = 0,	/* next node is our next sibling */
+	STEP_PARENT = 1,	/* N*STEP_PARENT - next node is a next sibling of our N-th parent */
+};
+
+static struct mount_info *mnt_subtree_step(struct mount_info *mi,
+					   struct mount_info *root,
+					   enum tree_step *step)
+{
+	if (step)
+		*step = STEP_CHILD;
+
+	if (!list_empty(&mi->children))
+		return list_entry(mi->children.next, struct mount_info,
+				  siblings);
+
+	if (step)
+		*step = STEP_SIBLING;
+
+	while (mi->parent && mi != root) {
+		if (mi->siblings.next == &mi->parent->children) {
+			mi = mi->parent;
+			if (step)
+				*step += STEP_PARENT;
+		} else {
+			return list_entry(mi->siblings.next, struct mount_info,
+					  siblings);
+		}
+	}
+
+	if (step)
+		*step = STEP_STOP;
+	return NULL;
+}
+
 static struct mount_info *mnt_subtree_next(struct mount_info *mi,
 					   struct mount_info *root)
 {
-	if (!list_empty(&mi->children))
-		return list_entry(mi->children.next,
-				  struct mount_info, siblings);
+	return mnt_subtree_step(mi, root, NULL);
+}
 
-	while (mi->parent && mi != root) {
-		if (mi->siblings.next == &mi->parent->children)
-			mi = mi->parent;
-		else
-			return list_entry(mi->siblings.next,
-					  struct mount_info, siblings);
+static void __resort_children(struct mount_info *parent)
+{
+	LIST_HEAD(list);
+
+	pr_info("\tResorting siblings on %d by mountpoint\n", parent->mnt_id);
+	while (!list_empty(&parent->children)) {
+		struct mount_info *m, *p;
+
+		m = list_first_entry(&parent->children, struct mount_info, siblings);
+		list_del(&m->siblings);
+
+		list_for_each_entry(p, &list, siblings)
+			if (strcmp(p->ns_mountpoint, m->ns_mountpoint) < 0)
+				break;
+
+		list_add_tail(&m->siblings, &p->siblings);
 	}
 
-	return NULL;
+	list_splice(&list, &parent->children);
+}
+
+static int __check_mounts(struct ns_id *ns)
+{
+	struct ns_id _new_ns = { .ns_pid = PROC_SELF, .nd = &mnt_ns_desc }, *new_ns = &_new_ns;
+	struct mount_info *mnt, *new_mnt, *new;
+	int step, new_step;
+
+	if (do_restore_task_mnt_ns(ns))
+		return -1;
+
+	pr_debug("Checking mountinfo for mntns %d:%d\n", ns->kid, ns->id);
+	new = collect_mntinfo(new_ns, true);
+	if (new == NULL)
+		return -1;
+
+
+	mnt = ns->mnt.mntinfo_tree;
+	new_mnt = new_ns->mnt.mntinfo_tree;
+	resort_siblings(mnt, __resort_children);
+	resort_siblings(new_mnt, __resort_children);
+
+	while (mnt && new_mnt) {
+		/* Consider that leading '.' was lost in collect_mnt_from_image. */
+		if (strcmp(mnt->ns_mountpoint, new_mnt->ns_mountpoint+1) ||
+		    strcmp(mnt->root, new_mnt->root) ||
+		    mnt->flags != new_mnt->flags ||
+		    mnt->sb_flags != new_mnt->sb_flags) {
+			pr_err("Mounts %s[%s,%d,%d] and %s[%s,%d,%d] does not match\n",
+			       mnt->ns_mountpoint, mnt->root, mnt->flags, mnt->sb_flags,
+			       new_mnt->ns_mountpoint+1, new_mnt->root, new_mnt->flags, new_mnt->sb_flags);
+			goto err;
+		}
+
+		mnt = mnt_subtree_step(mnt, ns->mnt.mntinfo_tree, &step);
+		new_mnt = mnt_subtree_step(new_mnt, new_ns->mnt.mntinfo_tree, &new_step);
+
+		if (step != new_step) {
+			pr_err("The restored mount tree for mntns %d:%d has wrong topology\n",
+			       ns->kid, ns->id);
+			goto err;
+		}
+	}
+
+	return 0;
+err:
+	pr_err("Old mntns tree:\n");
+	mnt_tree_show(ns->mnt.mntinfo_tree, 0);
+	pr_err("New mntns tree:\n");
+	mnt_tree_show(new_ns->mnt.mntinfo_tree, 0);
+	return -1;
+}
+
+static int ns_check_mounts(void *arg)
+{
+	struct ns_id *nsid;
+	int *ret = arg;
+
+	for (nsid = ns_ids; nsid != NULL; nsid = nsid->next) {
+		if (nsid->nd != &mnt_ns_desc)
+			continue;
+
+		*ret = __check_mounts(nsid);
+		if (*ret)
+			return 0;
+	}
+
+	return 0;
+}
+
+int check_mounts(void)
+{
+	int ret = 0;
+
+	pr_info("Check restored mount trees\n");
+	if (call_helper_process(ns_check_mounts, &ret))
+		return -1;
+
+	return ret;
 }

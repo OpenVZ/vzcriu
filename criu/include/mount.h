@@ -149,6 +149,7 @@ extern struct mount_info *parse_mountinfo(pid_t pid, struct ns_id *nsid, bool fo
 extern int check_mnt_id(void);
 
 extern int remount_readonly_mounts(void);
+extern int check_mounts(void);
 extern int try_remount_writable(struct mount_info *mi, bool ns);
 extern bool mnt_is_overmounted(struct mount_info *mi);
 

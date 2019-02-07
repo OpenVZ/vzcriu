@@ -3637,6 +3637,10 @@ static int sigreturn_restore(pid_t pid, struct task_restore_args *task_args, uns
 		if (root_ns_mask & CLONE_NEWNS &&
 		    remount_readonly_mounts())
 			goto err_nv;
+		if (opts.check_mounts &&
+		    root_ns_mask & CLONE_NEWNS &&
+		    check_mounts())
+			goto err_nv;
 	}
 
 	/*
