@@ -3555,15 +3555,12 @@ static int populate_mnt_ns(void)
 	struct ns_id *nsid;
 	int ret;
 
-	if (mnt_roots) {
-		/* mnt_roots is a tmpfs mount and it's private */
-		root_yard_mp = mnt_entry_alloc();
-		if (!root_yard_mp)
-			return -1;
+	root_yard_mp = mnt_entry_alloc();
+	if (!root_yard_mp)
+		return -1;
 
-		root_yard_mp->mountpoint = mnt_roots;
-		root_yard_mp->mounted = true;
-	}
+	root_yard_mp->mountpoint = mnt_roots;
+	root_yard_mp->mounted = true;
 
 	pms = mnt_build_tree(mntinfo, root_yard_mp);
 	if (!pms)
