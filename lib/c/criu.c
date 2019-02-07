@@ -1144,6 +1144,17 @@ int criu_set_page_server_address_port(const char *address, int port)
 	return criu_local_set_page_server_address_port(global_opts, address, port);
 }
 
+void criu_local_set_check_mounts(criu_opts *opts, bool val)
+{
+	opts->rpc->has_check_mounts = true;
+	opts->rpc->check_mounts = val;
+}
+
+void criu_set_check_mounts(bool val)
+{
+	criu_local_set_check_mounts(global_opts, val);
+}
+
 static CriuResp *recv_resp(int socket_fd)
 {
 	struct msghdr msg_hdr = {0};
