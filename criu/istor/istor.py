@@ -54,6 +54,10 @@ def unpack_istor_hdr(hdr):
     cmd, flags, oid_raw, size = unpack('<II16sQ', hdr)
     return cmd, flags, istor_oid_unpack(oid_raw), size
 
+def unpack_istor_dock_stat(raw):
+    pid, unix_sk, data_sk, transport = unpack('<iii32s', raw)
+    return pid, unix_sk, data_sk, transport.decode('utf-8')
+
 def repr_istor_hdr(raw=None):
     if not raw: raw = istor_hdr_zero()
     cmd, flags, oid, size = unpack_istor_hdr(raw)
@@ -113,15 +117,16 @@ class istor:
         return self.send_recv_istor_msg(pack_istor_hdr(cmd=ISTOR_CMD.INIT, oid=oid))
 
     def stor_list(self, oid=None):
-        oids = []
+        docks = []
         reply = self.send_recv_istor_msg(pack_istor_hdr(cmd=ISTOR_CMD.LIST, oid=oid))
         if reply:
             cmd, flags, oid, size = unpack_istor_hdr(reply)
             for i in range(0, size):
                 reply = self.recv_istor_msg()
-                cmd, flags, oid, size = unpack_istor_hdr(reply)
-                oids.append(oid)
-        return oids
+                cmd, flags, oid, stat_size = unpack_istor_hdr(reply)
+                data = self.receive(stat_size)
+                docks.append([oid, *unpack_istor_dock_stat(data)])
+        return docks
 
 conf = {}
 
@@ -160,7 +165,8 @@ if args.cmd == None:
     parser.print_help()
     sys.exit(1)
 
-loglevel = logging.DEBUG
+#loglevel = logging.DEBUG
+loglevel = logging.INFO
 
 logging.basicConfig(format = '%(asctime)s %(filename)s %(funcName)s %(message)s',
                     datefmt = '%m/%d/%Y %H:%M:%S', level = loglevel)
@@ -180,8 +186,9 @@ if args.cmd == 'init':
         cmd, flags, oid, size = unpack_istor_hdr(reply)
         print(oid)
 elif args.cmd == 'list':
-    oids = istorcli.stor_list()
-    for oid in oids:
-        print(oid)
+    docks = istorcli.stor_list()
+    for dock in docks:
+        print("uuid %s pid %8d unix-sk %6d data-sk %6d path %s" %
+              (dock[0], dock[1], dock[2], dock[3], dock[4]))
 
 istorcli.disconnect()

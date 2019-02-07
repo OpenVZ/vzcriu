@@ -492,6 +492,7 @@ int parse_options(int argc, char **argv, bool *usage_error,
 		{ "ps-socket",			required_argument,	0, 1091},
 		{ "config",			required_argument,	0, 1089},
 		{ "no-default-config",		no_argument,		0, 1090},
+		{ "istor",			required_argument,	0, 1500 },
 		{ },
 	};
 
@@ -778,6 +779,23 @@ int parse_options(int argc, char **argv, bool *usage_error,
 		case 1091:
 			opts.ps_socket = atoi(optarg);
 			break;
+		case 1500: {
+			/*
+			 * To tell where we should send/receive
+			 * images to/from. It implies istor server
+			 * is already running somewhere.
+			 *
+			 * --istor host:port
+			 */
+			char *pos = strchr(optarg, ':');
+			if (!pos)
+				goto bad_arg;
+			*pos = '\0';
+			opts.istor_use_server	= true;
+			opts.istor_server_ip	= optarg;
+			opts.istor_server_port	= atoi(&pos[1]);
+			break;
+		}
 		case 'V':
 			pr_msg("Version: %s\n", CRIU_VERSION);
 			if (strcmp(CRIU_GITID, "0"))

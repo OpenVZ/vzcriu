@@ -125,6 +125,13 @@ struct cr_options {
 	char			*work_dir;
 
 	/*
+	 * To write/read images on the istor server.
+	 */
+	bool			istor_use_server;
+	char			*istor_server_ip;
+	unsigned int		istor_server_port;
+
+	/*
 	 * When we scheduler for removal some functionality we first
 	 * deprecate it and it sits in criu for some time. By default
 	 * the deprecated stuff is not working, but it's still possible

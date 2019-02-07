@@ -7,8 +7,8 @@
 
 #include <uuid/uuid.h>
 
+#include "criu-log.h"
 #include "util.h"
-#include "log.h"
 
 #include "istor/istor-net.h"
 
@@ -38,10 +38,10 @@ const char * const cmd_repr(unsigned int cmd)
 #define __declare_cmd(_x) [_x] = __stringify_1(_x)
 	static const char * const cmds[ISTOR_CMD_MAX] = {
 		__declare_cmd(ISTOR_CMD_NONE),
-		__declare_cmd(ISTOR_CMD_INIT),
-		__declare_cmd(ISTOR_CMD_FINI),
-		__declare_cmd(ISTOR_CMD_FIND),
-		__declare_cmd(ISTOR_CMD_LIST),
+		__declare_cmd(ISTOR_CMD_DOCK_INIT),
+		__declare_cmd(ISTOR_CMD_DOCK_FINI),
+		__declare_cmd(ISTOR_CMD_DOCK_FIND),
+		__declare_cmd(ISTOR_CMD_DOCK_LIST),
 		__declare_cmd(ISTOR_CMD_ACK),
 		__declare_cmd(ISTOR_CMD_ERR),
 	};
@@ -125,13 +125,14 @@ ssize_t istor_recv_msg(int sk, istor_msg_t *in)
 	return len;
 }
 
-int istor_serve_connection(int sk, const struct istor_ops * const ops)
+static int __istor_serve_connection(int sk, const struct istor_ops * const ops)
 {
 	char *buf, *buf_in, *buf_out;
 	int ret = 0;
 
 	__check_self();
 
+	log_init_by_pid(getpid());
 	pr_debug("Start session on sk %d\n", sk);
 
 	buf = xmalloc(2 * ISTOR_BUF_DEFAULT_SIZE);
@@ -139,7 +140,7 @@ int istor_serve_connection(int sk, const struct istor_ops * const ops)
 		istor_send_msg_err(sk, -ENOMEM);
 		pr_err("Can't allocate receive/send buffers\n");
 		close(sk);
-		return 0;
+		return -ENOMEM;
 	}
 	buf_in = buf, buf_out = buf + ISTOR_BUF_DEFAULT_SIZE;
 
@@ -157,14 +158,14 @@ int istor_serve_connection(int sk, const struct istor_ops * const ops)
 			break;
 
 		switch (in->cmd) {
-		case ISTOR_CMD_INIT:
-			ret = ops->init(sk, in, &out);
+		case ISTOR_CMD_DOCK_INIT:
+			ret = ops->dock_init(sk, in, &out);
 			break;
-		case ISTOR_CMD_FINI:
-			ret = ops->fini(sk, in, &out);
+		case ISTOR_CMD_DOCK_FINI:
+			ret = ops->dock_fini(sk, in, &out);
 			break;
-		case ISTOR_CMD_LIST:
-			ret = ops->list(sk, in, &out);
+		case ISTOR_CMD_DOCK_LIST:
+			ret = ops->dock_list(sk, in, &out);
 			break;
 		default:
 			/* Unknown command */
@@ -190,5 +191,17 @@ int istor_serve_connection(int sk, const struct istor_ops * const ops)
 	pr_debug("Stop session on sk %d: %d\n", sk, ret);
 	close(sk);
 
-	return ret;
+	return 0;
+}
+
+int istor_serve_connection(int sk, const struct istor_ops * const ops)
+{
+	pid_t pid = fork();
+	if (pid < 0) {
+		pr_perror("Can't fork new session on a socket %d", sk);
+		return -1;
+	} else if (pid == 0)
+		exit(__istor_serve_connection(sk, ops));
+
+	return pid;
 }

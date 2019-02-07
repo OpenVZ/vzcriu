@@ -5,19 +5,22 @@
 #include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <alloca.h>
 
 #include <uuid/uuid.h>
 
 enum {
 	ISTOR_CMD_NONE		= 0,
 
-	ISTOR_CMD_INIT		= 1,
-	ISTOR_CMD_FINI		= 2,
-	ISTOR_CMD_FIND		= 3,
-	ISTOR_CMD_LIST		= 4,
+	ISTOR_CMD_DOCK_INIT	= 1,
+	ISTOR_CMD_DOCK_FINI	= 2,
+	ISTOR_CMD_DOCK_FIND	= 3,
+	ISTOR_CMD_DOCK_LIST	= 4,
 
-	ISTOR_CMD_ACK		= 5,
-	ISTOR_CMD_ERR		= 6,
+	ISTOR_CMD_IMG_OPEN	= 5,
+
+	ISTOR_CMD_ACK		= 128,
+	ISTOR_CMD_ERR		= 129,
 
 	ISTOR_CMD_MAX
 };
@@ -35,6 +38,14 @@ typedef struct {
 	uuid_t		oid;
 	uint64_t	size;
 } istor_msg_t;
+
+typedef struct {
+	istor_msg_t	hdr;
+	uint32_t	oflags;
+	uint32_t	mode;
+	uint32_t	path_len;
+	char		path[0];
+} istor_msg_img_open_t;
 
 typedef struct {
 	int		server_sk;

@@ -11,6 +11,7 @@
 #include "bfd.h"
 #include "log.h"
 #include "common/bug.h"
+#include "istor/istor.h"
 
 #define PAGE_RSS	1
 #define PAGE_ANON	2

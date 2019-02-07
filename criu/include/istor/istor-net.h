@@ -9,9 +9,9 @@
 #include "istor/istor-api.h"
 
 struct istor_ops {
-	int	(*init)(int sk, const istor_msg_t * const m, istor_msg_t **ptr_reply);
-	int	(*fini)(int sk, const istor_msg_t * const m, istor_msg_t **ptr_reply);
-	int	(*list)(int sk, const istor_msg_t * const m, istor_msg_t **ptr_reply);
+	int	(*dock_init)(int sk, const istor_msg_t * const m, istor_msg_t **ptr_reply);
+	int	(*dock_fini)(int sk, const istor_msg_t * const m, istor_msg_t **ptr_reply);
+	int	(*dock_list)(int sk, const istor_msg_t * const m, istor_msg_t **ptr_reply);
 };
 
 static inline void istor_enc_err(istor_msg_t *m, int error_code)

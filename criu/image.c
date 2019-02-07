@@ -20,6 +20,8 @@
 #include "namespaces.h"
 #include "rst-malloc.h"
 
+#include "istor/istor.h"
+
 bool ns_per_id = false;
 bool img_common_magic = true;
 TaskKobjIdsEntry *root_ids;
