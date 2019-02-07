@@ -884,6 +884,17 @@ int criu_add_external(char *key)
 	return criu_local_add_external(global_opts, key);
 }
 
+void criu_local_set_check_mounts(criu_opts *opts, bool val)
+{
+	opts->rpc->has_check_mounts = true;
+	opts->rpc->check_mounts = val;
+}
+
+void criu_set_check_mounts(bool val)
+{
+	criu_local_set_check_mounts(global_opts, val);
+}
+
 static CriuResp *recv_resp(int socket_fd)
 {
 	unsigned char *buf = NULL;
