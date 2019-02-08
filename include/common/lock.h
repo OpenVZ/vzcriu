@@ -49,6 +49,29 @@ static inline void futex_set(futex_t *f, uint32_t v)
 
 #define futex_init(f)	futex_set(f, 0)
 
+/* Wait on futex @__f value @__v become NOT in condition @__c */
+#define futex_wait_if_not_cond(__f, __v, __cond)		\
+	do {							\
+		int ret;					\
+		uint32_t tmp;					\
+								\
+		while (1) {					\
+			struct timespec to = {.tv_sec = 120};	\
+			tmp = futex_get(__f);			\
+			if ((tmp & FUTEX_ABORT_FLAG) ||		\
+			    !(tmp __cond (__v)))		\
+				break;				\
+			ret = sys_futex((uint32_t *)&(__f)->raw.counter, FUTEX_WAIT,\
+					tmp, &to, NULL, 0);	\
+			if (ret == -ETIMEDOUT)			\
+				continue;			\
+			if (ret == -EINTR || ret == -EWOULDBLOCK) \
+				continue;			\
+			if (ret < 0)				\
+				LOCK_BUG();			\
+		}						\
+	} while (0)
+
 /* Wait on futex @__f value @__v become in condition @__c */
 #define futex_wait_if_cond(__f, __v, __cond)			\
 	do {							\
