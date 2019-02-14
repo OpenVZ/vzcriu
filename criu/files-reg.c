@@ -1822,7 +1822,7 @@ out:
 	return ret;
 }
 
-static void rm_parent_dirs(int mntns_root, char *path, int count)
+void rm_parent_dirs(int mntns_root, char *path, int count)
 {
 	char *p, *prev = NULL;
 
@@ -1849,7 +1849,7 @@ static void rm_parent_dirs(int mntns_root, char *path, int count)
 }
 
 /* Construct parent dir name and mkdir parent/grandparents if they're not exist */
-static int make_parent_dirs_if_need(int mntns_root, char *path)
+int make_parent_dirs_if_need(int mntns_root, char *path)
 {
 	char *p, *last_delim;
 	int err, count = 0;
@@ -1869,6 +1869,11 @@ static int make_parent_dirs_if_need(int mntns_root, char *path)
 	}
 
 	p = path;
+
+	/* when used for absolute paths we need to skip 1-st '/' */
+	if (p[0] == '/')
+		p++;
+
 	do {
 		p = strchr(p, '/');
 		if (p)
