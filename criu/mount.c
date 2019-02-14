@@ -2531,7 +2531,7 @@ static int umount_clean_path(void)
 static int do_bind_mount(struct mount_info *mi)
 {
 	char mnt_fd_path[PSFDS];
-	char *root, *cut_root, rpath[PATH_MAX];
+	char *root = NULL, *cut_root, rpath[PATH_MAX];
 	unsigned long mflags;
 	int exit_code = -1;
 	bool shared = false;
@@ -2540,6 +2540,7 @@ static int do_bind_mount(struct mount_info *mi)
 	char *mnt_path = NULL;
 	struct stat st;
 	int umount_mnt_fd = -1, fd;
+	int level = 0;
 
 	if (mi->need_plugin) {
 		if (restore_ext_mount(mi))
@@ -2639,6 +2640,10 @@ do_bind:
 			goto err;
 		}
 
+		level = make_parent_dirs_if_need(-1, root);
+		if (level < 0)
+			goto err;
+
 		if (S_ISDIR(st.st_mode)) {
 			if (mkdir(root, (st.st_mode & ~S_IFMT))) {
 				pr_perror("Can't re-create deleted directory %s", root);
@@ -2698,6 +2703,9 @@ out:
 	mi->mounted = true;
 	exit_code = 0;
 err:
+	if (level)
+		rm_parent_dirs(-1, root, level);
+
 	if (umount_mnt_fd >= 0) {
 		int i;
 

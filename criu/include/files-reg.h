@@ -55,4 +55,7 @@ extern int strip_deleted(struct fd_link *link);
 
 extern int dead_pid_conflict(void);
 
+extern int make_parent_dirs_if_need(int mntns_root, char *path);
+extern void rm_parent_dirs(int mntns_root, char *path, int count);
+
 #endif /* __CR_FILES_REG_H__ */
