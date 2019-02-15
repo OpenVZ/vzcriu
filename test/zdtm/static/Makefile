@@ -353,6 +353,7 @@ TST_DIR		=				\
 		ghost_on_rofs			\
 		overmounted_file		\
 		pty05				\
+		unlink_dir			\
 
 TST_DIR_FILE	=				\
 		chroot				\
