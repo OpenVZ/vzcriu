@@ -439,6 +439,7 @@ TST_DIR		=				\
 		mount_complex_sharing		\
 		mnt_tracefs			\
 		mntns_deleted			\
+		mntns_deleted01			\
 		unlink_regular00		\
 		mnt_enablefs			\
 		autofs				\
@@ -704,6 +705,8 @@ sk-unix-listen04: CFLAGS += -DSK_UNIX_LISTEN02 -DSK_UNIX_LISTEN03
 cgroupv2_01:		LDLIBS += -pthread
 
 sk-netlink02: 		CFLAGS += -DZDTM_NETLINK_DATA
+
+mntns_deleted01: 	CFLAGS += -DZDTM_RM_MID
 
 $(LIB):	force
 	$(Q) $(MAKE) -C $(LIBDIR)

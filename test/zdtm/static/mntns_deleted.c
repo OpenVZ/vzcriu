@@ -25,6 +25,7 @@ char *dirname;
 TEST_OPTION(dirname, string, "directory name", 1);
 
 #define TEST_DIR_SRC "test-src"
+#define TEST_DIR_MID "test-mid"
 #define TEST_DIR_DST "test-dst"
 
 #define TEST_FILE_SRC "mntns-deleted-src"
@@ -32,7 +33,8 @@ TEST_OPTION(dirname, string, "directory name", 1);
 
 int main(int argc, char *argv[])
 {
-	char path_src[PATH_MAX], path_dst[PATH_MAX];
+	char path_mid[PATH_MAX], path_src[PATH_MAX], path_dst[PATH_MAX];
+	char path_dst_file[PATH_MAX], path_src_file[PATH_MAX];
 	int fd1, fd2;
 
 	test_init(argc, argv);
@@ -47,28 +49,35 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	snprintf(path_src, sizeof(path_src), "%s/%s", dirname, TEST_DIR_SRC);
+	snprintf(path_mid, sizeof(path_mid), "%s/%s", dirname, TEST_DIR_MID);
+	snprintf(path_src, sizeof(path_src), "%s/%s/%s", dirname, TEST_DIR_MID, TEST_DIR_SRC);
 	snprintf(path_dst, sizeof(path_dst), "%s/%s", dirname, TEST_DIR_DST);
+	snprintf(path_src_file, sizeof(path_src_file), "%s/%s/%s", dirname, TEST_DIR_MID, TEST_FILE_SRC);
+	snprintf(path_dst_file, sizeof(path_dst_file), "%s/%s", dirname, TEST_FILE_DST);
 
 	rmdir(path_src);
 	rmdir(path_dst);
 
-	unlink(TEST_FILE_SRC);
-	unlink(TEST_FILE_DST);
+	unlink(path_src_file);
+	unlink(path_dst_file);
 
-	if (mkdir(path_src, 0700) || mkdir(path_dst, 0700)) {
+	rmdir(path_mid);
+
+	if (mkdir(path_mid, 0700) ||
+	    mkdir(path_src, 0700) ||
+	    mkdir(path_dst, 0700)) {
 		pr_perror("mkdir");
 		return 1;
 	}
 
-	if ((fd1 = open(TEST_FILE_SRC, O_WRONLY | O_CREAT | O_TRUNC, 0600) < 0)) {
-		pr_perror("touching %s", TEST_FILE_SRC);
+	if ((fd1 = open(path_src_file, O_WRONLY | O_CREAT | O_TRUNC, 0600) < 0)) {
+		pr_perror("touching %s", path_src_file);
 		return 1;
 	}
 	close(fd1);
 
-	if ((fd2 = open(TEST_FILE_DST, O_WRONLY | O_CREAT | O_TRUNC, 0600) < 0)) {
-		pr_perror("touching %s", TEST_FILE_DST);
+	if ((fd2 = open(path_dst_file, O_WRONLY | O_CREAT | O_TRUNC, 0600) < 0)) {
+		pr_perror("touching %s", path_dst_file);
 		return 1;
 	}
 	close(fd2);
@@ -78,8 +87,8 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	if (mount(TEST_FILE_SRC, TEST_FILE_DST, NULL, MS_BIND | MS_MGC_VAL, NULL)) {
-		pr_perror("mount %s -> %s", TEST_FILE_SRC, TEST_FILE_DST);
+	if (mount(path_src_file, path_dst_file, NULL, MS_BIND | MS_MGC_VAL, NULL)) {
+		pr_perror("mount %s -> %s", path_src_file, path_dst_file);
 		return 1;
 	}
 
@@ -88,10 +97,17 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	if (unlink(TEST_FILE_SRC)) {
-		pr_perror("unlink %s", TEST_FILE_SRC);
+	if (unlink(path_src_file)) {
+		pr_perror("unlink %s", path_src_file);
 		return 1;
 	}
+
+#ifdef ZDTM_RM_MID
+	if (rmdir(path_mid)) {
+		pr_perror("rmdir %s", path_mid);
+		return 1;
+	}
+#endif
 
 	test_daemon();
 	test_waitsig();
