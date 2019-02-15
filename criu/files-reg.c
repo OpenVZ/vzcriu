@@ -64,6 +64,7 @@
 #include "files-reg.h"
 #include "plugin.h"
 #include "string.h"
+#include "criu-log.h"
 
 #define ATOP_ACCT_FILE "tmp/atop.d/atop.acct"
 #define PROCFS_SYSDIR  "proc/sys/"
@@ -1035,6 +1036,89 @@ out:
 	return ret;
 }
 
+static int remap_info_cmp(const void *_a, const void *_b)
+{
+	struct remap_info *a = ((struct remap_info **)_a)[0];
+	struct remap_info *b = ((struct remap_info **)_b)[0];
+	int32_t mnt_id_a = a->rfi->rfe->mnt_id;
+	int32_t mnt_id_b = b->rfi->rfe->mnt_id;
+
+	/*
+	 * If entries are laying on same mount, which is
+	 * a common case, we can safely use paths comparison.
+	 */
+	if (mnt_id_a == mnt_id_b)
+		return -strcmp(a->rfi->path, b->rfi->path);
+
+	/*
+	 * Otherwise simply order by mnt_id order for
+	 * simplicity case, in future we might need to
+	 * make more complex full path comparison.
+	 */
+	return mnt_id_a > mnt_id_b ? 1 : -1;
+}
+
+/*
+ * Ghost directories may carry ghost files but file descriptors
+ * are unordered in compare with this ghost paths, thus on cleanup
+ * we might try to remove the directory itself without waiting
+ * all files (and subdirectories) are cleaned up first.
+ *
+ * What we do here is we're move all ghost dirs into own list,
+ * sort them (to address subdirectories order) and move back
+ * to the end of the remap list.
+ */
+static int order_remap_dirs(void)
+{
+	struct remap_info *ri, *tmp;
+	struct remap_info **p, **t;
+	size_t nr_remaps = 0, i;
+	LIST_HEAD(ghost_dirs);
+
+	list_for_each_entry_safe(ri, tmp, &remaps, list) {
+		if (ri->rpe->remap_type != REMAP_TYPE__GHOST)
+			continue;
+		if (!ri->rfi->remap->is_dir)
+			continue;
+		list_move_tail(&ri->list, &ghost_dirs);
+		nr_remaps++;
+	}
+
+	if (list_empty(&ghost_dirs))
+		return 0;
+
+	p = t = xmalloc(sizeof(*p) * nr_remaps);
+	if (!p) {
+		list_splice_tail_init(&ghost_dirs, &remaps);
+		return -ENOMEM;
+	}
+
+	list_for_each_entry_safe(ri, tmp, &ghost_dirs, list) {
+		list_del_init(&ri->list);
+		p[0] = ri, p++;
+	}
+
+	qsort(t, nr_remaps, sizeof(t[0]), remap_info_cmp);
+
+	for (i = 0; i < nr_remaps; i++) {
+		list_add_tail(&t[i]->list, &remaps);
+		pr_debug("remap: ghost mov dir %s\n", t[i]->rfi->path);
+	}
+
+	if (!pr_quelled(LOG_DEBUG)) {
+		list_for_each_entry_safe(ri, tmp, &remaps, list) {
+			if (ri->rpe->remap_type != REMAP_TYPE__GHOST)
+				continue;
+			pr_debug("remap: ghost ord %3s %s\n",
+				 ri->rfi->remap->is_dir ? "dir" : "fil",
+				 ri->rfi->path);
+		}
+	}
+
+	xfree(t);
+	return 0;
+}
+
 int prepare_remaps(void)
 {
 	struct remap_info *ri;
@@ -1050,7 +1134,22 @@ int prepare_remaps(void)
 			break;
 	}
 
-	return ret;
+	return ret ?: order_remap_dirs();
+}
+
+static int clean_ghost_dir(char *rpath)
+{
+	int ret;
+
+	ret = rmdir(rpath);
+	/*
+	 * When deleting ghost directories here is two issues:
+	 * - names might duplicate, so we may receive ENOENT
+	 *   and should not treat it as an error
+	 */
+	if (ret && errno != ENOENT)
+		return -1;
+	return 0;
 }
 
 static int clean_one_remap(struct remap_info *ri)
@@ -1091,7 +1190,7 @@ nomntns:
 	pr_info("Unlink remap %s\n", path);
 
 	if (remap->is_dir)
-		ret = rmdir(path);
+		ret = clean_ghost_dir(path);
 	else
 		ret = unlink(path);
 
@@ -1127,6 +1226,7 @@ static struct collect_image_info remap_cinfo = {
 	.pb_type = PB_REMAP_FPATH,
 	.priv_size = sizeof(struct remap_info),
 	.collect = collect_one_remap,
+	.flags = COLLECT_SHARED,
 };
 
 /* Tiny files don't need to generate chunks in ghost image. */
