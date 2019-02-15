@@ -625,6 +625,7 @@ static int collect_remap_ghost(struct reg_file_info *rfi, RemapFilePathEntry *rp
 	gf = shmalloc(sizeof(*gf));
 	if (!gf)
 		return -1;
+	file_remap_init(&gf->remap);
 
 	/*
 	 * The rpath is shmalloc-ed because we create the ghost
@@ -711,14 +712,12 @@ static int collect_remap_linked(struct reg_file_info *rfi, RemapFilePathEntry *r
 	rm = xmalloc(sizeof(*rm));
 	if (!rm)
 		return -1;
+	file_remap_init(rm);
 
 	rrfi = container_of(rdesc, struct reg_file_info, d);
 	pr_info("Remapped %s -> %s\n", rfi->path, rrfi->path);
 
 	rm->rpath = rrfi->path;
-	rm->is_dir = false;
-	rm->uid = -1;
-	rm->gid = -1;
 	rm->rmnt_id = rfi->rfe->mnt_id;
 	rfi->remap = rm;
 	return 0;
