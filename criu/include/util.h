@@ -252,7 +252,11 @@ int cut_path_ending(char *path, char *sub_path);
 /*
  * mkdir -p
  */
-int mkdirpat(int fd, const char *path, int mode);
+int mkdirpat_precise(int fd, const char *path, int mode, const char **new);
+static inline int mkdirpat(int fd, const char *path, int mode)
+{
+	return mkdirpat_precise(fd, path, mode, NULL);
+}
 /*
  * mkdir -p `dirname $path`
  */
