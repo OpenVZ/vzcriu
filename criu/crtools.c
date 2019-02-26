@@ -48,7 +48,9 @@
 #include "lsm.h"
 #include "proc_parse.h"
 #include "kerndat.h"
+
 #include "istor/istor.h"
+#include "istor/istor-client.h"
 
 #include "setproctitle.h"
 #include "sysctl.h"

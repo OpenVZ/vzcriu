@@ -94,6 +94,8 @@
 #include "images/pagemap.pb-c.h"
 #include "images/siginfo.pb-c.h"
 
+#include "istor/istor-client.h"
+
 #include "restore.h"
 
 #include "cr-errno.h"
@@ -2584,6 +2586,9 @@ int cr_restore_tasks(void)
 	 */
 	rlimit_unlimit_nofile_self();
 
+	if (istor_client_init(&opts))
+		return -1;
+
 	if (cr_plugin_init(CR_PLUGIN_STAGE__RESTORE))
 		return -1;
 
@@ -2636,6 +2641,7 @@ int cr_restore_tasks(void)
 	ret = restore_root_task(root_item);
 err:
 	cr_plugin_fini(CR_PLUGIN_STAGE__RESTORE, ret);
+	istor_client_fini();
 	return ret;
 }
 

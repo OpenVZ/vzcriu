@@ -88,6 +88,8 @@
 #include "dump.h"
 #include "eventpoll.h"
 
+#include "istor/istor-client.h"
+
 struct rlim_ctl {
 	struct rlimit		old_rlimit;
 	struct rlimit		new_rlimit;
@@ -1915,6 +1917,7 @@ err_rc:
 	}
 	free_pstree(root_item);
 	seccomp_free_entries();
+	istor_client_fini();
 	ret = -1;
 	goto err;
 }
@@ -1926,6 +1929,9 @@ int cr_pre_dump_tasks(pid_t pid)
 	int ret = -1;
 
 	ve_bc_read(pid, &bc_set);
+
+	if (istor_client_init(&opts))
+		goto err;
 
 	if (images_init(false))
 		goto err;
@@ -2104,6 +2110,7 @@ static int cr_dump_finish(int ret)
 	free_aufs_branches();
 	free_userns_maps();
 	free_ttys();
+	istor_client_fini();
 
 	close_service_fd(CR_PROC_FD_OFF);
 
@@ -2129,6 +2136,9 @@ int cr_dump_tasks(pid_t pid)
 	pr_info("========================================\n");
 	pr_info("Dumping processes (pid: %d comm: %s)\n", pid, __task_comm_info(pid));
 	pr_info("========================================\n");
+
+	if (istor_client_init(&opts))
+		goto err;
 
 	if (images_init(false))
 		goto err;
