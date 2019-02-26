@@ -33,6 +33,7 @@ obj-y			+= image-desc.o
 obj-y			+= image.o
 obj-y			+= istor/istor.o
 obj-y			+= istor/istor-net.o
+obj-y			+= istor/istor-client.o
 obj-y			+= istor/istor-dock.o
 obj-y			+= istor/istor-rwlock.o
 obj-y			+= ipc_ns.o
