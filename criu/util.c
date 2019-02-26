@@ -1447,7 +1447,7 @@ out:
 	return -1;
 }
 
-int setup_tcp_client(char *hostname)
+int setup_tcp_client(char *hostname, unsigned short port)
 {
 	struct sockaddr_storage saddr;
 	struct addrinfo addr_criteria, *addr_list, *p;
@@ -1484,9 +1484,9 @@ int setup_tcp_client(char *hostname)
 		}
 
 		inet_ntop(p->ai_family, ip, ipstr, sizeof(ipstr));
-		pr_info("Connecting to server %s:%u\n", ipstr, opts.port);
+		pr_info("Connecting to server %s:%u\n", ipstr, port);
 
-		if (get_sockaddr_in(&saddr, ipstr, opts.port))
+		if (get_sockaddr_in(&saddr, ipstr, port))
 			goto out;
 
 		sk = socket(saddr.ss_family, SOCK_STREAM, IPPROTO_TCP);
@@ -1496,7 +1496,7 @@ int setup_tcp_client(char *hostname)
 		}
 
 		if (connect(sk, (struct sockaddr *)&saddr, sizeof(saddr)) < 0) {
-			pr_info("Can't connect to server %s:%u\n", ipstr, opts.port);
+			pr_info("Can't connect to server %s:%u\n", ipstr, port);
 			close(sk);
 			sk = -1;
 		} else {
