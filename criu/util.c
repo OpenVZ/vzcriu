@@ -57,6 +57,7 @@
 #include "pstree.h"
 
 #include "cr-errno.h"
+#include "istor/istor-client.h"
 
 #define VMA_OPT_LEN	128
 
@@ -515,6 +516,13 @@ int install_service_fd(enum sfd_type type, int fd)
 int get_service_fd(enum sfd_type type)
 {
 	BUG_ON((int)type <= SERVICE_FD_MIN || (int)type >= SERVICE_FD_MAX);
+
+	/*
+	 * For istor mode there is no such thing
+	 * as image directory.
+	 */
+	if (type == IMG_FD_OFF && opts.istor_use_server)
+		return -1;
 
 	if (!test_bit(type, sfd_map))
 		return -1;
