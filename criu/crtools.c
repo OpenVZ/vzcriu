@@ -299,7 +299,7 @@ int main(int argc, char *argv[], char *envp[])
 	if (!strcmp(argv[optind], "check"))
 		return cr_check() != 0;
 
-	if (!strcmp(argv[optind], "image-store")) {
+	if (!strcmp(argv[optind], "istor")) {
 		DECLARE_ISTOR_OPTS(istor_opts);
 		istor_map_opts(&opts, &istor_opts);
 		return istor_server(&istor_opts);
