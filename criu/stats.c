@@ -73,7 +73,6 @@ static struct timing *get_timing(int t)
 		return &rstats->timings[t];
 	}
 
-	BUG();
 	return NULL;
 }
 
@@ -82,7 +81,8 @@ void timing_start(int t)
 	struct timing *tm;
 
 	tm = get_timing(t);
-	gettimeofday(&tm->start, NULL);
+	if (tm)
+		gettimeofday(&tm->start, NULL);
 }
 
 void timing_stop(int t)
@@ -91,8 +91,10 @@ void timing_stop(int t)
 	struct timeval now;
 
 	tm = get_timing(t);
-	gettimeofday(&now, NULL);
-	timeval_accumulate(&tm->start, &now, &tm->total);
+	if (tm) {
+		gettimeofday(&now, NULL);
+		timeval_accumulate(&tm->start, &now, &tm->total);
+	}
 }
 
 static void encode_time(int t, u_int32_t *to)
@@ -100,7 +102,8 @@ static void encode_time(int t, u_int32_t *to)
 	struct timing *tm;
 
 	tm = get_timing(t);
-	*to = tm->total.tv_sec * USEC_PER_SEC + tm->total.tv_usec;
+	if (tm)
+		*to = tm->total.tv_sec * USEC_PER_SEC + tm->total.tv_usec;
 }
 
 static void display_stats(int what, StatsEntry *stats)
