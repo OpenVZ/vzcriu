@@ -10,6 +10,9 @@
 
 #include "common/lock.h"
 #include "common/err.h"
+
+#include "setproctitle.h"
+
 #include "criu-log.h"
 #include "bitops.h"
 #include "log.h"
@@ -203,6 +206,8 @@ static int istor_boot_dock(istor_dock_t *dock, pid_t owner_pid)
 static int istor_serve_dock(istor_dock_t *dock)
 {
 	int ret;
+
+	setproctitle("istor dock %s",  ___istor_repr_id(dock->oid));
 
 	for (;;) {
 		ret = istor_dock_stage_wait(dock, DOCK_STAGE_NOTIFY);
