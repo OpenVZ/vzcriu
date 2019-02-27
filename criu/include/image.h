@@ -147,6 +147,9 @@ extern off_t img_raw_size(struct cr_img *img);
 extern int open_image_dir(char *dir);
 extern void close_image_dir(void);
 
+extern int img_check_magic(struct cr_img *img, int oflags, int type, char *path);
+extern int img_write_magic(struct cr_img *img, int oflags, int type);
+
 extern struct cr_img *open_image_at(int dfd, int type, unsigned long flags, ...);
 #define open_image(typ, flags, ...) open_image_at(-1, typ, flags, ##__VA_ARGS__)
 extern int open_image_lazy(struct cr_img *img);

@@ -20,7 +20,7 @@
 #include "namespaces.h"
 #include "rst-malloc.h"
 
-#include "istor/istor.h"
+#include "istor/istor-client.h"
 
 bool ns_per_id = false;
 bool img_common_magic = true;
@@ -333,7 +333,7 @@ static inline u32 head_magic(int oflags)
 	return oflags & O_SERVICE ? IMG_SERVICE_MAGIC : IMG_COMMON_MAGIC;
 }
 
-static int img_check_magic(struct cr_img *img, int oflags, int type, char *path)
+int img_check_magic(struct cr_img *img, int oflags, int type, char *path)
 {
 	u32 magic;
 
@@ -358,7 +358,7 @@ static int img_check_magic(struct cr_img *img, int oflags, int type, char *path)
 	return 0;
 }
 
-static int img_write_magic(struct cr_img *img, int oflags, int type)
+int img_write_magic(struct cr_img *img, int oflags, int type)
 {
 	if (img_common_magic && (type != CR_FD_INVENTORY)) {
 		u32 cmagic;
@@ -395,6 +395,9 @@ static int do_open_image(struct cr_img *img, int dfd, int type, unsigned long of
 	int ret, flags;
 
 	flags = oflags & ~(O_NOBUF | O_SERVICE | O_FORCE_LOCAL);
+
+	if (opts.istor_use_server)
+		return istor_client_do_open_image(img, dfd, type, flags, path);
 
 	/*
 	 * For pages images dedup we need to open images read-write on
@@ -600,6 +603,9 @@ int write_img_buf(struct cr_img *img, const void *ptr, int size)
 {
 	int ret;
 
+	if (opts.istor_use_server)
+		return istor_client_write_img_buf(img, ptr, size);
+
 	ret = bwrite(&img->_x, ptr, size);
 	if (ret == size)
 		return 0;
@@ -621,6 +627,9 @@ int write_img_buf(struct cr_img *img, const void *ptr, int size)
 int read_img_buf_eof(struct cr_img *img, void *ptr, int size)
 {
 	int ret;
+
+	if (opts.istor_use_server)
+		return istor_client_read_img_buf_eof(img, ptr, size);
 
 	ret = bread(&img->_x, ptr, size);
 	if (ret == size)
@@ -682,6 +691,9 @@ int read_img_str(struct cr_img *img, char **pstr, int size)
 off_t img_raw_size(struct cr_img *img)
 {
 	struct stat stat;
+
+	if (opts.istor_use_server)
+		return istor_client_img_raw_size(img);
 
 	if (fstat(img->_x.fd, &stat)) {
 		pr_perror("Failed to get image stats");

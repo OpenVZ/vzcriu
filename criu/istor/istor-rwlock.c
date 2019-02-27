@@ -47,6 +47,8 @@ static void wake_waters(istor_rwlock_t *lock)
 			      FUTEX_WAKE, INT_MAX, NULL, NULL, 0) < 0);
 }
 
+#ifdef ISTOR_RWLOCK_DEBUG
+
 static void pr_debug_stat(const char * const prefix, const istor_rwlock_t * const lock)
 {
 	if (!pr_quelled(LOG_DEBUG)) {
@@ -56,6 +58,10 @@ static void pr_debug_stat(const char * const prefix, const istor_rwlock_t * cons
 			 (v & _ISTOR_WMASK));
 	}
 }
+
+#else
+# define pr_debug_stat(prefix, ...)
+#endif
 
 void istor_read_lock(istor_rwlock_t *lock)
 {

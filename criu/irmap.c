@@ -424,6 +424,8 @@ in:
 
 	if (empty_image(*img)) {
 		close_image(*img);
+		if (opts.istor_use_server)
+			goto noistor;
 		if (dir == AT_FDCWD) {
 			pr_info("Searching irmap cache in parent\n");
 			dir = openat(get_service_fd(IMG_FD_OFF),
@@ -433,7 +435,7 @@ in:
 			if (errno != ENOENT)
 				return -1;
 		}
-
+noistor:
 		pr_info("No irmap cache\n");
 		return 0;
 	}

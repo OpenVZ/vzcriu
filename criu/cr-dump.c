@@ -2133,12 +2133,12 @@ int cr_dump_tasks(pid_t pid)
 
 	ve_bc_read(pid, &bc_set);
 
+	if (istor_client_init(&opts))
+		goto err;
+
 	pr_info("========================================\n");
 	pr_info("Dumping processes (pid: %d comm: %s)\n", pid, __task_comm_info(pid));
 	pr_info("========================================\n");
-
-	if (istor_client_init(&opts))
-		goto err;
 
 	if (images_init(false))
 		goto err;

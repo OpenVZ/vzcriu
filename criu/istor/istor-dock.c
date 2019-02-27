@@ -8,16 +8,20 @@
 #include <arpa/inet.h>
 #include <sys/un.h>
 
+#include "criu-log.h"
+
 #include "common/lock.h"
 #include "common/err.h"
+#include "common/bug.h"
+#include "common/scm.h"
 
 #include "setproctitle.h"
 
-#include "criu-log.h"
 #include "bitops.h"
 #include "log.h"
 
 #include "istor/istor-dock.h"
+#include "istor/istor-net.h"
 #include "istor/istor-rwlock.h"
 
 #ifdef LOG_PREFIX
@@ -49,6 +53,7 @@ const char *istor_dock_stage_repr(uint32_t stage)
 		[DOCK_STAGE_CREATED]	= "CREATED",
 		[DOCK_STAGE_READY]	= "READY",
 		[DOCK_STAGE_NOTIFY]	= "NOTIFY",
+		[DOCK_STAGE_COMPLETE]	= "COMPLETE",
 	};
 
 	if (stage < ARRAY_SIZE(stages)) {
@@ -89,12 +94,14 @@ static istor_dock_t *istor_alloc_locked(void)
 
 	uuid_generate(dock->oid);
 	istor_dock_stage_init(dock);
+	mutex_init(&dock->notify_mutex);
+	atomic_set(&dock->ref, 1);
 	dock->owner_pid = -1;
 	dock->unix_sk = -1;
 	dock->data_sk = -1;
 
 	istor_rbnode_init(&dock->node);
-	istor_rbtree_insert(&shared->tree, &dock->node);
+	istor_rbtree_insert_new(&shared->tree, &dock->node, dock->oid);
 
 	pr_debug("alloc: dock %p oid %s pos %4lu\n",
 		 dock, ___istor_repr_id(dock->oid), pos);
@@ -108,11 +115,19 @@ static istor_dock_t *istor_lookup_locked(const uuid_t oid)
 	return e ? container_of(e, istor_dock_t, node) : NULL;
 }
 
-static void istor_delete_locked(istor_dock_t *dock)
+static int istor_delete_locked(istor_dock_t *dock)
 {
-	unsigned long pos = (dock - shared->docks) / sizeof(shared->docks[0]);
+	unsigned long pos;
+
+	if (istor_dock_put_locked(dock)) {
+		istor_dock_get_locked(dock);
+		return -EBUSY;
+	}
+
+	pos = (dock - shared->docks) / sizeof(shared->docks[0]);
 	pr_debug("free : dock %p oid %s pos %4lu\n",
 		 dock, ___istor_repr_id(dock->oid), pos);
+
 	if (dock->unix_sk >= 0)
 		close(dock->unix_sk);
 	if (dock->data_sk >= 0)
@@ -120,6 +135,7 @@ static void istor_delete_locked(istor_dock_t *dock)
 	shared->nr_docks--;
 	set_bit(pos, shared->free_mark);
 	istor_rbnode_delete(&shared->tree, &dock->node);
+	return 0;
 }
 
 int istor_delete(const uuid_t oid)
@@ -130,10 +146,8 @@ int istor_delete(const uuid_t oid)
 	if (!istor_oid_is_zero(oid)) {
 		istor_write_lock(&shared->lock);
 		dock = istor_lookup_locked(oid);
-		if (dock) {
-			istor_delete_locked(dock);
-			ret = 0;
-		}
+		if (dock)
+			ret = istor_delete_locked(dock);
 		istor_write_unlock(&shared->lock);
 	}
 	return ret;
@@ -141,12 +155,15 @@ int istor_delete(const uuid_t oid)
 
 static size_t mk_unix_path(pid_t pid, char *path, size_t size)
 {
-	 size_t len = snprintf(path, size, "X/criu-dock-%d", pid);
+	 size_t len = snprintf(path, size, "X/istor-dock-%d", pid);
 	 path[0] = '\0';
+
+	 BUG_ON(len >= ISTOR_DOCK_MAX_TRANSPORT_LEN);
+
 	 return len;
 }
 
-static void gen_transport_addr(istor_dock_t *dock,
+static void gen_transport_addr(const istor_dock_t *dock,
 			       struct sockaddr_un *addr,
 			       unsigned int *addrlen)
 {
@@ -154,6 +171,16 @@ static void gen_transport_addr(istor_dock_t *dock,
 	*addrlen = mk_unix_path(dock->owner_pid, addr->sun_path,
 				sizeof(addr->sun_path));
 	*addrlen += sizeof(addr->sun_family);
+}
+
+int istor_dock_send_fd(const istor_dock_t *dock, int sk, int fd)
+{
+	struct sockaddr_un addr;
+	unsigned int addrlen;
+
+	gen_transport_addr(dock, &addr, &addrlen);
+	send_fd(sk, &addr, addrlen, fd);
+	return 0;
 }
 
 void istor_dock_fill_stat(const istor_dock_t *dock, istor_dock_stat_t *st)
@@ -170,20 +197,20 @@ void istor_dock_fill_stat(const istor_dock_t *dock, istor_dock_stat_t *st)
 
 static int istor_boot_dock(istor_dock_t *dock, pid_t owner_pid)
 {
-	istor_uuid_str_t oidbuf;
 	struct sockaddr_un addr;
 	unsigned int addrlen;
 
 	log_init_by_pid(getpid());
-	pr_debug("booting dock %s\n", __istor_repr_id(dock->oid, oidbuf));
+
+	__istor_repr_short_id(dock->oid, dock->oidbuf);
+	pr_debug("%s: booting\n", dock->oidbuf);
 
 	dock->owner_pid = owner_pid;
 
 	dock->unix_sk = socket(AF_UNIX, SOCK_DGRAM | SOCK_NONBLOCK, 0);
 	if (dock->unix_sk < 0) {
 		int _errno = errno;
-		pr_perror("Unable to create a socket for %s",
-			  __istor_repr_id(dock->oid, oidbuf));
+		pr_perror("%s: Unable to create a socket", dock->oidbuf);
 		istor_dock_stage_abort(dock);
 		return -_errno;
 	}
@@ -192,33 +219,121 @@ static int istor_boot_dock(istor_dock_t *dock, pid_t owner_pid)
 
 	if (bind(dock->unix_sk, (struct sockaddr *)&addr, addrlen)) {
 		int _errno = errno;
-		pr_perror("Unable to bind a socket for %s",
-			  __istor_repr_id(dock->oid, oidbuf));
+		pr_perror("%s: Unable to bind a socket", dock->oidbuf);
 		istor_dock_stage_abort(dock);
 		return -_errno;
 	}
 
-	pr_debug("booted  dock %s\n", __istor_repr_id(dock->oid, oidbuf));
+	pr_debug("%s: booted\n", dock->oidbuf);
 	istor_dock_stage_set(dock, DOCK_STAGE_READY);
 	return 0;
+}
+
+static int istor_serve_dock_img_write(istor_dock_t *dock)
+{
+	return -EINVAL;
+}
+
+static int istor_serve_dock_img_open(istor_dock_t *dock)
+{
+	istor_msg_img_open_t *mopen = (void *)dock->notify.data;
+	istor_imgset_t *iset = dock->owner_iset;
+	istor_img_t *img;
+	size_t path_size;
+
+	path_size = istor_msg_t_psize(mopen);
+
+	if (path_size > ISTOR_IMG_NAME_LEN) {
+		pr_debug("%s: iopen: path %s is too long\n",
+			 dock->oidbuf, mopen->path);
+		return -ENAMETOOLONG;
+	}
+
+	img = istor_img_lookup(iset, mopen->path, -1);
+	if (img) {
+		if (!(mopen->flags & (O_TRUNC))) {
+			pr_debug("%s: iopen: path %s is busy\n",
+				 dock->oidbuf, mopen->path);
+			return -EBUSY;
+		}
+		/*
+		 * FIXME reset image data!
+		 */
+	} else if (!(mopen->flags & (O_CREAT))) {
+		pr_debug("%s: iopen: path %s doesn't exist\n",
+			 dock->oidbuf, mopen->path);
+		return -ENOENT;
+	}
+
+	img = istor_img_alloc(iset, mopen->path);
+	if (IS_ERR(img)) {
+		pr_err("%s: iopen: can't allocate %s: %ld\n",
+		       dock->oidbuf, mopen->path, PTR_ERR(img));
+		return PTR_ERR(img);
+	}
+
+	img->flags	= mopen->flags;
+	img->mode	= mopen->mode;
+
+	pr_debug("%s: iopen: name %s idx %ld flags %0o mode %#x\n",
+		 dock->oidbuf, img->name, img->idx, img->flags, img->mode);
+
+	return img->idx;
 }
 
 static int istor_serve_dock(istor_dock_t *dock)
 {
 	int ret;
 
-	setproctitle("istor dock %s",  ___istor_repr_id(dock->oid));
+	setproctitle("istor dock %s",  dock->oidbuf);
+
+	dock->owner_iset = istor_imgset_alloc();
+	if (IS_ERR(dock->owner_iset)) {
+		errno = -PTR_ERR(dock->owner_iset);
+		pr_err("%s: Can't allocate image set", dock->oidbuf);
+		dock->owner_iset = NULL;
+		exit(1);
+	}
 
 	for (;;) {
 		ret = istor_dock_stage_wait(dock, DOCK_STAGE_NOTIFY);
 		if (ret < 0) {
-			pr_err("Abort processing on %s\n",
-			       ___istor_repr_id(dock->oid));
-			return -1;
+			pr_err("%s: Abort on stage\n", dock->oidbuf);
+			return -EINTR;
 		}
+
+		pr_debug("%s: notify %s\n", dock->oidbuf,
+			 cmd_repr(dock->notify.cmd));
+
+		switch (dock->notify.cmd) {
+		case ISTOR_CMD_IMG_OPEN:
+			dock->notify.ret = istor_serve_dock_img_open(dock);
+			break;
+		case ISTOR_CMD_IMG_STAT:
+			dock->notify.ret = -EINVAL;
+			break;
+		case ISTOR_CMD_IMG_WRITE:
+			dock->notify.ret = istor_serve_dock_img_write(dock);
+			break;
+		case ISTOR_CMD_IMG_READ:
+			dock->notify.ret = -EINVAL;
+			break;
+		case ISTOR_CMD_IMG_CLOSE:
+			dock->notify.ret = -EINVAL;
+			break;
+		default:
+			break;
+		}
+		istor_dock_stage_set(dock, DOCK_STAGE_COMPLETE);
 	}
 
 	return 0;
+}
+
+int istor_dock_serve_cmd_locked(istor_dock_t *dock)
+{
+	istor_dock_stage_set(dock, DOCK_STAGE_NOTIFY);
+	return istor_dock_stage_wait(dock, DOCK_STAGE_COMPLETE);
 }
 
 static void istor_dock_clean_on_fork(clean_on_fork_t *args)
@@ -273,15 +388,24 @@ static istor_dock_t *istor_new_dock_locked(clean_on_fork_t *args)
 istor_dock_t *istor_lookup_alloc(const uuid_t oid, bool alloc, clean_on_fork_t *args)
 {
 	istor_dock_t *dock;
+
 	if (alloc) {
 		istor_write_lock(&shared->lock);
-		dock = istor_lookup_locked(oid);
-		if (!dock)
+		if (!istor_oid_is_zero(oid))
+			dock = ERR_PTR(-EINVAL);
+		else
 			dock = istor_new_dock_locked(args);
 		istor_write_unlock(&shared->lock);
 	} else {
 		istor_read_lock(&shared->lock);
-		dock = istor_lookup_locked(oid);
+		if (!istor_oid_is_zero(oid)) {
+			dock = istor_lookup_locked(oid);
+			if (dock)
+				istor_dock_get_locked(dock);
+			else
+				dock = ERR_PTR(-ENOENT);
+		} else
+			dock = ERR_PTR(-ENOENT);
 		istor_read_unlock(&shared->lock);
 	}
 	return dock;

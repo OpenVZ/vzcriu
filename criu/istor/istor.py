@@ -19,14 +19,17 @@ from datetime import datetime
 from enum import Enum
 
 class ISTOR_CMD(Enum):
-    NONE    = 0
-    INIT    = 1
-    FINI    = 2
-    FIND    = 3
-    LIST    = 4
-    EXIT    = 5
-    ACK     = 6
-    ERR     = 7
+    NONE        = 0
+    INIT        = 1
+    FINI        = 2
+    LIST        = 3
+    IMG_OPEN    = 21
+    IMG_STAT    = 22
+    IMG_WRITE   = 23
+    IMG_READ    = 24
+    IMG_CLOSE   = 25
+    ACK         = 128
+    ERR         = 129
 
 class ISTOR_FLAGS(Enum):
     NONE    = 0
@@ -120,11 +123,11 @@ class istor:
         docks = []
         reply = self.send_recv_istor_msg(pack_istor_hdr(cmd=ISTOR_CMD.LIST, oid=oid))
         if reply:
-            cmd, flags, oid, size = unpack_istor_hdr(reply)
-            for i in range(0, size):
+            _, nr_docks, _, _ = unpack_istor_hdr(reply)
+            for i in range(0, nr_docks):
                 reply = self.recv_istor_msg()
-                cmd, flags, oid, stat_size = unpack_istor_hdr(reply)
-                data = self.receive(stat_size)
+                cmd, flags, oid, size = unpack_istor_hdr(reply)
+                data = self.receive(size - 32)
                 docks.append([oid, *unpack_istor_dock_stat(data)])
         return docks
 

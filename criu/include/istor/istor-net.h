@@ -12,19 +12,29 @@ struct istor_ops {
 	int	(*dock_init)(int sk, const istor_msg_t * const m, istor_msg_t **ptr_reply);
 	int	(*dock_fini)(int sk, const istor_msg_t * const m, istor_msg_t **ptr_reply);
 	int	(*dock_list)(int sk, const istor_msg_t * const m, istor_msg_t **ptr_reply);
+
+	int	(*img_open)(int sk, const istor_msg_t * const m, istor_msg_t **ptr_reply);
+	int	(*img_stat)(int sk, const istor_msg_t * const m, istor_msg_t **ptr_reply);
+	int	(*img_write)(int sk, const istor_msg_t * const m, istor_msg_t **ptr_reply);
+	int	(*img_read)(int sk, const istor_msg_t * const m, istor_msg_t **ptr_reply);
+	int	(*img_close)(int sk, const istor_msg_t * const m, istor_msg_t **ptr_reply);
 };
 
 static inline void istor_enc_err(istor_msg_t *m, int error_code)
 {
 	memset(m, 0, sizeof(*m));
-	m->cmd = ISTOR_CMD_ERR;
-	m->flags = error_code;
+
+	m->cmd		= ISTOR_CMD_ERR;
+	m->flags	= error_code;
+	m->size		= sizeof(*m);
 }
 
 static inline void istor_enc_ok(istor_msg_t *m, const uuid_t oid)
 {
 	memset(m, 0, sizeof(*m));
-	m->cmd = ISTOR_CMD_ACK;
+	m->cmd		= ISTOR_CMD_ACK;
+	m->size		= sizeof(*m);
+
 	if (oid)
 		memcpy(m->oid, oid, sizeof(m->oid));
 }
@@ -32,12 +42,14 @@ static inline void istor_enc_ok(istor_msg_t *m, const uuid_t oid)
 extern const char * const cmd_repr(unsigned int cmd);
 extern ssize_t istor_send(int sk, void *buf, size_t size);
 extern ssize_t istor_recv(int sk, void *buf, size_t size);
+
 extern ssize_t istor_send_msg(int sk, istor_msg_t *out);
 extern ssize_t istor_recv_msg(int sk, istor_msg_t *in);
 
 static inline ssize_t istor_send_msg_err(int sk, int err)
 {
 	istor_msg_t m;
+
 	istor_enc_err(&m, err);
 	return istor_send_msg(sk, &m);
 }

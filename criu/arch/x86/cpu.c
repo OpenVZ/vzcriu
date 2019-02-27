@@ -20,6 +20,8 @@
 
 #include "cpu.h"
 
+#include "istor/istor-client.h"
+
 #include "protobuf.h"
 #include "images/cpuinfo.pb-c.h"
 
@@ -443,6 +445,9 @@ err:
 
 int cpuinfo_dump(void)
 {
+	if (istor_client_init(&opts))
+		return -1;
+
 	if (cpu_init())
 		return -1;
 	if (cpu_dump_cpuinfo())
@@ -452,6 +457,9 @@ int cpuinfo_dump(void)
 
 int cpuinfo_check(void)
 {
+	if (istor_client_init(&opts))
+		return -1;
+	
 	if (cpu_init())
 		return 1;
 

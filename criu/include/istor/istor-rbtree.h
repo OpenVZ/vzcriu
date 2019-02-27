@@ -82,4 +82,11 @@ static inline istor_rbnode_t *istor_rbtree_lookup(istor_rbtree_t *tree, const vo
 	return NULL;
 }
 
+static inline void istor_rbtree_insert_new(istor_rbtree_t *tree, istor_rbnode_t *e, const void * const param)
+{
+	rb_init_node(&e->node);
+	istor_rbtree_lookup(tree, param);
+	rb_link_and_balance(&tree->root, &e->node, tree->parent, &tree->root.rb_node);
+}
+
 #endif /* __CR_ISTOR_RBTREE_H__ */

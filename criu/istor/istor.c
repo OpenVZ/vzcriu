@@ -87,13 +87,8 @@ static int istor_serve_dock_init(int sk, const istor_msg_t * const m, istor_msg_
 	istor_msg_t *reply = *ptr_reply;
 	istor_dock_t *e = NULL;
 
-	if (!istor_oid_is_zero(m->oid)) {
-		istor_enc_err(reply, -EINVAL);
-		return 0;
-	}
-
 	e = istor_lookup_alloc(m->oid, true, &args);
-	if (IS_ERR_OR_NULL(e)) {
+	if (IS_ERR(e)) {
 		istor_enc_err(reply, PTR_ERR(e));
 		return 0;
 	}
@@ -105,14 +100,11 @@ static int istor_serve_dock_init(int sk, const istor_msg_t * const m, istor_msg_
 static int istor_serve_dock_fini(int sk, const istor_msg_t * const m, istor_msg_t **ptr_reply)
 {
 	istor_msg_t *reply = *ptr_reply;
+	int ret;
 
-	if (istor_oid_is_zero(m->oid)) {
-		istor_enc_ok(reply, NULL);
-		return 0;
-	}
-
-	if (istor_delete(m->oid)) {
-		istor_enc_err(reply, -ENOENT);
+	ret = istor_delete(m->oid);
+	if (ret) {
+		istor_enc_err(reply, ret);
 		return 0;
 	}
 
@@ -120,52 +112,159 @@ static int istor_serve_dock_fini(int sk, const istor_msg_t * const m, istor_msg_
 	return 0;
 }
 
-struct list_iter_args {
+struct dock_list_iter_args {
 	int			sk;
-	istor_msg_t		*reply;
-	istor_dock_stat_t	*dock_st;
+	istor_msg_t		hdr;
+	istor_dock_stat_t	dock_st;
 };
 
-static int list_iter(const istor_dock_t * const dock, void *args)
+static int dock_list_iter(const istor_dock_t * const dock, void *args)
 {
-	struct list_iter_args *a = args;
+	struct dock_list_iter_args *a = args;
 
-	istor_dock_fill_stat(dock, a->dock_st);
+	istor_dock_fill_stat(dock, &a->dock_st);
 
-	istor_enc_ok(a->reply, dock->oid);
-	a->reply->size = sizeof(*a->dock_st);
+	istor_enc_ok(&a->hdr, dock->oid);
+	a->hdr.size += sizeof(a->dock_st);
 
-	if (istor_send_msg(a->sk, a->reply) < 0)
+	if (istor_send_msg(a->sk, &a->hdr) < 0)
 		return -1;
-	if (istor_send(a->sk, a->dock_st, sizeof(*a->dock_st)) < 0)
-		return -1;
-
 	return 0;
 }
 
 static int istor_serve_dock_list(int sk, const istor_msg_t * const m, istor_msg_t **ptr_reply)
 {
 	istor_msg_t *reply = *ptr_reply;
-	istor_dock_stat_t dock_st;
 	istor_stat_t st;
 
-	struct list_iter_args args = {
+	struct dock_list_iter_args args = {
 		.sk		= sk,
-		.reply		= reply,
-		.dock_st	= &dock_st,
 	};
 
 	istor_fill_stat(&st);
 
 	istor_enc_ok(reply, NULL);
-	reply->size = st.nr_docks;
+	reply->flags = st.nr_docks;
 	if (istor_send_msg(sk, reply) < 0)
 		return -1;
 
-	if (istor_iterate(list_iter, &args))
+	if (istor_iterate(dock_list_iter, &args))
 		return -1;
 
 	*ptr_reply = NULL;
+	return 0;
+}
+
+static int istor_serve_img_open(int sk, const istor_msg_t * const m, istor_msg_t **ptr_reply)
+{
+	istor_msg_t *reply = *ptr_reply;
+	istor_msg_img_open_t *mopen;
+	istor_dock_t *dock;
+	int ret;
+
+	if (m->size > sizeof(dock->notify.data)) {
+		istor_enc_err(reply, -ENAMETOOLONG);
+		return 0;
+	}
+
+	dock = istor_lookup_get(m->oid);
+	if (IS_ERR(dock)) {
+		istor_enc_err(reply, PTR_ERR(dock));
+		return 0;
+	}
+
+	istor_dock_notify_lock(dock);
+
+	mopen = (void *)dock->notify.data;
+	memcpy(&mopen->hdr, m, sizeof(mopen->hdr));
+
+	ret = istor_recv(sk, (void *)mopen + sizeof(mopen->hdr),
+			 m->size - sizeof(mopen->hdr));
+	if (ret < 0) {
+		istor_dock_notify_unlock(dock);
+		istor_enc_err(reply, ret);
+		return 0;
+	}
+
+	dock->notify.cmd	= ISTOR_CMD_IMG_OPEN;
+	dock->notify.data_len	= m->size;
+
+	ret = istor_dock_serve_cmd_locked(dock);
+	if (ret == 0)
+		ret = dock->notify.ret;
+	istor_dock_notify_unlock(dock);
+
+	if (ret < 0) {
+		istor_enc_err(reply, ret);
+	} else {
+		istor_enc_ok(reply, m->oid);
+		reply->flags = ret;
+	}
+
+	return 0;
+}
+
+static int istor_serve_img_stat(int sk, const istor_msg_t * const m, istor_msg_t **ptr_reply)
+{
+	istor_msg_t *reply = *ptr_reply;
+	istor_dock_t *dock;
+
+	dock = istor_lookup_get(m->oid);
+	if (IS_ERR(dock)) {
+		istor_enc_err(reply, PTR_ERR(dock));
+		return 0;
+	}
+
+	istor_enc_err(reply, -EINVAL);
+	return 0;
+}
+
+static int istor_serve_img_write(int sk, const istor_msg_t * const m, istor_msg_t **ptr_reply)
+{
+	istor_msg_t *reply = *ptr_reply;
+	istor_dock_t *dock;
+
+	dock = istor_lookup_get(m->oid);
+	if (IS_ERR(dock)) {
+		istor_enc_err(reply, PTR_ERR(dock));
+		return 0;
+	}
+
+	istor_enc_err(reply, -EINVAL);
+	return 0;
+}
+
+static int istor_serve_img_read(int sk, const istor_msg_t * const m, istor_msg_t **ptr_reply)
+{
+	istor_msg_t *reply = *ptr_reply;
+	istor_dock_t *dock;
+
+	dock = istor_lookup_get(m->oid);
+	if (IS_ERR(dock)) {
+		istor_enc_err(reply, PTR_ERR(dock));
+		return 0;
+	}
+
+	// FIXME
+
+	istor_enc_ok(reply, m->oid);
+	return 0;
+}
+
+static int istor_serve_img_close(int sk, const istor_msg_t * const m, istor_msg_t **ptr_reply)
+{
+	istor_msg_t *reply = *ptr_reply;
+	istor_dock_t *dock;
+
+	dock = istor_lookup_get(m->oid);
+	if (IS_ERR(dock)) {
+		istor_enc_err(reply, PTR_ERR(dock));
+		return 0;
+	}
+
+	// FIXME
+
+	istor_enc_ok(reply, m->oid);
 	return 0;
 }
 
@@ -179,6 +278,12 @@ int istor_server(istor_opts_t *opts)
 		.dock_init	= istor_serve_dock_init,
 		.dock_fini	= istor_serve_dock_fini,
 		.dock_list	= istor_serve_dock_list,
+
+		.img_open	= istor_serve_img_open,
+		.img_stat	= istor_serve_img_stat,
+		.img_write	= istor_serve_img_write,
+		.img_read	= istor_serve_img_read,
+		.img_close	= istor_serve_img_close,
 	};
 
 	if (istor_setup_signals())
