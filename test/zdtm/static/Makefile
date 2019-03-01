@@ -344,7 +344,6 @@ TST_FILE	=				\
 		sockets00-seqpacket		\
 		sockets03			\
 		sockets03-seqpacket		\
-		sockets_dgram			\
 		file_lease00			\
 		file_lease01			\
 		file_lease02			\
@@ -466,6 +465,7 @@ TST_DIR_FILE	=				\
 		chroot				\
 		chroot-file			\
 		binfmt_misc			\
+		sockets_dgram			\
 
 TST		=				\
 		$(TST_NOFILE)			\
