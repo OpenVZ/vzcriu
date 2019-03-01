@@ -268,7 +268,6 @@ TST_FILE	=				\
 		fdt_shared			\
 		sockets00			\
 		sockets03			\
-		sockets_dgram			\
 		file_lease00			\
 		file_lease01			\
 		file_lease02			\
@@ -359,6 +358,7 @@ TST_DIR_FILE	=				\
 		chroot				\
 		chroot-file			\
 		binfmt_misc			\
+		sockets_dgram			\
 
 TST		=				\
 		$(TST_NOFILE)			\
