@@ -20,6 +20,9 @@ const char *test_author = "Cyrill Gorcunov <gorcunov@openvz.org";
 #define SK_DATA_CONN	   "data-packet-conn"
 #define SK_DATA_BOUND_CONN "data-packet-bound-conn"
 
+char *dirname;
+TEST_OPTION(dirname, string, "directory name", 1);
+
 char *filename;
 TEST_OPTION(filename, string, "socket file name", 1);
 
@@ -37,20 +40,15 @@ int main(int argc, char *argv[])
 
 	char path[PATH_MAX];
 	char buf[64];
-	/*
-	 * The original code makes dir to be current working
-	 * directory. But it may be too long in google environment
-	 * for path to be fit into struct sockaddr_un.
-	 * One alternate way to resolve it is to use relative path
-	 * for sockaddr_un, but criu has not supported relative
-	 * bind path yet.
-	 * We change it to "/tmp" to ensure its short length.
-	 */
-	char *dirname = "/tmp";
 
 	int ret;
 
 	test_init(argc, argv);
+
+	if (mkdir(dirname, 0700)) {
+		pr_perror("Can't create %s", dirname);
+		return 1;
+	}
 
 	snprintf(path, sizeof(path), "%s/%s", dirname, filename);
 	unlink(path);
