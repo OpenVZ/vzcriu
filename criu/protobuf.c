@@ -20,6 +20,8 @@
 #include "protobuf.h"
 #include "util.h"
 
+#include "istor/istor-client.h"
+
 #include "images/core.pb-c.h"
 
 /*
@@ -230,7 +232,12 @@ int pb_write_one(struct cr_img *img, void *obj, int type)
 	iov[1].iov_base = buf;
 	iov[1].iov_len = size;
 
-	ret = bwritev(&img->_x, iov, 2);
+	if (opts.istor_use_server) {
+		ret = istor_client_write_img_buf(img, buf, size);
+		if (ret == 0)
+			ret = size + sizeof(size);
+	} else
+		ret = bwritev(&img->_x, iov, 2);
 	if (ret != size + sizeof(size)) {
 		pr_perror("Can't write %d bytes", (int)(size + sizeof(size)));
 		goto err;

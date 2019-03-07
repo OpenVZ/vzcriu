@@ -123,25 +123,45 @@ ssize_t istor_send_msg(int sk, istor_msg_t *out)
 	return len;
 }
 
-ssize_t istor_recv_msg(int sk, istor_msg_t *in)
+ssize_t istor_recv_msg_hdr(int sk, istor_msg_t *in)
 {
 	istor_uuid_str_t oidbuf;
-	ssize_t len, size;
+	ssize_t len;
 
-	/* FIXME huge size attack! */
-	if (in->size < sizeof(*in)) {
+	len = istor_recv(sk, in, sizeof(*in));
+	if (len == sizeof(*in)) {
+		pr_debug("inh: sk %-4d cmd %-26s flags %#-4x id %s size %zd\n",
+			 sk, cmd_repr(in->cmd), in->flags,
+			 __istor_repr_id(in->oid, oidbuf),
+			 in->size);
+	}
+
+	return len;
+}
+
+
+ssize_t istor_recv_msg(int sk, istor_msg_t *in)
+{
+	static const size_t max_size = 4096;
+	ssize_t len, size = in->size;
+	istor_uuid_str_t oidbuf;
+
+	if (size < sizeof(*in)) {
 		pr_err("in : wrong packet size %zu < %zu\n",
-		       in->size, sizeof(*in));
+		       size, sizeof(*in));
+		return -EINVAL;
+	} else if (size > max_size) {
+		pr_err("in : wrong packet size %zu > %zu\n",
+		       size, max_size);
 		return -EINVAL;
 	}
 
-	size = in->size;
 	len = istor_recv(sk, in, size);
 	if (len == size) {
 		pr_debug("in : sk %-4d cmd %-26s flags %#-4x id %s size %zd / %zd\n",
 			 sk, cmd_repr(in->cmd), in->flags,
 			 __istor_repr_id(in->oid, oidbuf),
-			 in->size, size);
+			 size, in->size);
 	}
 
 	return len;
