@@ -69,6 +69,8 @@ int istor_client_write_img_buf(struct cr_img *img, const void *ptr, int size)
 	DECLARE_ISTOR_MSG_T(istor_msg_img_write_t, send);
 	DECLARE_ISTOR_MSG(reply);
 
+	memcpy(send.hdr.oid, client_oid, sizeof(client_oid));
+	send.hdr.cmd	= ISTOR_CMD_IMG_WRITE;
 	send.hdr.size	+= size;
 	send.idx	= img->_x.fd;
 
