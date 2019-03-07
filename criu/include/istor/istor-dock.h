@@ -31,7 +31,7 @@ typedef struct {
 	size_t			nr_fds;
 } clean_on_fork_t;
 
-#define DOCK_CMD_MAX_DATA	256
+#define DOCK_CMD_MAX_DATA	512
 
 #define DOCK_NOTIFY_F_NONE	(0 << 0)
 #define DOCK_NOTIFY_F_DATA_SK	(1 << 0)

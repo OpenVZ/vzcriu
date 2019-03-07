@@ -168,7 +168,7 @@ static int __istor_serve_connection(int sk, const struct istor_ops * const ops)
 	log_init_by_pid(getpid());
 	pr_debug("Start session on sk %d\n", sk);
 
-	usk = socket(PF_UNIX, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+	usk = socket(AF_UNIX, SOCK_DGRAM | SOCK_CLOEXEC, 0);
 	if (usk < 0) {
 		int _errno = -errno;
 		pr_perror("Can't create unix transport socket");

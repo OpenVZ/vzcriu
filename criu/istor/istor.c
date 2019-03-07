@@ -235,25 +235,31 @@ static int istor_serve_img_write(int sk, int usk, const istor_msg_t * const m, i
 
 	istor_dock_notify_lock(dock);
 
+	dock->notify.cmd	= ISTOR_CMD_IMG_WRITE;
+	dock->notify.data_len	= sizeof(*mwrite);
+
 	mwrite = (void *)dock->notify.data;
 	memcpy((void *)&mwrite->hdr, m, sizeof(*m));
 
 	ret = istor_recv(sk, istor_msg_t_optr(mwrite),
 			 istor_msg_t_osize(mwrite));
+	if (ret < 0) {
+		pr_err("Can't fetch data: %d\n", (int)ret);
+		istor_enc_err(reply, (int)ret);
+		istor_dock_notify_unlock(dock);
+		return 0;
+	}
 
-	ret = istor_dock_send_data_sk(dock, sk, usk);
+	ret = istor_dock_send_data_sk(dock, usk, sk);
 	if (ret < 0) {
 		istor_dock_notify_unlock(dock);
 		istor_enc_err(reply, -EIO);
+		return 0;
 	} else if (ret > 0) {
 		istor_dock_close_data_sk(dock);
 		dock->notify.flags = DOCK_NOTIFY_F_DATA_SK;
 	} else
 		dock->notify.flags = DOCK_NOTIFY_F_NONE;
-
-	dock->notify.cmd	= ISTOR_CMD_IMG_WRITE;
-	dock->notify.data_len	= sizeof(*mwrite);
-	memcpy(dock->notify.data, m, sizeof(*mwrite));
 
 	ret = istor_dock_serve_cmd_locked(dock);
 	if (ret == 0)

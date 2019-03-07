@@ -71,8 +71,8 @@ int istor_client_write_img_buf(struct cr_img *img, const void *ptr, int size)
 
 	memcpy(send.hdr.oid, client_oid, sizeof(client_oid));
 	send.hdr.cmd	= ISTOR_CMD_IMG_WRITE;
-	send.hdr.size	+= size;
 	send.idx	= img->_x.fd;
+	send.data_size	= size;
 
 	if (istor_send_msg(client_sk, (void *)&send) < 0	||
 	    istor_send(client_sk, (void *)ptr, size) < size	||

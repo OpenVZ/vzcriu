@@ -177,31 +177,6 @@ static void gen_transport_addr(const istor_dock_t *dock,
 	*addrlen += sizeof(addr->sun_family);
 }
 
-int istor_dock_send_data_sk(const istor_dock_t *dock, int usk, int data_sk)
-{
-	struct sockaddr_un addr;
-	unsigned int addrlen;
-	int ret;
-
-	if (dock->data_sk > -1) {
-		ret = syscall(SYS_kcmp, getpid(), dock->owner_pid,
-			      KCMP_FILE, usk, dock->data_sk);
-		if (!ret) {
-			pr_debug("%s: reuse data_sk %d\n", dock->oidbuf, data_sk);
-			return 0;
-		}
-	}
-
-	gen_transport_addr(dock, &addr, &addrlen);
-	ret = send_fd(usk, &addr, addrlen, data_sk);
-	if (ret) {
-		pr_err("%s: can't send fd\n", dock->oidbuf);
-		return -EIO;
-	}
-	pr_debug("%s: sent data_sk %d\n", dock->oidbuf, data_sk);
-	return 1;
-}
-
 void istor_dock_close_data_sk(istor_dock_t *dock)
 {
 	if (dock->data_sk < 0)
@@ -212,18 +187,45 @@ void istor_dock_close_data_sk(istor_dock_t *dock)
 	dock->data_sk = -1;
 }
 
+int istor_dock_send_data_sk(const istor_dock_t *dock, int usk, int data_sk)
+{
+	struct sockaddr_un addr;
+	unsigned int addrlen;
+	int ret;
+
+	if (dock->data_sk > -1) {
+		ret = syscall(SYS_kcmp, getpid(), dock->owner_pid,
+			      KCMP_FILE, data_sk, dock->data_sk);
+		if (!ret) {
+			pr_debug("%s: reuse data_sk %d\n", dock->oidbuf, data_sk);
+			return 0;
+		}
+	}
+
+	gen_transport_addr(dock, &addr, &addrlen);
+	ret = send_fds(usk, &addr, addrlen, &data_sk, 1, NULL, 0);
+	if (ret) {
+		errno = -ret;
+		pr_perror("%s: can't send fd", dock->oidbuf);
+		return -EIO;
+	}
+	pr_debug("%s: sent data_sk %d\n", dock->oidbuf, data_sk);
+	return 1;
+}
+
 int istor_dock_recv_data_sk(istor_dock_t *dock)
 {
-	int sk;
+	int sk = -1, ret;
 
 	if (dock->unix_sk < 0) {
 		pr_err("%s: no transport socket opened\n", dock->oidbuf);
 		return -EIO;
 	}
 
-	sk = recv_fd(dock->unix_sk);
-	if (sk < 0) {
-		pr_err("%s: can't receive data socket\n", dock->oidbuf);
+	ret = recv_fds(dock->unix_sk, &sk, 1, NULL, 0);
+	if (ret < 0) {
+		errno = -ret;
+		pr_perror("%s: can't receive data socket", dock->oidbuf);
 		return -EIO;
 	}
 
@@ -259,7 +261,7 @@ static int istor_boot_dock(istor_dock_t *dock, pid_t owner_pid)
 
 	dock->owner_pid = owner_pid;
 
-	dock->unix_sk = socket(AF_UNIX, SOCK_DGRAM | SOCK_NONBLOCK, 0);
+	dock->unix_sk = socket(AF_UNIX, SOCK_DGRAM | SOCK_CLOEXEC, 0);
 	if (dock->unix_sk < 0) {
 		int _errno = errno;
 		pr_perror("%s: Unable to create a socket", dock->oidbuf);
@@ -304,7 +306,7 @@ static int istor_serve_dock_img_write(istor_dock_t *dock)
 		return -ENOENT;
 	}
 
-	new_size = img->off + istor_msg_t_psize(mwrite);
+	new_size = img->off + mwrite->data_size;
 	if (new_size > img->size) {
 		if (xrealloc_safe(&img->data, new_size)) {
 			pr_err("%s: iwrite no %zu bytes for idx %d\n",
@@ -314,7 +316,7 @@ static int istor_serve_dock_img_write(istor_dock_t *dock)
 	}
 
 	where = img->data + img->off;
-	len = istor_recv(dock->data_sk, where, istor_msg_t_psize(mwrite));
+	len = istor_recv(dock->data_sk, where, mwrite->data_size);
 	if (len < 0) {
 		pr_err("%s: iwrite network error\n", dock->oidbuf);
 		return len;

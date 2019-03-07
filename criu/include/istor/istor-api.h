@@ -65,6 +65,7 @@ typedef struct {
 typedef struct {
 	istor_msg_t	hdr;
 	uint32_t	idx;
+	uint32_t	data_size;
 	char		data[0];
 } istor_msg_img_write_t;
 
