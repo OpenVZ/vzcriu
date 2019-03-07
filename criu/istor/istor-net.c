@@ -4,6 +4,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
+#include <sys/un.h>
 
 #include <uuid/uuid.h>
 
@@ -146,20 +147,46 @@ ssize_t istor_recv_msg(int sk, istor_msg_t *in)
 	return len;
 }
 
+static void gen_transport_addr(struct sockaddr_un *addr,
+			       unsigned int *addrlen)
+{
+	addr->sun_family = AF_UNIX;
+	*addrlen = snprintf(addr->sun_path, sizeof(addr->sun_path), "X/istor-con-%d", getpid());
+	addr->sun_path[0] = '\0';
+	*addrlen += sizeof(addr->sun_family);
+}
+
 static int __istor_serve_connection(int sk, const struct istor_ops * const ops)
 {
 	char *buf, *buf_in, *buf_out;
-	int ret = 0;
+	struct sockaddr_un addr;
+	unsigned int addrlen;
+	int ret = 0, usk = -1;
 
 	__check_self();
 
 	log_init_by_pid(getpid());
 	pr_debug("Start session on sk %d\n", sk);
 
+	usk = socket(PF_UNIX, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+	if (usk < 0) {
+		int _errno = -errno;
+		pr_perror("Can't create unix transport socket");
+		return -_errno;
+	}
+	gen_transport_addr(&addr, &addrlen);
+
+	if (bind(usk, (struct sockaddr *)&addr, addrlen)) {
+		int _errno = errno;
+		pr_perror("Unable to bind unix transport socket");
+		return -_errno;
+	}
+
 	buf = xmalloc(2 * ISTOR_BUF_DEFAULT_SIZE);
 	if (!buf) {
 		istor_send_msg_err(sk, -ENOMEM);
 		pr_err("Can't allocate receive/send buffers\n");
+		close(usk);
 		close(sk);
 		return -ENOMEM;
 	}
@@ -190,16 +217,19 @@ static int __istor_serve_connection(int sk, const struct istor_ops * const ops)
 			ret = ops->dock_list(sk, in, &out);
 			break;
 		case ISTOR_CMD_IMG_OPEN:
-			ret = ops->img_open(sk, in, &out);
+			ret = ops->img_open(sk, usk, in, &out);
 			break;
 		case ISTOR_CMD_IMG_STAT:
-			ret = ops->img_stat(sk, in, &out);
+			ret = ops->img_stat(sk, usk, in, &out);
 			break;
 		case ISTOR_CMD_IMG_WRITE:
-			ret = ops->img_write(sk, in, &out);
+			ret = ops->img_write(sk, usk, in, &out);
+			break;
+		case ISTOR_CMD_IMG_READ:
+			ret = ops->img_read(sk, usk, in, &out);
 			break;
 		case ISTOR_CMD_IMG_CLOSE:
-			ret = ops->img_close(sk, in, &out);
+			ret = ops->img_close(sk, usk, in, &out);
 			break;
 		default:
 			istor_enc_err(out, -EINVAL);
@@ -222,6 +252,7 @@ static int __istor_serve_connection(int sk, const struct istor_ops * const ops)
 
 	xfree(buf);
 	pr_debug("Stop session on sk %d: %d\n", sk, ret);
+	close(usk);
 	close(sk);
 
 	return 0;

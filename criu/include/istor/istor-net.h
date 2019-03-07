@@ -13,11 +13,11 @@ struct istor_ops {
 	int	(*dock_fini)(int sk, const istor_msg_t * const m, istor_msg_t **ptr_reply);
 	int	(*dock_list)(int sk, const istor_msg_t * const m, istor_msg_t **ptr_reply);
 
-	int	(*img_open)(int sk, const istor_msg_t * const m, istor_msg_t **ptr_reply);
-	int	(*img_stat)(int sk, const istor_msg_t * const m, istor_msg_t **ptr_reply);
-	int	(*img_write)(int sk, const istor_msg_t * const m, istor_msg_t **ptr_reply);
-	int	(*img_read)(int sk, const istor_msg_t * const m, istor_msg_t **ptr_reply);
-	int	(*img_close)(int sk, const istor_msg_t * const m, istor_msg_t **ptr_reply);
+	int	(*img_open)(int sk, int usk, const istor_msg_t * const m, istor_msg_t **ptr_reply);
+	int	(*img_stat)(int sk, int usk, const istor_msg_t * const m, istor_msg_t **ptr_reply);
+	int	(*img_write)(int sk, int usk, const istor_msg_t * const m, istor_msg_t **ptr_reply);
+	int	(*img_read)(int sk, int usk, const istor_msg_t * const m, istor_msg_t **ptr_reply);
+	int	(*img_close)(int sk, int usk, const istor_msg_t * const m, istor_msg_t **ptr_reply);
 };
 
 static inline void istor_enc_err(istor_msg_t *m, int error_code)

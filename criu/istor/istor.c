@@ -6,6 +6,9 @@
 #include <sys/wait.h>
 #include <arpa/inet.h>
 
+#include <syscall.h>
+#include <linux/kcmp.h>
+
 #include <uuid/uuid.h>
 
 #include "cr_options.h"
@@ -155,7 +158,7 @@ static int istor_serve_dock_list(int sk, const istor_msg_t * const m, istor_msg_
 	return 0;
 }
 
-static int istor_serve_img_open(int sk, const istor_msg_t * const m, istor_msg_t **ptr_reply)
+static int istor_serve_img_open(int sk, int usk, const istor_msg_t * const m, istor_msg_t **ptr_reply)
 {
 	istor_msg_t *reply = *ptr_reply;
 	istor_msg_img_open_t *mopen;
@@ -187,6 +190,7 @@ static int istor_serve_img_open(int sk, const istor_msg_t * const m, istor_msg_t
 	}
 
 	dock->notify.cmd	= ISTOR_CMD_IMG_OPEN;
+	dock->notify.flags	= DOCK_NOTIFY_F_NONE;
 	dock->notify.data_len	= m->size;
 
 	ret = istor_dock_serve_cmd_locked(dock);
@@ -204,7 +208,7 @@ static int istor_serve_img_open(int sk, const istor_msg_t * const m, istor_msg_t
 	return 0;
 }
 
-static int istor_serve_img_stat(int sk, const istor_msg_t * const m, istor_msg_t **ptr_reply)
+static int istor_serve_img_stat(int sk, int usk, const istor_msg_t * const m, istor_msg_t **ptr_reply)
 {
 	istor_msg_t *reply = *ptr_reply;
 	istor_dock_t *dock;
@@ -219,7 +223,50 @@ static int istor_serve_img_stat(int sk, const istor_msg_t * const m, istor_msg_t
 	return 0;
 }
 
-static int istor_serve_img_write(int sk, const istor_msg_t * const m, istor_msg_t **ptr_reply)
+static int istor_serve_img_write(int sk, int usk, const istor_msg_t * const m, istor_msg_t **ptr_reply)
+{
+	istor_msg_t *reply = *ptr_reply;
+	istor_dock_t *dock;
+	int ret;
+
+	dock = istor_lookup_get(m->oid);
+	if (IS_ERR(dock)) {
+		istor_enc_err(reply, PTR_ERR(dock));
+		return 0;
+	}
+
+	istor_dock_notify_lock(dock);
+	ret = syscall(SYS_kcmp, getpid(), dock->owner_pid,
+		      KCMP_FILE, usk, dock->data_sk);
+	if (ret) {
+		ret = istor_dock_send_data_sk(dock, sk, usk);
+		if (ret) {
+			istor_dock_notify_unlock(dock);
+			istor_enc_err(reply, -EIO);
+		}
+		dock->notify.flags = DOCK_NOTIFY_F_DATA_SK;
+	} else
+		dock->notify.flags = DOCK_NOTIFY_F_NONE;
+
+	dock->notify.cmd	= ISTOR_CMD_IMG_WRITE;
+	dock->notify.data_len	= sizeof(*m);
+	memcpy(dock->notify.data, m, sizeof(*m));
+
+	ret = istor_dock_serve_cmd_locked(dock);
+	if (ret == 0)
+		ret = dock->notify.ret;
+	istor_dock_notify_unlock(dock);
+
+	if (ret < 0) {
+		istor_enc_err(reply, ret);
+	} else {
+		istor_enc_ok(reply, m->oid);
+		reply->flags = ret;
+	}
+	return 0;
+}
+
+static int istor_serve_img_read(int sk, int usk, const istor_msg_t * const m, istor_msg_t **ptr_reply)
 {
 	istor_msg_t *reply = *ptr_reply;
 	istor_dock_t *dock;
@@ -234,7 +281,7 @@ static int istor_serve_img_write(int sk, const istor_msg_t * const m, istor_msg_
 	return 0;
 }
 
-static int istor_serve_img_read(int sk, const istor_msg_t * const m, istor_msg_t **ptr_reply)
+static int istor_serve_img_close(int sk, int usk, const istor_msg_t * const m, istor_msg_t **ptr_reply)
 {
 	istor_msg_t *reply = *ptr_reply;
 	istor_dock_t *dock;
@@ -245,26 +292,7 @@ static int istor_serve_img_read(int sk, const istor_msg_t * const m, istor_msg_t
 		return 0;
 	}
 
-	// FIXME
-
-	istor_enc_ok(reply, m->oid);
-	return 0;
-}
-
-static int istor_serve_img_close(int sk, const istor_msg_t * const m, istor_msg_t **ptr_reply)
-{
-	istor_msg_t *reply = *ptr_reply;
-	istor_dock_t *dock;
-
-	dock = istor_lookup_get(m->oid);
-	if (IS_ERR(dock)) {
-		istor_enc_err(reply, PTR_ERR(dock));
-		return 0;
-	}
-
-	// FIXME
-
-	istor_enc_ok(reply, m->oid);
+	istor_enc_err(reply, -EINVAL);
 	return 0;
 }
 

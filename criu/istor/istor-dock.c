@@ -173,13 +173,52 @@ static void gen_transport_addr(const istor_dock_t *dock,
 	*addrlen += sizeof(addr->sun_family);
 }
 
-int istor_dock_send_fd(const istor_dock_t *dock, int sk, int fd)
+int istor_dock_send_data_sk(const istor_dock_t *dock, int usk, int data_sk)
 {
 	struct sockaddr_un addr;
 	unsigned int addrlen;
+	int ret;
 
 	gen_transport_addr(dock, &addr, &addrlen);
-	send_fd(sk, &addr, addrlen, fd);
+	ret = send_fd(usk, &addr, addrlen, data_sk);
+	if (ret) {
+		pr_err("%s: can't send fd\n", dock->oidbuf);
+		return -EIO;
+	}
+	pr_debug("%s: sent data_sk %d\n", dock->oidbuf, data_sk);
+	return 0;
+}
+
+void istor_dock_close_data_sk(istor_dock_t *dock)
+{
+	if (dock->data_sk < 0)
+		return;
+
+	pr_debug("%s: remove data_sk %d\n", dock->oidbuf, dock->data_sk);
+	close(dock->data_sk);
+	dock->data_sk = -1;
+}
+
+int istor_dock_recv_data_sk(istor_dock_t *dock)
+{
+	int sk;
+
+	if (dock->unix_sk < 0) {
+		pr_err("%s: no transport socket opened\n", dock->oidbuf);
+		return -EIO;
+	}
+
+	sk = recv_fd(dock->unix_sk);
+	if (sk < 0) {
+		pr_err("%s: can't receive data socket\n", dock->oidbuf);
+		return -EIO;
+	}
+
+	if (dock->data_sk > -1)
+		close(dock->data_sk);
+
+	dock->data_sk = sk;
+	pr_debug("%s: install data_sk %d\n", dock->oidbuf, sk);
 	return 0;
 }
 

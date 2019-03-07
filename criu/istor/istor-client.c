@@ -123,10 +123,11 @@ int istor_client_do_open_image(struct cr_img *img, int dfd, int type,
 
 	memcpy(mopen->hdr.oid, client_oid, sizeof(client_oid));
 	mopen->hdr.cmd	= ISTOR_CMD_IMG_OPEN;
-	mopen->hdr.size+= path_size;
 	mopen->mode	= (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
 	mopen->flags	= oflags;
+
 	memcpy(mopen->path, path, path_size);
+	mopen->hdr.size += path_size;
 
 	if (istor_send_msg(client_sk, &mopen->hdr) < 0 ||
 	    istor_recv_msg(client_sk, &reply) < 0) {

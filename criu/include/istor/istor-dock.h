@@ -31,11 +31,15 @@ typedef struct {
 	size_t			nr_fds;
 } clean_on_fork_t;
 
-#define DOCK_CMD_MAX_DATA	4096
+#define DOCK_CMD_MAX_DATA	256
+
+#define DOCK_NOTIFY_F_NONE	(0 << 0)
+#define DOCK_NOTIFY_F_DATA_SK	(1 << 0)
 
 typedef struct {
 	uint32_t		cmd;
 	int32_t			ret;
+	uint32_t		flags;
 	uint32_t		data_len;
 	uint8_t			data[DOCK_CMD_MAX_DATA];
 } istor_notify_t;
@@ -73,6 +77,9 @@ typedef struct {
 extern const char *istor_dock_stage_repr(uint32_t stage);
 
 extern int istor_dock_serve_cmd_locked(istor_dock_t *dock);
+extern void istor_dock_close_data_sk(istor_dock_t *dock);
+extern int istor_dock_recv_data_sk(istor_dock_t *dock);
+extern int istor_dock_send_data_sk(const istor_dock_t *dock, int usk, int data_sk);
 
 static inline void istor_dock_notify_lock(istor_dock_t *dock)
 {
