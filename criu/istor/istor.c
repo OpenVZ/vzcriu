@@ -268,12 +268,10 @@ static int istor_serve_img_write(int sk, int usk, const istor_msg_t * const m, i
 	istor_dock_close_data_sk(dock);
 	istor_dock_notify_unlock(dock);
 
-	if (ret < 0) {
+	if (ret < 0)
 		istor_enc_err(reply, ret);
-	} else {
+	else
 		istor_enc_ok(reply, m->oid);
-		reply->flags = ret;
-	}
 	return 0;
 }
 
