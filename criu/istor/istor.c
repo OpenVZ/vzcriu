@@ -6,9 +6,6 @@
 #include <sys/wait.h>
 #include <arpa/inet.h>
 
-#include <syscall.h>
-#include <linux/kcmp.h>
-
 #include <uuid/uuid.h>
 
 #include "cr_options.h"
@@ -236,14 +233,13 @@ static int istor_serve_img_write(int sk, int usk, const istor_msg_t * const m, i
 	}
 
 	istor_dock_notify_lock(dock);
-	ret = syscall(SYS_kcmp, getpid(), dock->owner_pid,
-		      KCMP_FILE, usk, dock->data_sk);
-	if (ret) {
-		ret = istor_dock_send_data_sk(dock, sk, usk);
-		if (ret) {
-			istor_dock_notify_unlock(dock);
-			istor_enc_err(reply, -EIO);
-		}
+
+	ret = istor_dock_send_data_sk(dock, sk, usk);
+	if (ret < 0) {
+		istor_dock_notify_unlock(dock);
+		istor_enc_err(reply, -EIO);
+	} else if (ret > 0) {
+		istor_dock_close_data_sk(dock);
 		dock->notify.flags = DOCK_NOTIFY_F_DATA_SK;
 	} else
 		dock->notify.flags = DOCK_NOTIFY_F_NONE;
@@ -255,6 +251,8 @@ static int istor_serve_img_write(int sk, int usk, const istor_msg_t * const m, i
 	ret = istor_dock_serve_cmd_locked(dock);
 	if (ret == 0)
 		ret = dock->notify.ret;
+
+	istor_dock_close_data_sk(dock);
 	istor_dock_notify_unlock(dock);
 
 	if (ret < 0) {

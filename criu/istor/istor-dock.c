@@ -8,6 +8,9 @@
 #include <arpa/inet.h>
 #include <sys/un.h>
 
+#include <syscall.h>
+#include <linux/kcmp.h>
+
 #include "criu-log.h"
 
 #include "common/lock.h"
@@ -179,6 +182,15 @@ int istor_dock_send_data_sk(const istor_dock_t *dock, int usk, int data_sk)
 	unsigned int addrlen;
 	int ret;
 
+	if (dock->data_sk > -1) {
+		ret = syscall(SYS_kcmp, getpid(), dock->owner_pid,
+			      KCMP_FILE, usk, dock->data_sk);
+		if (!ret) {
+			pr_debug("%s: reuse data_sk %d\n", dock->oidbuf, data_sk);
+			return 0;
+		}
+	}
+
 	gen_transport_addr(dock, &addr, &addrlen);
 	ret = send_fd(usk, &addr, addrlen, data_sk);
 	if (ret) {
@@ -186,7 +198,7 @@ int istor_dock_send_data_sk(const istor_dock_t *dock, int usk, int data_sk)
 		return -EIO;
 	}
 	pr_debug("%s: sent data_sk %d\n", dock->oidbuf, data_sk);
-	return 0;
+	return 1;
 }
 
 void istor_dock_close_data_sk(istor_dock_t *dock)
