@@ -17,6 +17,7 @@
 #include "common/err.h"
 #include "common/bug.h"
 #include "common/scm.h"
+#include "common/xmalloc.h"
 
 #include "setproctitle.h"
 
@@ -285,6 +286,9 @@ static int istor_serve_dock_img_write(istor_dock_t *dock)
 	istor_msg_img_write_t *mwrite = (void *)(dock->notify.data);
 	istor_imgset_t *iset = dock->owner_iset;
 	istor_img_t *img;
+	size_t new_size;
+	ssize_t len;
+	void *where;
 	int ret;
 
 	if (dock->notify.flags & DOCK_NOTIFY_F_DATA_SK) {
@@ -294,7 +298,32 @@ static int istor_serve_dock_img_write(istor_dock_t *dock)
 	}
 
 	img = istor_img_lookup(iset, NULL, mwrite->idx);
-	(void)img;
+	if (!img) {
+		pr_debug("%s: iwrite: idx %d doesn't exist\n",
+			 dock->oidbuf, mwrite->idx);
+		return -ENOENT;
+	}
+
+	new_size = img->off + istor_msg_t_psize(mwrite);
+	if (new_size > img->size) {
+		if (xrealloc_safe(&img->data, new_size)) {
+			pr_err("%s: iwrite no %zu bytes for idx %d\n",
+			       dock->oidbuf, new_size, mwrite->idx);
+			return -ENOMEM;
+		}
+	}
+
+	where = img->data + img->off;
+	len = istor_recv(dock->data_sk, where, istor_msg_t_psize(mwrite));
+	if (len < 0) {
+		pr_err("%s: iwrite network error\n", dock->oidbuf);
+		return len;
+	}
+
+	pr_debug("%s: iwrite wrote %zu bytes idx %d\n",
+		 dock->oidbuf, len, mwrite->idx);
+
+	img->off += len;
 	return 0;
 }
 
