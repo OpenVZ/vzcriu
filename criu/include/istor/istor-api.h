@@ -77,6 +77,7 @@ typedef struct {
 } istor_msg_img_open_t;
 
 #define istor_msg_t_osize(_p)	(sizeof(*(_p)) - sizeof((_p)->hdr))
+#define istor_msg_t_optr(_p)	((void *)(_p) + sizeof((_p)->hdr))
 #define istor_msg_t_psize(_p)	((_p)->hdr.size - istor_msg_t_osize(_p))
 
 typedef struct {

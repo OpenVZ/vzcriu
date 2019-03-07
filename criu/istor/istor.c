@@ -223,6 +223,7 @@ static int istor_serve_img_stat(int sk, int usk, const istor_msg_t * const m, is
 static int istor_serve_img_write(int sk, int usk, const istor_msg_t * const m, istor_msg_t **ptr_reply)
 {
 	istor_msg_t *reply = *ptr_reply;
+	istor_msg_img_write_t *mwrite;
 	istor_dock_t *dock;
 	int ret;
 
@@ -233,6 +234,12 @@ static int istor_serve_img_write(int sk, int usk, const istor_msg_t * const m, i
 	}
 
 	istor_dock_notify_lock(dock);
+
+	mwrite = (void *)dock->notify.data;
+	memcpy((void *)&mwrite->hdr, m, sizeof(*m));
+
+	ret = istor_recv(sk, istor_msg_t_optr(mwrite),
+			 istor_msg_t_osize(mwrite));
 
 	ret = istor_dock_send_data_sk(dock, sk, usk);
 	if (ret < 0) {
@@ -245,8 +252,8 @@ static int istor_serve_img_write(int sk, int usk, const istor_msg_t * const m, i
 		dock->notify.flags = DOCK_NOTIFY_F_NONE;
 
 	dock->notify.cmd	= ISTOR_CMD_IMG_WRITE;
-	dock->notify.data_len	= sizeof(*m);
-	memcpy(dock->notify.data, m, sizeof(*m));
+	dock->notify.data_len	= sizeof(*mwrite);
+	memcpy(dock->notify.data, m, sizeof(*mwrite));
 
 	ret = istor_dock_serve_cmd_locked(dock);
 	if (ret == 0)

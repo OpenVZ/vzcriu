@@ -282,7 +282,20 @@ static int istor_boot_dock(istor_dock_t *dock, pid_t owner_pid)
 
 static int istor_serve_dock_img_write(istor_dock_t *dock)
 {
-	return -EINVAL;
+	istor_msg_img_write_t *mwrite = (void *)(dock->notify.data);
+	istor_imgset_t *iset = dock->owner_iset;
+	istor_img_t *img;
+	int ret;
+
+	if (dock->notify.flags & DOCK_NOTIFY_F_DATA_SK) {
+		ret = istor_dock_recv_data_sk(dock);
+		if (ret)
+			return ret;
+	}
+
+	img = istor_img_lookup(iset, NULL, mwrite->idx);
+	(void)img;
+	return 0;
 }
 
 static int istor_serve_dock_img_open(istor_dock_t *dock)
