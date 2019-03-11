@@ -89,8 +89,12 @@ int istor_client_write_img_buf(struct cr_img *img, const void *ptr, int size)
 		return -1;
 	}
 
-	if (reply.msghdr_cmd == ISTOR_CMD_ACK)
+	if (reply.msghdr_cmd == ISTOR_CMD_ACK) {
+		pr_debug("%s: wrote idx %d size %zd\n",
+			 client_oid_repr, img->_x.fd,
+			 (size_t)size);
 		return 0;
+	}
 
 	errno = -reply.msghdr_ret;
 	pr_perror("%s: can't write %zu bytes",
@@ -155,7 +159,7 @@ int istor_client_do_open_image(struct cr_img *img, int dfd, int type,
 
 	ret = reply.msghdr_ret;
 	if (reply.msghdr_cmd == ISTOR_CMD_ACK) {
-		pr_debug("%s: opened image %s / %d\n",
+		pr_debug("%s: opened image %s idx %d\n",
 			 client_oid_repr, path, ret);
 	} else
 		errno = -ret;
