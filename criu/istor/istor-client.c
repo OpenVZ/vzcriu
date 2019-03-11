@@ -66,15 +66,22 @@ void istor_client_fini(void)
 
 int istor_client_write_img_buf(struct cr_img *img, const void *ptr, int size)
 {
-	DECLARE_ISTOR_MSG_T(istor_msg_img_write_t, send);
-	DECLARE_ISTOR_MSGHDR(reply);
+	istor_msg_img_write_t *mwrite;
+	istor_msghdr_t reply;
+	istor_msghdr_t *msgh;
 
-	memcpy(send.hdr.msghdr_oid, client_oid, sizeof(client_oid));
-	send.hdr.msghdr_cmd	= ISTOR_CMD_IMG_WRITE;
-	send.idx		= img->_x.fd;
-	send.data_size		= size;
+	msgh = alloca(ISTOR_MSG_LENGTH(sizeof(*mwrite)));
 
-	if (istor_send_msghdr(client_sk, &send) < 0	||
+	istor_msghdr_init(msgh);
+	memcpy(msgh->msghdr_oid, client_oid, sizeof(client_oid));
+	msgh->msghdr_cmd = ISTOR_CMD_IMG_WRITE;
+	msgh->msghdr_len = ISTOR_MSG_LENGTH(sizeof(*mwrite));
+
+	mwrite			= ISTOR_MSG_DATA(msgh);
+	mwrite->idx		= img->_x.fd;
+	mwrite->data_size	= size;
+
+	if (istor_send_msg(client_sk, msgh) < 0			||
 	    istor_send(client_sk, (void *)ptr, size) < size	||
 	    istor_recv_msghdr(client_sk, &reply) < 0 ) {
 		pr_err("%s: %s: network failure\n",
@@ -135,7 +142,7 @@ int istor_client_do_open_image(struct cr_img *img, int dfd, int type,
 
 	memcpy(mopen->path, path, path_size);
 
-	if (istor_send_msg(client_sk, &mopen) < 0 ||
+	if (istor_send_msg(client_sk, msgh) < 0 ||
 	    istor_recv_msghdr(client_sk, &reply) < 0) {
 		pr_err("%s: %s: network failure\n",
 		       client_oid_repr, __func__);

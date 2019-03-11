@@ -177,9 +177,9 @@ static int istor_serve_img_open(int sk, int usk, const istor_msghdr_t * const m,
 	istor_dock_notify_lock(dock);
 
 	msgh = (void *)dock->notify.data;
-	mopen = ISTOR_MSG_DATA(msgh);
 	memcpy(msgh, m, sizeof(*m));
 
+	mopen = ISTOR_MSG_DATA(msgh);
 	ret = istor_recv_msgpayload(sk, m, mopen);
 	if (ret < 0) {
 		istor_dock_notify_unlock(dock);
@@ -225,8 +225,14 @@ static int istor_serve_img_write(int sk, int usk, const istor_msghdr_t * const m
 {
 	istor_msghdr_t *reply = *ptr_reply;
 	istor_msg_img_write_t *mwrite;
+	istor_msghdr_t *msgh;
 	istor_dock_t *dock;
 	int ret;
+
+	if (m->msghdr_len > sizeof(dock->notify.data)) {
+		istor_enc_err(reply, -ENAMETOOLONG);
+		return 0;
+	}
 
 	dock = istor_lookup_get(m->msghdr_oid);
 	if (IS_ERR(dock)) {
@@ -236,20 +242,20 @@ static int istor_serve_img_write(int sk, int usk, const istor_msghdr_t * const m
 
 	istor_dock_notify_lock(dock);
 
-	dock->notify.cmd	= ISTOR_CMD_IMG_WRITE;
-	dock->notify.data_len	= sizeof(*mwrite);
+	msgh = (void *)dock->notify.data;
+	memcpy(msgh, m, sizeof(*m));
 
-	mwrite = (void *)dock->notify.data;
-	memcpy((void *)&mwrite->hdr, m, sizeof(*m));
+	mwrite = ISTOR_MSG_DATA(msgh);
 
-	ret = istor_recv(sk, istor_msg_t_optr(mwrite),
-			 istor_msg_t_osize(mwrite));
+	ret = istor_recv_msgpayload(sk, m, mwrite);
 	if (ret < 0) {
-		pr_err("Can't fetch data: %d\n", (int)ret);
 		istor_enc_err(reply, (int)ret);
 		istor_dock_notify_unlock(dock);
 		return 0;
 	}
+
+	dock->notify.cmd	= ISTOR_CMD_IMG_WRITE;
+	dock->notify.data_len	= m->msghdr_len;
 
 	ret = istor_dock_send_data_sk(dock, usk, sk);
 	if (ret < 0) {

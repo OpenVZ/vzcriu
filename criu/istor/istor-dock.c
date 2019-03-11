@@ -285,7 +285,8 @@ static int istor_boot_dock(istor_dock_t *dock, pid_t owner_pid)
 
 static int istor_serve_dock_img_write(istor_dock_t *dock)
 {
-	istor_msg_img_write_t *mwrite = (void *)(dock->notify.data);
+	istor_msghdr_t *msgh = (void *)(dock->notify.data);
+	istor_msg_img_write_t *mwrite = ISTOR_MSG_DATA(msgh);
 	istor_imgset_t *iset = dock->owner_iset;
 	istor_img_t *img;
 	size_t new_size;
