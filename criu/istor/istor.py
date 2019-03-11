@@ -50,7 +50,7 @@ def istor_oid_unpack(raw=None):
     if not raw: return istor_oid_zero()
     return uuid.UUID(bytes=raw[0:16])
 
-def pack_istor_hdr(cmd=ISTOR_CMD.NONE, oid=None, flags=ISTOR_FLAGS.FIN, size=0):
+def pack_istor_hdr(cmd=ISTOR_CMD.NONE, oid=None, flags=ISTOR_FLAGS.FIN, size=32):
     return pack('<II16sQ', cmd.value, flags.value, istor_oid_pack(oid), size)
 
 def unpack_istor_hdr(hdr):

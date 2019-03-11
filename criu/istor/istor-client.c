@@ -142,7 +142,8 @@ int istor_client_do_open_image(struct cr_img *img, int dfd, int type,
 		return -1;
 	}
 
-	xfree(mopen);
+	xfree(msgh);
+	msgh = NULL;
 	mopen = NULL;
 
 	ret = reply.msghdr_ret;

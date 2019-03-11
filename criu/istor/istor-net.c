@@ -104,7 +104,7 @@ ssize_t istor_recv(int sk, void *buf, size_t size)
 
 static inline bool istor_msg_ok(const char *prefix, const istor_msghdr_t *m)
 {
-	if (!ISTOR_MSG_OK(m, ISTOR_MSG_HDRLEN)) {
+	if (!ISTOR_MSG_OK(m, m->msghdr_len)) {
 		pr_err("%s wrong packet size %zu < %zu\n",
 		       prefix, m->msghdr_len, ISTOR_MSG_HDRLEN);
 		return false;
