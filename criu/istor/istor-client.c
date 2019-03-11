@@ -107,9 +107,10 @@ off_t istor_client_img_raw_size(struct cr_img *img)
 int istor_client_do_open_image(struct cr_img *img, int dfd, int type,
 			       unsigned long oflags, const char *path)
 {
-	size_t path_size = strlen(path) + 1;
-	istor_msg_img_open_t *mopen;
+	size_t path_size = strlen(path) + 1, totalsize;
 	DECLARE_ISTOR_MSGHDR(reply);
+	istor_msg_img_open_t *mopen;
+	istor_msghdr_t *msgh;
 	int ret;
 
 	if (path_size >= PATH_MAX) {
@@ -118,18 +119,21 @@ int istor_client_do_open_image(struct cr_img *img, int dfd, int type,
 		return -ENAMETOOLONG;
 	}
 
-	mopen = xmalloc(sizeof(*mopen) + PATH_MAX);
-	if (!mopen)
+	totalsize = ISTOR_MSG_LENGTH(sizeof(*mopen) + path_size);
+	msgh = xmalloc(totalsize);
+	if (!msgh)
 		return -ENOMEM;
-	istor_msg_t_init(istor_msg_img_open_t, mopen);
+	istor_msghdr_init(msgh);
 
-	memcpy(mopen->hdr.msghdr_oid, client_oid, sizeof(client_oid));
-	mopen->hdr.msghdr_cmd	= ISTOR_CMD_IMG_OPEN;
+	msgh->msghdr_cmd	= ISTOR_CMD_IMG_OPEN;
+	msgh->msghdr_len	= totalsize;
+	memcpy(msgh->msghdr_oid, client_oid, sizeof(client_oid));
+
+	mopen		= ISTOR_MSG_DATA(msgh);
 	mopen->mode	= (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
 	mopen->flags	= oflags;
 
 	memcpy(mopen->path, path, path_size);
-	mopen->hdr.msghdr_len += path_size;
 
 	if (istor_send_msg(client_sk, &mopen) < 0 ||
 	    istor_recv_msghdr(client_sk, &reply) < 0) {

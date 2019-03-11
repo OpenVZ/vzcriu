@@ -331,14 +331,12 @@ static int istor_serve_dock_img_write(istor_dock_t *dock)
 
 static int istor_serve_dock_img_open(istor_dock_t *dock)
 {
-	istor_msg_img_open_t *mopen = (void *)dock->notify.data;
+	istor_msghdr_t *msgh = (void *)dock->notify.data;
+	istor_msg_img_open_t *mopen = ISTOR_MSG_DATA(msgh);
 	istor_imgset_t *iset = dock->owner_iset;
 	istor_img_t *img;
-	size_t path_size;
 
-	path_size = istor_msg_t_psize(mopen);
-
-	if (path_size > ISTOR_IMG_NAME_LEN) {
+	if (mopen->path_size > ISTOR_IMG_NAME_LEN) {
 		pr_debug("%s: iopen: path %s is too long\n",
 			 dock->oidbuf, mopen->path);
 		return -ENAMETOOLONG;

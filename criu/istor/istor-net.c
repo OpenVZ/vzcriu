@@ -31,6 +31,7 @@ static inline __always_unused void __check_self(void)
 	istor_msghdr_t __always_unused v;
 
 	BUILD_BUG_ON(sizeof(istor_msghdr_t) > ISTOR_BUF_DEFAULT_SIZE);
+	BUILD_BUG_ON(sizeof(istor_msghdr_t) != ISTOR_MSG_LENGTH(0));
 	BUILD_BUG_ON(sizeof(v.msghdr_oid) != sizeof(struct istor_raw_id));
 }
 
@@ -101,7 +102,7 @@ ssize_t istor_recv(int sk, void *buf, size_t size)
 	return len;
 }
 
-static inline bool istor_msg_ok(const char *prefix, istor_msghdr_t *m)
+static inline bool istor_msg_ok(const char *prefix, const istor_msghdr_t *m)
 {
 	if (!ISTOR_MSG_OK(m, ISTOR_MSG_HDRLEN)) {
 		pr_err("%s wrong packet size %zu < %zu\n",
@@ -170,7 +171,7 @@ ssize_t istor_recv_msghdr(int sk, void *in)
 	return len;
 }
 
-ssize_t istor_recv_msgpayload(int sk, istor_msghdr_t *m, void *payload)
+ssize_t istor_recv_msgpayload(int sk, const istor_msghdr_t *m, void *payload)
 {
 	istor_uuid_str_t oidbuf;
 	ssize_t len;

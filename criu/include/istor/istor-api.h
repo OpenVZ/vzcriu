@@ -107,7 +107,6 @@ typedef struct {
 } istor_msg_img_write_t;
 
 typedef struct {
-	istor_msghdr_t	hdr;
 	uint32_t	flags;
 	uint32_t	mode;
 	uint32_t	path_size;

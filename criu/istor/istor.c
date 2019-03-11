@@ -125,7 +125,7 @@ static int dock_list_iter(const istor_dock_t * const dock, void *args)
 	istor_dock_fill_stat(dock, &a->dock_st);
 
 	istor_enc_ok(&a->hdr, dock->oid);
-	a->hdr.msghdr_len += sizeof(a->dock_st);
+	a->hdr.msghdr_len = ISTOR_MSG_LENGTH(sizeof(a->dock_st));
 
 	if (istor_send_msg(a->sk, &a->hdr) < 0)
 		return -1;
@@ -159,6 +159,7 @@ static int istor_serve_img_open(int sk, int usk, const istor_msghdr_t * const m,
 {
 	istor_msghdr_t *reply = *ptr_reply;
 	istor_msg_img_open_t *mopen;
+	istor_msghdr_t *msgh;
 	istor_dock_t *dock;
 	int ret;
 
@@ -175,11 +176,11 @@ static int istor_serve_img_open(int sk, int usk, const istor_msghdr_t * const m,
 
 	istor_dock_notify_lock(dock);
 
-	mopen = (void *)dock->notify.data;
-	memcpy(&mopen->hdr, m, sizeof(mopen->hdr));
+	msgh = (void *)dock->notify.data;
+	mopen = ISTOR_MSG_DATA(msgh);
+	memcpy(msgh, m, sizeof(*m));
 
-	ret = istor_recv(sk, (void *)mopen + sizeof(mopen->hdr),
-			 m->msghdr_len - sizeof(mopen->hdr));
+	ret = istor_recv_msgpayload(sk, m, mopen);
 	if (ret < 0) {
 		istor_dock_notify_unlock(dock);
 		istor_enc_err(reply, ret);
