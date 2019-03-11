@@ -49,7 +49,6 @@ typedef struct istor_msghdr_s {
 #define ISTOR_MSG_ALIGN(len)		(((len) + ISTOR_MSG_ALIGNTO - 1) & ~(ISTOR_MSG_ALIGNTO - 1))
 #define ISTOR_MSG_HDRLEN		((size_t)ISTOR_MSG_ALIGN(sizeof(struct istor_msghdr_s)))
 #define ISTOR_MSG_LENGTH(len)		((len) + ISTOR_MSG_HDRLEN)
-#define ISTOR_MSG_SPACE(len)		ISTOR_MSG_ALIGN(ISTOR_MSG_LENGTH(len))
 #define ISTOR_MSG_DATA(msgh)		((void *)(((char *)msgh) + ISTOR_MSG_LENGTH(0)))
 
 #define ISTOR_MSG_OK(msgh, len)					\
@@ -63,16 +62,6 @@ typedef struct istor_msghdr_s {
 static inline size_t istor_msg_size(size_t payload)
 {
 	return ISTOR_MSG_HDRLEN + payload;
-}
-
-static inline size_t istor_msg_total_size(size_t payload)
-{
-	return ISTOR_MSG_ALIGN(istor_msg_size(payload));
-}
-
-static inline size_t istor_msg_padlen(size_t payload)
-{
-	return istor_msg_total_size(payload) - istor_msg_size(payload);
 }
 
 static inline void *istor_msg_data(const istor_msghdr_t *msgh)
