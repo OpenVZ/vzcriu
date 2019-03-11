@@ -74,7 +74,7 @@ int istor_client_init(struct cr_options *opts)
 		}
 		memcpy(client_oid, u, sizeof(client_oid));
 		__istor_repr_short_id(client_oid, client_oid_repr);
-		pr_debug("%s: use dock\n", client_oid_repr);
+		pr_debug("%s: existing dock\n", client_oid_repr);
 	}
 
 	return 0;
