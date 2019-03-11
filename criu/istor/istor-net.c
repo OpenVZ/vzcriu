@@ -28,10 +28,10 @@ static inline __always_unused void __check_self(void)
 		uint64_t uuid_lo;
 	};
 
-	istor_msg_t __always_unused v;
+	istor_msghdr_t __always_unused v;
 
-	BUILD_BUG_ON(sizeof(istor_msg_t) > ISTOR_BUF_DEFAULT_SIZE);
-	BUILD_BUG_ON(sizeof(v.oid) != sizeof(struct istor_raw_id));
+	BUILD_BUG_ON(sizeof(istor_msghdr_t) > ISTOR_BUF_DEFAULT_SIZE);
+	BUILD_BUG_ON(sizeof(v.msghdr_oid) != sizeof(struct istor_raw_id));
 }
 
 const char * const cmd_repr(unsigned int cmd)
@@ -101,69 +101,90 @@ ssize_t istor_recv(int sk, void *buf, size_t size)
 	return len;
 }
 
-ssize_t istor_send_msg(int sk, istor_msg_t *out)
+static inline bool istor_msg_ok(const char *prefix, istor_msghdr_t *m)
+{
+	if (!ISTOR_MSG_OK(m, ISTOR_MSG_HDRLEN)) {
+		pr_err("%s wrong packet size %zu < %zu\n",
+		       prefix, m->msghdr_len, ISTOR_MSG_HDRLEN);
+		return false;
+	}
+	return true;
+}
+
+ssize_t istor_send_msghdr(int sk, void *out)
 {
 	istor_uuid_str_t oidbuf;
+	istor_msghdr_t *m = out;
 	ssize_t len;
 
-	/* FIXME huge size attack! */
-	if (out->size < sizeof(*out)) {
-		pr_err("out: wrong packet size %zu < %zu\n",
-		       out->size, sizeof(*out));
+	if (!istor_msg_ok("outh:", m))
 		return -EINVAL;
-	}
 
-	len = istor_send(sk, out, out->size);
-	if (len == out->size) {
-		pr_debug("out: sk %-4d cmd %-26s flags %#-4x id %s size %zd\n",
-			 sk, cmd_repr(out->cmd), out->flags,
-			 __istor_repr_id(out->oid, oidbuf), out->size);
+	len = istor_send(sk, m, ISTOR_MSG_HDRLEN);
+	if (len == ISTOR_MSG_HDRLEN) {
+		pr_debug("outh: sk %-4d cmd %-26s flags %#-4x id %s size %zd\n",
+			 sk, cmd_repr(m->msghdr_cmd), m->msghdr_flags,
+			 __istor_repr_id(m->msghdr_oid, oidbuf),
+			 m->msghdr_len);
 	}
 
 	return len;
 }
 
-ssize_t istor_recv_msg_hdr(int sk, istor_msg_t *in)
+ssize_t istor_send_msg(int sk, void *out)
 {
 	istor_uuid_str_t oidbuf;
+	istor_msghdr_t *m = out;
 	ssize_t len;
 
-	len = istor_recv(sk, in, sizeof(*in));
-	if (len == sizeof(*in)) {
-		pr_debug("inh: sk %-4d cmd %-26s flags %#-4x id %s size %zd\n",
-			 sk, cmd_repr(in->cmd), in->flags,
-			 __istor_repr_id(in->oid, oidbuf),
-			 in->size);
+	if (!istor_msg_ok("out :", m))
+		return -EINVAL;
+
+	len = istor_send(sk, m, m->msghdr_len);
+	if (len == m->msghdr_len) {
+		pr_debug("out : sk %-4d cmd %-26s flags %#-4x id %s size %zd\n",
+			 sk, cmd_repr(m->msghdr_cmd), m->msghdr_flags,
+			 __istor_repr_id(m->msghdr_oid, oidbuf),
+			 m->msghdr_len);
 	}
 
 	return len;
 }
 
-
-ssize_t istor_recv_msg(int sk, istor_msg_t *in)
+ssize_t istor_recv_msghdr(int sk, void *in)
 {
-	static const size_t max_size = 4096;
-	ssize_t len, size = in->size;
 	istor_uuid_str_t oidbuf;
+	istor_msghdr_t *m = in;
+	ssize_t len;
 
-	if (size < sizeof(*in)) {
-		pr_err("in : wrong packet size %zu < %zu\n",
-		       size, sizeof(*in));
-		return -EINVAL;
-	} else if (size > max_size) {
-		pr_err("in : wrong packet size %zu > %zu\n",
-		       size, max_size);
-		return -EINVAL;
+	len = istor_recv(sk, in, ISTOR_MSG_HDRLEN);
+	if (len == ISTOR_MSG_HDRLEN) {
+		if (!istor_msg_ok("inh :", m))
+			return -EINVAL;
+		pr_debug("inh : sk %-4d cmd %-26s flags %#-4x id %s size %zd\n",
+			 sk, cmd_repr(m->msghdr_cmd), m->msghdr_flags,
+			 __istor_repr_id(m->msghdr_oid, oidbuf),
+			 m->msghdr_len);
 	}
 
-	len = istor_recv(sk, in, size);
-	if (len == size) {
-		pr_debug("in : sk %-4d cmd %-26s flags %#-4x id %s size %zd / %zd\n",
-			 sk, cmd_repr(in->cmd), in->flags,
-			 __istor_repr_id(in->oid, oidbuf),
-			 size, in->size);
-	}
+	return len;
+}
 
+ssize_t istor_recv_msgpayload(int sk, istor_msghdr_t *m, void *payload)
+{
+	istor_uuid_str_t oidbuf;
+	ssize_t len;
+
+	if (!istor_msg_ok("inp :", m))
+		return -EINVAL;
+
+	len = istor_recv(sk, payload, istor_msg_len(m));
+	if (len == istor_msg_len(m)) {
+		pr_debug("inp : sk %-4d cmd %-26s flags %#-4x id %s size %zd\n",
+			 sk, cmd_repr(m->msghdr_cmd), m->msghdr_flags,
+			 __istor_repr_id(m->msghdr_oid, oidbuf),
+			 m->msghdr_len);
+	}
 	return len;
 }
 
@@ -214,19 +235,19 @@ static int __istor_serve_connection(int sk, const struct istor_ops * const ops)
 
 	tcp_nodelay(sk, true);
 	for (;;) {
-		istor_msg_t *out = (void *)buf_out;
-		istor_msg_t *in = (void *)buf_in;
+		istor_msghdr_t *out = (void *)buf_out;
+		istor_msghdr_t *in = (void *)buf_in;
 
-		istor_msg_init(in);
-		if (istor_recv_msg(sk, in) < 0)
+		istor_msghdr_init(in);
+		if (istor_recv_msghdr(sk, in) < 0)
 			break;
 
 		/* End of session */
-		if (in->cmd == ISTOR_CMD_NONE &&
-		    in->flags & ISTOR_FLAG_FIN)
+		if (in->msghdr_cmd == ISTOR_CMD_NONE &&
+		    in->msghdr_flags & ISTOR_FLAG_FIN)
 			break;
 
-		switch (in->cmd) {
+		switch (in->msghdr_cmd) {
 		case ISTOR_CMD_DOCK_INIT:
 			ret = ops->dock_init(sk, in, &out);
 			break;
@@ -266,7 +287,7 @@ static int __istor_serve_connection(int sk, const struct istor_ops * const ops)
 			break;
 
 		/* It was one-shot packet */
-		if (in->flags & ISTOR_FLAG_FIN)
+		if (in->msghdr_flags & ISTOR_FLAG_FIN)
 			break;
 	}
 

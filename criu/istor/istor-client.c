@@ -24,7 +24,7 @@ static int client_sk = -1;
 
 int istor_client_init(struct cr_options *opts)
 {
-	DECLARE_ISTOR_MSG(m);
+	DECLARE_ISTOR_MSGHDR(m);
 
 	if (!opts->istor_use_server)
 		return 0;
@@ -38,19 +38,19 @@ int istor_client_init(struct cr_options *opts)
 		return -1;
 	}
 
-	m.cmd = ISTOR_CMD_DOCK_INIT;
-	if (istor_send_msg(client_sk, &m) < 0 ||
-	    istor_recv_msg(client_sk, &m) < 0)
+	m.msghdr_cmd = ISTOR_CMD_DOCK_INIT;
+	if (istor_send_msghdr(client_sk, &m) < 0 ||
+	    istor_recv_msghdr(client_sk, &m) < 0)
 		return -1;
 
-	if (m.cmd == ISTOR_CMD_ACK) {
-		memcpy(client_oid, m.oid, sizeof(client_oid));
+	if (m.msghdr_cmd == ISTOR_CMD_ACK) {
+		memcpy(client_oid, m.msghdr_oid, sizeof(client_oid));
 		__istor_repr_short_id(client_oid, client_oid_repr);
 		pr_debug("%s: new dock\n", client_oid_repr);
 	} else {
-		errno = -m.flags;
+		errno = -m.msghdr_ret;
 		pr_perror("Can't create new dock");
-		return m.flags;
+		return m.msghdr_ret;
 	};
 
 	return 0;
@@ -67,25 +67,25 @@ void istor_client_fini(void)
 int istor_client_write_img_buf(struct cr_img *img, const void *ptr, int size)
 {
 	DECLARE_ISTOR_MSG_T(istor_msg_img_write_t, send);
-	DECLARE_ISTOR_MSG(reply);
+	DECLARE_ISTOR_MSGHDR(reply);
 
-	memcpy(send.hdr.oid, client_oid, sizeof(client_oid));
-	send.hdr.cmd	= ISTOR_CMD_IMG_WRITE;
-	send.idx	= img->_x.fd;
-	send.data_size	= size;
+	memcpy(send.hdr.msghdr_oid, client_oid, sizeof(client_oid));
+	send.hdr.msghdr_cmd	= ISTOR_CMD_IMG_WRITE;
+	send.idx		= img->_x.fd;
+	send.data_size		= size;
 
-	if (istor_send_msg(client_sk, (void *)&send) < 0	||
+	if (istor_send_msghdr(client_sk, &send) < 0	||
 	    istor_send(client_sk, (void *)ptr, size) < size	||
-	    istor_recv_msg(client_sk, &reply) < 0 ) {
+	    istor_recv_msghdr(client_sk, &reply) < 0 ) {
 		pr_err("%s: %s: network failure\n",
 		       client_oid_repr, __func__);
 		return -1;
 	}
 
-	if (reply.cmd == ISTOR_CMD_ACK)
+	if (reply.msghdr_cmd == ISTOR_CMD_ACK)
 		return 0;
 
-	errno = -reply.flags;
+	errno = -reply.msghdr_ret;
 	pr_perror("%s: can't write %zu bytes",
 		  client_oid_repr, (size_t)size);
 
@@ -109,7 +109,7 @@ int istor_client_do_open_image(struct cr_img *img, int dfd, int type,
 {
 	size_t path_size = strlen(path) + 1;
 	istor_msg_img_open_t *mopen;
-	DECLARE_ISTOR_MSG(reply);
+	DECLARE_ISTOR_MSGHDR(reply);
 	int ret;
 
 	if (path_size >= PATH_MAX) {
@@ -123,16 +123,16 @@ int istor_client_do_open_image(struct cr_img *img, int dfd, int type,
 		return -ENOMEM;
 	istor_msg_t_init(istor_msg_img_open_t, mopen);
 
-	memcpy(mopen->hdr.oid, client_oid, sizeof(client_oid));
-	mopen->hdr.cmd	= ISTOR_CMD_IMG_OPEN;
+	memcpy(mopen->hdr.msghdr_oid, client_oid, sizeof(client_oid));
+	mopen->hdr.msghdr_cmd	= ISTOR_CMD_IMG_OPEN;
 	mopen->mode	= (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
 	mopen->flags	= oflags;
 
 	memcpy(mopen->path, path, path_size);
-	mopen->hdr.size += path_size;
+	mopen->hdr.msghdr_len += path_size;
 
-	if (istor_send_msg(client_sk, &mopen->hdr) < 0 ||
-	    istor_recv_msg(client_sk, &reply) < 0) {
+	if (istor_send_msg(client_sk, &mopen) < 0 ||
+	    istor_recv_msghdr(client_sk, &reply) < 0) {
 		pr_err("%s: %s: network failure\n",
 		       client_oid_repr, __func__);
 		return -1;
@@ -141,8 +141,8 @@ int istor_client_do_open_image(struct cr_img *img, int dfd, int type,
 	xfree(mopen);
 	mopen = NULL;
 
-	ret = reply.flags;
-	if (reply.cmd == ISTOR_CMD_ACK) {
+	ret = reply.msghdr_ret;
+	if (reply.msghdr_cmd == ISTOR_CMD_ACK) {
 		pr_debug("%s: opened image %s / %d\n",
 			 client_oid_repr, path, ret);
 	} else

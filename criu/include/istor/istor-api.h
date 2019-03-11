@@ -35,42 +35,90 @@ enum {
 	ISTOR_FLAG_MAX
 };
 
-typedef struct {
-	uint32_t	cmd;
-	uint32_t	flags;
-	uuid_t		oid;
-	uint64_t	size;
-} istor_msg_t;
+typedef struct istor_msghdr_s {
+	uint32_t		msghdr_cmd;	/* ISTOR_CMD_ */
+	union {
+		uint32_t	msghdr_flags;	/* ISTOR_FLAG_ */
+		uint32_t	msghdr_ret;	/* return data on reply */
+	};
+	uuid_t			msghdr_oid;	/* oid of the store */
+	uint64_t		msghdr_len;	/* length including header */
+} istor_msghdr_t;
 
-#define DECLARE_ISTOR_MSG(_v)					\
-	istor_msg_t _v = { .size = sizeof(istor_msg_t) }
+#define ISTOR_MSG_ALIGNTO		4u
+#define ISTOR_MSG_ALIGN(len)		(((len) + ISTOR_MSG_ALIGNTO - 1) & ~(ISTOR_MSG_ALIGNTO - 1))
+#define ISTOR_MSG_HDRLEN		((size_t)ISTOR_MSG_ALIGN(sizeof(struct istor_msghdr_s)))
+#define ISTOR_MSG_LENGTH(len)		((len) + ISTOR_MSG_HDRLEN)
+#define ISTOR_MSG_SPACE(len)		ISTOR_MSG_ALIGN(ISTOR_MSG_LENGTH(len))
+#define ISTOR_MSG_DATA(msgh)		((void *)(((char *)msgh) + ISTOR_MSG_LENGTH(0)))
+
+#define ISTOR_MSG_OK(msgh, len)					\
+	((len) >= (size_t)sizeof(struct istor_msghdr_s) &&	\
+	 (msgh)->msghdr_len >= sizeof(struct istor_msghdr_s) &&	\
+	 (msgh)->msghdr_len <= (len))
+
+#define ISTOR_MSG_PAYLOAD(msgh, len)				\
+	((msgh)->msghdr_len - ISTOR_MSG_SPACE((len)))
+
+static inline size_t istor_msg_size(size_t payload)
+{
+	return ISTOR_MSG_HDRLEN + payload;
+}
+
+static inline size_t istor_msg_total_size(size_t payload)
+{
+	return ISTOR_MSG_ALIGN(istor_msg_size(payload));
+}
+
+static inline size_t istor_msg_padlen(size_t payload)
+{
+	return istor_msg_total_size(payload) - istor_msg_size(payload);
+}
+
+static inline void *istor_msg_data(const istor_msghdr_t *msgh)
+{
+	return (unsigned char *)msgh + ISTOR_MSG_HDRLEN;
+}
+
+static inline size_t istor_msg_len(const istor_msghdr_t *msgh)
+{
+	return msgh->msghdr_len - ISTOR_MSG_HDRLEN;
+}
+
+#define DECLARE_ISTOR_MSGHDR(_v)				\
+	istor_msghdr_t _v = {					\
+		.msghdr_len = ISTOR_MSG_HDRLEN,			\
+	}
 
 #define DECLARE_ISTOR_MSG_T(_type, _v)				\
-	_type _v = { .hdr.size = sizeof(_type) }
+	_type _v = {						\
+		.hdr.msghdr_len = istor_msg_size(sizeof(_type)),\
+	}
 
-#define istor_msg_init(_p)					\
+#define istor_msghdr_init(_p)					\
 	do {							\
-		*(_p) = (istor_msg_t) {				\
-			.size = sizeof(istor_msg_t),		\
+		*(_p) = (istor_msghdr_t) {			\
+			.msghdr_len = ISTOR_MSG_HDRLEN,		\
 		};						\
 	} while (0)
 
 #define istor_msg_t_init(_type,_p)				\
 	do {							\
 		*(_p) = (_type) {				\
-			.hdr.size = sizeof(_type),		\
+			.hdr.msghdr_len =			\
+			istor_msg_size(sizeof(_type)),		\
 		};						\
 	} while (0)
 
 typedef struct {
-	istor_msg_t	hdr;
+	istor_msghdr_t	hdr;
 	uint32_t	idx;
 	uint32_t	data_size;
 	char		data[0];
 } istor_msg_img_write_t;
 
 typedef struct {
-	istor_msg_t	hdr;
+	istor_msghdr_t	hdr;
 	uint32_t	flags;
 	uint32_t	mode;
 	uint32_t	path_size;
@@ -79,7 +127,7 @@ typedef struct {
 
 #define istor_msg_t_osize(_p)	(sizeof(*(_p)) - sizeof((_p)->hdr))
 #define istor_msg_t_optr(_p)	((void *)(_p) + sizeof((_p)->hdr))
-#define istor_msg_t_psize(_p)	((_p)->hdr.size - istor_msg_t_osize(_p))
+#define istor_msg_t_psize(_p)	((_p)->hdr.msghdr_len - istor_msg_t_osize(_p))
 
 typedef struct {
 	int		server_sk;

@@ -78,16 +78,16 @@ void istor_map_opts(const struct cr_options *s, istor_opts_t *d)
 	d->daemon_mode	= s->daemon_mode;
 }
 
-static int istor_serve_dock_init(int sk, const istor_msg_t * const m, istor_msg_t **ptr_reply)
+static int istor_serve_dock_init(int sk, const istor_msghdr_t * const m, istor_msghdr_t **ptr_reply)
 {
 	clean_on_fork_t args = {
 		.fds[0]	= sk,
 		.nr_fds	= 1,
 	};
-	istor_msg_t *reply = *ptr_reply;
+	istor_msghdr_t *reply = *ptr_reply;
 	istor_dock_t *e = NULL;
 
-	e = istor_lookup_alloc(m->oid, true, &args);
+	e = istor_lookup_alloc(m->msghdr_oid, true, &args);
 	if (IS_ERR(e)) {
 		istor_enc_err(reply, PTR_ERR(e));
 		return 0;
@@ -97,24 +97,24 @@ static int istor_serve_dock_init(int sk, const istor_msg_t * const m, istor_msg_
 	return 0;
 }
 
-static int istor_serve_dock_fini(int sk, const istor_msg_t * const m, istor_msg_t **ptr_reply)
+static int istor_serve_dock_fini(int sk, const istor_msghdr_t * const m, istor_msghdr_t **ptr_reply)
 {
-	istor_msg_t *reply = *ptr_reply;
+	istor_msghdr_t *reply = *ptr_reply;
 	int ret;
 
-	ret = istor_delete(m->oid);
+	ret = istor_delete(m->msghdr_oid);
 	if (ret) {
 		istor_enc_err(reply, ret);
 		return 0;
 	}
 
-	istor_enc_ok(reply, m->oid);
+	istor_enc_ok(reply, m->msghdr_oid);
 	return 0;
 }
 
 struct dock_list_iter_args {
 	int			sk;
-	istor_msg_t		hdr;
+	istor_msghdr_t		hdr;
 	istor_dock_stat_t	dock_st;
 };
 
@@ -125,16 +125,16 @@ static int dock_list_iter(const istor_dock_t * const dock, void *args)
 	istor_dock_fill_stat(dock, &a->dock_st);
 
 	istor_enc_ok(&a->hdr, dock->oid);
-	a->hdr.size += sizeof(a->dock_st);
+	a->hdr.msghdr_len += sizeof(a->dock_st);
 
 	if (istor_send_msg(a->sk, &a->hdr) < 0)
 		return -1;
 	return 0;
 }
 
-static int istor_serve_dock_list(int sk, const istor_msg_t * const m, istor_msg_t **ptr_reply)
+static int istor_serve_dock_list(int sk, const istor_msghdr_t * const m, istor_msghdr_t **ptr_reply)
 {
-	istor_msg_t *reply = *ptr_reply;
+	istor_msghdr_t *reply = *ptr_reply;
 	istor_stat_t st;
 
 	struct dock_list_iter_args args = {
@@ -144,7 +144,7 @@ static int istor_serve_dock_list(int sk, const istor_msg_t * const m, istor_msg_
 	istor_fill_stat(&st);
 
 	istor_enc_ok(reply, NULL);
-	reply->flags = st.nr_docks;
+	reply->msghdr_ret = st.nr_docks;
 	if (istor_send_msg(sk, reply) < 0)
 		return -1;
 
@@ -155,19 +155,19 @@ static int istor_serve_dock_list(int sk, const istor_msg_t * const m, istor_msg_
 	return 0;
 }
 
-static int istor_serve_img_open(int sk, int usk, const istor_msg_t * const m, istor_msg_t **ptr_reply)
+static int istor_serve_img_open(int sk, int usk, const istor_msghdr_t * const m, istor_msghdr_t **ptr_reply)
 {
-	istor_msg_t *reply = *ptr_reply;
+	istor_msghdr_t *reply = *ptr_reply;
 	istor_msg_img_open_t *mopen;
 	istor_dock_t *dock;
 	int ret;
 
-	if (m->size > sizeof(dock->notify.data)) {
+	if (m->msghdr_len > sizeof(dock->notify.data)) {
 		istor_enc_err(reply, -ENAMETOOLONG);
 		return 0;
 	}
 
-	dock = istor_lookup_get(m->oid);
+	dock = istor_lookup_get(m->msghdr_oid);
 	if (IS_ERR(dock)) {
 		istor_enc_err(reply, PTR_ERR(dock));
 		return 0;
@@ -179,7 +179,7 @@ static int istor_serve_img_open(int sk, int usk, const istor_msg_t * const m, is
 	memcpy(&mopen->hdr, m, sizeof(mopen->hdr));
 
 	ret = istor_recv(sk, (void *)mopen + sizeof(mopen->hdr),
-			 m->size - sizeof(mopen->hdr));
+			 m->msghdr_len - sizeof(mopen->hdr));
 	if (ret < 0) {
 		istor_dock_notify_unlock(dock);
 		istor_enc_err(reply, ret);
@@ -188,7 +188,7 @@ static int istor_serve_img_open(int sk, int usk, const istor_msg_t * const m, is
 
 	dock->notify.cmd	= ISTOR_CMD_IMG_OPEN;
 	dock->notify.flags	= DOCK_NOTIFY_F_NONE;
-	dock->notify.data_len	= m->size;
+	dock->notify.data_len	= m->msghdr_len;
 
 	ret = istor_dock_serve_cmd_locked(dock);
 	if (ret == 0)
@@ -198,19 +198,19 @@ static int istor_serve_img_open(int sk, int usk, const istor_msg_t * const m, is
 	if (ret < 0) {
 		istor_enc_err(reply, ret);
 	} else {
-		istor_enc_ok(reply, m->oid);
-		reply->flags = ret;
+		istor_enc_ok(reply, m->msghdr_oid);
+		reply->msghdr_ret = ret;
 	}
 
 	return 0;
 }
 
-static int istor_serve_img_stat(int sk, int usk, const istor_msg_t * const m, istor_msg_t **ptr_reply)
+static int istor_serve_img_stat(int sk, int usk, const istor_msghdr_t * const m, istor_msghdr_t **ptr_reply)
 {
-	istor_msg_t *reply = *ptr_reply;
+	istor_msghdr_t *reply = *ptr_reply;
 	istor_dock_t *dock;
 
-	dock = istor_lookup_get(m->oid);
+	dock = istor_lookup_get(m->msghdr_oid);
 	if (IS_ERR(dock)) {
 		istor_enc_err(reply, PTR_ERR(dock));
 		return 0;
@@ -220,14 +220,14 @@ static int istor_serve_img_stat(int sk, int usk, const istor_msg_t * const m, is
 	return 0;
 }
 
-static int istor_serve_img_write(int sk, int usk, const istor_msg_t * const m, istor_msg_t **ptr_reply)
+static int istor_serve_img_write(int sk, int usk, const istor_msghdr_t * const m, istor_msghdr_t **ptr_reply)
 {
-	istor_msg_t *reply = *ptr_reply;
+	istor_msghdr_t *reply = *ptr_reply;
 	istor_msg_img_write_t *mwrite;
 	istor_dock_t *dock;
 	int ret;
 
-	dock = istor_lookup_get(m->oid);
+	dock = istor_lookup_get(m->msghdr_oid);
 	if (IS_ERR(dock)) {
 		istor_enc_err(reply, PTR_ERR(dock));
 		return 0;
@@ -271,16 +271,16 @@ static int istor_serve_img_write(int sk, int usk, const istor_msg_t * const m, i
 	if (ret < 0)
 		istor_enc_err(reply, ret);
 	else
-		istor_enc_ok(reply, m->oid);
+		istor_enc_ok(reply, m->msghdr_oid);
 	return 0;
 }
 
-static int istor_serve_img_read(int sk, int usk, const istor_msg_t * const m, istor_msg_t **ptr_reply)
+static int istor_serve_img_read(int sk, int usk, const istor_msghdr_t * const m, istor_msghdr_t **ptr_reply)
 {
-	istor_msg_t *reply = *ptr_reply;
+	istor_msghdr_t *reply = *ptr_reply;
 	istor_dock_t *dock;
 
-	dock = istor_lookup_get(m->oid);
+	dock = istor_lookup_get(m->msghdr_oid);
 	if (IS_ERR(dock)) {
 		istor_enc_err(reply, PTR_ERR(dock));
 		return 0;
@@ -290,12 +290,12 @@ static int istor_serve_img_read(int sk, int usk, const istor_msg_t * const m, is
 	return 0;
 }
 
-static int istor_serve_img_close(int sk, int usk, const istor_msg_t * const m, istor_msg_t **ptr_reply)
+static int istor_serve_img_close(int sk, int usk, const istor_msghdr_t * const m, istor_msghdr_t **ptr_reply)
 {
-	istor_msg_t *reply = *ptr_reply;
+	istor_msghdr_t *reply = *ptr_reply;
 	istor_dock_t *dock;
 
-	dock = istor_lookup_get(m->oid);
+	dock = istor_lookup_get(m->msghdr_oid);
 	if (IS_ERR(dock)) {
 		istor_enc_err(reply, PTR_ERR(dock));
 		return 0;
