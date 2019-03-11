@@ -791,13 +791,13 @@ int parse_options(int argc, char **argv, bool *usage_error,
 			char *oid;
 			if (!pos)
 				goto bad_arg;
-			*pos = '\0';
-			oid = strchr(&pos[1], ':');
+			*pos = '\0', pos++;
+			oid = strchr(pos, ':');
 			if (oid)
-				*oid = '\0';
+				*oid = '\0', oid++;
 			opts.istor_use_server	= true;
 			opts.istor_server_ip	= optarg;
-			opts.istor_server_port	= atoi(&pos[1]);
+			opts.istor_server_port	= atoi(pos);
 			opts.istor_client_oid	= oid;
 			break;
 		}

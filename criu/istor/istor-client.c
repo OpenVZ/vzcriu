@@ -54,21 +54,27 @@ int istor_client_init(struct cr_options *opts)
 			return m.msghdr_ret;
 		}
 	} else {
-//		char *buf[sizeof(istor_uuid_t)];
-//		istor_uuid_t *u = (void *)buf;
-//		int ret = sscanf(opts->istor_client_oid, ISTOR_UUID_STR_FMT,
-//				 &u->time_low, &u->time_mid, &u->time_hi_and_version,
-//				 &u->clock_seq_hi_and_reserved, &u->clock_seq_low,
-//				 &u->node[0], &u->node[1], &u->node[2], &u->node[3],
-//				 &u->node[4], &u->node[5]);
-		size_t len = strlen(opts->istor_client_oid);
-		char *src;
-
-		if (len != ISTOR_UUID_STR_FMT_SIZE-1) {
-			pr_err("Wrong oid format, form of %s expected\n",
-			       ISTOR_ZERO_UUID_STR);
-			return -1;
+		char *buf[sizeof(istor_uuid_t)*2] = { };
+		istor_uuid_t *u = (void *)buf;
+		int ret = sscanf(opts->istor_client_oid, ISTOR_UUID_STR_FMT,
+				 (unsigned int *)&u->time_low,
+				 (unsigned int *)&u->time_mid,
+				 (unsigned int *)&u->time_hi_and_version,
+				 (unsigned int *)&u->clock_seq_hi_and_reserved,
+				 (unsigned int *)&u->clock_seq_low,
+				 (unsigned int *)&u->node[0],
+				 (unsigned int *)&u->node[1],
+				 (unsigned int *)&u->node[2],
+				 (unsigned int *)&u->node[3],
+				 (unsigned int *)&u->node[4],
+				 (unsigned int *)&u->node[5]);
+		if (ret != 11) {
+			pr_err("Can't parse dock oid: %d\n", ret);
+			return -EINVAL;
 		}
+		memcpy(client_oid, u, sizeof(client_oid));
+		__istor_repr_short_id(client_oid, client_oid_repr);
+		pr_debug("%s: use dock\n", client_oid_repr);
 	}
 
 	return 0;
