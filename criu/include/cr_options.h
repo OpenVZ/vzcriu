@@ -130,6 +130,7 @@ struct cr_options {
 	bool			istor_use_server;
 	char			*istor_server_ip;
 	unsigned int		istor_server_port;
+	char			*istor_client_oid;
 
 	/*
 	 * When we scheduler for removal some functionality we first

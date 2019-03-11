@@ -785,15 +785,20 @@ int parse_options(int argc, char **argv, bool *usage_error,
 			 * images to/from. It implies istor server
 			 * is already running somewhere.
 			 *
-			 * --istor host:port
+			 * --istor host:port[:oid]
 			 */
 			char *pos = strchr(optarg, ':');
+			char *oid;
 			if (!pos)
 				goto bad_arg;
 			*pos = '\0';
+			oid = strchr(&pos[1], ':');
+			if (oid)
+				*oid = '\0';
 			opts.istor_use_server	= true;
 			opts.istor_server_ip	= optarg;
 			opts.istor_server_port	= atoi(&pos[1]);
+			opts.istor_client_oid	= oid;
 			break;
 		}
 		case 'V':

@@ -38,20 +38,38 @@ int istor_client_init(struct cr_options *opts)
 		return -1;
 	}
 
-	m.msghdr_cmd = ISTOR_CMD_DOCK_INIT;
-	if (istor_send_msghdr(client_sk, &m) < 0 ||
-	    istor_recv_msghdr(client_sk, &m) < 0)
-		return -1;
+	if (!opts->istor_client_oid) {
+		m.msghdr_cmd = ISTOR_CMD_DOCK_INIT;
+		if (istor_send_msghdr(client_sk, &m) < 0 ||
+		    istor_recv_msghdr(client_sk, &m) < 0)
+			return -1;
 
-	if (m.msghdr_cmd == ISTOR_CMD_ACK) {
-		memcpy(client_oid, m.msghdr_oid, sizeof(client_oid));
-		__istor_repr_short_id(client_oid, client_oid_repr);
-		pr_debug("%s: new dock\n", client_oid_repr);
+		if (m.msghdr_cmd == ISTOR_CMD_ACK) {
+			memcpy(client_oid, m.msghdr_oid, sizeof(client_oid));
+			__istor_repr_short_id(client_oid, client_oid_repr);
+			pr_debug("%s: new dock\n", client_oid_repr);
+		} else {
+			errno = -m.msghdr_ret;
+			pr_perror("Can't create new dock");
+			return m.msghdr_ret;
+		}
 	} else {
-		errno = -m.msghdr_ret;
-		pr_perror("Can't create new dock");
-		return m.msghdr_ret;
-	};
+//		char *buf[sizeof(istor_uuid_t)];
+//		istor_uuid_t *u = (void *)buf;
+//		int ret = sscanf(opts->istor_client_oid, ISTOR_UUID_STR_FMT,
+//				 &u->time_low, &u->time_mid, &u->time_hi_and_version,
+//				 &u->clock_seq_hi_and_reserved, &u->clock_seq_low,
+//				 &u->node[0], &u->node[1], &u->node[2], &u->node[3],
+//				 &u->node[4], &u->node[5]);
+		size_t len = strlen(opts->istor_client_oid);
+		char *src;
+
+		if (len != ISTOR_UUID_STR_FMT_SIZE-1) {
+			pr_err("Wrong oid format, form of %s expected\n",
+			       ISTOR_ZERO_UUID_STR);
+			return -1;
+		}
+	}
 
 	return 0;
 }
