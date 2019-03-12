@@ -459,7 +459,7 @@ int cpuinfo_check(void)
 {
 	if (istor_client_init(&opts))
 		return -1;
-	
+
 	if (cpu_init())
 		return 1;
 

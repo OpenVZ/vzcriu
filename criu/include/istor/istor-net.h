@@ -47,6 +47,7 @@ extern ssize_t istor_recv(int sk, void *buf, size_t size);
 
 extern ssize_t istor_send_msg(int sk, void *out);
 extern ssize_t istor_send_msghdr(int sk, void *out);
+extern ssize_t istor_send_msgpayload(int sk, const istor_msghdr_t *m, void *payload);
 extern ssize_t istor_recv_msghdr(int sk, void *in);
 extern ssize_t istor_recv_msgpayload(int sk, const istor_msghdr_t *m, void *payload);
 

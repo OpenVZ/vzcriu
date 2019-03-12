@@ -132,6 +132,24 @@ ssize_t istor_send_msghdr(int sk, void *out)
 	return len;
 }
 
+ssize_t istor_send_msgpayload(int sk, const istor_msghdr_t *m, void *payload)
+{
+	istor_uuid_str_t oidbuf;
+	ssize_t len;
+
+	if (!istor_msg_ok("outp:", m))
+		return -EINVAL;
+
+	len = istor_send(sk, payload, istor_msg_len(m));
+	if (len == istor_msg_len(m)) {
+		pr_debug("outp: sk %-4d cmd %-26s flags %#-10x id %s size %zd read %zd\n",
+			 sk, cmd_repr(m->msghdr_cmd), m->msghdr_flags,
+			 __istor_repr_id(m->msghdr_oid, oidbuf),
+			 m->msghdr_len, len);
+	}
+	return len;
+}
+
 ssize_t istor_send_msg(int sk, void *out)
 {
 	istor_uuid_str_t oidbuf;

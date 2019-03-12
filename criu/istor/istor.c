@@ -285,7 +285,15 @@ static int istor_serve_img_write(int sk, int usk, const istor_msghdr_t * const m
 static int istor_serve_img_read(int sk, int usk, const istor_msghdr_t * const m, istor_msghdr_t **ptr_reply)
 {
 	istor_msghdr_t *reply = *ptr_reply;
+	istor_msg_img_rdwr_t *mread;
+	istor_msghdr_t *msgh;
 	istor_dock_t *dock;
+	int ret;
+
+	if (m->msghdr_len > sizeof(dock->notify.data)) {
+		istor_enc_err(reply, -ENAMETOOLONG);
+		return 0;
+	}
 
 	dock = istor_lookup_get(m->msghdr_oid);
 	if (IS_ERR(dock)) {
@@ -293,7 +301,49 @@ static int istor_serve_img_read(int sk, int usk, const istor_msghdr_t * const m,
 		return 0;
 	}
 
-	istor_enc_err(reply, -EINVAL);
+	istor_dock_notify_lock(dock);
+
+	msgh = (void *)dock->notify.data;
+	memcpy(msgh, m, sizeof(*m));
+
+	mread = ISTOR_MSG_DATA(msgh);
+
+	ret = istor_recv_msgpayload(sk, m, mread);
+	if (ret < 0) {
+		istor_enc_err(reply, (int)ret);
+		istor_dock_notify_unlock(dock);
+		return 0;
+	}
+
+	dock->notify.cmd	= ISTOR_CMD_IMG_READ;
+	dock->notify.data_len	= m->msghdr_len;
+
+	ret = istor_dock_send_data_sk(dock, usk, sk);
+	if (ret < 0) {
+		istor_dock_notify_unlock(dock);
+		istor_enc_err(reply, -EIO);
+		return 0;
+	} else if (ret > 0) {
+		istor_dock_close_data_sk(dock);
+		dock->notify.flags = DOCK_NOTIFY_F_DATA_SK;
+	} else
+		dock->notify.flags = DOCK_NOTIFY_F_NONE;
+
+	ret = istor_dock_serve_cmd_locked(dock);
+	if (ret < 0)
+		ret = dock->notify.ret;
+
+	istor_dock_close_data_sk(dock);
+	istor_dock_notify_unlock(dock);
+
+	/*
+	 * If case if no error happened
+	 * don't send anything!
+	 */
+	if (ret < 0)
+		istor_enc_err(reply, ret);
+	else
+		*ptr_reply = NULL;
 	return 0;
 }
 

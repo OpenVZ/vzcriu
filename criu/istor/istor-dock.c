@@ -310,8 +310,9 @@ static int istor_serve_dock_img_write(istor_dock_t *dock)
 	new_size = mwrite->off + mwrite->data_size;
 	if (new_size > img->size) {
 		if (xrealloc_safe(&img->data, new_size)) {
-			pr_err("%s: iwrite nomem %zu bytes for idx %d\n",
-			       dock->oidbuf, new_size, mwrite->idx);
+			pr_err("%s: iwrite: nomem %zu bytes %u for idx %d\n",
+			       dock->oidbuf, new_size,
+			       mwrite->data_size, mwrite->idx);
 			return -ENOMEM;
 		}
 	}
@@ -319,12 +320,67 @@ static int istor_serve_dock_img_write(istor_dock_t *dock)
 	where = img->data + mwrite->off;
 	len = istor_recv(dock->data_sk, where, mwrite->data_size);
 	if (len < 0) {
-		pr_err("%s: iwrite network error\n", dock->oidbuf);
+		pr_err("%s: iwrite: network error\n", dock->oidbuf);
 		return len;
 	}
 
-	pr_debug("%s: iwrite wrote %zu bytes off %zu idx %d\n",
+	pr_debug("%s: iwrite: wrote %zu bytes off %zu idx %d\n",
 		 dock->oidbuf, len, (size_t)mwrite->off, mwrite->idx);
+	return 0;
+}
+
+static int istor_serve_dock_img_read(istor_dock_t *dock)
+{
+	istor_msghdr_t *msgh = (void *)(dock->notify.data);
+	istor_msg_img_rdwr_t *mread = ISTOR_MSG_DATA(msgh);
+	istor_imgset_t *iset = dock->owner_iset;
+	istor_msghdr_t reply;
+	istor_img_t *img;
+	ssize_t len;
+	void *where;
+	int ret;
+
+	if (dock->notify.flags & DOCK_NOTIFY_F_DATA_SK) {
+		ret = istor_dock_recv_data_sk(dock);
+		if (ret)
+			return ret;
+	}
+
+	img = istor_img_lookup(iset, NULL, mread->idx);
+	if (!img) {
+		pr_debug("%s: iread: idx %d doesn't exist\n",
+			 dock->oidbuf, mread->idx);
+		return -ENOENT;
+	}
+
+	where = img->data + mread->off + mread->data_size;
+	if (where <= img->data + img->size) {
+		/* We have space to read */
+
+		istor_enc_ok(&reply, dock->oid);
+		reply.msghdr_len = ISTOR_MSG_LENGTH(mread->data_size);
+
+		len = istor_send_msghdr(dock->data_sk, &reply);
+		if (len < 0) {
+			pr_err("iread error %zd\n", len);
+			return len;
+		}
+
+		where = img->data + mread->off;
+		len = istor_send_msgpayload(dock->data_sk, &reply, where);
+		if (len < 0) {
+			pr_err("iread error 2 %zd\n", len);
+			return len;
+		}
+	} else if (where > img->data + img->size) {
+		/* Image is trimmed */
+		pr_err("%s: iread: eio %u bytes off %lu for idx %d\n",
+		       dock->oidbuf, mread->data_size, mread->off, mread->idx);
+		return -EIO;
+	}
+
+	pr_debug("%s: iread: read %zu bytes off %zu idx %d\n",
+		 dock->oidbuf, len, (size_t)mread->off, mread->idx);
 
 	return 0;
 }
@@ -336,6 +392,9 @@ static int istor_serve_dock_img_open(istor_dock_t *dock)
 	istor_imgset_t *iset = dock->owner_iset;
 	istor_img_t *img;
 
+	pr_debug("%s: iopen: params path %s flags %0o mode %#x\n",
+		 dock->oidbuf, mopen->path, mopen->flags, mopen->mode);
+
 	if (mopen->path_size > ISTOR_IMG_NAME_LEN) {
 		pr_debug("%s: iopen: path %s is too long\n",
 			 dock->oidbuf, mopen->path);
@@ -344,7 +403,9 @@ static int istor_serve_dock_img_open(istor_dock_t *dock)
 
 	img = istor_img_lookup(iset, mopen->path, -1);
 	if (img) {
-		if (!(mopen->flags & (O_TRUNC))) {
+		if (mopen->flags == O_RDONLY)
+			goto open_existing;
+		else if (!(mopen->flags & (O_TRUNC))) {
 			pr_debug("%s: iopen: path %s is busy\n",
 				 dock->oidbuf, mopen->path);
 			return -EBUSY;
@@ -368,9 +429,9 @@ static int istor_serve_dock_img_open(istor_dock_t *dock)
 	img->flags	= mopen->flags;
 	img->mode	= mopen->mode;
 
-	pr_debug("%s: iopen: name %s idx %ld flags %0o mode %#x\n",
+open_existing:
+	pr_debug("%s: iopen: done name %s idx %ld flags %0o mode %#x\n",
 		 dock->oidbuf, img->name, img->idx, img->flags, img->mode);
-
 	return img->idx;
 }
 
@@ -409,7 +470,7 @@ static int istor_serve_dock(istor_dock_t *dock)
 			dock->notify.ret = istor_serve_dock_img_write(dock);
 			break;
 		case ISTOR_CMD_IMG_READ:
-			dock->notify.ret = -EINVAL;
+			dock->notify.ret = istor_serve_dock_img_read(dock);
 			break;
 		case ISTOR_CMD_IMG_CLOSE:
 			dock->notify.ret = -EINVAL;

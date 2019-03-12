@@ -131,8 +131,50 @@ int istor_client_write_img_buf(struct cr_img *img, const void *ptr, int size)
 
 int istor_client_read_img_buf_eof(struct cr_img *img, void *ptr, int size)
 {
-	pr_err("%s: not implemented\n", __func__);
-	return -1;
+	istor_msg_img_rdwr_t *mread;
+	istor_msghdr_t reply;
+	istor_msghdr_t *msgh;
+	ssize_t len;
+
+	msgh = alloca(ISTOR_MSG_LENGTH(sizeof(*mread)));
+
+	istor_msghdr_init(msgh);
+	memcpy(msgh->msghdr_oid, client_oid, sizeof(client_oid));
+	msgh->msghdr_cmd = ISTOR_CMD_IMG_READ;
+	msgh->msghdr_len = ISTOR_MSG_LENGTH(sizeof(*mread));
+
+	mread			= ISTOR_MSG_DATA(msgh);
+	mread->idx		= img->_x.fd;
+	mread->off		= img->istor_rd_off;
+	mread->data_size	= size;
+
+	if (istor_send_msg(client_sk, msgh) < 0 ||
+	    istor_recv_msghdr(client_sk, &reply) < 0 ) {
+		pr_err("%s: %s: network failure\n",
+		       client_oid_repr, __func__);
+		return -1;
+	}
+
+	if (reply.msghdr_cmd == ISTOR_CMD_ERR) {
+		errno = -reply.msghdr_ret;
+		pr_perror("%s: can't read %zu bytes %zu off",
+			  client_oid_repr, (size_t)size,
+			  (size_t)img->istor_rd_off);
+		return -1;
+	}
+
+	len = istor_recv_msgpayload(client_sk, &reply, ptr);
+	if (len < 0 ) {
+		pr_err("%s: %s: network failure\n",
+		       client_oid_repr, __func__);
+		return -1;
+	}
+
+	pr_debug("%s: read idx %d bytes %zu off %zu\n",
+		 client_oid_repr, img->_x.fd,
+		 (size_t)size, (size_t)img->istor_rd_off);
+	img->istor_rd_off += size;
+	return 0;
 }
 
 off_t istor_client_img_raw_size(struct cr_img *img)
