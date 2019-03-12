@@ -246,7 +246,7 @@ int pb_write_one(struct cr_img *img, void *obj, int type)
 		size_t i, len = 0;
 		for (i = 0; i < ARRAY_SIZE(iov); i++) {
 			ret = istor_client_write_img_buf(img, iov[i].iov_base, iov[i].iov_len);
-			if (ret == 0) {
+			if (ret == iov[i].iov_len) {
 				len += iov[i].iov_len;
 			} else {
 				len = ret;

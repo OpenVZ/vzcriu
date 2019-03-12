@@ -604,9 +604,9 @@ int write_img_buf(struct cr_img *img, const void *ptr, int size)
 	int ret;
 
 	if (opts.istor_use_server)
-		return istor_client_write_img_buf(img, ptr, size);
-
-	ret = bwrite(&img->_x, ptr, size);
+		ret = istor_client_write_img_buf(img, ptr, size);
+	else
+		ret = bwrite(&img->_x, ptr, size);
 	if (ret == size)
 		return 0;
 
@@ -629,9 +629,9 @@ int read_img_buf_eof(struct cr_img *img, void *ptr, int size)
 	int ret;
 
 	if (opts.istor_use_server)
-		return istor_client_read_img_buf_eof(img, ptr, size);
-
-	ret = bread(&img->_x, ptr, size);
+		ret = istor_client_read_img_buf_eof(img, ptr, size);
+	else
+		ret = bread(&img->_x, ptr, size);
 	if (ret == size)
 		return 1;
 	if (ret == 0)

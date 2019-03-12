@@ -119,7 +119,7 @@ int istor_client_write_img_buf(struct cr_img *img, const void *ptr, int size)
 			 client_oid_repr, img->_x.fd,
 			 (size_t)size, (size_t)img->istor_wr_off);
 		img->istor_wr_off += size;
-		return 0;
+		return size;
 	}
 
 	errno = -reply.msghdr_ret;
