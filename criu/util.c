@@ -522,7 +522,7 @@ int get_service_fd(enum sfd_type type)
 	 * as image directory.
 	 */
 	if (type == IMG_FD_OFF && opts.istor_use_server)
-		return -1;
+		return AT_FDCWD;
 
 	if (!test_bit(type, sfd_map))
 		return -1;

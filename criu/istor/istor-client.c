@@ -215,6 +215,7 @@ int istor_client_do_open_image(struct cr_img *img, int dfd, int type,
 	mopen		= ISTOR_MSG_DATA(msgh);
 	mopen->mode	= (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
 	mopen->flags	= oflags;
+	mopen->path_size= path_size;
 
 	memcpy(mopen->path, path, path_size);
 
