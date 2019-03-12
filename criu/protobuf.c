@@ -233,9 +233,17 @@ int pb_write_one(struct cr_img *img, void *obj, int type)
 	iov[1].iov_len = size;
 
 	if (opts.istor_use_server) {
-		ret = istor_client_write_img_buf(img, buf, size);
-		if (ret == 0)
-			ret = size + sizeof(size);
+		size_t i, len = 0;
+		for (i = 0; i < ARRAY_SIZE(iov); i++) {
+			ret = istor_client_write_img_buf(img, iov[i].iov_base, iov[i].iov_len);
+			if (ret == 0) {
+				len += iov[i].iov_len;
+			} else {
+				len = ret;
+				break;
+			}
+		}
+		ret = len;
 	} else
 		ret = bwritev(&img->_x, iov, 2);
 	if (ret != size + sizeof(size)) {
