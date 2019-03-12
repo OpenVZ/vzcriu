@@ -332,8 +332,9 @@ static int istor_serve_dock_img_write(istor_dock_t *dock)
 		return len;
 	}
 
-	pr_debug("%s: iwrite: wrote %zu bytes off %zu idx %d\n",
-		 dock->oidbuf, len, (size_t)mwrite->off, mwrite->idx);
+	pr_debug("%s: iwrite: wrote %zu bytes off %zu idx %d size %zu\n",
+		 dock->oidbuf, len, (size_t)mwrite->off, mwrite->idx,
+		 img->size);
 	return 0;
 }
 
