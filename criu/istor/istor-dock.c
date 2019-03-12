@@ -294,6 +294,9 @@ static int istor_serve_dock_img_write(istor_dock_t *dock)
 	void *where;
 	int ret;
 
+	pr_debug("%s: iwrite: params idx %u off %lu data_size %u\n",
+		 dock->oidbuf, mwrite->idx, mwrite->off, mwrite->data_size);
+
 	if (dock->notify.flags & DOCK_NOTIFY_F_DATA_SK) {
 		ret = istor_dock_recv_data_sk(dock);
 		if (ret)
@@ -317,6 +320,11 @@ static int istor_serve_dock_img_write(istor_dock_t *dock)
 		}
 	}
 
+	/*
+	 * FIXME: Need to shrink back on error.
+	 */
+	img->size = new_size;
+
 	where = img->data + mwrite->off;
 	len = istor_recv(dock->data_sk, where, mwrite->data_size);
 	if (len < 0) {
@@ -339,6 +347,9 @@ static int istor_serve_dock_img_read(istor_dock_t *dock)
 	ssize_t len;
 	void *where;
 	int ret;
+
+	pr_debug("%s: iread: params idx %u off %lu data_size %u\n",
+		 dock->oidbuf, mread->idx, mread->off, mread->data_size);
 
 	if (dock->notify.flags & DOCK_NOTIFY_F_DATA_SK) {
 		ret = istor_dock_recv_data_sk(dock);
