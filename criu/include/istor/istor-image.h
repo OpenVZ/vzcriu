@@ -10,7 +10,6 @@
 typedef struct {
 	char			name[ISTOR_IMG_NAME_LEN];
 	long			idx;
-	off_t			off;
 	size_t			size;
 } istor_img_stat_t;
 
@@ -24,7 +23,6 @@ typedef struct {
 	unsigned int		flags;
 	unsigned int		mode;
 
-	off_t			off;
 	size_t			size;
 
 	void			*data;

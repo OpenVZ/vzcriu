@@ -307,26 +307,25 @@ static int istor_serve_dock_img_write(istor_dock_t *dock)
 		return -ENOENT;
 	}
 
-	new_size = img->off + mwrite->data_size;
+	new_size = mwrite->off + mwrite->data_size;
 	if (new_size > img->size) {
 		if (xrealloc_safe(&img->data, new_size)) {
-			pr_err("%s: iwrite no %zu bytes for idx %d\n",
+			pr_err("%s: iwrite nomem %zu bytes for idx %d\n",
 			       dock->oidbuf, new_size, mwrite->idx);
 			return -ENOMEM;
 		}
 	}
 
-	where = img->data + img->off;
+	where = img->data + mwrite->off;
 	len = istor_recv(dock->data_sk, where, mwrite->data_size);
 	if (len < 0) {
 		pr_err("%s: iwrite network error\n", dock->oidbuf);
 		return len;
 	}
 
-	pr_debug("%s: iwrite wrote %zu bytes idx %d\n",
-		 dock->oidbuf, len, mwrite->idx);
+	pr_debug("%s: iwrite wrote %zu bytes off %zu idx %d\n",
+		 dock->oidbuf, len, (size_t)mwrite->off, mwrite->idx);
 
-	img->off += len;
 	return 0;
 }
 

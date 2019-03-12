@@ -114,6 +114,10 @@ struct cr_img {
 			int type;
 			unsigned long oflags;
 			char *path;
+
+			/* read and write offsets */
+			unsigned long istor_rd_off;
+			unsigned long istor_wr_off;
 		};
 	};
 };

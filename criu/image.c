@@ -301,7 +301,7 @@ struct cr_img *open_image_at(int dfd, int type, unsigned long flags, ...)
 		lazy = (flags & O_CREAT);
 	}
 
-	img = xmalloc(sizeof(*img));
+	img = xzalloc(sizeof(*img));
 	if (!img)
 		return NULL;
 
@@ -495,7 +495,7 @@ struct cr_img *img_from_fd(int fd)
 {
 	struct cr_img *img;
 
-	img = xmalloc(sizeof(*img));
+	img = xzalloc(sizeof(*img));
 	if (img) {
 		img->_x.fd = fd;
 		bfd_setraw(&img->_x);

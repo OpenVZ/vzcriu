@@ -101,6 +101,7 @@ static inline size_t istor_msg_len(const istor_msghdr_t *msgh)
 
 typedef struct istor_msg_img_write_s {
 	uint32_t	idx;
+	uint64_t	off;
 	uint32_t	data_size;
 	char		data[0];
 } istor_msg_img_write_t;

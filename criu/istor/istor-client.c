@@ -103,6 +103,7 @@ int istor_client_write_img_buf(struct cr_img *img, const void *ptr, int size)
 
 	mwrite			= ISTOR_MSG_DATA(msgh);
 	mwrite->idx		= img->_x.fd;
+	mwrite->off		= img->istor_wr_off;
 	mwrite->data_size	= size;
 
 	if (istor_send_msg(client_sk, msgh) < 0			||
@@ -199,6 +200,8 @@ int istor_client_do_open_image(struct cr_img *img, int dfd, int type,
 		goto err;
 	}
 
+	img->istor_rd_off = 0;
+	img->istor_wr_off = 0;
 	img->_x.fd = ret;
 
 	/*

@@ -59,7 +59,6 @@ int istor_img_stat(const istor_img_t * const img, istor_img_stat_t *st)
 			strcpy(st->name, img->name);
 		st->size= img->size;
 		st->idx	= img->idx;
-		st->off	= img->off;
 	}
 	return -ENOENT;
 }
@@ -77,7 +76,6 @@ istor_img_t *istor_img_alloc(istor_imgset_t *iset, const char * const name)
 
 	img->flags	= 0;
 	img->mode	= 0;
-	img->off	= 0;
 	img->size	= 0;
 	img->data	= NULL;
 
