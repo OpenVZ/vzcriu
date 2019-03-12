@@ -115,9 +115,10 @@ int istor_client_write_img_buf(struct cr_img *img, const void *ptr, int size)
 	}
 
 	if (reply.msghdr_cmd == ISTOR_CMD_ACK) {
-		pr_debug("%s: wrote idx %d size %zd\n",
+		pr_debug("%s: wrote idx %d bytes %zu off %zu\n",
 			 client_oid_repr, img->_x.fd,
-			 (size_t)size);
+			 (size_t)size, (size_t)img->istor_wr_off);
+		img->istor_wr_off += size;
 		return 0;
 	}
 
