@@ -365,6 +365,12 @@ static int istor_serve_dock_img_read(istor_dock_t *dock)
 		return -ENOENT;
 	}
 
+	/*
+	 * Once we start replying data we should not
+	 * return errors to the callers so no additional
+	 * packets would be sent to a client.
+	 */
+
 	where = img->data + mread->off + mread->data_size;
 	if (where <= img->data + img->size) {
 		/*
@@ -376,15 +382,17 @@ static int istor_serve_dock_img_read(istor_dock_t *dock)
 
 		len = istor_send_msghdr(dock->data_sk, &reply);
 		if (len < 0) {
-			pr_err("iread error %zd\n", len);
-			return len;
+			pr_err("%s: iread: header sending net error %zd\n",
+			       dock->oidbuf, len);
+			return 0;
 		}
 
 		where = img->data + mread->off;
 		len = istor_send_msgpayload(dock->data_sk, &reply, where);
 		if (len < 0) {
-			pr_err("iread error 2 %zd\n", len);
-			return len;
+			pr_err("%s: iread: payload sending net error %zd\n",
+			       dock->oidbuf, len);
+			return 0;
 		}
 	} else if (where >= img->data + img->size) {
 		/*
@@ -395,8 +403,9 @@ static int istor_serve_dock_img_read(istor_dock_t *dock)
 
 		len = istor_send_msg(dock->data_sk, &reply);
 		if (len < 0) {
-			pr_err("iread error %zd\n", len);
-			return len;
+			pr_err("%s: iread: header sending net error %zd\n",
+			       dock->oidbuf, len);
+			return 0;
 		}
 	}
 
@@ -451,7 +460,7 @@ static int istor_serve_dock_img_open(istor_dock_t *dock)
 	img->mode	= mopen->mode;
 
 open_existing:
-	pr_debug("%s: iopen: done name %s idx %ld flags %0o mode %#x\n",
+	pr_debug("%s: iopen: opened name %s idx %ld flags %0o mode %#x\n",
 		 dock->oidbuf, img->name, img->idx, img->flags, img->mode);
 	return img->idx;
 }

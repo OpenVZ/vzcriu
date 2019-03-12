@@ -337,8 +337,9 @@ static int istor_serve_img_read(int sk, int usk, const istor_msghdr_t * const m,
 	istor_dock_notify_unlock(dock);
 
 	/*
-	 * If case if no error happened
-	 * don't send anything!
+	 * If case if no error happened don't send
+	 * anything! The callee already handled all
+	 * cases.
 	 */
 	if (ret < 0)
 		istor_enc_err(reply, ret);
