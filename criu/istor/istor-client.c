@@ -90,7 +90,7 @@ void istor_client_fini(void)
 
 int istor_client_write_img_buf(struct cr_img *img, const void *ptr, int size)
 {
-	istor_msg_img_write_t *mwrite;
+	istor_msg_img_rdwr_t *mwrite;
 	istor_msghdr_t reply;
 	istor_msghdr_t *msgh;
 

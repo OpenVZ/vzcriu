@@ -99,12 +99,12 @@ static inline size_t istor_msg_len(const istor_msghdr_t *msgh)
 		};						\
 	} while (0)
 
-typedef struct istor_msg_img_write_s {
+typedef struct istor_msg_img_rdwr_s {
 	uint32_t	idx;
 	uint64_t	off;
 	uint32_t	data_size;
 	char		data[0];
-} istor_msg_img_write_t;
+} istor_msg_img_rdwr_t;
 
 typedef struct istor_msg_img_open_s {
 	uint32_t	flags;

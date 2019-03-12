@@ -224,7 +224,7 @@ static int istor_serve_img_stat(int sk, int usk, const istor_msghdr_t * const m,
 static int istor_serve_img_write(int sk, int usk, const istor_msghdr_t * const m, istor_msghdr_t **ptr_reply)
 {
 	istor_msghdr_t *reply = *ptr_reply;
-	istor_msg_img_write_t *mwrite;
+	istor_msg_img_rdwr_t *mwrite;
 	istor_msghdr_t *msgh;
 	istor_dock_t *dock;
 	int ret;
