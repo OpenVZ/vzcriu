@@ -366,7 +366,7 @@ static int istor_serve_dock_img_read(istor_dock_t *dock)
 	}
 
 	where = img->data + mread->off + mread->data_size;
-	if (where < img->data + img->size) {
+	if (where <= img->data + img->size) {
 		/*
 		 * We have data left to read.
 		 */
