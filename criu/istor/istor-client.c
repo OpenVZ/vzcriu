@@ -174,7 +174,7 @@ int istor_client_read_img_buf_eof(struct cr_img *img, void *ptr, int size)
 		 client_oid_repr, img->_x.fd,
 		 (size_t)size, (size_t)img->istor_rd_off);
 	img->istor_rd_off += size;
-	return 0;
+	return 1;
 }
 
 off_t istor_client_img_raw_size(struct cr_img *img)
