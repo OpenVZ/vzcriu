@@ -69,8 +69,13 @@ int do_pb_read_one(struct cr_img *img, void **pobj, int type, bool eof)
 
 	if (unlikely(empty_image(img)))
 		ret = 0;
-	else
-		ret = bread(&img->_x, &size, sizeof(size));
+	else {
+		if (opts.istor_use_server) {
+			ret = istor_client_read_img_buf_eof(img, &size, sizeof(size));
+		} else {
+			ret = bread(&img->_x, &size, sizeof(size));
+		}
+	}
 	if (ret == 0) {
 		if (eof) {
 			return 0;
@@ -93,7 +98,12 @@ int do_pb_read_one(struct cr_img *img, void **pobj, int type, bool eof)
 			goto err;
 	}
 
-	ret = bread(&img->_x, buf, size);
+	if (opts.istor_use_server) {
+		ret = istor_client_read_img_buf_eof(img, buf, size);
+	} else {
+		ret = bread(&img->_x, buf, size);
+	}
+
 	if (ret < 0) {
 		pr_perror("Can't read %d bytes from file %s",
 			  size, image_name(img));

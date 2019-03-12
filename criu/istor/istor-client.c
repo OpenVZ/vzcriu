@@ -163,18 +163,22 @@ int istor_client_read_img_buf_eof(struct cr_img *img, void *ptr, int size)
 		return -1;
 	}
 
-	len = istor_recv_msgpayload(client_sk, &reply, ptr);
-	if (len < 0 ) {
-		pr_err("%s: %s: network failure\n",
-		       client_oid_repr, __func__);
-		return -1;
-	}
+	if (reply.msghdr_len != ISTOR_MSG_LENGTH(0)) {
+		len = istor_recv_msgpayload(client_sk, &reply, ptr);
+		if (len < 0 ) {
+			pr_err("%s: %s: network failure\n",
+			       client_oid_repr, __func__);
+			return -1;
+		}
+	} else
+		len = 0;
 
 	pr_debug("%s: read idx %d bytes %zu off %zu\n",
 		 client_oid_repr, img->_x.fd,
-		 (size_t)size, (size_t)img->istor_rd_off);
-	img->istor_rd_off += size;
-	return 1;
+		 (size_t)len, (size_t)img->istor_rd_off);
+
+	img->istor_rd_off += len;
+	return len;
 }
 
 off_t istor_client_img_raw_size(struct cr_img *img)

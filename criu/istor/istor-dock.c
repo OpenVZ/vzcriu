@@ -366,8 +366,10 @@ static int istor_serve_dock_img_read(istor_dock_t *dock)
 	}
 
 	where = img->data + mread->off + mread->data_size;
-	if (where <= img->data + img->size) {
-		/* We have space to read */
+	if (where < img->data + img->size) {
+		/*
+		 * We have data left to read.
+		 */
 
 		istor_enc_ok(&reply, dock->oid);
 		reply.msghdr_len = ISTOR_MSG_LENGTH(mread->data_size);
@@ -384,11 +386,18 @@ static int istor_serve_dock_img_read(istor_dock_t *dock)
 			pr_err("iread error 2 %zd\n", len);
 			return len;
 		}
-	} else if (where > img->data + img->size) {
-		/* Image is trimmed */
-		pr_err("%s: iread: eio %u bytes off %lu for idx %d\n",
-		       dock->oidbuf, mread->data_size, mread->off, mread->idx);
-		return -EIO;
+	} else if (where >= img->data + img->size) {
+		/*
+		 * Nothing left to read, thus return zero.
+		 */
+		istor_enc_ok(&reply, dock->oid);
+		reply.msghdr_len = ISTOR_MSG_LENGTH(0);
+
+		len = istor_send_msg(dock->data_sk, &reply);
+		if (len < 0) {
+			pr_err("iread error %zd\n", len);
+			return len;
+		}
 	}
 
 	pr_debug("%s: iread: read %zu bytes off %zu idx %d\n",
