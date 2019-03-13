@@ -1930,7 +1930,7 @@ int cr_pre_dump_tasks(pid_t pid)
 
 	ve_bc_read(pid, &bc_set);
 
-	if (istor_client_init(&opts))
+	if (istor_client_init(&opts, true))
 		goto err;
 
 	if (images_init(false))
@@ -2133,7 +2133,7 @@ int cr_dump_tasks(pid_t pid)
 
 	ve_bc_read(pid, &bc_set);
 
-	if (istor_client_init(&opts))
+	if (istor_client_init(&opts, true))
 		goto err;
 
 	pr_info("========================================\n");

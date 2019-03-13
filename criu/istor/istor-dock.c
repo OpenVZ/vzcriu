@@ -130,14 +130,9 @@ static istor_dock_t *istor_alloc_locked(const uuid_t oid)
 	return dock;
 }
 
-static int istor_delete_locked(istor_dock_t *dock)
+static int __istor_delete_locked(istor_dock_t *dock)
 {
 	unsigned long pos;
-
-	if (istor_dock_put_locked(dock)) {
-		istor_dock_get_locked(dock);
-		return -EBUSY;
-	}
 
 	pos = (dock - shared->docks) / sizeof(shared->docks[0]);
 	pr_debug("free : dock %p oid %s pos %4lu\n",
@@ -151,6 +146,16 @@ static int istor_delete_locked(istor_dock_t *dock)
 	set_bit(pos, shared->free_mark);
 	istor_rbnode_delete(&shared->tree, &dock->node);
 	return 0;
+}
+
+static int istor_delete_locked(istor_dock_t *dock)
+{
+	if (istor_dock_put_locked(dock)) {
+		istor_dock_get_locked(dock);
+		return -EBUSY;
+	}
+
+	return __istor_delete_locked(dock);
 }
 
 int istor_delete(const uuid_t oid)

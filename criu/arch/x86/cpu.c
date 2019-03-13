@@ -445,7 +445,7 @@ err:
 
 int cpuinfo_dump(void)
 {
-	if (istor_client_init(&opts))
+	if (istor_client_init(&opts, true))
 		return -1;
 
 	if (cpu_init())
@@ -457,7 +457,7 @@ int cpuinfo_dump(void)
 
 int cpuinfo_check(void)
 {
-	if (istor_client_init(&opts))
+	if (istor_client_init(&opts, false))
 		return -1;
 
 	if (cpu_init())

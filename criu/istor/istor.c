@@ -135,22 +135,42 @@ static int dock_list_iter(const istor_dock_t * const dock, void *args)
 static int istor_serve_dock_list(int sk, const istor_msghdr_t * const m, istor_msghdr_t **ptr_reply)
 {
 	istor_msghdr_t *reply = *ptr_reply;
+	istor_dock_t *dock;
 	istor_stat_t st;
 
 	struct dock_list_iter_args args = {
 		.sk		= sk,
 	};
 
-	istor_fill_stat(&st);
+	if (m->msghdr_flags & ISTOR_FLAG_LIST_NR_DOCKS) {
+		istor_fill_stat(&st);
+		istor_enc_ok(reply, NULL);
+		reply->msghdr_ret = st.nr_docks;
+		if (istor_send_msg(sk, reply) < 0)
+			return -1;
+	}
 
-	istor_enc_ok(reply, NULL);
-	reply->msghdr_ret = st.nr_docks;
-	if (istor_send_msg(sk, reply) < 0)
+	if (m->msghdr_flags & ISTOR_FLAG_LIST_TARGET_DOCK) {
+		if (istor_oid_is_zero(m->msghdr_oid)) {
+			istor_enc_err(reply, -EINVAL);
+			if (istor_send_msg(sk, reply) < 0)
+				return -1;
+			goto out;
+		}
+		dock = istor_lookup_get(m->msghdr_oid);
+		if (IS_ERR(dock)) {
+			istor_enc_err(reply, PTR_ERR(dock));
+			if (istor_send_msg(sk, reply) < 0)
+				return -1;
+		} else {
+			if (dock_list_iter(dock, &args))
+				return -1;
+			istor_dock_put(dock);
+		}
+	} else if (istor_iterate(dock_list_iter, &args))
 		return -1;
 
-	if (istor_iterate(dock_list_iter, &args))
-		return -1;
-
+out:
 	*ptr_reply = NULL;
 	return 0;
 }

@@ -101,6 +101,11 @@ static inline int istor_dock_put_locked(istor_dock_t *dock)
 	return atomic_dec_and_test(&dock->ref);
 }
 
+static inline void istor_dock_put(istor_dock_t *dock)
+{
+	atomic_dec(&dock->ref);
+}
+
 static inline void istor_dock_stage_init(istor_dock_t *dock)
 {
 	futex_init(&dock->stage);

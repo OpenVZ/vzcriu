@@ -32,8 +32,10 @@ class ISTOR_CMD(Enum):
     ERR         = 129
 
 class ISTOR_FLAGS(Enum):
-    NONE    = 0
-    FIN     = 1
+    NONE            = 0
+    FIN             = 1
+    LIST_NR_DOCKS   = 2
+    LIST_TARGET_DOCK= 4
 
 def istor_oid_zero():
     return uuid.UUID(bytes=pack('<QQ', 0, 0))
@@ -121,7 +123,9 @@ class istor:
 
     def stor_list(self, oid=None):
         docks = []
-        reply = self.send_recv_istor_msg(pack_istor_hdr(cmd=ISTOR_CMD.LIST, oid=oid))
+        flags = ISTOR_FLAGS.FIN | ISTOR_FLAGS.LIST_NR_DOCKS
+        reply = self.send_recv_istor_msg(pack_istor_hdr(cmd=ISTOR_CMD.LIST,
+                                                        oid=oid, flags=flags))
         if reply:
             _, nr_docks, _, _ = unpack_istor_hdr(reply)
             for i in range(0, nr_docks):

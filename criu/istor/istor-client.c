@@ -22,7 +22,7 @@ static istor_short_uuid_str_t client_oid_repr;
 static uuid_t client_oid;
 static int client_sk = -1;
 
-int istor_client_init(struct cr_options *opts)
+int istor_client_init(struct cr_options *opts, bool store_mode)
 {
 	DECLARE_ISTOR_MSGHDR(m);
 
@@ -60,8 +60,21 @@ int istor_client_init(struct cr_options *opts)
 		}
 		memcpy(client_oid, u, sizeof(client_oid));
 		__istor_repr_short_id(client_oid, client_oid_repr);
-		pr_debug("%s: existing dock\n", client_oid_repr);
+		pr_debug("%s: dock from options\n", client_oid_repr);
 		memcpy(m.msghdr_oid, client_oid, sizeof(client_oid));
+	}
+
+	if (!store_mode) {
+		if (!opts->istor_client_oid) {
+			pr_err("Specify oid to process\n");
+			return -EINVAL;
+		}
+		m.msghdr_cmd = ISTOR_CMD_DOCK_LIST;
+		if (istor_send_msghdr(client_sk, &m) < 0 ||
+		    istor_recv_msghdr(client_sk, &m) < 0)
+			return -1;
+		pr_debug("%s: existing dock\n", client_oid_repr);
+		return 0;
 	}
 
 	m.msghdr_cmd = ISTOR_CMD_DOCK_INIT;
@@ -74,9 +87,19 @@ int istor_client_init(struct cr_options *opts)
 		__istor_repr_short_id(client_oid, client_oid_repr);
 		pr_debug("%s: new dock\n", client_oid_repr);
 	} else {
-		errno = -m.msghdr_ret;
-		pr_perror("Can't create new dock");
-		return m.msghdr_ret;
+		/*
+		 * On store mode we have to create a new dock,
+		 * in turn if we're about to read data from
+		 * store the dock must be already present.
+		 */
+		if (!store_mode && m.msghdr_ret == -EBUSY) {
+			pr_debug("%s: found dock to use\n",
+				 client_oid_repr);
+		} else {
+			errno = -m.msghdr_ret;
+			pr_perror("Can't create new dock");
+			return m.msghdr_ret;
+		}
 	}
 
 	return 0;

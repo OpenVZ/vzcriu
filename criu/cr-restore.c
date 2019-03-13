@@ -2586,7 +2586,7 @@ int cr_restore_tasks(void)
 	 */
 	rlimit_unlimit_nofile_self();
 
-	if (istor_client_init(&opts))
+	if (istor_client_init(&opts, false))
 		return -1;
 
 	if (cr_plugin_init(CR_PLUGIN_STAGE__RESTORE))
