@@ -117,6 +117,19 @@ typedef struct istor_msg_img_open_s {
 	char		path[0];
 } istor_msg_img_open_t;
 
+#define ISTOR_DOCK_MAX_TRANSPORT_LEN	32
+
+typedef struct istor_dock_stat_s {
+	int32_t			pid;
+	int32_t			unix_sk;
+	int32_t			data_sk;
+	uint8_t			transport[ISTOR_DOCK_MAX_TRANSPORT_LEN];
+} istor_dock_stat_t;
+
+typedef struct istor_stat_s {
+	size_t			nr_docks;
+} istor_stat_t;
+
 #define istor_msg_t_osize(_p)	(sizeof(*(_p)) - sizeof((_p)->hdr))
 #define istor_msg_t_optr(_p)	((void *)(_p) + sizeof((_p)->hdr))
 #define istor_msg_t_psize(_p)	((_p)->hdr.msghdr_len - istor_msg_t_osize(_p))

@@ -70,6 +70,7 @@ int istor_client_init(struct cr_options *opts, bool store_mode)
 			return -EINVAL;
 		}
 		m.msghdr_cmd = ISTOR_CMD_DOCK_LIST;
+		m.msghdr_flags = ISTOR_FLAG_LIST_TARGET_DOCK;
 		if (istor_send_msghdr(client_sk, &m) < 0 ||
 		    istor_recv_msghdr(client_sk, &m) < 0)
 			return -1;

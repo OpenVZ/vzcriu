@@ -61,19 +61,6 @@ typedef struct {
 	atomic_t		ref;
 } istor_dock_t;
 
-#define ISTOR_DOCK_MAX_TRANSPORT_LEN	32
-
-typedef struct {
-	int32_t			pid;
-	int32_t			unix_sk;
-	int32_t			data_sk;
-	uint8_t			transport[ISTOR_DOCK_MAX_TRANSPORT_LEN];
-} istor_dock_stat_t;
-
-typedef struct {
-	size_t			nr_docks;
-} istor_stat_t;
-
 extern const char *istor_dock_stage_repr(uint32_t stage);
 
 extern int istor_dock_serve_cmd_locked(istor_dock_t *dock);
