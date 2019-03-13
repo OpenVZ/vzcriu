@@ -38,24 +38,10 @@ int istor_client_init(struct cr_options *opts)
 		return -1;
 	}
 
-	if (!opts->istor_client_oid) {
-		m.msghdr_cmd = ISTOR_CMD_DOCK_INIT;
-		if (istor_send_msghdr(client_sk, &m) < 0 ||
-		    istor_recv_msghdr(client_sk, &m) < 0)
-			return -1;
-
-		if (m.msghdr_cmd == ISTOR_CMD_ACK) {
-			memcpy(client_oid, m.msghdr_oid, sizeof(client_oid));
-			__istor_repr_short_id(client_oid, client_oid_repr);
-			pr_debug("%s: new dock\n", client_oid_repr);
-		} else {
-			errno = -m.msghdr_ret;
-			pr_perror("Can't create new dock");
-			return m.msghdr_ret;
-		}
-	} else {
+	if (opts->istor_client_oid) {
 		char *buf[sizeof(istor_uuid_t)*2] = { };
 		istor_uuid_t *u = (void *)buf;
+
 		int ret = sscanf(opts->istor_client_oid, ISTOR_UUID_STR_FMT,
 				 (unsigned int *)&u->time_low,
 				 (unsigned int *)&u->time_mid,
@@ -75,6 +61,22 @@ int istor_client_init(struct cr_options *opts)
 		memcpy(client_oid, u, sizeof(client_oid));
 		__istor_repr_short_id(client_oid, client_oid_repr);
 		pr_debug("%s: existing dock\n", client_oid_repr);
+		memcpy(m.msghdr_oid, client_oid, sizeof(client_oid));
+	}
+
+	m.msghdr_cmd = ISTOR_CMD_DOCK_INIT;
+	if (istor_send_msghdr(client_sk, &m) < 0 ||
+	    istor_recv_msghdr(client_sk, &m) < 0)
+		return -1;
+
+	if (m.msghdr_cmd == ISTOR_CMD_ACK) {
+		memcpy(client_oid, m.msghdr_oid, sizeof(client_oid));
+		__istor_repr_short_id(client_oid, client_oid_repr);
+		pr_debug("%s: new dock\n", client_oid_repr);
+	} else {
+		errno = -m.msghdr_ret;
+		pr_perror("Can't create new dock");
+		return m.msghdr_ret;
 	}
 
 	return 0;
