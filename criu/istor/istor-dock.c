@@ -76,7 +76,7 @@ void istor_fill_stat(istor_stat_t *st)
 	st->nr_docks = shared->nr_docks;
 }
 
-static istor_dock_t *istor_alloc_locked(void)
+static istor_dock_t *istor_alloc_locked(const uuid_t oid)
 {
 	unsigned long pos = 0;
 	istor_dock_t *dock;
@@ -96,7 +96,11 @@ static istor_dock_t *istor_alloc_locked(void)
 
 	memset(dock, 0, sizeof(*dock));
 
-	uuid_generate(dock->oid);
+	if (istor_oid_is_zero(oid))
+		uuid_generate(dock->oid);
+	else
+		memcpy(dock->oid, oid, sizeof(dock->oid));
+
 	istor_dock_stage_init(dock);
 	mutex_init(&dock->notify_mutex);
 	atomic_set(&dock->ref, 1);
@@ -530,12 +534,12 @@ static void istor_dock_clean_on_fork(clean_on_fork_t *args)
 	}
 }
 
-static istor_dock_t *istor_new_dock_locked(clean_on_fork_t *args)
+static istor_dock_t *istor_new_dock_locked(const uuid_t oid, clean_on_fork_t *args)
 {
 	istor_dock_t *dock;
 	pid_t pid;
 
-	dock = istor_alloc_locked();
+	dock = istor_alloc_locked(oid);
 	if (IS_ERR(dock))
 		return dock;
 
@@ -575,10 +579,12 @@ istor_dock_t *istor_lookup_alloc(const uuid_t oid, bool alloc, clean_on_fork_t *
 
 	if (alloc) {
 		istor_write_lock(&shared->lock);
-		if (!istor_oid_is_zero(oid))
-			dock = ERR_PTR(-EINVAL);
-		else
-			dock = istor_new_dock_locked(args);
+		if (!istor_oid_is_zero(oid)) {
+			dock = istor_lookup_locked(oid);
+			if (dock)
+				istor_dock_get_locked(dock);
+		} else
+			dock = istor_new_dock_locked(oid, args);
 		istor_write_unlock(&shared->lock);
 	} else {
 		istor_read_lock(&shared->lock);
