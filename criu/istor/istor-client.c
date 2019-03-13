@@ -83,6 +83,7 @@ int istor_client_init(struct cr_options *opts)
 void istor_client_fini(void)
 {
 	if (client_sk != -1) {
+		pr_debug("Closing client: sk %d\n", client_sk);
 		close(client_sk);
 		client_sk = -1;
 	}
@@ -107,7 +108,7 @@ int istor_client_write_img_buf(struct cr_img *img, const void *ptr, int size)
 	mwrite->data_size	= size;
 
 	if (istor_send_msg(client_sk, msgh) < 0			||
-	    istor_send(client_sk, (void *)ptr, size) < size	||
+	    istor_send(client_sk, (void *)ptr, size) < 0	||
 	    istor_recv_msghdr(client_sk, &reply) < 0 ) {
 		pr_err("%s: %s: network failure\n",
 		       client_oid_repr, __func__);

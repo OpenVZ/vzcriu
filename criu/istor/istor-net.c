@@ -80,6 +80,24 @@ ssize_t istor_send(int sk, void *buf, size_t size)
 	return len;
 }
 
+ssize_t istor_recv_flush(int sk)
+{
+	ssize_t len, sum = 0;
+	char buf[1024];
+
+	for (;;) {
+		len = recv(sk, buf, sizeof(buf), MSG_DONTWAIT);
+		if (len > 0) {
+			sum += len;
+			continue;
+		}
+		break;
+	}
+
+	pr_debug("flush: %zd bytes on a socket %d\n", sum, sk);
+	return len;
+}
+
 ssize_t istor_recv(int sk, void *buf, size_t size)
 {
 	ssize_t len = recv(sk, buf, size, 0);
@@ -302,8 +320,11 @@ static int __istor_serve_connection(int sk, const struct istor_ops * const ops)
 			break;
 		}
 
-		if (out && istor_send_msg(sk, out) < 0)
+		if (out && istor_send_msg(sk, out) < 0) {
+			if (out->msghdr_cmd == ISTOR_CMD_ERR)
+				istor_recv_flush(sk);
 			break;
+		}
 
 		/* It was one-shot packet */
 		if (in->msghdr_flags & ISTOR_FLAG_FIN)

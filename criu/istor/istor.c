@@ -246,7 +246,6 @@ static int istor_serve_img_write(int sk, int usk, const istor_msghdr_t * const m
 	memcpy(msgh, m, sizeof(*m));
 
 	mwrite = ISTOR_MSG_DATA(msgh);
-
 	ret = istor_recv_msgpayload(sk, m, mwrite);
 	if (ret < 0) {
 		istor_enc_err(reply, (int)ret);
@@ -307,7 +306,6 @@ static int istor_serve_img_read(int sk, int usk, const istor_msghdr_t * const m,
 	memcpy(msgh, m, sizeof(*m));
 
 	mread = ISTOR_MSG_DATA(msgh);
-
 	ret = istor_recv_msgpayload(sk, m, mread);
 	if (ret < 0) {
 		istor_enc_err(reply, (int)ret);

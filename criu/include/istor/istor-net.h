@@ -44,6 +44,7 @@ static inline void istor_enc_ok(istor_msghdr_t *m, const uuid_t oid)
 extern const char * const cmd_repr(unsigned int cmd);
 extern ssize_t istor_send(int sk, void *buf, size_t size);
 extern ssize_t istor_recv(int sk, void *buf, size_t size);
+extern ssize_t istor_recv_flush(int sk);
 
 extern ssize_t istor_send_msg(int sk, void *out);
 extern ssize_t istor_send_msghdr(int sk, void *out);
