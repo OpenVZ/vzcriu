@@ -43,6 +43,17 @@ static inline void istor_enc_payload_ok(istor_msghdr_t *m, const uuid_t oid, siz
 
 #define istor_enc_ok(m, oid)	istor_enc_payload_ok(m, oid, 0)
 
+static inline void istor_set_ok(istor_msghdr_t *m, const uuid_t oid)
+{
+	m->msghdr_cmd	= ISTOR_CMD_ACK;
+	m->msghdr_ret	= 0;
+
+	if (oid)
+		memcpy(m->msghdr_oid, oid, sizeof(m->msghdr_oid));
+	else
+		memset(m->msghdr_oid, 0, sizeof(m->msghdr_oid));
+}
+
 extern const char * const cmd_repr(unsigned int cmd);
 extern ssize_t istor_send(int sk, void *buf, size_t size);
 extern ssize_t istor_recv(int sk, void *buf, size_t size);
