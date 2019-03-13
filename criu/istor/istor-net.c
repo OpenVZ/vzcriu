@@ -320,10 +320,11 @@ static int __istor_serve_connection(int sk, const struct istor_ops * const ops)
 			break;
 		}
 
-		if (out && istor_send_msg(sk, out) < 0) {
+		if (out) {
 			if (out->msghdr_cmd == ISTOR_CMD_ERR)
 				istor_recv_flush(sk);
-			break;
+			if (istor_send_msg(sk, out) < 0)
+				break;
 		}
 
 		/* It was one-shot packet */
