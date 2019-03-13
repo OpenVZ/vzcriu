@@ -197,6 +197,9 @@ int istor_client_do_open_image(struct cr_img *img, int dfd, int type,
 	istor_msghdr_t *msgh;
 	int ret;
 
+	pr_debug("%s: iopen: params type %d oflags %06lo path %s\n",
+		 client_oid_repr, type, oflags, path);
+
 	if (path_size >= PATH_MAX) {
 		pr_err("%s: path %s is too long\n",
 		       client_oid_repr, path);

@@ -426,7 +426,7 @@ static int istor_serve_dock_img_open(istor_dock_t *dock)
 	istor_imgset_t *iset = dock->owner_iset;
 	istor_img_t *img;
 
-	pr_debug("%s: iopen: params path %s flags %0o mode %#x\n",
+	pr_debug("%s: iopen: params path %s flags %06o mode %#x\n",
 		 dock->oidbuf, mopen->path, mopen->flags, mopen->mode);
 
 	if (mopen->path_size > ISTOR_IMG_NAME_LEN) {
@@ -464,7 +464,7 @@ static int istor_serve_dock_img_open(istor_dock_t *dock)
 	img->mode	= mopen->mode;
 
 open_existing:
-	pr_debug("%s: iopen: opened name %s idx %ld flags %0o mode %#x\n",
+	pr_debug("%s: iopen: opened name %s idx %ld flags %06o mode %#x\n",
 		 dock->oidbuf, img->name, img->idx, img->flags, img->mode);
 	return img->idx;
 }
