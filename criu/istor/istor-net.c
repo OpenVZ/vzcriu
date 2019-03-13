@@ -94,7 +94,7 @@ ssize_t istor_recv_flush(int sk)
 		break;
 	}
 
-	pr_debug("flush: %zd bytes on a socket %d\n", sum, sk);
+	pr_debug("in  : sk %d flush %zd bytes\n", sk, sum);
 	return len;
 }
 
@@ -321,9 +321,10 @@ static int __istor_serve_connection(int sk, const struct istor_ops * const ops)
 		}
 
 		if (out) {
+			ret = istor_send_msg(sk, out);
 			if (out->msghdr_cmd == ISTOR_CMD_ERR)
 				istor_recv_flush(sk);
-			if (istor_send_msg(sk, out) < 0)
+			if (ret < 0)
 				break;
 		}
 
