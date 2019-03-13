@@ -144,13 +144,14 @@ static int istor_serve_dock_list(int sk, const istor_msghdr_t * const m, istor_m
 	};
 
 	if (m->msghdr_flags & ISTOR_FLAG_LIST_NR_DOCKS) {
-		char buf[ISTOR_MSG_LENGTH(sizeof(istor_stat_t))];
-		istor_msghdr_t *msgh = (void *)buf;
-		istor_stat_t *st;
+		DECLARE_ISTOR_MSGHDR_PAYLOAD(msgh, st, buf, istor_stat_t);
+//		char buf[ISTOR_MSG_LENGTH(sizeof(istor_stat_t))];
+//		istor_msghdr_t *msgh = (void *)buf;
+//		istor_stat_t *st;
 
 		istor_enc_payload_ok(msgh, NULL, sizeof(*st));
 
-		st = ISTOR_MSG_DATA(msgh);
+//		st = ISTOR_MSG_DATA(msgh);
 		istor_fill_stat(st);
 
 		if (istor_send_msg(sk, msgh) < 0)

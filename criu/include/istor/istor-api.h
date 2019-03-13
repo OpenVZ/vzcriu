@@ -78,14 +78,15 @@ static inline size_t istor_msg_len(const istor_msghdr_t *msgh)
 	return msgh->msghdr_len - ISTOR_MSG_HDRLEN;
 }
 
+#define DECLARE_ISTOR_MSGHDR_PAYLOAD(_m, _p, _tmp, _type)	\
+	char _m ## _p ## _tmp[ISTOR_MSG_LENGTH(sizeof(_type))];	\
+	istor_msghdr_t *_m = (void *)_m ## _p ## _tmp;		\
+	_type *_p = ISTOR_MSG_DATA(_m);				\
+	_m->msghdr_len = ISTOR_MSG_LENGTH(sizeof(_type))
+
 #define DECLARE_ISTOR_MSGHDR(_v)				\
 	istor_msghdr_t _v = {					\
 		.msghdr_len = ISTOR_MSG_HDRLEN,			\
-	}
-
-#define DECLARE_ISTOR_MSG_T(_type, _v)				\
-	_type _v = {						\
-		.hdr.msghdr_len = istor_msg_size(sizeof(_type)),\
 	}
 
 #define istor_msghdr_init(_p)					\
@@ -95,11 +96,11 @@ static inline size_t istor_msg_len(const istor_msghdr_t *msgh)
 		};						\
 	} while (0)
 
-#define istor_msg_t_init(_type,_p)				\
+#define istor_msghdr_payload_init(_p, _ptype)			\
 	do {							\
-		*(_p) = (_type) {				\
-			.hdr.msghdr_len =			\
-			istor_msg_size(sizeof(_type)),		\
+		*(_p) = (istor_msghdr_t) {			\
+			.msghdr_len =				\
+			ISTOR_MSG_LENGTH(sizeof(*(_ptype))),	\
 		};						\
 	} while (0)
 
