@@ -29,17 +29,19 @@ static inline void istor_enc_err(istor_msghdr_t *m, int error_code)
 	memset(m->msghdr_oid, 0, sizeof(m->msghdr_oid));
 }
 
-static inline void istor_enc_ok(istor_msghdr_t *m, const uuid_t oid)
+static inline void istor_enc_payload_ok(istor_msghdr_t *m, const uuid_t oid, size_t payload_len)
 {
 	m->msghdr_cmd	= ISTOR_CMD_ACK;
 	m->msghdr_ret	= 0;
-	m->msghdr_len	= ISTOR_MSG_LENGTH(0);
+	m->msghdr_len	= ISTOR_MSG_LENGTH(payload_len);
 
 	if (oid)
 		memcpy(m->msghdr_oid, oid, sizeof(m->msghdr_oid));
 	else
 		memset(m->msghdr_oid, 0, sizeof(m->msghdr_oid));
 }
+
+#define istor_enc_ok(m, oid)	istor_enc_payload_ok(m, oid, 0)
 
 extern const char * const cmd_repr(unsigned int cmd);
 extern ssize_t istor_send(int sk, void *buf, size_t size);

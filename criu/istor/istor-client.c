@@ -65,17 +65,32 @@ int istor_client_init(struct cr_options *opts, bool store_mode)
 	}
 
 	if (!store_mode) {
+		char buf[ISTOR_MSG_LENGTH(sizeof(istor_dock_stat_t))];
+		istor_msghdr_t *msghdr = (void *)buf;
+		istor_dock_stat_t *st = ISTOR_MSG_DATA(msghdr);
+
 		if (!opts->istor_client_oid) {
 			pr_err("Specify oid to process\n");
 			return -EINVAL;
 		}
+
 		m.msghdr_cmd = ISTOR_CMD_DOCK_LIST;
 		m.msghdr_flags = ISTOR_FLAG_LIST_TARGET_DOCK;
+
 		if (istor_send_msghdr(client_sk, &m) < 0 ||
-		    istor_recv_msghdr(client_sk, &m) < 0)
+		    istor_recv_msghdr(client_sk, msghdr) < 0)
 			return -1;
-		pr_debug("%s: existing dock\n", client_oid_repr);
-		return 0;
+
+		if (msghdr->msghdr_cmd == ISTOR_CMD_ACK) {
+			if (istor_recv_msgpayload(client_sk, msghdr, st))
+				return -1;
+			pr_debug("%s: existing dock\n", client_oid_repr);
+			return 0;
+		} else {
+			errno = -msghdr->msghdr_ret;
+			pr_perror("%s: unusable", client_oid_repr);
+			return msghdr->msghdr_ret;
+		}
 	}
 
 	m.msghdr_cmd = ISTOR_CMD_DOCK_INIT;

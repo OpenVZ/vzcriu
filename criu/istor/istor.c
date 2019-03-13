@@ -114,6 +114,7 @@ static int istor_serve_dock_fini(int sk, const istor_msghdr_t * const m, istor_m
 
 struct dock_list_iter_args {
 	int			sk;
+	char			buf[ISTOR_MSG_LENGTH(sizeof(istor_dock_stat_t))];
 	istor_msghdr_t		hdr;
 	istor_dock_stat_t	dock_st;
 };
@@ -121,14 +122,15 @@ struct dock_list_iter_args {
 static int dock_list_iter(const istor_dock_t * const dock, void *args)
 {
 	struct dock_list_iter_args *a = args;
+	istor_msghdr_t *msghdr = (void *)a->buf;
+	istor_dock_stat_t *st = ISTOR_MSG_DATA(msghdr);
 
-	istor_dock_fill_stat(dock, &a->dock_st);
+	istor_dock_fill_stat(dock, st);
 
-	istor_enc_ok(&a->hdr, dock->oid);
-	a->hdr.msghdr_len = ISTOR_MSG_LENGTH(sizeof(a->dock_st));
-
-	if (istor_send_msg(a->sk, &a->hdr) < 0)
+	istor_enc_payload_ok(msghdr, dock->oid, sizeof(*st));
+	if (istor_send_msg(a->sk, msghdr) < 0)
 		return -1;
+
 	return 0;
 }
 
@@ -136,32 +138,35 @@ static int istor_serve_dock_list(int sk, const istor_msghdr_t * const m, istor_m
 {
 	istor_msghdr_t *reply = *ptr_reply;
 	istor_dock_t *dock;
-	istor_stat_t st;
 
 	struct dock_list_iter_args args = {
 		.sk		= sk,
 	};
 
 	if (m->msghdr_flags & ISTOR_FLAG_LIST_NR_DOCKS) {
-		istor_fill_stat(&st);
-		istor_enc_ok(reply, NULL);
-		reply->msghdr_ret = st.nr_docks;
-		if (istor_send_msg(sk, reply) < 0)
+		char buf[ISTOR_MSG_LENGTH(sizeof(istor_stat_t))];
+		istor_msghdr_t *msgh = (void *)buf;
+		istor_stat_t *st;
+
+		istor_enc_payload_ok(msgh, NULL, sizeof(*st));
+
+		st = ISTOR_MSG_DATA(msgh);
+		istor_fill_stat(st);
+
+		if (istor_send_msg(sk, msgh) < 0)
 			return -1;
 	}
 
 	if (m->msghdr_flags & ISTOR_FLAG_LIST_TARGET_DOCK) {
 		if (istor_oid_is_zero(m->msghdr_oid)) {
 			istor_enc_err(reply, -EINVAL);
-			if (istor_send_msg(sk, reply) < 0)
-				return -1;
-			goto out;
+			return 0;
 		}
+
 		dock = istor_lookup_get(m->msghdr_oid);
 		if (IS_ERR(dock)) {
 			istor_enc_err(reply, PTR_ERR(dock));
-			if (istor_send_msg(sk, reply) < 0)
-				return -1;
+			return 0;
 		} else {
 			if (dock_list_iter(dock, &args))
 				return -1;
@@ -170,7 +175,6 @@ static int istor_serve_dock_list(int sk, const istor_msghdr_t * const m, istor_m
 	} else if (istor_iterate(dock_list_iter, &args))
 		return -1;
 
-out:
 	*ptr_reply = NULL;
 	return 0;
 }
