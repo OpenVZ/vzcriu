@@ -76,10 +76,23 @@ void istor_fill_stat(istor_stat_t *st)
 	st->nr_docks = shared->nr_docks;
 }
 
+static istor_dock_t *istor_lookup_locked(const uuid_t oid)
+{
+	istor_rbnode_t *e = istor_rbtree_lookup(&shared->tree, oid);
+	return e ? container_of(e, istor_dock_t, node) : NULL;
+}
+
 static istor_dock_t *istor_alloc_locked(const uuid_t oid)
 {
+	bool oid_is_zero = istor_oid_is_zero(oid);
 	unsigned long pos = 0;
 	istor_dock_t *dock;
+
+	if (!oid_is_zero) {
+		dock = istor_lookup_locked(oid);
+		if (dock)
+			return ERR_PTR(-EBUSY);
+	}
 
 	if (shared->nr_docks >= ISTOR_MAX_DOCKS)
 		return ERR_PTR(-ENOSPC);
@@ -96,7 +109,7 @@ static istor_dock_t *istor_alloc_locked(const uuid_t oid)
 
 	memset(dock, 0, sizeof(*dock));
 
-	if (istor_oid_is_zero(oid))
+	if (oid_is_zero)
 		uuid_generate(dock->oid);
 	else
 		memcpy(dock->oid, oid, sizeof(dock->oid));
@@ -115,12 +128,6 @@ static istor_dock_t *istor_alloc_locked(const uuid_t oid)
 		 dock, ___istor_repr_id(dock->oid), pos);
 	istor_dock_stage_set(dock, DOCK_STAGE_CREATED);
 	return dock;
-}
-
-static istor_dock_t *istor_lookup_locked(const uuid_t oid)
-{
-	istor_rbnode_t *e = istor_rbtree_lookup(&shared->tree, oid);
-	return e ? container_of(e, istor_dock_t, node) : NULL;
 }
 
 static int istor_delete_locked(istor_dock_t *dock)
@@ -579,12 +586,7 @@ istor_dock_t *istor_lookup_alloc(const uuid_t oid, bool alloc, clean_on_fork_t *
 
 	if (alloc) {
 		istor_write_lock(&shared->lock);
-		if (!istor_oid_is_zero(oid)) {
-			dock = istor_lookup_locked(oid);
-			if (dock)
-				istor_dock_get_locked(dock);
-		} else
-			dock = istor_new_dock_locked(oid, args);
+		dock = istor_new_dock_locked(oid, args);
 		istor_write_unlock(&shared->lock);
 	} else {
 		istor_read_lock(&shared->lock);
