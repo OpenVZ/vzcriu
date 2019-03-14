@@ -470,7 +470,6 @@ static int istor_serve_dock_img_close(istor_dock_t *dock)
 	return 0;
 }
 
-
 static int istor_serve_dock_img_open(istor_dock_t *dock)
 {
 	istor_msghdr_t *msgh = (void *)dock->notify.data;
