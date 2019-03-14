@@ -88,13 +88,17 @@ istor_img_t *istor_img_alloc(istor_imgset_t *iset, const char * const name)
 
 	img->idx = ++iset->last_idx;
 	istor_rbtree_insert_new(&iset->idx_root, &img->node_idx, (void *)img->idx);
+	list_add(&img->list, &iset->img_list);
 
 	return img;
 }
 
 void istor_imgset_free(istor_imgset_t *iset)
 {
-	/* FIXME */
+	istor_img_t *img, *tmp;
+
+	list_for_each_entry_safe(img, tmp, &iset->img_list, list)
+		xfree(img);
 	xfree(iset);
 }
 
@@ -106,6 +110,7 @@ istor_imgset_t *istor_imgset_alloc()
 
 	istor_rbtree_init(&iset->name_root, namecmp);
 	istor_rbtree_init(&iset->idx_root, idxcmp);
+	INIT_LIST_HEAD(&iset->img_list);
 	iset->last_idx = 0;
 
 	return iset;

@@ -103,12 +103,10 @@ static int istor_serve_dock_fini(int sk, const istor_msghdr_t * const m, istor_m
 	int ret;
 
 	ret = istor_delete(m->msghdr_oid);
-	if (ret) {
+	if (ret)
 		istor_enc_err(reply, ret);
-		return 0;
-	}
-
-	istor_enc_ok(reply, m->msghdr_oid);
+	else
+		istor_enc_ok(reply, m->msghdr_oid);
 	return 0;
 }
 

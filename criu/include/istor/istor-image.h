@@ -3,6 +3,7 @@
 
 #include <fcntl.h>
 
+#include "common/list.h"
 #include "istor/istor-rbtree.h"
 
 #define ISTOR_IMG_NAME_LEN	64
@@ -16,6 +17,7 @@ typedef struct {
 typedef struct {
 	istor_rbnode_t		node_name;
 	istor_rbnode_t		node_idx;
+	struct list_head	list;
 
 	char			name[ISTOR_IMG_NAME_LEN];
 	long			idx;
@@ -31,6 +33,7 @@ typedef struct {
 typedef struct {
 	istor_rbtree_t		name_root;
 	istor_rbtree_t		idx_root;
+	struct list_head	img_list;
 	long			last_idx;
 } istor_imgset_t;
 

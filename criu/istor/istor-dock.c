@@ -138,6 +138,9 @@ static int __istor_delete_locked(istor_dock_t *dock)
 	pr_debug("free : dock %p oid %s pos %4lu\n",
 		 dock, ___istor_repr_id(dock->oid), pos);
 
+	istor_imgset_free(dock->owner_iset);
+	dock->owner_iset = NULL;
+
 	if (dock->unix_sk >= 0)
 		close(dock->unix_sk);
 	if (dock->data_sk >= 0)
