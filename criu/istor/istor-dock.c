@@ -9,7 +9,6 @@
 #include <sys/un.h>
 
 #include <syscall.h>
-#include <linux/kcmp.h>
 
 #include "criu-log.h"
 
@@ -22,6 +21,7 @@
 #include "setproctitle.h"
 
 #include "bitops.h"
+#include "kcmp.h"
 #include "log.h"
 
 #include "istor/istor-dock.h"
