@@ -329,6 +329,11 @@ static int istor_serve_dock_img_write(istor_dock_t *dock)
 		return -ENOENT;
 	}
 
+	if (mwrite->data_size == 0) {
+		len = 0;
+		goto out;
+	}
+
 	new_size = mwrite->off + mwrite->data_size;
 	if (new_size > img->size) {
 		if (xrealloc_safe(&img->data, new_size)) {
@@ -351,9 +356,10 @@ static int istor_serve_dock_img_write(istor_dock_t *dock)
 		return len;
 	}
 
-	pr_debug("%s: iwrite: wrote %zu bytes off %zu idx %d size %zu\n",
+out:
+	pr_debug("%s: iwrite: wrote %zu bytes off %zu idx %d size %zu (%s)\n",
 		 dock->oidbuf, len, (size_t)mwrite->off, mwrite->idx,
-		 img->size);
+		 img->size, img->name);
 	return 0;
 }
 
