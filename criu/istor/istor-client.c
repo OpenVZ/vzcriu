@@ -88,7 +88,7 @@ int istor_client_init(struct cr_options *opts, bool store_mode)
 			return 0;
 		} else {
 			errno = -msghdr->msghdr_ret;
-			pr_perror("%s: unusable", client_oid_repr);
+			pr_perror("%s: unusable dock", client_oid_repr);
 			return msghdr->msghdr_ret;
 		}
 	}
