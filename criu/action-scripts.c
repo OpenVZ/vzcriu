@@ -64,7 +64,10 @@ static int run_shell_scripts(const char *action)
 	}
 
 	if (!(env_set & ENV_IMGDIR)) {
-		sprintf(image_dir, "/proc/%ld/fd/%d", (long) getpid(), get_service_fd(IMG_FD_OFF));
+		if (!opts.istor_use_server)
+			sprintf(image_dir, "/proc/%ld/fd/%d", (long) getpid(), get_service_fd(IMG_FD_OFF));
+		else
+			strcpy(image_dir, opts.imgs_dir);
 		if (setenv("CRTOOLS_IMAGE_DIR", image_dir, 1)) {
 			pr_perror("Can't set CRTOOLS_IMAGE_DIR=%s", image_dir);
 			return -1;

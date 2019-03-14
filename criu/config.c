@@ -262,6 +262,11 @@ void init_opts(void)
 	opts.empty_ns = 0;
 	opts.status_fd = -1;
 	opts.log_level = DEFAULT_LOGLEVEL;
+
+	opts.istor_use_server = true;
+	opts.istor_server_ip = "127.0.0.1";
+	opts.istor_server_port = 44444;
+	opts.istor_client_oid = "db798aea-76fa-0545-a14e-9e625a5a371d";
 }
 
 bool deprecated_ok(char *what)

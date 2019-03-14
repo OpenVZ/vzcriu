@@ -132,7 +132,6 @@ static inline bool istor_msg_ok(const char *prefix, const istor_msghdr_t *m)
 
 ssize_t istor_send_msghdr(int sk, void *out)
 {
-	istor_uuid_str_t oidbuf;
 	istor_msghdr_t *m = out;
 	ssize_t len;
 
@@ -143,8 +142,7 @@ ssize_t istor_send_msghdr(int sk, void *out)
 	if (len == ISTOR_MSG_HDRLEN) {
 		pr_debug("outh: sk %-4d cmd %-26s flags %#-10x id %s size %zd wrote %zd\n",
 			 sk, cmd_repr(m->msghdr_cmd), m->msghdr_flags,
-			 __istor_repr_id(m->msghdr_oid, oidbuf),
-			 m->msghdr_len, len);
+			 ___istor_repr_short_id(m->msghdr_oid), m->msghdr_len, len);
 	}
 
 	return len;
@@ -152,7 +150,6 @@ ssize_t istor_send_msghdr(int sk, void *out)
 
 ssize_t istor_send_msgpayload(int sk, const istor_msghdr_t *m, void *payload)
 {
-	istor_uuid_str_t oidbuf;
 	ssize_t len;
 
 	if (!istor_msg_ok("outp:", m))
@@ -162,15 +159,13 @@ ssize_t istor_send_msgpayload(int sk, const istor_msghdr_t *m, void *payload)
 	if (len == istor_msg_len(m)) {
 		pr_debug("outp: sk %-4d cmd %-26s flags %#-10x id %s size %zd read %zd\n",
 			 sk, cmd_repr(m->msghdr_cmd), m->msghdr_flags,
-			 __istor_repr_id(m->msghdr_oid, oidbuf),
-			 m->msghdr_len, len);
+			 ___istor_repr_short_id(m->msghdr_oid), m->msghdr_len, len);
 	}
 	return len;
 }
 
 ssize_t istor_send_msg(int sk, void *out)
 {
-	istor_uuid_str_t oidbuf;
 	istor_msghdr_t *m = out;
 	ssize_t len;
 
@@ -181,8 +176,7 @@ ssize_t istor_send_msg(int sk, void *out)
 	if (len == m->msghdr_len) {
 		pr_debug("out : sk %-4d cmd %-26s flags %#-10x id %s size %zd\n",
 			 sk, cmd_repr(m->msghdr_cmd), m->msghdr_flags,
-			 __istor_repr_id(m->msghdr_oid, oidbuf),
-			 m->msghdr_len);
+			 ___istor_repr_short_id(m->msghdr_oid), m->msghdr_len);
 	}
 
 	return len;
@@ -190,7 +184,6 @@ ssize_t istor_send_msg(int sk, void *out)
 
 ssize_t istor_recv_msghdr(int sk, void *in)
 {
-	istor_uuid_str_t oidbuf;
 	istor_msghdr_t *m = in;
 	ssize_t len;
 
@@ -200,8 +193,7 @@ ssize_t istor_recv_msghdr(int sk, void *in)
 			return -EINVAL;
 		pr_debug("inh : sk %-4d cmd %-26s flags %#-10x id %s size %zd read %zd\n",
 			 sk, cmd_repr(m->msghdr_cmd), m->msghdr_flags,
-			 __istor_repr_id(m->msghdr_oid, oidbuf),
-			 m->msghdr_len, len);
+			 ___istor_repr_short_id(m->msghdr_oid), m->msghdr_len, len);
 	}
 
 	return len;
@@ -209,7 +201,6 @@ ssize_t istor_recv_msghdr(int sk, void *in)
 
 ssize_t istor_recv_msgpayload(int sk, const istor_msghdr_t *m, void *payload)
 {
-	istor_uuid_str_t oidbuf;
 	ssize_t len;
 
 	if (!istor_msg_ok("inp :", m))
@@ -219,8 +210,7 @@ ssize_t istor_recv_msgpayload(int sk, const istor_msghdr_t *m, void *payload)
 	if (len == istor_msg_len(m)) {
 		pr_debug("inp : sk %-4d cmd %-26s flags %#-10x id %s size %zd read %zd\n",
 			 sk, cmd_repr(m->msghdr_cmd), m->msghdr_flags,
-			 __istor_repr_id(m->msghdr_oid, oidbuf),
-			 m->msghdr_len, len);
+			 ___istor_repr_short_id(m->msghdr_oid), m->msghdr_len, len);
 	}
 	return len;
 }
