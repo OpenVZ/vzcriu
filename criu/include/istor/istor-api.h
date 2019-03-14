@@ -155,6 +155,11 @@ typedef char istor_short_uuid_str_t[ISTOR_SHORT_UUID_STR_FMT_SIZE];
 
 #define ISTOR_ZERO_UUID			"\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0"
 
+static inline void istor_oid_set_zero(uuid_t oid)
+{
+	memcpy(oid, ISTOR_ZERO_UUID, sizeof(ISTOR_ZERO_UUID)-1);
+}
+
 static inline bool istor_oid_is_zero(const uuid_t oid)
 {
 	return memcmp(oid, ISTOR_ZERO_UUID, sizeof(ISTOR_ZERO_UUID)-1) == 0;
@@ -201,7 +206,7 @@ static inline char *istor_repr_short_oid(void *data, char *buf, size_t len)
 	istor_repr_oid((void *)(__oid), __buf, __len)
 
 #define ___istor_repr_short_id(__oid)					\
-	istor_short_oid_repr((void *)(__oid),				\
+	istor_repr_short_oid((void *)(__oid),				\
 			     alloca(ISTOR_SHORT_UUID_STR_FMT_SIZE),	\
 			     ISTOR_SHORT_UUID_STR_FMT_SIZE)
 

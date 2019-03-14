@@ -11,6 +11,7 @@ extern off_t istor_client_img_raw_size(struct cr_img *img);
 extern int istor_client_do_open_image(struct cr_img *img, int dfd, int type,
 				      unsigned long oflags, const char *path);
 extern int istor_client_init(struct cr_options *opts, bool store_mode);
-extern void istor_client_fini(void);
+extern int istor_client_remove_dock(void);
+extern void istor_client_fini(bool remove_dock);
 
 #endif /* __CR_ISTOR_CLIENT_H__ */

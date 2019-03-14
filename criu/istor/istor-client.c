@@ -121,13 +121,49 @@ int istor_client_init(struct cr_options *opts, bool store_mode)
 	return 0;
 }
 
-void istor_client_fini(void)
+int istor_client_remove_dock(void)
 {
-	if (client_sk != -1) {
-		pr_debug("Closing client: sk %d\n", client_sk);
-		close(client_sk);
-		client_sk = -1;
+	DECLARE_ISTOR_MSGHDR(m);
+
+	if (client_sk == -1 || istor_oid_is_zero(client_oid)) {
+		pr_debug("%s: client_sk %d\n",
+			 ___istor_repr_short_id(client_oid),
+			 client_sk);
+		return -EINVAL;
 	}
+
+	pr_debug("%s: removing dock\n", client_oid_repr);
+
+	memcpy(m.msghdr_oid, client_oid, sizeof(client_oid));
+	if (istor_send_msghdr(client_sk, &m) < 0 ||
+	    istor_recv_msghdr(client_sk, &m) < 0)
+		return -1;
+
+	if (m.msghdr_cmd == ISTOR_CMD_ACK) {
+		pr_debug("%s: removed dock\n", client_oid_repr);
+	} else {
+		errno = -m.msghdr_ret;
+		pr_perror("%s: can't remove dock", client_oid_repr);
+		return m.msghdr_ret;
+	}
+
+	istor_oid_set_zero(client_oid);
+	return 0;
+}
+
+void istor_client_fini(bool remove_dock)
+{
+	if (client_sk == -1)
+		return;
+
+	pr_debug("%s: closing client %d\n",
+		 client_oid_repr, client_sk);
+
+	if (remove_dock)
+		istor_client_remove_dock();
+
+	close(client_sk);
+	client_sk = -1;
 }
 
 int istor_client_write_img_buf(struct cr_img *img, const void *ptr, int size)

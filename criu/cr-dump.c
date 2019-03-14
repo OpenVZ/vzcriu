@@ -1917,7 +1917,7 @@ err_rc:
 	}
 	free_pstree(root_item);
 	seccomp_free_entries();
-	istor_client_fini();
+	istor_client_fini(true);
 	ret = -1;
 	goto err;
 }
@@ -2110,7 +2110,7 @@ static int cr_dump_finish(int ret)
 	free_aufs_branches();
 	free_userns_maps();
 	free_ttys();
-	istor_client_fini();
+	istor_client_fini(ret != 0);
 
 	close_service_fd(CR_PROC_FD_OFF);
 
