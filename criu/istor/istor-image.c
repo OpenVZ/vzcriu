@@ -25,10 +25,20 @@ static int namecmp(const struct istor_rbnode_s * const e, const void * const par
 
 static int idxcmp(const struct istor_rbnode_s * const e, const void * const param)
 {
-	const long idx = (const long)param;
+	const long idx = *(const long *)param;
 	istor_img_t *i = container_of(e, istor_img_t, node_idx);
 	return i->idx == idx ? 0 : ((i->idx > idx) ? 1 : -1);
 }
+
+//static void show_set(char *prefix, istor_imgset_t *iset)
+//{
+//	istor_img_t *img;
+//
+//	pr_debug("%s\n", prefix);
+//	list_for_each_entry(img, &iset->img_list, list)
+//		pr_debug("\t\timg %p name %s idx %ld\n",
+//			 img, img->name, img->idx);
+//}
 
 istor_img_t *istor_img_lookup(istor_imgset_t *iset, const char * const name, const long idx)
 {
@@ -41,7 +51,7 @@ istor_img_t *istor_img_lookup(istor_imgset_t *iset, const char * const name, con
 	}
 
 	if (idx > -1) {
-		e = istor_rbtree_lookup(&iset->idx_root, (void *)idx);
+		e = istor_rbtree_lookup(&iset->idx_root, (void *)&idx);
 		if (e)
 			return container_of(e, istor_img_t, node_idx);
 	}
@@ -87,7 +97,7 @@ istor_img_t *istor_img_alloc(istor_imgset_t *iset, const char * const name)
 	istor_rbtree_insert_new(&iset->name_root, &img->node_name, (void *)img->name);
 
 	img->idx = ++iset->last_idx;
-	istor_rbtree_insert_new(&iset->idx_root, &img->node_idx, (void *)img->idx);
+	istor_rbtree_insert_new(&iset->idx_root, &img->node_idx, (void *)&img->idx);
 	list_add(&img->list, &iset->img_list);
 
 	return img;

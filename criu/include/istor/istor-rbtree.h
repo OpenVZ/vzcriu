@@ -12,7 +12,8 @@ typedef int (*istor_rbtree_iter_t)(const struct istor_rbnode_s * const e, void *
 
 typedef struct {
 	struct rb_root		root;
-	struct rb_node		*parent;
+	struct rb_node		*last_parent;
+	struct rb_node		**last_new;
 	istor_rbtree_cmp_t	cmp;
 } istor_rbtree_t;
 
@@ -35,8 +36,8 @@ static inline void istor_rbnode_init(istor_rbnode_t *e)
 static inline void istor_rbtree_insert(istor_rbtree_t *tree, istor_rbnode_t *e)
 {
 	rb_init_node(&e->node);
-	/* Make sure @parent is proper if tree is not empty! */
-	rb_link_and_balance(&tree->root, &e->node, tree->parent, &tree->root.rb_node);
+	/* Make sure @last_parent and @last_new are proper if tree is not empty! */
+	rb_link_and_balance(&tree->root, &e->node, tree->last_parent, tree->last_new);
 }
 
 static inline void istor_rbnode_delete(istor_rbtree_t *tree, istor_rbnode_t *e)
@@ -62,13 +63,13 @@ static inline istor_rbnode_t *istor_rbtree_lookup(istor_rbtree_t *tree, const vo
 {
 	struct rb_node *node = tree->root.rb_node;
 	struct rb_node **new = &tree->root.rb_node;
-	struct rb_node *last_parent = NULL;
+	struct rb_node *parent = NULL;
 
 	while (node) {
 		istor_rbnode_t *e = rb_entry(node, istor_rbnode_t, node);
 		int ret = tree->cmp(e, param);
 
-		last_parent = *new;
+		parent = *new;
 
 		if (ret < 0)
 			node = node->rb_left, new = &((*new)->rb_left);
@@ -78,7 +79,8 @@ static inline istor_rbnode_t *istor_rbtree_lookup(istor_rbtree_t *tree, const vo
 			return e;
 	}
 
-	tree->parent = last_parent;
+	tree->last_new = new;
+	tree->last_parent = parent;
 	return NULL;
 }
 
@@ -86,7 +88,7 @@ static inline void istor_rbtree_insert_new(istor_rbtree_t *tree, istor_rbnode_t 
 {
 	rb_init_node(&e->node);
 	istor_rbtree_lookup(tree, param);
-	rb_link_and_balance(&tree->root, &e->node, tree->parent, &tree->root.rb_node);
+	rb_link_and_balance(&tree->root, &e->node, tree->last_parent, tree->last_new);
 }
 
 #endif /* __CR_ISTOR_RBTREE_H__ */
