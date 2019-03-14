@@ -104,6 +104,10 @@ static inline size_t istor_msg_len(const istor_msghdr_t *msgh)
 		};						\
 	} while (0)
 
+typedef struct istor_msg_img_close_s {
+	uint32_t	idx;
+} istor_msg_img_close_t;
+
 typedef struct istor_msg_img_rdwr_s {
 	uint32_t	idx;
 	uint64_t	off;

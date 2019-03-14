@@ -14,10 +14,15 @@ typedef struct {
 	size_t			size;
 } istor_img_stat_t;
 
+#define IMG_STATE_NONE		0
+#define IMG_STATE_CLOSED	1
+
 typedef struct {
 	istor_rbnode_t		node_name;
 	istor_rbnode_t		node_idx;
 	struct list_head	list;
+
+	unsigned long		state;
 
 	char			name[ISTOR_IMG_NAME_LEN];
 	long			idx;

@@ -329,6 +329,12 @@ static int istor_serve_dock_img_write(istor_dock_t *dock)
 		return -ENOENT;
 	}
 
+	if (img->state & IMG_STATE_CLOSED) {
+		pr_debug("%s: iwrite: idx %d is closed\n",
+			 dock->oidbuf, mwrite->idx);
+		return -EIO;
+	}
+
 	if (mwrite->data_size == 0) {
 		len = 0;
 		goto out;
@@ -374,7 +380,7 @@ static int istor_serve_dock_img_read(istor_dock_t *dock)
 	void *where;
 	int ret;
 
-	pr_debug("%s: iread: params idx %u off %lu data_size %u\n",
+	pr_debug("%s: iclose: params idx %u off %lu data_size %u\n",
 		 dock->oidbuf, mread->idx, mread->off, mread->data_size);
 
 	if (dock->notify.flags & DOCK_NOTIFY_F_DATA_SK) {
@@ -439,6 +445,31 @@ static int istor_serve_dock_img_read(istor_dock_t *dock)
 
 	return 0;
 }
+
+static int istor_serve_dock_img_close(istor_dock_t *dock)
+{
+	istor_msghdr_t *msgh = (void *)dock->notify.data;
+	istor_msg_img_close_t *mclose = ISTOR_MSG_DATA(msgh);
+	istor_imgset_t *iset = dock->owner_iset;
+	istor_img_t *img;
+
+	pr_debug("%s: iclose: params idx %d\n", dock->oidbuf, mclose->idx);
+
+	img = istor_img_lookup(iset, NULL, mclose->idx);
+	if (!img) {
+		pr_debug("%s: iclose: idx %d doesn't exist\n",
+			 dock->oidbuf, mclose->idx);
+		return -ENOENT;
+	}
+
+	img->state |= IMG_STATE_CLOSED;
+
+	pr_debug("%s: iclose: closed name %s idx %ld flags %06o mode %#x\n",
+		 dock->oidbuf, img->name, img->idx, img->flags, img->mode);
+
+	return 0;
+}
+
 
 static int istor_serve_dock_img_open(istor_dock_t *dock)
 {
@@ -528,7 +559,7 @@ static int istor_serve_dock(istor_dock_t *dock)
 			dock->notify.ret = istor_serve_dock_img_read(dock);
 			break;
 		case ISTOR_CMD_IMG_CLOSE:
-			dock->notify.ret = -EINVAL;
+			dock->notify.ret = istor_serve_dock_img_close(dock);
 			break;
 		default:
 			break;
