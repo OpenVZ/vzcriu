@@ -129,7 +129,7 @@ class istor:
         if reply:
             cmd, _, _, _ = unpack_istor_hdr(reply)
             if cmd == ISTOR_CMD.ACK.value:
-                nr_docks = self.recv_istor_msg(64)
+                nr_docks = self.recv_istor_msg(32)
                 for i in range(0, nr_docks):
                     reply = self.recv_istor_msg()
                     cmd, flags, oid, size = unpack_istor_hdr(reply)
