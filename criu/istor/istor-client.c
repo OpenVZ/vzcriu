@@ -265,6 +265,52 @@ off_t istor_client_img_raw_size(struct cr_img *img)
 	return -1;
 }
 
+int istor_client_close_image(struct cr_img *img)
+{
+	DECLARE_ISTOR_MSGHDR(reply);
+	istor_msg_img_close_t *mclose;
+	istor_msghdr_t *msgh;
+	size_t totalsize;
+	int ret;
+
+	pr_debug("%s: iclose: params idx %d\n",
+		 client_oid_repr, img->fd);
+
+	totalsize = ISTOR_MSG_LENGTH(sizeof(*mclose));
+	msgh = xmalloc(totalsize);
+	if (!msgh)
+		return -ENOMEM;
+	istor_msghdr_init(msgh);
+
+	memcpy(msgh->msghdr_oid, client_oid, sizeof(client_oid));
+
+	msgh->msghdr_cmd	= ISTOR_CMD_IMG_CLOSE;
+	msgh->msghdr_len	= totalsize;
+
+	mclose			= ISTOR_MSG_DATA(msgh);
+	mclose->idx		= img->fd;
+
+	if (istor_send_msg(client_sk, msgh) < 0 ||
+	    istor_recv_msghdr(client_sk, &reply) < 0) {
+		pr_err("%s: %s: network failure\n",
+		       client_oid_repr, __func__);
+		return -1;
+	}
+
+	xfree(msgh);
+	msgh = NULL;
+	mclose = NULL;
+
+	ret = reply.msghdr_ret;
+	if (reply.msghdr_cmd == ISTOR_CMD_ACK) {
+		pr_debug("%s: closed image idx %d\n",
+			 client_oid_repr,img->fd);
+	} else
+		errno = -ret;
+
+	return ret;
+}
+
 int istor_client_do_open_image(struct cr_img *img, int dfd, int type,
 			       unsigned long oflags, const char *path)
 {

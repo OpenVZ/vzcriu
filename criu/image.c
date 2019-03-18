@@ -485,8 +485,12 @@ void close_image(struct cr_img *img)
 		 */
 		unlinkat(get_service_fd(IMG_FD_OFF), img->path, 0);
 		xfree(img->path);
-	} else if (!empty_image(img))
-		bclose(&img->_x);
+	} else if (!empty_image(img)) {
+		if (opts.istor_use_server)
+			istor_client_close_image(img);
+		else
+			bclose(&img->_x);
+	}
 
 	xfree(img);
 }
