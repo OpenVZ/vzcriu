@@ -21,6 +21,7 @@ enum {
 	ISTOR_CMD_IMG_WRITE		= 23,
 	ISTOR_CMD_IMG_READ		= 24,
 	ISTOR_CMD_IMG_CLOSE		= 25,
+	ISTOR_CMD_IMG_MMAP		= 26,
 
 	ISTOR_CMD_ACK			= 128,
 	ISTOR_CMD_ERR			= 129,
@@ -121,6 +122,13 @@ typedef struct istor_msg_img_open_s {
 	uint32_t	path_size;
 	char		path[0];
 } istor_msg_img_open_t;
+
+typedef struct istor_msg_img_mmap_s {
+	uint64_t	addr;
+	uint64_t	size;
+	uint32_t	prot;
+	uint32_t	flags;
+} istor_msg_img_mmap_t;
 
 #define ISTOR_DOCK_MAX_TRANSPORT_LEN	32
 
