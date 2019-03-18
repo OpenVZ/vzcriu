@@ -381,8 +381,8 @@ static int istor_serve_dock_img_write(istor_dock_t *dock)
 	new_size = mwrite->off + mwrite->data_size;
 	if (new_size > img->size) {
 		/*
-		 * We've been not asked for mmap engine,
-		 * use regular malloc.
+		 * We've been not asked for mmap memory,
+		 * use regular malloc in this case.
 		 */
 		if (!(img->state & IMG_STATE_MMAP))
 		    img->state |= IMG_STATE_MALLOC;
@@ -567,6 +567,7 @@ static int istor_serve_dock_img_mmap(istor_dock_t *dock)
 	istor_imgset_t *iset = dock->owner_iset;
 	const char *act = NULL;
 	istor_img_t *img;
+	int ret;
 
 	pr_debug("%s: immap: params idx %d addr %p size %ld prot %#x flags %#x\n",
 		 dock->oidbuf, mdata->idx, (void *)mdata->addr, mdata->size,
@@ -583,27 +584,27 @@ static int istor_serve_dock_img_mmap(istor_dock_t *dock)
 		pr_debug("%s: immap: idx %d closed\n",
 			 dock->oidbuf, mdata->idx);
 		return -EIO;
+	} else if (img->state & IMG_STATE_MALLOC) {
+		pr_debug("%s: immap: idx %d already has malloc\n",
+			 dock->oidbuf, mdata->idx);
+		return -EIO;
 	}
 
 	if (img->state & IMG_STATE_MMAP) {
-		int ret = istor_img_realloc(dock, img, mdata, NULL);
-		if (ret) {
-			errno = -ret;
-			pr_perror("%s: immap: idx %d mremap failed\n",
-				  dock->oidbuf, mdata->idx);
-			return ret;
-		}
-		act = "mremmaped";
+		ret = istor_img_realloc(dock, img, mdata, NULL);
+		act = "mremmap";
 	} else {
-		int ret = istor_img_realloc(dock, img, mdata, NULL);
-		if (ret) {
-			errno = -ret;
-			pr_perror("%s: immap: idx %d mmap failed\n",
-				  dock->oidbuf, mdata->idx);
-			return ret;
-		}
-		img->state |= IMG_STATE_MMAP;
-		act = "mmaped";
+		ret = istor_img_realloc(dock, img, mdata, NULL);
+		if (!ret)
+			img->state |= IMG_STATE_MMAP;
+		act = "mmap";
+	}
+
+	if (ret) {
+		errno = -ret;
+		pr_perror("%s: immap: idx %d %s failed\n",
+			  dock->oidbuf, mdata->idx, act);
+		return ret;
 	}
 
 	pr_debug("%s: immap: %s name %s idx %d addr %p size %ld prot %#x flags %#x\n",
