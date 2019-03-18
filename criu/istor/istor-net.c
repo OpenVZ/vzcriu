@@ -260,7 +260,6 @@ static int __istor_serve_connection(int sk, const struct istor_ops * const ops)
 	}
 	buf_in = buf, buf_out = buf + ISTOR_BUF_DEFAULT_SIZE;
 
-	tcp_nodelay(sk, true);
 	for (;;) {
 		istor_msghdr_t *out = (void *)buf_out;
 		istor_msghdr_t *in = (void *)buf_in;
