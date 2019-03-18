@@ -127,12 +127,14 @@ class istor:
         reply = self.send_recv_istor_msg(pack_istor_hdr(cmd=ISTOR_CMD.LIST,
                                                         oid=oid, flags=flags))
         if reply:
-            _, nr_docks, _, _ = unpack_istor_hdr(reply)
-            for i in range(0, nr_docks):
-                reply = self.recv_istor_msg()
-                cmd, flags, oid, size = unpack_istor_hdr(reply)
-                data = self.receive(size - 32)
-                docks.append([oid, *unpack_istor_dock_stat(data)])
+            cmd, _, _, _ = unpack_istor_hdr(reply)
+            if cmd == ISTOR_CMD.ACK.value:
+                nr_docks = self.recv_istor_msg(64)
+                for i in range(0, nr_docks):
+                    reply = self.recv_istor_msg()
+                    cmd, flags, oid, size = unpack_istor_hdr(reply)
+                    data = self.receive(size - 32)
+                    docks.append([oid, *unpack_istor_dock_stat(data)])
         return docks
 
 conf = {}
