@@ -52,8 +52,8 @@ def istor_oid_unpack(raw=None):
     if not raw: return istor_oid_zero()
     return uuid.UUID(bytes=raw[0:16])
 
-def pack_istor_hdr(cmd=ISTOR_CMD.NONE, oid=None, flags=ISTOR_FLAGS.FIN, size=32):
-    return pack('<II16sQ', cmd.value, flags.value, istor_oid_pack(oid), size)
+def pack_istor_hdr(cmd=ISTOR_CMD.NONE, oid=None, flags=ISTOR_FLAGS.FIN.value, size=32):
+    return pack('<II16sQ', cmd.value, flags, istor_oid_pack(oid), size)
 
 def unpack_istor_hdr(hdr):
     cmd, flags, oid_raw, size = unpack('<II16sQ', hdr)
@@ -123,7 +123,7 @@ class istor:
 
     def stor_list(self, oid=None):
         docks = []
-        flags = ISTOR_FLAGS.FIN | ISTOR_FLAGS.LIST_NR_DOCKS
+        flags = ISTOR_FLAGS.FIN.value | ISTOR_FLAGS.LIST_NR_DOCKS.value
         reply = self.send_recv_istor_msg(pack_istor_hdr(cmd=ISTOR_CMD.LIST,
                                                         oid=oid, flags=flags))
         if reply:
