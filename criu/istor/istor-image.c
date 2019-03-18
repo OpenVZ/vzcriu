@@ -80,14 +80,9 @@ istor_img_t *istor_img_alloc(istor_imgset_t *iset, const char * const name)
 	if (!name)
 		return ERR_PTR(-EINVAL);
 
-	img = xmalloc(sizeof(*img));
+	img = xzalloc(sizeof(*img));
 	if (!img)
 		return ERR_PTR(-ENOMEM);
-
-	img->flags	= 0;
-	img->mode	= 0;
-	img->size	= 0;
-	img->data	= NULL;
 
 	istor_rbnode_init(&img->node_name);
 	istor_rbnode_init(&img->node_idx);
