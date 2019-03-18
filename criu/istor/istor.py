@@ -127,9 +127,10 @@ class istor:
         reply = self.send_recv_istor_msg(pack_istor_hdr(cmd=ISTOR_CMD.LIST,
                                                         oid=oid, flags=flags))
         if reply:
-            cmd, _, _, _ = unpack_istor_hdr(reply)
+            cmd, _, _, size = unpack_istor_hdr(reply)
             if cmd == ISTOR_CMD.ACK.value:
-                nr_docks = self.recv_istor_msg(32)
+                raw = self.receive(size - 32)
+                nr_docks = unpack('<Q', raw)[0]
                 for i in range(0, nr_docks):
                     reply = self.recv_istor_msg()
                     cmd, flags, oid, size = unpack_istor_hdr(reply)
