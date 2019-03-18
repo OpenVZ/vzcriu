@@ -16,6 +16,7 @@ typedef struct {
 
 #define IMG_STATE_NONE		0
 #define IMG_STATE_CLOSED	1
+#define IMG_STATE_MMAPED	2
 
 typedef struct {
 	istor_rbnode_t		node_name;
@@ -31,6 +32,8 @@ typedef struct {
 	unsigned int		mode;
 
 	size_t			size;
+	unsigned int		mmap_prot;
+	unsigned int		mmap_flags;
 
 	void			*data;
 } istor_img_t;

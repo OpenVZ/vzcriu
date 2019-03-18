@@ -18,6 +18,7 @@ struct istor_ops {
 	int	(*img_write)(int sk, int usk, const istor_msghdr_t * const m, istor_msghdr_t **ptr_reply);
 	int	(*img_read)(int sk, int usk, const istor_msghdr_t * const m, istor_msghdr_t **ptr_reply);
 	int	(*img_close)(int sk, int usk, const istor_msghdr_t * const m, istor_msghdr_t **ptr_reply);
+	int	(*img_mmap)(int sk, int usk, const istor_msghdr_t * const m, istor_msghdr_t **ptr_reply);
 };
 
 static inline void istor_enc_err(istor_msghdr_t *m, int error_code)

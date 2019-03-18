@@ -520,6 +520,66 @@ open_existing:
 	return img->idx;
 }
 
+static int istor_serve_dock_img_mmap(istor_dock_t *dock)
+{
+	istor_msghdr_t *msgh = (void *)dock->notify.data;
+	istor_msg_img_mmap_t *mdata = ISTOR_MSG_DATA(msgh);
+	istor_imgset_t *iset = dock->owner_iset;
+	const char *act = NULL;
+	istor_img_t *img;
+	void *addr;
+
+	pr_debug("%s: immap: params idx %d addr %p size %ld prot %#x flags %#x\n",
+		 dock->oidbuf, mdata->idx, (void *)mdata->addr, mdata->size,
+		 mdata->prot, mdata->flags);
+
+	img = istor_img_lookup(iset, NULL, mdata->idx);
+	if (!img) {
+		pr_debug("%s: immap: idx %d doesn't exist\n",
+			 dock->oidbuf, mdata->idx);
+		return -ENOENT;
+	}
+
+	if (img->state & IMG_STATE_CLOSED) {
+		pr_debug("%s: immap: idx %d closed\n",
+			 dock->oidbuf, mdata->idx);
+		return -EIO;
+	}
+
+	if (img->state & IMG_STATE_MMAPED) {
+		addr = mremap(img->data, img->size, mdata->size,
+			      mdata->flags, (void *)mdata->addr);
+		if (addr == MAP_FAILED) {
+			int _errno = errno;
+			pr_perror("%s: immap: idx %d mremap failed\n",
+				  dock->oidbuf, mdata->idx);
+			return -_errno;
+		}
+		act = "mremmaped";
+	} else {
+		addr = mmap((void *)mdata->addr, img->size, mdata->prot,
+			    mdata->flags, -1, 0);
+		if (addr == MAP_FAILED) {
+			int _errno = errno;
+			pr_perror("%s: immap: idx %d mdata failed\n",
+				  dock->oidbuf, mdata->idx);
+			return -_errno;
+		}
+		img->state |= IMG_STATE_MMAPED;
+		act = "mmaped";
+	}
+
+	img->data	= addr;
+	img->size	= mdata->size;
+	img->mmap_flags	= mdata->flags;
+	img->mmap_prot	= mdata->prot;
+
+	pr_debug("%s: immap: %s name %s idx %d addr %p size %ld prot %#x flags %#x\n",
+		 dock->oidbuf, act, img->name, mdata->idx, (void *)mdata->addr, mdata->size,
+		 mdata->prot, mdata->flags);
+	return 0;
+}
+
 static int istor_serve_dock(istor_dock_t *dock)
 {
 	int ret;
@@ -559,6 +619,9 @@ static int istor_serve_dock(istor_dock_t *dock)
 			break;
 		case ISTOR_CMD_IMG_CLOSE:
 			dock->notify.ret = istor_serve_dock_img_close(dock);
+			break;
+		case ISTOR_CMD_IMG_MMAP:
+			dock->notify.ret = istor_serve_dock_img_mmap(dock);
 			break;
 		default:
 			break;

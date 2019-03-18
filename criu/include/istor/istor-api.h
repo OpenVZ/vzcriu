@@ -128,6 +128,7 @@ typedef struct istor_msg_img_mmap_s {
 	uint64_t	size;
 	uint32_t	prot;
 	uint32_t	flags;
+	uint32_t	idx;
 } istor_msg_img_mmap_t;
 
 #define ISTOR_DOCK_MAX_TRANSPORT_LEN	32
