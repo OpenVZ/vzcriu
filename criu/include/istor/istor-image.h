@@ -16,7 +16,8 @@ typedef struct {
 
 #define IMG_STATE_NONE		0
 #define IMG_STATE_CLOSED	1
-#define IMG_STATE_MMAPED	2
+#define IMG_STATE_MALLOC	2
+#define IMG_STATE_MMAP		4
 
 typedef struct {
 	istor_rbnode_t		node_name;
