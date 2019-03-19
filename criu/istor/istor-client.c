@@ -153,7 +153,7 @@ int istor_client_remove_dock(void)
 
 void istor_client_fini(bool remove_dock)
 {
-	if (client_sk == -1)
+	if (client_sk < 0)
 		return;
 
 	pr_debug("%s: closing client %d\n",
@@ -161,6 +161,14 @@ void istor_client_fini(bool remove_dock)
 
 	if (remove_dock)
 		istor_client_remove_dock();
+	else {
+		DECLARE_ISTOR_MSGHDR(m);
+		istor_msghdr_t *msgh = &m;
+
+		memcpy(msgh->msghdr_oid, client_oid, sizeof(client_oid));
+		msgh->msghdr_cmd = ISTOR_CMD_DOCK_NOSK;
+		istor_send_msg(client_sk, msgh);
+	}
 
 	close(client_sk);
 	client_sk = -1;

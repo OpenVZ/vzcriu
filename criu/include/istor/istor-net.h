@@ -12,6 +12,7 @@ struct istor_ops {
 	int	(*dock_init)(int sk, const istor_msghdr_t * const m, istor_msghdr_t **ptr_reply);
 	int	(*dock_fini)(int sk, const istor_msghdr_t * const m, istor_msghdr_t **ptr_reply);
 	int	(*dock_list)(int sk, const istor_msghdr_t * const m, istor_msghdr_t **ptr_reply);
+	int	(*dock_nosk)(int sk, const istor_msghdr_t * const m, istor_msghdr_t **ptr_reply);
 
 	int	(*img_open)(int sk, int usk, const istor_msghdr_t * const m, istor_msghdr_t **ptr_reply);
 	int	(*img_stat)(int sk, int usk, const istor_msghdr_t * const m, istor_msghdr_t **ptr_reply);

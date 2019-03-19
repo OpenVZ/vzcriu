@@ -172,6 +172,20 @@ static int istor_serve_dock_list(int sk, const istor_msghdr_t * const m, istor_m
 	return 0;
 }
 
+static int istor_serve_dock_nosk(int sk, const istor_msghdr_t * const m, istor_msghdr_t **ptr_reply)
+{
+	istor_dock_t *dock;
+
+	dock = istor_lookup_get(m->msghdr_oid);
+	if (!IS_ERR(dock)) {
+		istor_dock_notify_lock(dock);
+		istor_dock_close_data_sk(dock);
+		istor_dock_notify_unlock(dock);
+	}
+	*ptr_reply = NULL;
+	return 0;
+}
+
 static int istor_serve_img_open(int sk, int usk, const istor_msghdr_t * const m, istor_msghdr_t **ptr_reply)
 {
 	istor_msghdr_t *reply = *ptr_reply;
@@ -473,6 +487,7 @@ int istor_server(istor_opts_t *opts)
 		.dock_init	= istor_serve_dock_init,
 		.dock_fini	= istor_serve_dock_fini,
 		.dock_list	= istor_serve_dock_list,
+		.dock_nosk	= istor_serve_dock_nosk,
 
 		.img_open	= istor_serve_img_open,
 		.img_stat	= istor_serve_img_stat,
