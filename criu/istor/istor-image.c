@@ -7,6 +7,7 @@
 
 #include "common/err.h"
 #include "common/xmalloc.h"
+#include "common/page.h"
 
 #include "istor/istor-image.h"
 
@@ -67,10 +68,24 @@ int istor_img_stat(const istor_img_t * const img, istor_img_stat_t *st)
 		memset(st, 0, sizeof(*st));
 		if (img->name[0])
 			strcpy(st->name, img->name);
-		st->size= img->size;
+		st->size= img->dhdr.size;
 		st->idx	= img->idx;
 	}
 	return -ENOENT;
+}
+
+int istor_img_data_malloc(istor_img_t *img, size_t size)
+{
+	istor_data_hdr_t *dhdr = &img->dhdr;
+
+	if (dhdr->length < size) {
+		size = ALIGN(size + PAGE_SIZE, PAGE_SIZE);
+		if (xrealloc_safe(&dhdr->data, size))
+			return -ENOMEM;
+		dhdr->length = size;
+	}
+
+	return 0;
 }
 
 istor_img_t *istor_img_alloc(istor_imgset_t *iset, const char * const name)

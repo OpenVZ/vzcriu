@@ -20,6 +20,26 @@ typedef struct {
 #define IMG_STATE_MMAP		4
 
 typedef struct {
+	size_t			size;
+	size_t			length;
+	void			*data;
+} istor_data_hdr_t;
+
+typedef struct {
+	istor_data_hdr_t	dhdr;
+	unsigned long		*pagemap;
+	unsigned long		vm_start;
+	unsigned long		vm_end;
+
+	unsigned int		prot;
+	unsigned int		flags;
+} istor_img_vma_t;
+
+typedef struct {
+	istor_data_hdr_t	dhdr;
+} istor_img_reg_t;
+
+typedef struct {
 	istor_rbnode_t		node_name;
 	istor_rbnode_t		node_idx;
 	struct list_head	list;
@@ -29,14 +49,14 @@ typedef struct {
 	char			name[ISTOR_IMG_NAME_LEN];
 	long			idx;
 
+	union {
+		istor_data_hdr_t	dhdr;
+		istor_img_reg_t		reg;
+		istor_img_vma_t		vma;
+	};
+
 	unsigned int		flags;
 	unsigned int		mode;
-
-	size_t			size;
-	unsigned int		mmap_prot;
-	unsigned int		mmap_flags;
-
-	void			*data;
 } istor_img_t;
 
 typedef struct {
@@ -48,6 +68,9 @@ typedef struct {
 
 extern istor_img_t *istor_img_lookup(istor_imgset_t *iset, const char *const name, const long idx);
 extern int istor_img_stat(const istor_img_t * const img, istor_img_stat_t *st);
+
+extern int istor_img_data_malloc(istor_img_t *img, size_t size);
+
 extern istor_img_t *istor_img_alloc(istor_imgset_t *iset, const char * const name);
 
 extern void istor_imgset_free(istor_imgset_t *iset);

@@ -39,6 +39,11 @@ enum {
 	 */
 	ISTOR_FLAG_LIST_NR_DOCKS	= 2,
 	ISTOR_FLAG_LIST_TARGET_DOCK	= 4,
+
+	/*
+	 * ISTOR_CMD_IMG_OPEN flags
+	 */
+	ISTOR_FLAG_OPEN_MMAP		= 2,
 };
 
 typedef struct istor_msghdr_s {

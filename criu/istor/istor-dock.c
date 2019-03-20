@@ -302,42 +302,42 @@ static int istor_boot_dock(istor_dock_t *dock, pid_t owner_pid)
 	return 0;
 }
 
-static int istor_img_realloc(istor_dock_t *dock, istor_img_t *img,
-			     istor_msg_img_mmap_t *mdata,
-			     istor_msg_img_rdwr_t *mwrite)
-{
-	void *addr;
-
-	if (img->state & IMG_STATE_MALLOC) {
-		size_t new_size = mwrite->off + mwrite->data_size;
-		if (new_size > img->size) {
-			if (xrealloc_safe(&img->data, new_size))
-				return -ENOMEM;
-		}
-		img->size = new_size;
-		return 0;
-	}
-
-	if (img->state & IMG_STATE_MMAP) {
-		addr = mremap(img->data, img->size, mdata->size,
-			      mdata->flags, (void *)mdata->addr);
-		if (addr == MAP_FAILED)
-			return -errno;
-	} else {
-		addr = mmap((void *)mdata->addr, img->size, mdata->prot,
-			    mdata->flags, -1, 0);
-		if (addr == MAP_FAILED)
-			return -errno;
-		img->state |= IMG_STATE_MMAP;
-	}
-
-	img->data	= addr;
-	img->size	= mdata->size;
-	img->mmap_flags	= mdata->flags;
-	img->mmap_prot	= mdata->prot;
-
-	return 0;
-}
+//static int istor_img_realloc(istor_dock_t *dock, istor_img_t *img,
+//			     istor_msg_img_mmap_t *mdata,
+//			     istor_msg_img_rdwr_t *mwrite)
+//{
+//	void *addr;
+//
+//	if (img->state & IMG_STATE_MALLOC) {
+//		size_t new_size = mwrite->off + mwrite->data_size;
+//		if (new_size > img->size) {
+//			if (xrealloc_safe(&img->data, new_size))
+//				return -ENOMEM;
+//		}
+//		img->size = new_size;
+//		return 0;
+//	}
+//
+//	if (img->state & IMG_STATE_MMAP) {
+//		addr = mremap(img->data, img->size, mdata->size,
+//			      mdata->flags, (void *)mdata->addr);
+//		if (addr == MAP_FAILED)
+//			return -errno;
+//	} else {
+//		addr = mmap((void *)mdata->addr, img->size, mdata->prot,
+//			    mdata->flags, -1, 0);
+//		if (addr == MAP_FAILED)
+//			return -errno;
+//		img->state |= IMG_STATE_MMAP;
+//	}
+//
+//	img->data	= addr;
+//	img->size	= mdata->size;
+//	img->mmap_flags	= mdata->flags;
+//	img->mmap_prot	= mdata->prot;
+//
+//	return 0;
+//}
 
 
 static int istor_serve_dock_img_write(istor_dock_t *dock)
@@ -373,29 +373,26 @@ static int istor_serve_dock_img_write(istor_dock_t *dock)
 		return -EIO;
 	}
 
+	if (!(img->state & IMG_STATE_MALLOC)) {
+		pr_err("%s: iwrite: idx %d is mmaped\n",
+		       dock->oidbuf, mwrite->idx);
+		return -EINVAL;
+	}
+
 	if (mwrite->data_size == 0) {
 		len = 0;
 		goto out;
 	}
 
 	new_size = mwrite->off + mwrite->data_size;
-	if (new_size > img->size) {
-		/*
-		 * We've been not asked for mmap memory,
-		 * use regular malloc in this case.
-		 */
-		if (!(img->state & IMG_STATE_MMAP))
-		    img->state |= IMG_STATE_MALLOC;
-
-		if (istor_img_realloc(dock, img, NULL, mwrite)) {
-			pr_err("%s: iwrite: nomem %zu bytes %u for idx %d\n",
-			       dock->oidbuf, new_size,
-			       mwrite->data_size, mwrite->idx);
-			return -ENOMEM;
-		}
+	if (istor_img_data_malloc(img, new_size)) {
+		pr_err("%s: iwrite: nomem %zu bytes %u for idx %d\n",
+		       dock->oidbuf, new_size,
+		       mwrite->data_size, mwrite->idx);
+		return -ENOMEM;
 	}
 
-	where = img->data + mwrite->off;
+	where = img->dhdr.data + mwrite->off;
 	len = istor_recv(dock->data_sk, where, mwrite->data_size);
 	if (len < 0) {
 		pr_err("%s: iwrite: network error\n", dock->oidbuf);
@@ -405,7 +402,7 @@ static int istor_serve_dock_img_write(istor_dock_t *dock)
 out:
 	pr_debug("%s: iwrite: wrote %zu bytes off %zu idx %d size %zu (%s)\n",
 		 dock->oidbuf, len, (size_t)mwrite->off, mwrite->idx,
-		 img->size, img->name);
+		 img->dhdr.size, img->name);
 	return 0;
 }
 
@@ -442,8 +439,8 @@ static int istor_serve_dock_img_read(istor_dock_t *dock)
 	 * packets would be sent to a client.
 	 */
 
-	where = img->data + mread->off + mread->data_size;
-	if (where <= img->data + img->size) {
+	where = img->dhdr.data + mread->off + mread->data_size;
+	if (where <= img->dhdr.data + img->dhdr.size) {
 		/*
 		 * We have data left to read.
 		 */
@@ -458,14 +455,14 @@ static int istor_serve_dock_img_read(istor_dock_t *dock)
 			return 0;
 		}
 
-		where = img->data + mread->off;
+		where = img->dhdr.data + mread->off;
 		len = istor_send_msgpayload(dock->data_sk, &reply, where);
 		if (len < 0) {
 			pr_err("%s: iread: payload sending net error %zd\n",
 			       dock->oidbuf, len);
 			return 0;
 		}
-	} else if (where >= img->data + img->size) {
+	} else if (where >= img->dhdr.data + img->dhdr.size) {
 		/*
 		 * Nothing left to read, thus return zero.
 		 */
@@ -554,64 +551,69 @@ static int istor_serve_dock_img_open(istor_dock_t *dock)
 	img->flags	= mopen->flags;
 	img->mode	= mopen->mode;
 
+	if (msgh->msghdr_flags & ISTOR_FLAG_OPEN_MMAP)
+		img->state |= IMG_STATE_MMAP;
+	else
+		img->state |= IMG_STATE_MALLOC;
+
 open_existing:
 	pr_debug("%s: iopen: opened name %s idx %ld flags %06o mode %#x\n",
 		 dock->oidbuf, img->name, img->idx, img->flags, img->mode);
 	return img->idx;
 }
 
-static int istor_serve_dock_img_mmap(istor_dock_t *dock)
-{
-	istor_msghdr_t *msgh = (void *)dock->notify.data;
-	istor_msg_img_mmap_t *mdata = ISTOR_MSG_DATA(msgh);
-	istor_imgset_t *iset = dock->owner_iset;
-	const char *act = NULL;
-	istor_img_t *img;
-	int ret;
-
-	pr_debug("%s: immap: params idx %d addr %p size %ld prot %#x flags %#x\n",
-		 dock->oidbuf, mdata->idx, (void *)mdata->addr, mdata->size,
-		 mdata->prot, mdata->flags);
-
-	img = istor_img_lookup(iset, NULL, mdata->idx);
-	if (!img) {
-		pr_debug("%s: immap: idx %d doesn't exist\n",
-			 dock->oidbuf, mdata->idx);
-		return -ENOENT;
-	}
-
-	if (img->state & IMG_STATE_CLOSED) {
-		pr_debug("%s: immap: idx %d closed\n",
-			 dock->oidbuf, mdata->idx);
-		return -EIO;
-	} else if (img->state & IMG_STATE_MALLOC) {
-		pr_debug("%s: immap: idx %d already has malloc\n",
-			 dock->oidbuf, mdata->idx);
-		return -EIO;
-	}
-
-	if (img->state & IMG_STATE_MMAP) {
-		ret = istor_img_realloc(dock, img, mdata, NULL);
-		act = "mremmap";
-	} else {
-		ret = istor_img_realloc(dock, img, mdata, NULL);
-		if (!ret)
-			img->state |= IMG_STATE_MMAP;
-		act = "mmap";
-	}
-
-	if (ret) {
-		errno = -ret;
-		pr_perror("%s: immap: idx %d %s failed\n",
-			  dock->oidbuf, mdata->idx, act);
-		return ret;
-	}
-
-	pr_debug("%s: immap: %s name %s idx %d addr %p size %ld prot %#x flags %#x\n",
-		 dock->oidbuf, act, img->name, mdata->idx, (void *)mdata->addr, mdata->size,
-		 mdata->prot, mdata->flags);
-	return 0;
-}
+//static int istor_serve_dock_img_mmap(istor_dock_t *dock)
+//{
+//	istor_msghdr_t *msgh = (void *)dock->notify.data;
+//	istor_msg_img_mmap_t *mdata = ISTOR_MSG_DATA(msgh);
+//	istor_imgset_t *iset = dock->owner_iset;
+//	const char *act = NULL;
+//	istor_img_t *img;
+//	int ret;
+//
+//	pr_debug("%s: immap: params idx %d addr %p size %ld prot %#x flags %#x\n",
+//		 dock->oidbuf, mdata->idx, (void *)mdata->addr, mdata->size,
+//		 mdata->prot, mdata->flags);
+//
+//	img = istor_img_lookup(iset, NULL, mdata->idx);
+//	if (!img) {
+//		pr_debug("%s: immap: idx %d doesn't exist\n",
+//			 dock->oidbuf, mdata->idx);
+//		return -ENOENT;
+//	}
+//
+//	if (img->state & IMG_STATE_CLOSED) {
+//		pr_debug("%s: immap: idx %d closed\n",
+//			 dock->oidbuf, mdata->idx);
+//		return -EIO;
+//	} else if (img->state & IMG_STATE_MALLOC) {
+//		pr_debug("%s: immap: idx %d already has malloc\n",
+//			 dock->oidbuf, mdata->idx);
+//		return -EIO;
+//	}
+//
+//	if (img->state & IMG_STATE_MMAP) {
+//		ret = istor_img_realloc(dock, img, mdata, NULL);
+//		act = "mremmap";
+//	} else {
+//		ret = istor_img_realloc(dock, img, mdata, NULL);
+//		if (!ret)
+//			img->state |= IMG_STATE_MMAP;
+//		act = "mmap";
+//	}
+//
+//	if (ret) {
+//		errno = -ret;
+//		pr_perror("%s: immap: idx %d %s failed\n",
+//			  dock->oidbuf, mdata->idx, act);
+//		return ret;
+//	}
+//
+//	pr_debug("%s: immap: %s name %s idx %d addr %p size %ld prot %#x flags %#x\n",
+//		 dock->oidbuf, act, img->name, mdata->idx, (void *)mdata->addr, mdata->size,
+//		 mdata->prot, mdata->flags);
+//	return 0;
+//}
 
 static int istor_serve_dock(istor_dock_t *dock)
 {
@@ -653,8 +655,8 @@ static int istor_serve_dock(istor_dock_t *dock)
 		case ISTOR_CMD_IMG_CLOSE:
 			dock->notify.ret = istor_serve_dock_img_close(dock);
 			break;
-		case ISTOR_CMD_IMG_MMAP:
-			dock->notify.ret = istor_serve_dock_img_mmap(dock);
+//		case ISTOR_CMD_IMG_MMAP:
+//			dock->notify.ret = istor_serve_dock_img_mmap(dock);
 			break;
 		default:
 			break;
