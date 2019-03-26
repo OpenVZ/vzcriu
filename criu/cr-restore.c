@@ -235,6 +235,9 @@ static int restore_finish_ns_stage(int from, int to)
 
 static int crtools_prepare_shared(void)
 {
+	if (eventpoll_init())
+		return -1;
+
 	if (prepare_memfd_inodes())
 		return -1;
 
