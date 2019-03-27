@@ -27,8 +27,6 @@
 #include "kerndat.h"
 #include "file-ids.h"
 #include "kcmp-ids.h"
-#include "fdstore.h"
-#include "rst-malloc.h"
 
 #include "protobuf.h"
 #include "images/eventpoll.pb-c.h"
@@ -57,40 +55,10 @@ struct eventpoll_dinfo {
 	int				efd;
 };
 
-static LIST_HEAD(rst_epoll_list);
-
 struct eventpoll_file_info {
-	struct list_head		list;
-
 	EventpollFileEntry		*efe;
 	struct file_desc		d;
 };
-
-typedef union {
-	struct {
-		pid_t		pid;
-		unsigned int	tfd;
-	};
-	uint64_t		v;
-} epoll_target_key_t;
-
-typedef struct epoll_target_waiter {
-	void			*next;
-	pid_t			pid;
-} epoll_target_waiter_t;
-
-struct epoll_target {
-	struct rb_node		node;
-	epoll_target_key_t	key;
-	epoll_target_waiter_t	*waiters;
-	atomic_t		fdstore_ready;
-	int			fdstore_id;
-};
-
-static struct rb_root *epoll_targets_tree;
-
-static struct epoll_target *epoll_alloc_target(pid_t pid, unsigned int fd);
-static struct epoll_target *epoll_lookup_target(pid_t pid, unsigned int fd, bool allocate);
 
 /* Checks if file descriptor @lfd is eventfd */
 int is_eventpoll_link(char *link)
@@ -213,10 +181,11 @@ int flush_eventpoll_dinfo_queue(void)
 			 * opened and added).
 			 */
 			if (t->pid != dinfo->pid) {
-				pr_debug("kid_lookup_epoll: pid mismatch %d %d efd %d tfd %d toff %u\n",
-					 dinfo->pid, t->pid, dinfo->efd, tfde->tfd, dinfo->toff[i].off);
+				pr_err("kid_lookup_epoll: pid mismatch %d %d efd %d tfd %d toff %u\n",
+				       dinfo->pid, t->pid, dinfo->efd, tfde->tfd, dinfo->toff[i].off);
 				tfde->has_pid = true;
 				tfde->pid = t->pid;
+				goto err;
 			}
 
 			tfde->tfd = t->idx;
@@ -485,54 +454,9 @@ err_close:
 	return -1;
 }
 
-int eventpoll_notify_target(pid_t pid, unsigned int tfd)
-{
-	epoll_target_waiter_t *w;
-	struct epoll_target *t;
-
-	t = epoll_lookup_target(pid, tfd, false);
-	if (!t)
-		return 0;
-
-	t->fdstore_id = fdstore_add(tfd);
-	if (t->fdstore_id < 0) {
-		pr_err("epoll_target: fdstore fails pid %d tfd %u\n",
-		       pid, tfd);
-		return -1;
-	}
-
-	pr_debug("epoll_target: pid %d tfd %u fdstore %d\n",
-		 pid, tfd, t->fdstore_id);
-
-	atomic_set(&t->fdstore_ready, 1);
-
-	for (w = t->waiters; w; w = w->next) {
-		pr_debug("epoll_target: pid %d tfd %u wake %d\n",
-			 pid, tfd, w->pid);
-		set_fds_event(w->pid);
-	}
-
-	return 0;
-}
-
 static int epoll_not_ready_tfd(EventpollTfdEntry *tdefe)
 {
 	struct fdinfo_list_entry *fle;
-
-	if (tdefe->has_pid) {
-		struct epoll_target *t;
-
-		t = epoll_lookup_target(tdefe->pid, tdefe->tfd, false);
-		if (!t) {
-			pr_err("epoll_target: No target found pid %d fd %u\n",
-			       tdefe->pid, tdefe->tfd);
-			return 0;
-		}
-
-		pr_debug("epoll_target: found pid %d fd %u fdstore %d\n",
-			 t->key.pid, t->key.tfd, t->fdstore_id);
-		return !atomic_read(&t->fdstore_ready) ? 1 : 0;
-	}
 
 	list_for_each_entry(fle, &rsti(current)->fds, ps_list) {
 		if (tdefe->tfd != fle->fe->fd)
@@ -554,49 +478,17 @@ static int epoll_not_ready_tfd(EventpollTfdEntry *tdefe)
 static int eventpoll_retore_tfd(int fd, int id, EventpollTfdEntry *tdefe)
 {
 	struct epoll_event event;
-	int tfd = tdefe->tfd;
-	int new_tfd = -1;
-	int ret = 0;
-
-	if (tdefe->has_pid) {
-		struct epoll_target *t;
-
-		t = epoll_lookup_target(tdefe->pid, tdefe->tfd, false);
-		if (!t) {
-			pr_err("epoll_target: Target disappeared pid %d fd %u\n",
-			       tdefe->pid, tdefe->tfd);
-			return -1;
-		}
-
-		if (!atomic_read(&t->fdstore_ready)) {
-			pr_err("epoll_target: Unexpected fdstore_ready pid %d fd %u\n",
-			       tdefe->pid, tdefe->tfd);
-			return -1;
-		}
-
-		new_tfd = fdstore_get(t->fdstore_id);
-		if (new_tfd < 0) {
-			pr_err("epoll_target: Can't fetch fdstore_id %d pid %d fd %u\n",
-			       t->fdstore_id, tdefe->pid, tdefe->tfd);
-			return -1;
-		}
-
-		pr_debug("epoll_target: fdstore_id %d pid %d fd %u -> %d\n",
-			 t->fdstore_id, tdefe->pid, tdefe->tfd, new_tfd);
-		tdefe->tfd = new_tfd;
-	}
 
 	pr_info_eventpoll_tfd("Restore ", id, tdefe);
 
 	event.events	= tdefe->events;
 	event.data.u64	= tdefe->data;
-	ret = epoll_ctl(fd, EPOLL_CTL_ADD, tdefe->tfd, &event);
-	if (ret)
+	if (epoll_ctl(fd, EPOLL_CTL_ADD, tdefe->tfd, &event)) {
 		pr_perror("Can't add event on %#08x", id);
+		return -1;
+	}
 
-	tdefe->tfd = tfd;
-	close_safe(&new_tfd);
-	return ret;
+	return 0;
 }
 
 static int eventpoll_post_open(struct file_desc *d, int fd)
@@ -622,121 +514,6 @@ static struct file_desc_ops desc_ops = {
 	.type		= FD_TYPES__EVENTPOLL,
 	.open		= eventpoll_open,
 };
-
-static struct epoll_target *epoll_alloc_target(pid_t pid, unsigned int tfd)
-{
-	struct epoll_target *t = shmalloc(sizeof(*t));
-	if (!t) {
-		pr_err("epoll_target: Can't allocate pid %d tfd %u\n", pid, tfd);
-		return NULL;
-	}
-
-	memzero_p(t);
-
-	rb_init_node(&t->node);
-	atomic_set(&t->fdstore_ready, 0);
-	t->fdstore_id = -1;
-	t->key.pid = pid;
-	t->key.tfd = tfd;
-
-	pr_debug("epoll_target: Allocated pid %d tfd %u\n", pid, tfd);
-	return t;
-}
-
-static struct epoll_target *epoll_lookup_target(pid_t pid, unsigned int tfd, bool allocate)
-{
-	struct rb_node *node = epoll_targets_tree->rb_node;
-	struct epoll_target *t = NULL;
-
-	struct rb_node **new = &epoll_targets_tree->rb_node;
-	struct rb_node *parent = NULL;
-
-	epoll_target_key_t key = {
-		.pid	= pid,
-		.tfd	= tfd,
-	};
-
-	while (node) {
-		struct epoll_target *this = rb_entry(node, struct epoll_target, node);
-
-		parent = *new;
-		if (key.v < this->key.v)
-			node = node->rb_left, new = &((*new)->rb_left);
-		else if (key.v > this->key.v)
-			node = node->rb_right, new = &((*new)->rb_right);
-		else
-			return this;
-	}
-
-	if (!allocate)
-		return NULL;
-
-	t = epoll_alloc_target(pid, tfd);
-	if (!t)
-		return NULL;
-
-	rb_link_and_balance(epoll_targets_tree, &t->node, parent, new);
-	return t;
-}
-
-int eventpoll_prepare_targets(void)
-{
-	struct eventpoll_file_info *info;
-	size_t i;
-
-	list_for_each_entry(info, &rst_epoll_list, list) {
-		for (i = 0; i < info->efe->n_tfd; i++) {
-			EventpollTfdEntry *tfde = info->efe->tfd[i];
-			epoll_target_waiter_t *waiter;
-			struct fdinfo_list_entry *fle;
-			struct epoll_target *t;
-
-			if (!tfde->has_pid)
-				continue;
-
-			fle = file_master(&info->d);
-
-			/*
-			 * Should heneve happen since we save pids for
-			 * foreign tasks only.
-			 */
-			if (unlikely(tfde->pid == vpid(fle->task))) {
-				pr_warn_once("epoll_target: Same pid %d\n", tfde->pid);
-				continue;
-			}
-
-			pr_debug("epoll_target: Foreign pid %d tfd %d waiter %d\n",
-				 tfde->pid, tfde->tfd, vpid(fle->task));
-
-			t = epoll_lookup_target(tfde->pid, tfde->tfd, true);
-			if (!t)
-				return -ENOMEM;
-
-			waiter = shmalloc(sizeof(*waiter));
-			if (waiter) {
-				epoll_target_waiter_t *w = t->waiters;
-				waiter->next = w, t->waiters = waiter;
-				waiter->pid = vpid(fle->task);
-			} else {
-				pr_err("epoll_target: Can't allocate waiter\n");
-				return -ENOMEM;
-			}
-		}
-	}
-
-	return 0;
-}
-
-int eventpoll_prepare_shared(void)
-{
-	epoll_targets_tree = shmalloc(sizeof(*epoll_targets_tree));
-	if (!epoll_targets_tree) {
-		pr_err("Can't allocate targets tree\n");
-		return -ENOMEM;
-	}
-	*epoll_targets_tree = RB_ROOT;
-	return 0;
-}
 
 static int collect_one_epoll_tfd(void *o, ProtobufCMessage *msg, struct cr_img *i)
 {
@@ -781,7 +558,6 @@ static int collect_one_epoll(void *o, ProtobufCMessage *msg, struct cr_img *i)
 	struct eventpoll_file_info *info = o;
 
 	info->efe = pb_msg(msg, EventpollFileEntry);
-	list_add_tail(&info->list, &rst_epoll_list);
 	pr_info_eventpoll("Collected ", info->efe);
 	return file_desc_add(&info->d, info->efe->id, &desc_ops);
 }

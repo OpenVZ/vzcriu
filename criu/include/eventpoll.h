@@ -5,9 +5,6 @@
 
 extern int is_eventpoll_link(char *link);
 extern int flush_eventpoll_dinfo_queue(void);
-extern int eventpoll_prepare_shared(void);
-extern int eventpoll_prepare_targets(void);
-extern int eventpoll_notify_target(pid_t pid, unsigned int tfd);
 
 extern const struct fdtype_ops eventpoll_dump_ops;
 extern struct collect_image_info epoll_tfd_cinfo;
