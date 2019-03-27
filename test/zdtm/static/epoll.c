@@ -16,8 +16,6 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <inttypes.h>
-#include <sys/socket.h>
-#include <sys/un.h>
 
 #include "zdtmtst.h"
 
@@ -30,16 +28,13 @@ int main(int argc, char *argv[])
 {
 	int epollfd1, epollfd2, fd;
 	struct epoll_event ev;
-	task_waiter_t t;
 	int i, ret;
-	pid_t pid;
 
-	struct pipes_s {
+	struct {
 		int	pipefd[2];
 	} pipes[250];
 
 	test_init(argc, argv);
-	task_waiter_init(&t);
 
 	epollfd1 = epoll_create(1);
 	if (epollfd1 < 0) {
@@ -96,99 +91,6 @@ int main(int argc, char *argv[])
 		test_msg("epoll source %d closed\n", fd);
 	}
 
-	pid = test_fork();
-	if (pid < 0) {
-		pr_err("Can't fork()\n");
-		exit(1);
-	} else if (pid == 0) {
-		struct pipes_s subpipes[2];
-		uint8_t cw = 1, cr;
-		int epollfd3;
-
-		memset(&ev, 0, sizeof(ev));
-		ev.events = EPOLLIN | EPOLLOUT;
-
-		epollfd3 = epoll_create(1);
-		if (epollfd3 < 0) {
-			pr_perror("epoll_create failed");
-			exit(1);
-		}
-
-		for (i = 0; i < ARRAY_SIZE(subpipes); i++) {
-			if (pipe(subpipes[i].pipefd)) {
-				pr_perror("Can't create subpipe\n");
-				exit(1);
-			}
-		}
-
-		for (i = 0; i < ARRAY_SIZE(subpipes); i++) {
-			ev.data.u64 = i;
-			ret = dup(subpipes[i].pipefd[0]);
-			if (ret < 0) {
-				pr_perror("Can't dup");
-				exit(1);
-			}
-
-			test_msg("epoll %d add subpipe %d duped from %d to parent\n",
-				 epollfd1, ret, subpipes[i].pipefd[0]);
-			if (epoll_ctl(epollfd1, EPOLL_CTL_ADD, ret, &ev)) {
-				pr_perror("Can't add duped pipe %d to parent", ret);
-				exit(1);
-			}
-
-			test_msg("epoll %d add subpipe %d duped from %d to own\n",
-				 epollfd3, ret, subpipes[i].pipefd[0]);
-			if (epoll_ctl(epollfd3, EPOLL_CTL_ADD, ret, &ev)) {
-				pr_perror("Can't add duped pipe %d to own", ret);
-				exit(1);
-			}
-
-			close(subpipes[i].pipefd[0]);
-			subpipes[i].pipefd[0] = ret;
-		}
-
-		task_waiter_complete(&t, 1);
-		task_waiter_wait4(&t, 2);
-
-		for (i = 0; i < ARRAY_SIZE(subpipes); i++) {
-			if (write(subpipes[i].pipefd[1], &cw, sizeof(cw)) != sizeof(cw)) {
-				pr_perror("Unable to write into a pipe\n");
-				exit(1);
-			}
-
-			if (epoll_wait(epollfd1, &ev, 1, -1) != 1) {
-				pr_perror("Unable to wain events");
-				exit(1);
-			}
-
-			if (ev.data.u64 != i) {
-				pr_err("ev.fd=%d ev.data.u64=%#llx (%d expected)\n",
-				       ev.data.fd, (long long)ev.data.u64, i);
-				exit(1);
-			}
-
-			if (epoll_wait(epollfd3, &ev, 1, -1) != 1) {
-				pr_perror("Unable to wain events");
-				exit(1);
-			}
-
-			if (ev.data.u64 != i) {
-				pr_err("ev.fd=%d ev.data.u64=%#llx (%d expected)\n",
-				       ev.data.fd, (long long)ev.data.u64, i);
-				exit(1);
-			}
-
-			if (read(subpipes[i].pipefd[0], &cr, sizeof(cr)) != sizeof(cr)) {
-				pr_perror("read");
-				exit(1);
-			}
-		}
-
-		exit(0);
-	}
-
-	task_waiter_wait4(&t, 1);
-
 	test_daemon();
 	test_waitsig();
 
@@ -229,18 +131,6 @@ int main(int argc, char *argv[])
 
 	if (ret)
 		return 1;
-
-	task_waiter_complete(&t, 2);
-
-	if (waitpid(pid, &ret, 0) != pid) {
-		pr_perror("Can't wait child");
-		return 1;
-	}
-
-	if (!WIFEXITED(ret) || WEXITSTATUS(ret) != 0) {
-		pr_perror("Can't finish child");
-		return 1;
-	}
 
 	pass();
 	return 0;
