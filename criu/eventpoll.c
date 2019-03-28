@@ -159,8 +159,8 @@ static void dequeue_dinfo(struct eventpoll_dinfo *dinfo)
 
 static int etfd_cmp(const void *__a, const void *__b)
 {
-	EventpollTfdEntry *a = (EventpollTfdEntry *)__a;
-	EventpollTfdEntry *b = (EventpollTfdEntry *)__b;
+	EventpollTfdEntry *a = *(EventpollTfdEntry **)__a;
+	EventpollTfdEntry *b = *(EventpollTfdEntry **)__b;
 
 	if (a->tfd > b->tfd)
 		return 1;
@@ -248,7 +248,7 @@ int flush_eventpoll_dinfo_queue(void)
 
 			qsort(e->tfd, e->n_tfd, sizeof(e->tfd[0]), etfd_cmp);
 			for (j = i = 1; i < e->n_tfd; i++) {
-				if (!etfd_cmp(e->tfd[i], e->tfd[i-1])) {
+				if (!etfd_cmp(&e->tfd[i], &e->tfd[i-1])) {
 					pr_debug("kid_lookup_epoll: id %#x same tfd %u pid %d\n",
 						 e->id, e->tfd[i]->pid, e->tfd[i]->tfd);
 					continue;
