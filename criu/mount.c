@@ -3523,7 +3523,7 @@ static int merge_mount_trees(struct mount_info *root_yard)
 		pr_debug("Mountpoint %d (@%s) moved to the root yard\n",
 			 root->mnt_id, root->mountpoint);
 		root->parent = root_yard;
-		list_add_tail(&root->siblings, &root_yard->children);
+		list_add(&root->siblings, &root_yard->children);
 	}
 
 	return 0;
