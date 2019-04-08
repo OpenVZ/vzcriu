@@ -159,10 +159,9 @@ static int __start_spfs_manager(void)
 	if (err < 0) {
 		close(sock);
 		pr_err("failed to install SPFS manager service socket\n");
-		return err;
 	}
 
-	return sock;
+	return err;
 }
 
 static int start_spfs_manager(void)
