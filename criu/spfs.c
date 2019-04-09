@@ -178,11 +178,21 @@ static int get_spfs_mngr_sock(void *start, int fd, pid_t pid)
 	if (sock != -1) {
 		sock = dup(sock);
 		if (sock < 0)
-			pr_perror("failed to duplicate SPFS manager socket");
-	} else if (start)
+			goto dup_failed;
+	} else if (start) {
 		sock = start_spfs_manager();
+		if (sock < 0) {
+			sock = dup(sock);
+			if (sock < 0)
+				goto dup_failed;
+		}
+	}
 
 	return sock;
+
+dup_failed:
+	pr_perror("failed to duplicate SPFS manager socket");
+	return -1;
 }
 
 static int request_spfs_mngr_sock(bool *start_mngr)
