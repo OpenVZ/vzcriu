@@ -181,7 +181,7 @@ static int get_spfs_mngr_sock(void *start, int fd, pid_t pid)
 			goto dup_failed;
 	} else if (start) {
 		sock = start_spfs_manager();
-		if (sock < 0) {
+		if (sock >= 0) {
 			sock = dup(sock);
 			if (sock < 0)
 				goto dup_failed;
