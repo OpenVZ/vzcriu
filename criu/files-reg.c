@@ -103,7 +103,7 @@ static inline int init_remap_lock(void)
 }
 
 static LIST_HEAD(dmp_remaps);
-static LIST_HEAD(rst_remaps);
+static struct list_head *rst_remaps;
 
 /*
  * Remember the name to delete it if needed on error or
@@ -699,7 +699,7 @@ static int collect_one_remap(void *obj, ProtobufCMessage *msg, struct cr_img *i)
 		break;
 	}
 
-	list_add_tail(&ri->list, &rst_remaps);
+	list_add_tail(&ri->list, rst_remaps);
 
 	return 0;
 }
@@ -918,7 +918,7 @@ static int order_remap_dirs(void)
 	size_t nr_remaps = 0, i;
 	LIST_HEAD(ghost_dirs);
 
-	list_for_each_entry_safe(ri, tmp, &rst_remaps, list) {
+	list_for_each_entry_safe(ri, tmp, rst_remaps, list) {
 		if (ri->rpe->remap_type != REMAP_TYPE__GHOST)
 			continue;
 		if (!ri->rfi->remap->is_dir)
@@ -932,7 +932,7 @@ static int order_remap_dirs(void)
 
 	p = t = xmalloc(sizeof(*p) * nr_remaps);
 	if (!p) {
-		list_splice_tail_init(&ghost_dirs, &rst_remaps);
+		list_splice_tail_init(&ghost_dirs, rst_remaps);
 		return -ENOMEM;
 	}
 
@@ -944,12 +944,12 @@ static int order_remap_dirs(void)
 	qsort(t, nr_remaps, sizeof(t[0]), remap_info_cmp);
 
 	for (i = 0; i < nr_remaps; i++) {
-		list_add_tail(&t[i]->list, &rst_remaps);
+		list_add_tail(&t[i]->list, rst_remaps);
 		pr_debug("remap: ghost mov dir %s\n", t[i]->rfi->path);
 	}
 
 	if (!pr_quelled(LOG_DEBUG)) {
-		list_for_each_entry_safe(ri, tmp, &rst_remaps, list) {
+		list_for_each_entry_safe(ri, tmp, rst_remaps, list) {
 			if (ri->rpe->remap_type != REMAP_TYPE__GHOST)
 				continue;
 			pr_debug("remap: ghost ord %3s %s\n",
@@ -971,7 +971,7 @@ int prepare_remaps(void)
 	if (ret)
 		return ret;
 
-	list_for_each_entry(ri, &rst_remaps, list) {
+	list_for_each_entry(ri, rst_remaps, list) {
 		ret = prepare_one_remap(ri);
 		if (ret)
 			break;
@@ -1049,7 +1049,7 @@ int try_clean_remaps(bool only_ghosts)
 	struct remap_info *ri;
 	int ret = 0;
 
-	list_for_each_entry(ri, &rst_remaps, list) {
+	list_for_each_entry(ri, rst_remaps, list) {
 		if (ri->rpe->remap_type == REMAP_TYPE__GHOST)
 			ret |= clean_one_remap(ri);
 		else if (only_ghosts)
@@ -2891,6 +2891,11 @@ struct collect_image_info reg_file_cinfo = {
 
 int collect_remaps_and_regfiles(void)
 {
+	rst_remaps = shmalloc(sizeof(*rst_remaps));
+	if (!rst_remaps)
+		return -1;
+	INIT_LIST_HEAD(rst_remaps);
+
 	if (!files_collected() && collect_image(&reg_file_cinfo))
 		return -1;
 
