@@ -418,6 +418,61 @@ static int unix_conf_op(SysctlEntry ***rconf, size_t *n, int op)
 	return 0;
 }
 
+static char *coreconfs[] = {
+	"somaxconn",
+};
+
+static int core_conf_op(SysctlEntry **conf, int n, int op)
+{
+	struct sysctl_req req[ARRAY_SIZE(coreconfs)];
+	char path[ARRAY_SIZE(coreconfs)][256];
+	SysctlEntry *rconf[ARRAY_SIZE(coreconfs)] = {};
+	int ret = 0;
+	int i, ri;
+
+	if (n > ARRAY_SIZE(coreconfs))
+		pr_warn("The image contains unknown sysctl-s\n");
+
+	for (i = 0, ri = 0; i < ARRAY_SIZE(coreconfs); i++) {
+		if (i >= n) {
+			pr_warn("Skip %s\n", coreconfs[i]);
+			continue;
+		}
+
+		if (conf[i]->type != SYSCTL_TYPE__CTL_32)
+			continue;
+		if (op == CTL_WRITE && !conf[i]->has_iarg)
+			continue;
+
+		snprintf(path[i], sizeof(path[i]), "net/core/%s", coreconfs[i]);
+		req[ri].name = path[i];
+		req[ri].type = CTL_32;
+		req[ri].arg = &conf[i]->iarg;
+		if (op == CTL_READ || opts.weak_sysctls)
+			req[ri].flags = CTL_FLAGS_OPTIONAL;
+		else
+			req[ri].flags = 0;
+
+		rconf[ri] = conf[i];
+		ri++;
+	}
+
+	ret = sysctl_op(req, ri, op, CLONE_NEWNET);
+	if (ret < 0) {
+		pr_err("Failed to %s\n", (op == CTL_READ ? "read" : "write"));
+		return ret;
+	}
+
+	if (op == CTL_READ) {
+		for (i = 0; i < ri; i++) {
+			if (req[i].flags & CTL_FLAGS_HAS)
+				rconf[i]->has_iarg = true;
+		}
+	}
+
+	return ret;
+}
+
 /*
  * I case if some entry is missing in
  * the kernel, simply write DEVCONFS_UNUSED
@@ -2168,6 +2223,8 @@ static int dump_netns_conf(struct ns_id *ns, struct cr_imgset *fds)
 	char all_stable_secret[MAX_STR_CONF_LEN + 1] = {};
 	NetnsId *ids;
 	struct netns_id *p;
+	int core_size = ARRAY_SIZE(coreconfs);
+	SysctlEntry *core_confs = NULL;
 
 	i = 0;
 	list_for_each_entry(p, &ns->net.ids, node)
@@ -2176,7 +2233,8 @@ static int dump_netns_conf(struct ns_id *ns, struct cr_imgset *fds)
 	o_buf = buf = xmalloc(i * (sizeof(NetnsId *) + sizeof(NetnsId)) +
 			      size4 * (sizeof(SysctlEntry *) + sizeof(SysctlEntry)) * 2 +
 			      size6 * (sizeof(SysctlEntry *) + sizeof(SysctlEntry)) * 2 +
-			      sizex * (sizeof(SysctlEntry *) + sizeof(SysctlEntry)));
+			      sizex * (sizeof(SysctlEntry *) + sizeof(SysctlEntry)) +
+			      core_size * (sizeof(SysctlEntry *) + sizeof(SysctlEntry)));
 	if (!buf)
 		goto out;
 
@@ -2241,6 +2299,16 @@ static int dump_netns_conf(struct ns_id *ns, struct cr_imgset *fds)
 		netns.unix_conf[i]->type = SYSCTL_TYPE__CTL_32;
 	}
 
+	netns.n_vz_core_conf = core_size;
+	netns.vz_core_conf = xptr_pull_s(&buf, core_size * sizeof(SysctlEntry *));
+	core_confs = xptr_pull_s(&buf, core_size * sizeof(SysctlEntry));
+
+	for (i = 0; i < core_size; i++) {
+		sysctl_entry__init(&core_confs[i]);
+		netns.vz_core_conf[i] = &core_confs[i];
+		netns.vz_core_conf[i]->type = SYSCTL_TYPE__CTL_32;
+	}
+
 	ret = ipv4_conf_op("default", netns.def_conf4, size4, CTL_READ, NULL);
 	if (ret < 0)
 		goto err_free;
@@ -2256,6 +2324,10 @@ static int dump_netns_conf(struct ns_id *ns, struct cr_imgset *fds)
 		goto err_free;
 
 	ret = unix_conf_op(&netns.unix_conf, &netns.n_unix_conf, CTL_READ);
+	if (ret < 0)
+		goto err_free;
+
+	ret = core_conf_op(netns.vz_core_conf, core_size, CTL_READ);
 	if (ret < 0)
 		goto err_free;
 
@@ -2740,6 +2812,20 @@ int read_net_ns_img(void)
 			pr_err("Can not read netns object\n");
 			return -1;
 		}
+
+		if (ns->net.netns->unix_conf && !ns->net.netns->vz_core_conf) {
+			/*
+			 * Backward compatibility. In vz7-u16 we've rebased
+			 * from criu v3.12 to v3.15. So core_confs id in
+			 * netns_entry is now used by unix_conf and
+			 * vz_core_conf now has new 1000+x id.
+			 */
+			ns->net.netns->vz_core_conf = ns->net.netns->unix_conf;
+			ns->net.netns->n_vz_core_conf = ns->net.netns->n_unix_conf;
+			ns->net.netns->unix_conf = NULL;
+			ns->net.netns->n_unix_conf = 0;
+		}
+
 		ns->ext_key = ns->net.netns->ext_key;
 	}
 
@@ -2781,6 +2867,12 @@ static int restore_netns_conf(struct ns_id *ns)
 
 	if ((netns)->unix_conf) {
 		ret = unix_conf_op(&(netns)->unix_conf, &(netns)->n_unix_conf, CTL_WRITE);
+		if (ret)
+			goto out;
+	}
+
+	if ((netns)->vz_core_conf) {
+		ret = core_conf_op((netns)->vz_core_conf, (netns)->n_vz_core_conf, CTL_WRITE);
 		if (ret)
 			goto out;
 	}
