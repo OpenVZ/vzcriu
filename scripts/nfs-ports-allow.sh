@@ -25,7 +25,8 @@ JOIN_CT="${NS_ENTER} -t $CRTOOLS_INIT_PID -u -p -n"
 
 ${JOIN_CT} test -e /proc/self/net/nfsfs || exit 0
 
-servers=$($JOIN_CT cat /proc/self/net/nfsfs/servers | sed -e '1d' | awk '{ printf $5" ";}')
+servers=$($JOIN_CT cat /proc/*/mountinfo | awk '/ - nfs/ {print $NF}' |\
+	awk -F "," '{for (i = 1; i <= NF; i++) { if ($i~"^addr="){sub(/^addr=/,"", $i); print $i}}}' | sort -u)
 
 [ -n "$servers" ] || exit 0
 
