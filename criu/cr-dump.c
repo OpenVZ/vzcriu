@@ -2168,6 +2168,12 @@ int cr_dump_tasks(pid_t pid)
 	if (parse_cg_info())
 		goto err;
 
+	if (opts.manage_cgroups) {
+		host_mountinfo = parse_mountinfo(1, NULL, 0);
+		if (!host_mountinfo)
+			goto err;
+	}
+
 	if (prepare_inventory(&he))
 		goto err;
 
@@ -2221,6 +2227,11 @@ int cr_dump_tasks(pid_t pid)
 	for_each_pstree_item(item) {
 		if (dump_one_task(item, parent_ie))
 			goto err;
+	}
+
+	if (host_mountinfo) {
+		free_mntinfo(host_mountinfo);
+		host_mountinfo = NULL;
 	}
 
 	if (parent_ie) {
@@ -2296,6 +2307,11 @@ int cr_dump_tasks(pid_t pid)
 	if (ret)
 		goto err;
 err:
+	if (host_mountinfo) {
+		free_mntinfo(host_mountinfo);
+		host_mountinfo = NULL;
+	}
+
 	if (parent_ie)
 		inventory_entry__free_unpacked(parent_ie, NULL);
 
