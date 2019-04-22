@@ -67,6 +67,7 @@ function allow_portmapper_port {
 }
 
 for s in $servers; do
+	s=$(getent hosts $s | head -n 1 | awk '{print $1}')
 	allow_portmapper_port $s
 	if [ $? -ne 0 ]; then
 		echo "Failed to allow portmapper for "$s
