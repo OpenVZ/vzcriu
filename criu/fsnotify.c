@@ -572,8 +572,11 @@ static int restore_one_inotify(int inotify_fd, struct fsnotify_mark_info *info)
 			break;
 		}
 
-		if (kdat.has_inotify_setnextwd)
+		if (kdat.has_inotify_setnextwd) {
+			pr_err("nextwd watch 0x%x failed for 0x%x (expected 0x%x)\n",
+			       wd, inotify_fd, iwe->wd);
 			return -1;
+		}
 
 		inotify_rm_watch(inotify_fd, wd);
 	}
