@@ -10,8 +10,10 @@
 #include <termios.h>
 #include <signal.h>
 #include <sys/wait.h>
+#include <sys/mman.h>
 
 #include "zdtmtst.h"
+#include "lock.h"
 
 const char *test_doc	= "Test teminals inheritance";
 const char *test_author	= "Cyrill Gorcunov <gorcunov@openvz.org>";
@@ -77,6 +79,7 @@ struct proc_pid_stat {
 int parse_pid_stat(pid_t pid, struct proc_pid_stat *s)
 {
 	char path[128], buf[4096];
+	char bufcpy[sizeof(buf)];
 	char *tok, *p;
 	int fd;
 	int n;
@@ -95,6 +98,7 @@ int parse_pid_stat(pid_t pid, struct proc_pid_stat *s)
 		return -1;
 	}
 
+	memcpy(bufcpy, buf, sizeof(bufcpy));
 	memset(s, 0, sizeof(*s));
 
 	tok = strchr(buf, ' ');
@@ -175,9 +179,15 @@ int parse_pid_stat(pid_t pid, struct proc_pid_stat *s)
 	return 0;
 
 err:
-	pr_err("Parsing %d's stat failed (#fields do not match)\n", pid);
+	pr_err("Parsing %d's stat failed (#fields do not match: "
+	       "expected 50 but got %d)\n", pid, n);
+	pr_err("Original buffer value: '%s'\n", bufcpy);
 	return -1;
 }
+
+static futex_t *futex_master;
+static futex_t *futex_child;
+static futex_t *futex_grandchild;
 
 int main(int argc, char ** argv)
 {
@@ -187,10 +197,26 @@ int main(int argc, char ** argv)
 	char teststr[] = "Hello\n";
 	task_waiter_t t, m;
 	pid_t pid, pid_ret;
+	void *mem;
 
 	test_init(argc, argv);
 	task_waiter_init(&t);
 	task_waiter_init(&m);
+
+	mem = mmap(NULL, sizeof(futex_t) * 3, PROT_READ | PROT_WRITE,
+		   MAP_ANONYMOUS | MAP_SHARED, -1, 0);
+	if (mem == MAP_FAILED) {
+		pr_perror("Can't allocate memory");
+		return 1;
+	}
+
+	futex_master = mem;
+	futex_child = &futex_master[1];
+	futex_grandchild = &futex_master[2];
+
+	futex_init(futex_master);
+	futex_init(futex_child);
+	futex_init(futex_grandchild);
 
 	pid = test_fork();
 	if (pid < 0) {
@@ -201,12 +227,14 @@ int main(int argc, char ** argv)
 
 		if (setsid() == -1) {
 			pr_perror("setsid failed");
+			futex_abort_and_wake(futex_master);
 			exit(1);
 		}
 
 		fdm = open("/dev/ptmx", O_RDWR);
 		if (fdm == -1) {
 			pr_perror("open(%s) failed", "/dev/ptmx");
+			futex_abort_and_wake(futex_master);
 			exit(1);
 		}
 
@@ -217,41 +245,50 @@ int main(int argc, char ** argv)
 		fds = open(slavename, O_RDWR);
 		if (fds == -1) {
 			pr_perror("open(%s) failed", slavename);
+			futex_abort_and_wake(futex_master);
 			exit(1);
 		}
 
 		if (ioctl(fds, TIOCSCTTY, 1)) {
 			pr_perror("ioctl(%s, TIOCSCTTY, 1) failed", slavename);
+			futex_abort_and_wake(futex_master);
 			exit(1);
 		}
 
 		pid = test_fork();
 		if (pid < 0) {
 			pr_perror("fork failed");
+			futex_abort_and_wake(futex_master);
 			exit(1);
 		} else if (pid == 0) {
 			test_msg("Slave child %d\n", getpid());
 
-			if (parse_pid_stat(getpid(), &stat_before))
+			if (parse_pid_stat(getpid(), &stat_before)) {
+				futex_abort_and_wake(futex_child);
 				exit(1);
+			}
 
 			tty = open("/dev/tty", O_RDWR);
 			if (tty < 0) {
 				pr_perror("open(%s) failed", "/dev/tty");
+				futex_abort_and_wake(futex_child);
 				exit(1);
 			}
 
+			futex_set_and_wake(futex_child, 1);
 			task_waiter_wait4(&t, 1);
 
 			for (i = 0; i  < 10; i++) {
 				ret = read(fds, buf, sizeof(teststr) - 1);
 				if (ret != sizeof(teststr) - 1) {
 					pr_perror("read(tty) failed");
+					futex_abort_and_wake(futex_child);
 					exit(1);
 				}
 
 				if (strncmp(teststr, buf, sizeof(teststr) - 1)) {
 					fail("data mismatch");
+					futex_abort_and_wake(futex_child);
 					exit(1);
 				}
 			}
@@ -274,8 +311,10 @@ int main(int argc, char ** argv)
 
 			close(tty);
 
-			if (parse_pid_stat(getpid(), &stat_after))
+			if (parse_pid_stat(getpid(), &stat_after)) {
+				fail("parsing stat failed");
 				exit(1);
+			}
 
 			if (stat_before.tty_pgrp != stat_after.tty_pgrp) {
 				fail("tty pgrp mismatch %d %d",
@@ -296,6 +335,15 @@ int main(int argc, char ** argv)
 				exit(1);
 			}
 		}
+
+		if (futex_wait_while(futex_child, 0) & FUTEX_ABORT_FLAG) {
+			waitpid(pid, &status, 0);
+			futex_abort_and_wake(futex_master);
+			fail("unable to complete grandchild initialization");
+			exit(1);
+		}
+
+		futex_set_and_wake(futex_master, 1);
 
 		task_waiter_complete(&t, 1);
 		task_waiter_wait4(&t, 2);
@@ -324,6 +372,12 @@ int main(int argc, char ** argv)
 		close(fdm);
 		close(fds);
 		exit(0);
+	}
+
+	if (futex_wait_while(futex_master, 0) & FUTEX_ABORT_FLAG) {
+		waitpid(pid, &status, 0);
+		fail("unable to complete child initialization");
+		return 1;
 	}
 
 	task_waiter_wait4(&m, 1);
