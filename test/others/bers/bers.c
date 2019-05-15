@@ -64,6 +64,7 @@ typedef struct {
 
 	size_t			opt_files;
 	size_t			opt_file_size;
+	char			*opt_pidfile;
 	int			prev_fd[MAX_CHUNK];
 
 	size_t			opt_mem;
@@ -258,6 +259,7 @@ int main(int argc, char *argv[])
 		{"mem-cycle",	required_argument, 0,	 11},
 		{"refresh",	required_argument, 0,	 12},
 		{"file-size",	required_argument, 0,	 13},
+		{"pidfile",	required_argument, 0,	 14},
 		{ },
 	};
 
@@ -285,6 +287,7 @@ int main(int argc, char *argv[])
 	shared->opt_refresh_time = 1;
 	shared->opt_tasks = 1;
 	shared->opt_mem = 1 << 20ul;
+	shared->opt_pidfile = NULL;
 	memset(shared->prev_fd, 0xff, sizeof(shared->prev_fd));
 
 	while (1) {
@@ -325,6 +328,8 @@ int main(int argc, char *argv[])
 			break;
 		case 13:
 			shared->opt_file_size = (size_t)atol(optarg);
+		case 14:
+			shared->opt_pidfile = optarg;
 		}
 	}
 
@@ -335,6 +340,30 @@ int main(int argc, char *argv[])
 			exit(1);
 		}
 		shared->opt_work_dir = workdir;
+	}
+
+	if (shared->opt_pidfile) {
+		size_t pidlen, len;
+		char pidbuf[64];
+		int pidfd;
+
+		pidfd = open(shared->opt_pidfile, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+		if (pidfd < 0) {
+			pr_perror("Can't open pid file %s", shared->opt_pidfile);
+			exit(1);
+		}
+
+		snprintf(pidbuf, sizeof(pidbuf), "%d", getpid());
+		pidlen = strlen(pidbuf);
+		len = write(pidfd, pidbuf, pidlen);
+		close(pidfd);
+
+		if (len != pidlen) {
+			pr_err("Unable to write %zu bytes "
+			       "(wrote %zd only) into pid file\n",
+			       pidlen, len);
+			exit(1);
+		}
 	}
 
 	if (shared->opt_mem_chunks > MAX_CHUNK)
