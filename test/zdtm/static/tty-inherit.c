@@ -84,6 +84,9 @@ int parse_pid_stat(pid_t pid, struct proc_pid_stat *s)
 	int fd;
 	int n;
 
+	memset(buf, 0, sizeof(buf));
+	memset(bufcpy, 0, sizeof(bufcpy));
+
 	snprintf(path, sizeof(path), "/proc/%d/stat", pid);
 	fd = open(path, O_RDONLY);
 	if (fd < 0) {
