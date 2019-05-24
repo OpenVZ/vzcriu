@@ -47,6 +47,25 @@
 #include "setproctitle.h"
 #include "sysctl.h"
 
+/*
+ * Hopefully 16K of memory gonna be enough
+ * to keep all arguments
+ */
+#define ARGV_COPY_LEN  ((16 << 10) - 1)
+static char argv_copy[ARGV_COPY_LEN + 1];
+
+static void argv_init(int argc, char *argv[])
+{
+	size_t pos, i;
+
+	for (pos = i = 0; pos < ARGV_COPY_LEN && i < argc; i++) {
+		char *p = strncpy(&argv_copy[pos], argv[i], ARGV_COPY_LEN - pos);
+		pos += strlen(p);
+		if (pos < ARGV_COPY_LEN)
+			argv_copy[pos++] = ' ';
+	}
+}
+
 int main(int argc, char *argv[], char *envp[])
 {
 	int ret = -1;
@@ -70,6 +89,7 @@ int main(int argc, char *argv[], char *envp[])
 	if (argc < 2)
 		goto usage;
 
+	argv_init(argc, argv);
 	init_opts();
 
 
@@ -165,6 +185,12 @@ int main(int argc, char *argv[], char *envp[])
 
 	if (log_init(opts.output))
 		return 1;
+
+	/*
+	 * Show the complete untouched
+	 * command line for debug sake.
+	 */
+	pr_debug("%s\n", argv_copy);
 
 	if (kerndat_init())
 		return 1;
