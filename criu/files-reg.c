@@ -422,7 +422,7 @@ static int create_ghost(struct ghost_file *gf, GhostFileEntry *gfe, struct cr_im
 	if (ghost_apply_metadata(path, gfe))
 		return -1;
 
-	strcpy(gf->remap.rpath, path + root_len + 1);
+	strcpy(gf->remap.rpath, path + root_len);
 	pr_debug("Remap rpath is %s\n", gf->remap.rpath);
 	return 0;
 }
