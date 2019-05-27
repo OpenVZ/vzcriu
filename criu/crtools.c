@@ -92,7 +92,6 @@ int main(int argc, char *argv[], char *envp[])
 	argv_init(argc, argv);
 	init_opts();
 
-
 	ret = parse_options(argc, argv, &usage_error, &has_exec_cmd, state);
 
 	if (ret == 1)
@@ -101,6 +100,9 @@ int main(int argc, char *argv[], char *envp[])
 		goto usage;
 
 	log_set_loglevel(opts.log_level);
+
+	if (vz_cpu_parse_cpuid_override())
+		return 1;
 
 	if (!strcmp(argv[1], "swrk")) {
 		if (argc < 3)
