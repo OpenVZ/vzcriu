@@ -66,6 +66,8 @@ static void argv_init(int argc, char *argv[])
 	}
 }
 
+extern void vz_close_fds_init(void);
+
 void flush_early_log_to_stderr(void) __attribute__((destructor));
 
 void flush_early_log_to_stderr(void)
@@ -127,6 +129,8 @@ int main(int argc, char *argv[], char *envp[])
 	}
 
 	log_set_loglevel(opts.log_level);
+
+	vz_close_fds_init();
 
 	if (vz_cpu_parse_cpuid_override())
 		return 1;

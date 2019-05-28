@@ -520,6 +520,33 @@ int cr_system(int in, int out, int err, char *cmd, char *const argv[], unsigned 
 	return cr_system_userns(in, out, err, cmd, argv, flags, -1);
 }
 
+static int vz_statusfd = -1;
+static int vz_waitfd = -1;
+
+void vz_close_fds_init(void)
+{
+	char *statusfd = getenv("STATUSFD");
+	char *waitfd = getenv("WAITFD");
+
+	if (statusfd) {
+	       vz_statusfd = atoi(statusfd);
+	       pr_debug("vz_close_fds: STATUSFD=%d\n", vz_statusfd);
+	}
+	if (waitfd) {
+	       vz_waitfd = atoi(waitfd);
+	       pr_debug("vz_close_fds: WAITFD=%d\n", vz_waitfd);
+	}
+}
+
+static bool vz_skip_close_fd(int fd)
+{
+	if (vz_statusfd >= 0 && vz_statusfd == fd)
+		return true;
+	if (vz_waitfd >= 0 && vz_waitfd == fd)
+		return true;
+	return false;
+}
+
 static int close_fds(int minfd)
 {
 	DIR *dir;
@@ -545,6 +572,8 @@ static int close_fds(int minfd)
 		if (dfd == fd)
 			continue;
 		if (fd < minfd)
+			continue;
+		if (vz_skip_close_fd(fd))
 			continue;
 		close(fd);
 	}
