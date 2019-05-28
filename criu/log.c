@@ -30,7 +30,7 @@
 /* Enable timestamps if verbosity is increased from default */
 #define LOG_TIMESTAMP	  (DEFAULT_LOGLEVEL + 1)
 #define LOG_BUF_LEN	  (8 * 1024)
-#define EARLY_LOG_BUF_LEN 1024
+#define EARLY_LOG_BUF_LEN LOG_BUF_LEN
 
 static unsigned int current_loglevel = DEFAULT_LOGLEVEL;
 static void vprint_on_level(unsigned int, const char *, va_list);
