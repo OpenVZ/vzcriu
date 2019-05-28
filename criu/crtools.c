@@ -66,6 +66,8 @@ static void argv_init(int argc, char *argv[])
 	}
 }
 
+extern void vz_close_fds_init(void);
+
 int main(int argc, char *argv[], char *envp[])
 {
 	int ret = -1;
@@ -100,6 +102,8 @@ int main(int argc, char *argv[], char *envp[])
 		goto usage;
 
 	log_set_loglevel(opts.log_level);
+
+	vz_close_fds_init();
 
 	if (vz_cpu_parse_cpuid_override())
 		return 1;
