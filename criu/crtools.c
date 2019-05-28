@@ -47,6 +47,8 @@
 #include "setproctitle.h"
 #include "sysctl.h"
 
+extern void vz_close_fds_init(void);
+
 void flush_early_log_to_stderr(void) __attribute__((destructor));
 
 void flush_early_log_to_stderr(void)
@@ -164,6 +166,8 @@ int main(int argc, char *argv[], char *envp[])
 		pr_perror("Failed to set a SIGPIPE signal ignore.");
 		return 1;
 	}
+
+	vz_close_fds_init();
 
 	if (parse_criu_mode(argv[optind])) {
 		pr_err("unknown command: %s\n", argv[optind]);
