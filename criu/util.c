@@ -520,11 +520,15 @@ int cr_system(int in, int out, int err, char *cmd, char *const argv[], unsigned 
 	return cr_system_userns(in, out, err, cmd, argv, flags, -1);
 }
 
+static int vz_criu_action_post_resume_write_fd = -1;
+static int vz_criu_action_post_resume_read_fd = -1;
 static int vz_statusfd = -1;
 static int vz_waitfd = -1;
 
 void vz_close_fds_init(void)
 {
+	char *criu_action_post_resume_write_fd = getenv("CRIU_ACTION_POST_RESUME_WRITE_FD");
+	char *criu_action_post_resume_read_fd = getenv("CRIU_ACTION_POST_RESUME_READ_FD");
 	char *statusfd = getenv("STATUSFD");
 	char *waitfd = getenv("WAITFD");
 
@@ -536,10 +540,26 @@ void vz_close_fds_init(void)
 	       vz_waitfd = atoi(waitfd);
 	       pr_debug("vz_close_fds: WAITFD=%d\n", vz_waitfd);
 	}
+	if (criu_action_post_resume_write_fd) {
+	       vz_criu_action_post_resume_write_fd = atoi(criu_action_post_resume_write_fd);
+	       pr_debug("vz_close_fds: CRIU_ACTION_POST_RESUME_WRITE_FD=%d\n",
+			vz_criu_action_post_resume_write_fd);
+	}
+	if (criu_action_post_resume_read_fd) {
+	       vz_criu_action_post_resume_read_fd = atoi(criu_action_post_resume_read_fd);
+	       pr_debug("vz_close_fds: CRIU_ACTION_POST_RESUME_READ_FD=%d\n",
+			vz_criu_action_post_resume_read_fd);
+	}
 }
 
 static bool vz_skip_close_fd(int fd)
 {
+	if (vz_criu_action_post_resume_write_fd >= 0 &&
+	    vz_criu_action_post_resume_write_fd == fd)
+		return true;
+	if (vz_criu_action_post_resume_read_fd >= 0 &&
+	    vz_criu_action_post_resume_read_fd == fd)
+		return true;
 	if (vz_statusfd >= 0 && vz_statusfd == fd)
 		return true;
 	if (vz_waitfd >= 0 && vz_waitfd == fd)
