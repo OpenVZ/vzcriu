@@ -554,6 +554,19 @@ err:
 	return path;
 }
 
+static bool should_skip_updated(void)
+{
+	/*
+	 * FIXME: We've noticed that sometime we might have
+	 * destination watchee is updated instead of generating
+	 * new one. It is because of target clashes with several
+	 * bindmounts. Need to investigate more deeply.
+	 *
+	 * See https://jira.sw.ru/browse/PSBM-91520.
+	 */
+	return kdat.has_inotify_setnextwd ? true : false;
+}
+
 static int restore_one_inotify(int inotify_fd, struct fsnotify_mark_info *info)
 {
 	InotifyWdEntry *iwe = info->iwe;
@@ -591,6 +604,13 @@ static int restore_one_inotify(int inotify_fd, struct fsnotify_mark_info *info)
 			break;
 		} else if (wd > iwe->wd) {
 			pr_err("Unsorted watch 0x%x found for 0x%x with 0x%x\n", wd, inotify_fd, iwe->wd);
+			break;
+		}
+
+		if (should_skip_updated()) {
+			pr_warn("expected %#x but got updated %#x on %#x, ignore\n",
+				iwe->wd, wd, inotify_fd);
+			ret = 0;
 			break;
 		}
 
