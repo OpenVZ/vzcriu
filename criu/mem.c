@@ -333,6 +333,7 @@ static int detect_pid_reuse(struct pstree_item *item,
 		ret = parse_pid_stat(item->pid->real, pps);
 		if (ret < 0)
 			return -1;
+		vz_ensure_ve0();
 	}
 
 	dump_ticks = parent_ie->dump_uptime/(USEC_PER_SEC/tps);

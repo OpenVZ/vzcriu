@@ -128,6 +128,7 @@ int inventory_save_uptime(InventoryEntry *he)
 	if (parse_uptime(&he->dump_uptime))
 		return -1;
 
+	vz_ensure_ve0();
 	he->has_dump_uptime = true;
 	return 0;
 }

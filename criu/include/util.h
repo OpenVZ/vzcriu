@@ -13,6 +13,7 @@
 #include <sys/sysmacros.h>
 #include <dirent.h>
 #include <poll.h>
+#include <unistd.h>
 
 #include "int.h"
 #include "common/compiler.h"
@@ -391,5 +392,18 @@ static inline void print_stack_trace(pid_t pid) {}
 extern int mount_detached_fs(const char *fsname);
 int cr_set_root(int fd, int *old_root);
 int cr_restore_root(int fd);
+
+static inline void vz_ensure_ve0(void)
+{
+	/*
+	 * In some situations like parsing process
+	 * start_time, or uptime we are to be sure
+	 * that we're running in ve0, since inside
+	 * veX we do various tricks to adjust times,
+	 * which in turn may break pid reuse detection.
+	 */
+	if (access("/proc/vz/devperms", F_OK))
+		pr_warn_once("Running in veX environment\n");
+}
 
 #endif /* __CR_UTIL_H__ */
