@@ -1910,6 +1910,7 @@ int cr_pre_dump_tasks(pid_t pid)
 	struct pstree_item *item;
 	int ret = -1;
 
+	vz_ensure_ve0();
 	ve_bc_read(pid, &bc_set);
 
 	/*
@@ -2116,6 +2117,7 @@ int cr_dump_tasks(pid_t pid)
 	int pre_dump_ret = 0;
 	int ret = -1;
 
+	vz_ensure_ve0();
 	ve_bc_read(pid, &bc_set);
 
 	pr_info("========================================\n");
