@@ -24,7 +24,7 @@
 #include "net.h"
 
 #define SPFS_MANAGER_WORK_DIR		"/run/spfs-manager/%d"
-#define VE_SPFS_MANAGER_WORK_DIR	"/vz/private/%s/dump/spfs-manager/%d"
+#define VE_SPFS_MANAGER_WORK_DIR	"%s/spfs-manager"
 #define SPFS_MANAGER_SOCK_FILE		"control.sock"
 
 static int sock_seqpacket_connect(char *path)
@@ -114,16 +114,9 @@ static char *spfs_manager_log_dir(void)
 {
 	static char work_dir[PATH_MAX] = { };
 
-	if (strlen(work_dir) == 0) {
-		char *veid = getenv("VEID");
-
-		if (veid)
-			snprintf(work_dir, PATH_MAX, VE_SPFS_MANAGER_WORK_DIR,
-					veid, root_item->pid->real);
-		else
-			snprintf(work_dir, PATH_MAX, SPFS_MANAGER_WORK_DIR,
-					root_item->pid->real);
-	}
+	if (strlen(work_dir) == 0)
+		snprintf(work_dir, PATH_MAX, VE_SPFS_MANAGER_WORK_DIR,
+			 opts.work_dir);
 	return work_dir;
 }
 
