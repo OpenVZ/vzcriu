@@ -25,8 +25,15 @@ JOIN_CT="${NS_ENTER} -t $CRTOOLS_INIT_PID -u -p -n"
 
 ${JOIN_CT} test -e /proc/self/net/nfsfs || exit 0
 
-servers=$(${JOIN_CT} cat /proc/*/mountinfo | awk '/ - nfs/ {print $NF}' |\
-	awk -F "," '{for (i = 1; i <= NF; i++) { if ($i~"^addr="){sub(/^addr=/,"", $i); print $i}}}' | sort -u)
+[ -z "$VEID" ] && exit 1
+
+# note: pstree is frozen by criu at these point in collect_pstree()
+servers=''
+while read -r vepid; do
+	servers="$servers $(awk '/ - nfs/ {print $NF}' < "/proc/$vepid/mountinfo" |\
+		awk -F "," '{for (i = 1; i <= NF; i++) { if ($i~"^addr="){sub(/^addr=/,"", $i); print $i}}}')"
+done < "/sys/fs/cgroup/ve/$VEID/tasks"
+servers=$(echo "$servers" | tr ' ' '\n' | sort -u)
 
 [ -n "$servers" ] || exit 0
 
