@@ -470,13 +470,12 @@ static unsigned int mnt_depth(struct mount_info *m)
 	return depth;
 }
 
-static void mnt_resort_siblings(struct mount_info *tree)
+static void __mnt_resort_children(struct mount_info *parent)
 {
-	struct mount_info *m, *p;
 	LIST_HEAD(list);
 
 	/*
-	 * Put siblings of each node in an order they can be (u)mounted
+	 * Put children mounts in an order they can be (u)mounted
 	 * I.e. if we have mounts on foo/bar/, foo/bar/foobar/ and foo/
 	 * we should put them in the foo/bar/foobar/, foo/bar/, foo/ order.
 	 * Otherwise we will not be able to (u)mount them in a sequence.
@@ -488,11 +487,12 @@ static void mnt_resort_siblings(struct mount_info *tree)
 	 * to contain hundreds (or more) elements.
 	 */
 
-	pr_info("\tResorting siblings on %d\n", tree->mnt_id);
-	while (!list_empty(&tree->children)) {
+	pr_info("\tResorting siblings on %d in mount order\n", parent->mnt_id);
+	while (!list_empty(&parent->children)) {
+		struct mount_info *m, *p;
 		unsigned int depth;
 
-		m = list_first_entry(&tree->children, struct mount_info, siblings);
+		m = list_first_entry(&parent->children, struct mount_info, siblings);
 		list_del(&m->siblings);
 
 		depth = mnt_depth(m);
@@ -501,10 +501,31 @@ static void mnt_resort_siblings(struct mount_info *tree)
 				break;
 
 		list_add_tail(&m->siblings, &p->siblings);
-		mnt_resort_siblings(m);
 	}
 
-	list_splice(&list, &tree->children);
+	list_splice(&list, &parent->children);
+}
+
+static struct mount_info *mnt_subtree_next(struct mount_info *mi,
+					   struct mount_info *root);
+
+static void resort_siblings(struct mount_info *root,
+			    void (*resort_children)(struct mount_info *)) {
+	struct mount_info *mi = root;
+	while (1) {
+		/*
+		 * Explanation: sorting the children of the tree like these is
+		 * safe and does not break the tree search in mnt_subtree_next
+		 * (DFS-next search), as we sort children before calling next
+		 * on parent and thus before DFS-next ever touches them, so
+		 * from the perspective of DFS-next all children look like they
+		 * are already sorted.
+		 */
+		resort_children(mi);
+		mi = mnt_subtree_next(mi, root);
+		if (!mi)
+			break;
+	}
 }
 
 static void mnt_tree_show(struct mount_info *tree, int off)
@@ -1233,7 +1254,7 @@ static struct mount_info *mnt_build_tree(struct mount_info *list)
 	if (!tree)
 		return NULL;
 
-	mnt_resort_siblings(tree);
+	resort_siblings(tree, __mnt_resort_children);
 	pr_info("Done:\n");
 	mnt_tree_show(tree, 0);
 	return tree;
@@ -4418,44 +4439,60 @@ int remount_readonly_mounts(void)
 	return call_helper_process(ns_remount_readonly_mounts, NULL);
 }
 
+/*
+ * These indicate the steps of DFS-next algoritm. If two trees have same
+ * sequence of steps during DFS-next walk, they have the same topology.
+ */
+
 enum tree_step {
-	STEP_STOP = -2,
-	STEP_CHILD = -1,
-	STEP_SIBLING = 0,
-	STEP_PARENT = 1,
+	STEP_STOP = -2,		/* no more nodes, DFS stopped */
+	STEP_CHILD = -1,	/* next node is our first child */
+	STEP_SIBLING = 0,	/* next node is our next sibling */
+	STEP_PARENT = 1,	/* N*STEP_PARENT - next node is a next sibling of our N-th parent */
 };
 
 static struct mount_info *mnt_subtree_step(struct mount_info *mi,
 					   struct mount_info *root,
 					   enum tree_step *step)
 {
-	*step = STEP_CHILD;
+	if (step)
+		*step = STEP_CHILD;
 
 	if (!list_empty(&mi->children))
 		return list_entry(mi->children.next, struct mount_info, siblings);
 
-	*step = STEP_SIBLING;
+	if (step)
+		*step = STEP_SIBLING;
 
 	while (mi->parent && mi != root) {
 		if (mi->siblings.next == &mi->parent->children) {
 			mi = mi->parent;
-			*step += STEP_PARENT;
+			if (step)
+				*step += STEP_PARENT;
 		} else
 			return list_entry(mi->siblings.next, struct mount_info, siblings);
 	}
 
-	*step = STEP_STOP;
+	if (step)
+		*step = STEP_STOP;
 	return NULL;
 }
 
-static void mnt_resort_siblings_full(struct mount_info *tree)
+static struct mount_info *mnt_subtree_next(struct mount_info *mi,
+					   struct mount_info *root)
 {
-	struct mount_info *m, *p;
+	return mnt_subtree_step(mi, root, NULL);
+}
+
+static void __resort_children(struct mount_info *parent)
+{
 	LIST_HEAD(list);
 
-	pr_info("\tResorting siblings full on %d\n", tree->mnt_id);
-	while (!list_empty(&tree->children)) {
-		m = list_first_entry(&tree->children, struct mount_info, siblings);
+	pr_info("\tResorting siblings on %d by mountpoint\n", parent->mnt_id);
+	while (!list_empty(&parent->children)) {
+		struct mount_info *m, *p;
+
+		m = list_first_entry(&parent->children, struct mount_info, siblings);
 		list_del(&m->siblings);
 
 		list_for_each_entry(p, &list, siblings)
@@ -4463,10 +4500,9 @@ static void mnt_resort_siblings_full(struct mount_info *tree)
 				break;
 
 		list_add_tail(&m->siblings, &p->siblings);
-		mnt_resort_siblings_full(m);
 	}
 
-	list_splice(&list, &tree->children);
+	list_splice(&list, &parent->children);
 }
 
 static int __check_mounts(struct ns_id *ns)
@@ -4486,8 +4522,8 @@ static int __check_mounts(struct ns_id *ns)
 
 	mnt = ns->mnt.mntinfo_tree;
 	new_mnt = new_ns->mnt.mntinfo_tree;
-	mnt_resort_siblings_full(mnt);
-	mnt_resort_siblings_full(new_mnt);
+	resort_siblings(mnt, __resort_children);
+	resort_siblings(new_mnt, __resort_children);
 
 	while (mnt && new_mnt) {
 		/* Consider that leading '.' was lost in collect_mnt_from_image. */
