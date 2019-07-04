@@ -414,8 +414,7 @@ void free_mappings(struct vm_area_list *vma_area_list)
 		free(vma_area);
 	}
 
-	INIT_LIST_HEAD(&vma_area_list->h);
-	vma_area_list->nr = 0;
+	vm_area_list_init(vma_area_list);
 }
 
 int collect_mappings(pid_t pid, struct vm_area_list *vma_area_list,
@@ -1480,8 +1479,7 @@ static int pre_dump_one_task(struct pstree_item *item, InventoryEntry *parent_ie
 
 	struct rlim_ctl rlim_ctl = { };
 
-	INIT_LIST_HEAD(&vmas.h);
-	vmas.nr = 0;
+	vm_area_list_init(&vmas);
 
 	pr_info("========================================\n");
 	pr_info("Pre-dumping task (pid: %d comm: %s)\n", pid, __task_comm_info(pid));
@@ -1567,8 +1565,7 @@ static int dump_one_task(struct pstree_item *item, InventoryEntry *parent_ie)
 
 	struct rlim_ctl rlim_ctl = { };
 
-	INIT_LIST_HEAD(&vmas.h);
-	vmas.nr = 0;
+	vm_area_list_init(&vmas);
 
 	pr_info("========================================\n");
 	pr_info("Dumping task (pid: %d comm: %s)\n", pid, __task_comm_info(pid));
