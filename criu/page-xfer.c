@@ -11,6 +11,9 @@
 #undef LOG_PREFIX
 #define LOG_PREFIX "page-xfer: "
 
+#undef LOG_PREFIX
+#define LOG_PREFIX "page-xfer: "
+
 #include "types.h"
 #include "cr_options.h"
 #include "servicefd.h"
