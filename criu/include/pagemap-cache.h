@@ -17,6 +17,8 @@ typedef struct {
 	const struct list_head	*vma_head;	/* list head of VMAs we're serving */
 	u64			*map;		/* local buffer */
 	size_t			map_len;	/* length of a buffer */
+	size_t			read_map_len;	/* length of a map been read */
+	size_t			nr_pme_read;	/* number of PMEs been read */
 	int			fd;		/* file to read PMs from */
 } pmc_t;
 
