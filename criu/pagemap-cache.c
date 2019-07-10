@@ -21,6 +21,7 @@
 #define PMC_SIZE_GAP (PMC_SIZE / 4)
 
 #define PAGEMAP_LEN(addr) (PAGE_PFN(addr) * sizeof(u64))
+#define PAGEMAP_NR_PMES(size) ((size) / sizeof(u64))
 
 /*
  * It's a workaround for a kernel bug. In the 3.19 kernel when pagemap are read
@@ -38,6 +39,8 @@ static inline void pmc_reset(pmc_t *pmc)
 static inline void pmc_zap(pmc_t *pmc)
 {
 	pmc->start = pmc->end = 0;
+	pmc->read_map_len = 0;
+	pmc->nr_pme_read = 0;
 }
 
 int pmc_init(pmc_t *pmc, pid_t pid, const struct list_head *vma_head, size_t size)
@@ -89,7 +92,18 @@ err:
 
 static inline u64 *__pmc_get_map(pmc_t *pmc, unsigned long addr)
 {
-	return &pmc->map[PAGE_PFN(addr - pmc->start)];
+	size_t pfn = PAGE_PFN(addr - pmc->start);
+	if (pfn >= pmc->nr_pme_read) {
+		pr_err("Trying to read PME %zu while only %zu are read\n",
+		       pfn, pmc->nr_pme_read);
+		BUG();
+	}
+	if (addr < pmc->start || addr > pmc->end) {
+		pr_err("Trying to read addr %lx while only %lx - %lx are read\n",
+		       addr, pmc->start, pmc->end);
+		BUG();
+	}
+	return &pmc->map[pfn];
 }
 
 static int pmc_fill_cache(pmc_t *pmc, const struct vma_area *vma)
@@ -97,7 +111,7 @@ static int pmc_fill_cache(pmc_t *pmc, const struct vma_area *vma)
 	unsigned long low = vma->e->start & PMC_MASK;
 	unsigned long high = low + PMC_SIZE;
 	size_t len = vma_area_len(vma);
-	size_t size_map;
+	size_t read_map_len;
 
 	if (high > kdat.task_size)
 		high = kdat.task_size;
@@ -149,15 +163,17 @@ static int pmc_fill_cache(pmc_t *pmc, const struct vma_area *vma)
 			pr_debug("\t%d: simple mode [l:%lx h:%lx]\n", pmc->pid, pmc->start, pmc->end);
 	}
 
-	size_map = PAGEMAP_LEN(pmc->end - pmc->start);
-	BUG_ON(pmc->map_len < size_map);
+	read_map_len = PAGEMAP_LEN(pmc->end - pmc->start);
+	BUG_ON(pmc->map_len < read_map_len);
 	BUG_ON(pmc->fd < 0);
 
-	if (pread(pmc->fd, pmc->map, size_map, PAGEMAP_PFN_OFF(pmc->start)) != size_map) {
+	if (pread(pmc->fd, pmc->map, read_map_len, PAGEMAP_PFN_OFF(pmc->start)) != read_map_len) {
 		pmc_zap(pmc);
 		pr_perror("Can't read %d's pagemap file", pmc->pid);
 		return -1;
 	}
+	pmc->nr_pme_read = PAGEMAP_NR_PMES(read_map_len);
+	pmc->read_map_len = read_map_len;
 
 	return 0;
 }
