@@ -417,12 +417,16 @@ static int generate_vma_iovs(struct pstree_item *item, struct vma_area *vma,
 		has_parent = false;
 	}
 
+	/*
+	 * Fetch map just to make sure we've
+	 * read the pagemap into a cache.
+	 */
 	map = pmc_get_map(pmc, vma);
 	if (!map)
 		return -1;
 
 	if (vma_area_is(vma, VMA_ANON_SHARED))
-		return add_shmem_area(item->pid->real, vma->e, map);
+		return add_shmem_area(item->pid->real, vma->e, pmc);
 
 again:
 	ret = generate_iovs(item,vma, pp, pmc, &off, has_parent);
