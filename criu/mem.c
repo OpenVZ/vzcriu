@@ -164,9 +164,10 @@ static bool is_stack(struct pstree_item *item, unsigned long vaddr)
  * the memory contents is present in the pagent image set.
  */
 
-static int generate_iovs(struct pstree_item *item, struct vma_area *vma, struct page_pipe *pp, u64 *map, u64 *off, bool has_parent)
+static int generate_iovs(struct pstree_item *item, struct vma_area *vma,
+			 struct page_pipe *pp, pmc_t *pmc, u64 *off, bool has_parent)
 {
-	u64 *at = &map[PAGE_PFN(*off)];
+	size_t pfn_off = pmc_get_pfn_from(pmc, vma->e->start + *off);
 	unsigned long pfn, nr_to_scan;
 	unsigned long pages[3] = {};
 	int ret = 0;
@@ -174,11 +175,12 @@ static int generate_iovs(struct pstree_item *item, struct vma_area *vma, struct 
 	nr_to_scan = (vma_area_len(vma) - *off) / PAGE_SIZE;
 
 	for (pfn = 0; pfn < nr_to_scan; pfn++) {
+		u64 pme = *pmc_get_map_at(pmc, pfn_off + pfn);
 		unsigned long vaddr;
 		unsigned int ppb_flags = 0;
 		int st;
 
-		if (!should_dump_page(vma->e, at[pfn]))
+		if (!should_dump_page(vma->e, pme))
 			continue;
 
 		vaddr = vma->e->start + *off + pfn * PAGE_SIZE;
@@ -193,7 +195,7 @@ static int generate_iovs(struct pstree_item *item, struct vma_area *vma, struct 
 		 * page. The latter would be checked in page-xfer.
 		 */
 
-		if (has_parent && page_in_parent(at[pfn] & PME_SOFT_DIRTY)) {
+		if (has_parent && page_in_parent(pme & PME_SOFT_DIRTY)) {
 			ret = page_pipe_add_hole(pp, vaddr, PP_HOLE_PARENT);
 			st = 0;
 		} else {
@@ -423,7 +425,7 @@ static int generate_vma_iovs(struct pstree_item *item, struct vma_area *vma,
 		return add_shmem_area(item->pid->real, vma->e, map);
 
 again:
-	ret = generate_iovs(item,vma, pp, map, &off, has_parent);
+	ret = generate_iovs(item,vma, pp, pmc, &off, has_parent);
 	if (ret == -EAGAIN) {
 		BUG_ON(!(pp->flags & PP_CHUNK_MODE));
 
