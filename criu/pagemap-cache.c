@@ -90,20 +90,32 @@ err:
 	return -1;
 }
 
-static inline u64 *__pmc_get_map(pmc_t *pmc, unsigned long addr)
+size_t pmc_get_pfn_from(pmc_t *pmc, unsigned long addr)
 {
 	size_t pfn = PAGE_PFN(addr - pmc->start);
-	if (pfn >= pmc->nr_pme_read) {
-		pr_err("Trying to read PME %zu while only %zu are read\n",
-		       pfn, pmc->nr_pme_read);
-		BUG();
-	}
 	if (addr < pmc->start || addr > pmc->end) {
 		pr_err("Trying to read addr %lx while only %lx - %lx are read\n",
 		       addr, pmc->start, pmc->end);
 		BUG();
 	}
-	return &pmc->map[pfn];
+	return pfn;
+}
+
+u64 *pmc_get_map_at(pmc_t *pmc, size_t pos)
+{
+	if (pos >= pmc->nr_pme_read) {
+		pr_err("Trying to read PME %zu while only %zu are read\n",
+		       pos, pmc->nr_pme_read);
+		return NULL;
+		BUG();
+	}
+	return &pmc->map[pos];
+}
+
+u64 *pmc_get_map_from(pmc_t *pmc, unsigned long addr)
+{
+	size_t pfn = pmc_get_pfn_from(pmc, addr);
+	return pmc_get_map_at(pmc, pfn);
 }
 
 static int pmc_fill_cache(pmc_t *pmc, const struct vma_area *vma)
@@ -182,7 +194,7 @@ u64 *pmc_get_map(pmc_t *pmc, const struct vma_area *vma)
 {
 	/* Hit */
 	if (likely(pmc->start <= vma->e->start && pmc->end >= vma->e->end))
-		return __pmc_get_map(pmc, vma->e->start);
+		return pmc_get_map_from(pmc, vma->e->start);
 
 	/* Miss, refill the cache */
 	if (pmc_fill_cache(pmc, vma)) {
@@ -191,7 +203,7 @@ u64 *pmc_get_map(pmc_t *pmc, const struct vma_area *vma)
 	}
 
 	/* Hit for sure */
-	return __pmc_get_map(pmc, vma->e->start);
+	return pmc_get_map_from(pmc, vma->e->start);
 }
 
 void pmc_fini(pmc_t *pmc)

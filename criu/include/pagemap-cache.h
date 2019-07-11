@@ -28,6 +28,9 @@ typedef struct {
 	}
 
 extern int pmc_init(pmc_t *pmc, pid_t pid, const struct list_head *vma_head, size_t size);
+extern size_t pmc_get_pfn_from(pmc_t *pmc, unsigned long addr);
+extern u64 *pmc_get_map_at(pmc_t *pmc, size_t pos);
+extern u64 *pmc_get_map_from(pmc_t *pmc, unsigned long addr);
 extern u64 *pmc_get_map(pmc_t *pmc, const struct vma_area *vma);
 extern void pmc_fini(pmc_t *pmc);
 
