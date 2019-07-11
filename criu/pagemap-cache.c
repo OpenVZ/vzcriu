@@ -131,8 +131,8 @@ static int pmc_fill_cache(pmc_t *pmc, const struct vma_area *vma)
 	pmc->start = vma->e->start;
 	pmc->end = vma->e->end;
 
-	pr_debug("%d: filling VMA %lx-%lx (%zuK) [l:%lx h:%lx]\n", pmc->pid, (long)vma->e->start, (long)vma->e->end,
-		 len >> 10, low, high);
+	pr_debug("%d: filling VMA %lx-%lx (%zuK)\n",
+		 pmc->pid, (long)vma->e->start, (long)vma->e->end, len >> 10);
 
 	/*
 	 * If we meet a small VMA, lets try to fit 2M cache
