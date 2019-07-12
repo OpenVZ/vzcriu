@@ -220,6 +220,9 @@ TST_NOFILE	:=				\
 		thp_disable			\
 		pid_file			\
 		selinux00			\
+		child_subreaper			\
+		child_subreaper_existing_child	\
+		child_subreaper_and_reparent	\
 		userns00			\
 		userns01			\
 		userns02			\
