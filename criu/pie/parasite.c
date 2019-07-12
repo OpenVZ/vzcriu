@@ -39,6 +39,10 @@ static struct parasite_dump_pages_args *mprotect_args = NULL;
 #define PR_GET_PDEATHSIG  2
 #endif
 
+#ifndef PR_GET_CHILD_SUBREAPER
+#define PR_GET_CHILD_SUBREAPER  37
+#endif
+
 struct ve_ioc_arg
 {
 	aio_context_t	ctx_id;
@@ -227,6 +231,8 @@ out:
 
 static int dump_misc(struct parasite_dump_misc *args)
 {
+	int ret;
+
 	args->brk = sys_brk(0);
 
 	args->pid = sys_getpid();
@@ -237,7 +243,11 @@ static int dump_misc(struct parasite_dump_misc *args)
 	args->dumpable = sys_prctl(PR_GET_DUMPABLE, 0, 0, 0, 0);
 	args->thp_disabled = sys_prctl(PR_GET_THP_DISABLE, 0, 0, 0, 0);
 
-	return 0;
+	ret = sys_prctl(PR_GET_CHILD_SUBREAPER, (unsigned long)&args->child_subreaper, 0, 0, 0);
+	if (ret)
+		pr_err("PR_GET_CHILD_SUBREAPER failed (%d)\n", ret);
+
+	return ret;
 }
 
 static int dump_creds(struct parasite_dump_creds *args)

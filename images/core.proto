@@ -50,6 +50,7 @@ message task_core_entry_VZ730 {
 	optional int32			tty_nr		= 15;
 	optional int32			tty_pgrp	= 16;
 	repeated sa_entry		sigactions	= 17;
+	optional int32			child_subreaper	= 18;
 }
 
 message task_core_entry {
@@ -79,6 +80,7 @@ message task_core_entry {
 	repeated sa_entry		sigactions	= 15;
 	optional int32			tty_nr		= 16;
 	optional int32			tty_pgrp	= 17;
+	optional int32			child_subreaper	= 18;
 }
 
 message task_kobj_ids_entry {

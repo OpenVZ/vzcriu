@@ -237,6 +237,7 @@ struct task_restore_args {
 	unsigned			page_size;
 #endif
 	int				lsm_type;
+	int				child_subreaper;
 } __aligned(64);
 
 /*

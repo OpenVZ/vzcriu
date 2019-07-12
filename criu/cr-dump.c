@@ -1109,7 +1109,8 @@ int dump_thread_core(int pid, CoreEntry *core, const struct parasite_dump_thread
 static int dump_task_core_all(struct parasite_ctl *ctl,
 			      struct pstree_item *item,
 			      const struct proc_pid_stat *stat,
-			      const struct cr_imgset *cr_imgset)
+			      const struct cr_imgset *cr_imgset,
+			      const struct parasite_dump_misc *misc)
 {
 	struct cr_img *img;
 	CoreEntry *core = item->core[0];
@@ -1122,6 +1123,9 @@ static int dump_task_core_all(struct parasite_ctl *ctl,
 	pr_info("\n");
 	pr_info("Dumping core (pid: %d)\n", pid);
 	pr_info("----------------------------------------\n");
+
+	core->tc->child_subreaper = misc->child_subreaper;
+	core->tc->has_child_subreaper = true;
 
 	ret = get_task_personality(pid, &core->tc->personality);
 	if (ret < 0)
@@ -1877,7 +1881,7 @@ static int dump_one_task(struct pstree_item *item, InventoryEntry *parent_ie)
 
 	rlimit_limit_nofile_pid(pid, &rlim_ctl);
 
-	ret = dump_task_core_all(parasite_ctl, item, &pps_buf, cr_imgset);
+	ret = dump_task_core_all(parasite_ctl, item, &pps_buf, cr_imgset, &misc);
 	if (ret) {
 		pr_err("Dump core (pid: %d) failed with %d\n", pid, ret);
 		goto err_cure;
