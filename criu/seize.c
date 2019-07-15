@@ -277,6 +277,7 @@ static pid_t *processes_to_wait_pids;
 static bool is_traced(pid_t pid)
 {
 	char path[PATH_MAX];
+	char comm[64];
 	FILE *f;
 
 	snprintf(path, sizeof(path), "/proc/%d/status", pid);
@@ -287,7 +288,9 @@ static bool is_traced(pid_t pid)
 	}
 
 	while (fgets(path, sizeof(path), f)) {
+		ssize_t ret;
 		pid_t tpid;
+		int fd;
 
 		if (strncmp("TracerPid:\t", path, 11))
 			continue;
@@ -295,7 +298,23 @@ static bool is_traced(pid_t pid)
 		fclose(f);
 
 		tpid = atol(&path[11]);
-		pr_debug("pid %d is traced by %d\n", pid, tpid);
+
+		snprintf(path, sizeof(path), "/proc/%d/comm", tpid);
+		fd = open(path, O_RDONLY);
+		if (fd >= 0) {
+			ret = read(fd, comm, sizeof(comm)-1);
+			if (ret <= 0) {
+				strncpy(comm, "can't read", sizeof(comm));
+				comm[sizeof(comm)-1] = '\0';
+			} else {
+				comm[ret-1] = '\0';
+			}
+		} else {
+			strncpy(comm, "can't open", sizeof(comm));
+			comm[sizeof(comm)-1] = '\0';
+		}
+
+		pr_debug("pid %d is traced by %d (%s)\n", pid, tpid, comm);
 		return tpid ? true : false;
 	}
 	fclose(f);
