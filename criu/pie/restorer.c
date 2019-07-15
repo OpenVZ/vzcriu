@@ -1965,6 +1965,12 @@ long __export_restore_task(struct task_restore_args *args)
 			RUN_CLONE_RESTORE_FN(ret, clone_flags, new_sp, parent_tid, thread_args, args->clone_restore_fn);
 			if (ret != thread_args[i].pid) {
 				pr_err("Unable to create a thread %d: %ld\n", thread_args[i].pid, ret);
+				sys_lseek(fd, 0, SEEK_SET);
+				last_pid_len = sys_read(fd, last_pid_buf, sizeof(last_pid_buf));
+				if (last_pid_len > 0) {
+					last_pid_buf[last_pid_len - 1] = '\0';
+					pr_err("Reread last_pid %s\n", last_pid_buf);
+				}
 				sys_close(fd);
 				mutex_unlock(&task_entries_local->last_pid_mutex);
 				goto core_restore_end;
