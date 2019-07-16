@@ -1647,7 +1647,7 @@ err:
 	return -1;
 }
 
-static __maybe_unused int add_cr_time_mount(struct mount_info *root, char *fsname, const char *path, unsigned int s_dev)
+static __maybe_unused struct mount_info *add_cr_time_mount(struct mount_info *root, char *fsname, const char *path, unsigned int s_dev)
 {
 	struct mount_info *mi, *t, *parent;
 	bool add_slash = false;
@@ -1662,13 +1662,13 @@ static __maybe_unused int add_cr_time_mount(struct mount_info *root, char *fsnam
 			}
 		if (!root->nsid) {
 			pr_err("Can't find NS_ROOT\n");
-			return -1;
+			return NULL;
 		}
 	}
 
 	mi = mnt_entry_alloc();
 	if (!mi)
-		return -1;
+		return NULL;
 
 	len = strlen(root->mountpoint);
 	/* It may be "./" or "./path/to/dir" */
@@ -1717,11 +1717,11 @@ static __maybe_unused int add_cr_time_mount(struct mount_info *root, char *fsnam
 	list_add(&mi->siblings, &parent->children);
 	pr_info("Add cr-time mountpoint %s with parent %s(%u)\n",
 		mi->mountpoint, parent->mountpoint, parent->mnt_id);
-	return 0;
+	return mi;
 
 err:
 	mnt_entry_free(mi);
-	return -1;
+	return NULL;
 }
 
 char *get_dumpee_veid(pid_t pid_real)
@@ -1876,8 +1876,8 @@ static __maybe_unused int mount_and_collect_binfmt_misc(void *unused)
 		/* Error not connected with mount */
 		ret = -1;
 	} else if (ret > 0) {
-		ret = add_cr_time_mount(ns->mnt.mntinfo_tree, "binfmt_misc",
-					BINFMT_MISC_HOME, s_dev);
+		ret = -!add_cr_time_mount(ns->mnt.mntinfo_tree, "binfmt_misc",
+				       BINFMT_MISC_HOME, s_dev);
 	}
 
 	return ret;
@@ -3191,6 +3191,7 @@ struct mount_info *mnt_entry_alloc()
 		new->is_overmounted = -1;
 		INIT_LIST_HEAD(&new->children);
 		INIT_LIST_HEAD(&new->siblings);
+		INIT_LIST_HEAD(&new->mnt_slave);
 		INIT_LIST_HEAD(&new->mnt_slave_list);
 		INIT_LIST_HEAD(&new->mnt_share);
 		INIT_LIST_HEAD(&new->mnt_bind);
@@ -3668,6 +3669,7 @@ static int populate_roots_yard(void)
 
 static int populate_mnt_ns(void)
 {
+	struct mount_info *cr_time = NULL;
 	int ret;
 
 	root_yard_mp = mnt_entry_alloc();
@@ -3682,9 +3684,16 @@ static int populate_mnt_ns(void)
 
 #ifdef CONFIG_BINFMT_MISC_VIRTUALIZED
 	if (!opts.has_binfmt_misc && !list_empty(&binfmt_misc_list)) {
-		/* Add to mount tree. Generic code will mount it later */
-		ret = add_cr_time_mount(root_yard_mp, "binfmt_misc", BINFMT_MISC_HOME, 0);
-		if (ret)
+		/*
+		 * Add to mount tree. Generic code will mount it later
+		 *
+		 * note: These is quiet risky to add a mount in random place
+		 * in the mount tree not considering possible propagation and
+		 * friends, you can make non-restorable tree. But it works yet,
+		 * so leave it.
+		 */
+		cr_time = add_cr_time_mount(root_yard_mp, "binfmt_misc", BINFMT_MISC_HOME, 0);
+		if (!cr_time)
 			return -1;
 	}
 #endif
@@ -3720,6 +3729,33 @@ static int populate_mnt_ns(void)
 		list_for_each_entry(mi, &delayed_unbindable, mnt_unbindable)
 			if (set_unbindable(mi))
 				return -1;
+	}
+
+	/*
+	 * Remove auxiliary cr-time mount from the mount tree as early as
+	 * possible, this is a temporary mount which is unmounted imediately
+	 * after restore, so it should not be there in the tree for the sake of
+	 * --check-mounts.
+	 */
+	if (cr_time) {
+		/*
+		 * This mount should not get to any list, but be on the safe
+		 * side and never free an entry from the middle of an alive
+		 * list.
+		 */
+		BUG_ON(!list_empty(&cr_time->children));
+		BUG_ON(!list_empty(&cr_time->mnt_slave));
+		BUG_ON(!list_empty(&cr_time->mnt_slave_list));
+		BUG_ON(!list_empty(&cr_time->mnt_share));
+		BUG_ON(!list_empty(&cr_time->mnt_bind));
+		BUG_ON(!list_empty(&cr_time->mnt_propagate));
+		BUG_ON(!list_empty(&cr_time->mnt_notprop));
+		BUG_ON(!list_empty(&cr_time->postpone));
+		BUG_ON(!list_empty(&cr_time->mnt_unbindable));
+
+		cr_time->parent->next = cr_time->next;
+		list_del(&cr_time->siblings);
+		mnt_entry_free(cr_time);
 	}
 
 	if (ret == 0 && fixup_remap_mounts())
