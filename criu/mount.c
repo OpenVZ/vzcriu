@@ -4500,15 +4500,15 @@ err:
 static int ns_check_mounts(void *arg)
 {
 	struct ns_id *nsid;
-	int *ret = arg;
+	int *retp = arg, ret = 0;
 
 	for (nsid = ns_ids; nsid != NULL; nsid = nsid->next) {
 		if (nsid->nd != &mnt_ns_desc)
 			continue;
 
-		*ret = __check_mounts(nsid);
-		if (*ret)
-			return 0;
+		ret = __check_mounts(nsid);
+		if (ret)
+			*retp = ret;
 	}
 
 	return 0;
