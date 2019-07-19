@@ -4469,15 +4469,26 @@ static int __check_mounts(struct ns_id *ns)
 	while (mnt && new_mnt) {
 		/* Consider that leading '.' was lost in collect_mnt_from_image. */
 		if (strcmp(mnt->ns_mountpoint, new_mnt->ns_mountpoint+1) ||
-		    strcmp(mnt->root, new_mnt->root) ||
-		    mnt->flags != new_mnt->flags ||
-		    mnt->sb_flags != new_mnt->sb_flags) {
-			pr_err("Mounts %s[%s,%d,%d] and %s[%s,%d,%d] does not match\n",
-			       mnt->ns_mountpoint, mnt->root, mnt->flags, mnt->sb_flags,
-			       new_mnt->ns_mountpoint+1, new_mnt->root, new_mnt->flags, new_mnt->sb_flags);
+		    strcmp(mnt->root, new_mnt->root)) {
+			pr_err("Mount (%d)[%s,%s] has different mp/root (%d)[%s,%s]\n",
+			       mnt->mnt_id, mnt->ns_mountpoint, mnt->root,
+			       new_mnt->mnt_id, new_mnt->ns_mountpoint+1, new_mnt->root);
 			goto err;
 		}
 
+		if (mnt->fstype->code == FSTYPE__NFS ||
+		    mnt->fstype->code == FSTYPE__NFS4)
+			goto skip_flags;
+
+		if (mnt->flags != new_mnt->flags ||
+		    mnt->sb_flags != new_mnt->sb_flags) {
+			pr_err("Mount (%d)[%d,%d] has different flags (%d)[%d,%d]\n",
+			       mnt->mnt_id,
+			       mnt->flags, mnt->sb_flags,
+			       new_mnt->mnt_id, new_mnt->flags, new_mnt->sb_flags);
+			goto err;
+		}
+skip_flags:
 		mnt = mnt_subtree_step(mnt, ns->mnt.mntinfo_tree, &step);
 		new_mnt = mnt_subtree_step(new_mnt, new_ns->mnt.mntinfo_tree, &new_step);
 
