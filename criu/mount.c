@@ -1657,19 +1657,6 @@ static __maybe_unused struct mount_info *add_cr_time_mount(struct mount_info *ro
 	bool add_slash = false;
 	int len;
 
-	if (!root->nsid) {
-		/* On restore we have fake top mount_info. Find real NS_ROOT */
-		list_for_each_entry(t, &root->children, siblings)
-			if (t->nsid->type == NS_ROOT) {
-				root = t;
-				break;
-			}
-		if (!root->nsid) {
-			pr_err("Can't find NS_ROOT\n");
-			return NULL;
-		}
-	}
-
 	mi = mnt_entry_alloc();
 	if (!mi)
 		return NULL;
@@ -3698,7 +3685,7 @@ static int populate_mnt_ns(void)
 		 * friends, you can make non-restorable tree. But it works yet,
 		 * so leave it.
 		 */
-		cr_time = add_cr_time_mount(root_yard_mp, "binfmt_misc", BINFMT_MISC_HOME, 0);
+		cr_time = add_cr_time_mount(root_yard_mp, "binfmt_misc", "binfmt_misc", 0);
 		if (!cr_time)
 			return -1;
 	}
