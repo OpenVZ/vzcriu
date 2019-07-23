@@ -2553,8 +2553,9 @@ static int do_bind_mount(struct mount_info *mi)
 		snprintf(rpath, sizeof(rpath), "%s/%s",
 				mnt_path, cut_root);
 		root = rpath;
-	} else
+	} else {
 		root = mnt_path;
+	}
 do_bind:
 	pr_info("\tBind %s[%s] to %s\n", root,
 		mi->external ? "" : mi->bind->mountpoint, mi->mountpoint);
