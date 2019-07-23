@@ -991,6 +991,10 @@ static int resolve_external_mounts(struct mount_info *info)
 				continue;
 		}
 
+		/*
+		 * Never returns NULL as in find_best_external_match we've
+		 * already checked that match->root is a subpath of m->root
+		 */
 		cut_root = cut_root_for_bind(m->root, match->root);
 
 		p = xsprintf("%s/%s", match->mountpoint + 1, cut_root);
@@ -2572,6 +2576,11 @@ static int do_bind_mount(struct mount_info *mi)
 	master = mi->master_id && mi->master_id == mi->bind->master_id;
 	private = !mi->master_id && !shared;
 	cut_root = cut_root_for_bind(mi->root, mi->bind->root);
+	if (!cut_root) {
+		pr_err("Failed to find root for %d in our supposed bind %d\n",
+		       mi->mnt_id, mi->bind->mnt_id);
+		goto err;
+	}
 
 	/* Mount private can be initialized on mount() callback, which is
 	 * called only once.
