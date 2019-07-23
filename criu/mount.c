@@ -2629,9 +2629,6 @@ static int do_bind_mount(struct mount_info *mi)
 				     mi->master_id && !master))
 		return -1;
 
-	if (mnt_path == NULL)
-		return -1;
-
 	if (cut_root[0]) {
 		snprintf(rpath, sizeof(rpath), "%s/%s",
 				mnt_path, cut_root);
