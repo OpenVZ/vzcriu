@@ -2132,10 +2132,15 @@ static int restore_shared_options(struct mount_info *mi, bool private, bool shar
 			mi->mnt_id, mi->mountpoint, private, shared, slave);
 
 	if (mi->flags & MS_UNBINDABLE) {
-		if (shared || slave)
+		if (shared || slave) {
 			pr_warn("%s has both unbindable and sharing, ignoring unbindable\n", mi->mountpoint);
-		else
+		} else {
+			if (!mnt_is_overmounted(mi)) {
+				pr_debug("Temporary leave unbindable mount %s as private\n", mi->mountpoint);
+				return mount(NULL, mi->mountpoint, NULL, MS_PRIVATE, NULL);
+			}
 			return mount(NULL, mi->mountpoint, NULL, MS_UNBINDABLE, NULL);
+		}
 	}
 
 	return __restore_shared_options(mi->mountpoint, private, shared, slave);
@@ -2783,6 +2788,14 @@ static int do_mount_root(struct mount_info *mi)
 static int do_close_one(struct mount_info *mi)
 {
 	close_safe(&mi->fd);
+	return 0;
+}
+
+static int set_unbindable(struct mount_info *mi)
+{
+	if (mi->flags & MS_UNBINDABLE && !mnt_is_overmounted(mi)) {
+		return mount(NULL, mi->mountpoint, NULL, MS_UNBINDABLE, NULL);
+	}
 	return 0;
 }
 
@@ -3611,6 +3624,7 @@ static int populate_mnt_ns(void)
 
 	ret = mnt_tree_for_each(root_yard_mp, do_mount_one);
 	mnt_tree_for_each(root_yard_mp, do_close_one);
+	mnt_tree_for_each(root_yard_mp, set_unbindable);
 
 	/*
 	 * Remove auxiliary cr-time mount from the mount tree as early as
