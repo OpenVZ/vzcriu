@@ -2508,7 +2508,7 @@ static int do_bind_mount(struct mount_info *mi)
 	if (!cut_root) {
 		pr_err("Failed to find root for %d in our supposed bind %d\n",
 		       mi->mnt_id, mi->bind->mnt_id);
-		goto err;
+		return -1;
 	}
 
 	/* Mount private can be initialized on mount() callback, which is
@@ -2524,7 +2524,7 @@ static int do_bind_mount(struct mount_info *mi)
 		mi->bind->fd = open(mnt_path, O_PATH); /* autofs hack*/
 		if (mi->bind->fd < 0) {
 			pr_perror("Unable to open %s", mnt_path);
-			goto err;
+			return -1;
 		}
 	}
 
@@ -2538,7 +2538,7 @@ static int do_bind_mount(struct mount_info *mi)
 	if (unix_prepare_bindmount(mi)) {
 		pr_err("Failed to prepare bindmount on unix at %s\n",
 		       mi->mountpoint);
-		goto err;
+		return -1;
 	}
 
 	/* mi->bind->mountpoint may be overmounted */
@@ -2556,7 +2556,7 @@ static int do_bind_mount(struct mount_info *mi)
 	if (__restore_shared_options(mnt_path, private,
 				   mi->shared_id && !shared,
 				   mi->master_id && !master))
-		return -1;
+		goto err;
 
 	if (cut_root[0]) {
 		snprintf(rpath, sizeof(rpath), "%s/%s",
@@ -2637,7 +2637,7 @@ do_bind:
 out:
 	if (mi->external && restore_shared_options(mi, private, mi->shared_id,
 						   mi->master_id))
-		return -1;
+		goto err;
 
 	mi->mounted = true;
 	exit_code = 0;
