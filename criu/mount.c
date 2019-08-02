@@ -3540,7 +3540,7 @@ static int merge_mount_trees(struct mount_info *root_yard)
 /*
  * All nested mount namespaces are restore as sub-trees of the root namespace.
  */
-static int populate_roots_yard(void)
+static int populate_roots_yard(struct mount_info *cr_time)
 {
 	struct mnt_remap_entry *r;
 	char path[PATH_MAX];
@@ -3569,6 +3569,11 @@ static int populate_roots_yard(void)
 			pr_perror("Unable to create %s", r->mi->mountpoint);
 			return -1;
 		}
+	}
+
+	if (cr_time && mkdirpat(AT_FDCWD, cr_time->mountpoint, 0755)) {
+		pr_perror("Unable to create %s", cr_time->mountpoint);
+		return -1;
 	}
 
 	return 0;
@@ -3616,7 +3621,7 @@ static int populate_mnt_ns(void)
 	if (find_remap_mounts(root_yard_mp))
 		return -1;
 
-	if (populate_roots_yard())
+	if (populate_roots_yard(cr_time))
 		return -1;
 
 	if (mount_clean_path())
