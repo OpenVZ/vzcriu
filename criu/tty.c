@@ -2963,7 +2963,7 @@ static int tty_verify_ctty(void)
 		}
 
 		if (!n) {
-			if (ve_can_inherit_tty(n->pid_real))
+			if (ve_can_inherit_tty(d->pid_real))
 				continue;
 			pr_err("ctty inheritance detected sid %d, "
 			       "no PTY peer with sid needed\n",
