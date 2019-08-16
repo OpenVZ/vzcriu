@@ -1287,7 +1287,7 @@ static int cleanup_inotify_events(int inotify_fd)
 	while (retry < MAX_POLL_RETRY) {
 		ret = fd_poll(inotify_fd);
 		if (ret < 0) {
-			if (ret == EINTR) {
+			if (ret == -EINTR) {
 				retry++;
 				continue;
 			}
