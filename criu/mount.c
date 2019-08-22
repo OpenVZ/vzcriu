@@ -555,6 +555,9 @@ static int try_resolve_ext_mount(struct mount_info *info)
 		pr_info("Found %s mapping for %s mountpoint\n",
 				ext, info->mountpoint);
 		info->external = ext;
+		/* assume manual external mounts as internal sharing */
+		if (info->shared_id)
+			info->internal_sharing = true;
 		return 1;
 	}
 
@@ -957,6 +960,14 @@ static int resolve_external_mounts(struct mount_info *info)
 		struct mount_info *match;
 
 		if (m->parent == NULL || m->is_ns_root)
+			continue;
+
+		/*
+		 * Only allow external mounts in root mntns. External mounts
+		 * lookup is based on mountpoint path, but there may be a lot of
+		 * mounts with same mountpoint across mntnses.
+		 */
+		if (m->nsid->type != NS_ROOT)
 			continue;
 
 		ret = try_resolve_ext_mount(m);
@@ -2693,6 +2704,10 @@ do_bind:
 		}
 	}
 out:
+	if (mi->external && restore_shared_options(mi, private, mi->shared_id,
+						   mi->master_id))
+		return -1;
+
 	mi->mounted = true;
 	exit_code = 0;
 err:
