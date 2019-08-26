@@ -162,7 +162,7 @@ int main(int argc, char **argv)
 
 			while ((ret = read(events[i].data.fd, buf, buf_size)) > 0)
 				;
-			if (ret < 0 && errno != EAGAIN) {
+			if (ret < 0 && errno != EAGAIN && errno != EINTR) {
 				pr_perror("read error");
 				killall();
 				exit(1);
