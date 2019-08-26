@@ -165,7 +165,7 @@ int main(int argc, char **argv)
 		}
 		for (i = 0; i < rv; i++) {
 			while (read(events[i].data.fd, buf, buf_size) > 0);
-			if (errno != EAGAIN && errno != 0 && errno) {
+			if (errno != EAGAIN && errno != EINTR && errno != 0 && errno) {
 				pr_perror("read error");
 				killall();
 				exit(1);
