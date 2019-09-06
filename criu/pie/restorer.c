@@ -1829,6 +1829,9 @@ long __export_restore_task(struct task_restore_args *args)
 				goto core_restore_end;
 			}
 
+			pr_debug("clone for pid %d last_pid %s\n",
+				 thread_args[i].pid, last_pid_buf);
+
 			/*
 			 * To achieve functionality like libc's clone()
 			 * we need a pure assembly here, because clone()'ed
