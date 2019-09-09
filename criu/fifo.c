@@ -182,3 +182,14 @@ struct collect_image_info fifo_data_cinfo = {
 	.priv_size = sizeof(struct pipe_data_rst),
 	.collect = collect_fifo_data,
 };
+
+int fifo_dump_init(void)
+{
+	/* Reserved to match fifo_fini */
+	return 0;
+}
+
+void fifo_dump_fini(void)
+{
+	pipe_data_dump_fini(&pd_fifo);
+}
