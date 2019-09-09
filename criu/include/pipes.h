@@ -1,6 +1,8 @@
 #ifndef __CR_PIPES_H__
 #define __CR_PIPES_H__
 
+#include "fifo.h"
+
 #include "images/pipe-data.pb-c.h"
 #include "images/pipe.pb-c.h"
 
@@ -13,13 +15,15 @@ static inline u32 pipe_id(const struct fd_parms *p)
 	return p->stat.st_ino;
 }
 
-#define NR_PIPES_WITH_DATA	1024
-
 struct pipe_data_dump {
 	int		img_type;
 	unsigned int	nr;
-	u32		ids[NR_PIPES_WITH_DATA];
+	unsigned int	nr_slots;
+	unsigned int	*ids;
 };
+
+extern int pipe_dump_init(void);
+extern void pipe_dump_fini(void);
 
 extern int dump_one_pipe_data(struct pipe_data_dump *pd, int lfd, const struct fd_parms *p);
 

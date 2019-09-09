@@ -440,9 +440,14 @@ int dump_one_pipe_data(struct pipe_data_dump *pd, int lfd, const struct fd_parms
 
 	pr_info("Dumping data from pipe %#x fd %d\n", pipe_id(p), lfd);
 
-	if (pd->nr >= NR_PIPES_WITH_DATA) {
-		pr_err("OOM storing pipe\n");
-		return -1;
+	if (pd->nr >= pd->nr_slots) {
+		unsigned int nr_slots = pd->nr_slots + 1024;
+		size_t new_size = nr_slots * sizeof(pd->ids[0]);
+		if (nr_slots < pd->nr_slots || xrealloc_safe(&pd->ids, new_size)) {
+			pr_err("OOM storing pipe\n");
+			return -1;
+		}
+		pd->nr_slots = nr_slots;
 	}
 
 	img = img_from_set(glob_imgset, pd->img_type);
@@ -537,3 +542,21 @@ const struct fdtype_ops pipe_dump_ops = {
 	.type		= FD_TYPES__PIPE,
 	.dump		= dump_one_pipe,
 };
+
+int pipe_dump_init(void)
+{
+	return fifo_dump_init();
+}
+
+void pipe_data_dump_fini(struct pipe_data_dump *pdd)
+{
+	xfree(pdd->ids);
+	pdd->nr_slots = 0;
+	pdd->nr = 0;
+}
+
+void pipe_dump_fini(void)
+{
+	pipe_data_dump_fini(&pd_pipes);
+	fifo_dump_fini();
+}
