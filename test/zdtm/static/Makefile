@@ -53,6 +53,7 @@ TST_NOFILE	:=				\
 		pipe00				\
 		pipe01				\
 		pipe02				\
+		pipe04				\
 		pthread00			\
 		pthread01			\
 		pthread02			\
