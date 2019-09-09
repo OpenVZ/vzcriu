@@ -91,6 +91,7 @@
 #include "apparmor.h"
 #include "asm/dump.h"
 #include "devices.h"
+#include "pipes.h"
 
 struct rlim_ctl {
 	struct rlimit old_rlimit;
@@ -2214,6 +2215,8 @@ err:
 	if (write_img_inventory(&he))
 		ret = -1;
 
+	pipe_dump_fini();
+
 	if (ret)
 		pr_err("Pre-dumping FAILED.\n");
 	else {
@@ -2268,6 +2271,9 @@ int cr_pre_dump_tasks(pid_t pid)
 		goto err;
 
 	if (cpu_init())
+		goto err;
+
+	if (pipe_dump_init())
 		goto err;
 
 	if (vdso_init_dump())
@@ -2419,6 +2425,7 @@ static int cr_dump_finish(int ret)
 	free_aufs_branches();
 	free_userns_maps();
 	free_ttys();
+	pipe_dump_fini();
 
 	close_service_fd(CR_PROC_FD_OFF);
 	close_image_dir();
@@ -2480,6 +2487,9 @@ int cr_dump_tasks(pid_t pid)
 		goto err;
 
 	if (cpu_init())
+		goto err;
+
+	if (pipe_dump_init())
 		goto err;
 
 	if (vdso_init_dump())
