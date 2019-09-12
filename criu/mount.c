@@ -2681,8 +2681,10 @@ static bool rst_mnt_is_root(struct mount_info *m)
 
 static bool can_mount_now(struct mount_info *mi)
 {
-	if (rst_mnt_is_root(mi))
+	if (rst_mnt_is_root(mi)) {
+		pr_debug("%s: true as %d is mntns root", __func__, mi->mnt_id);
 		return true;
+	}
 
 	/* Parent should be mounted already, that's how mnt_tree_for_each works */
 	BUG_ON(mi->parent && !mi->parent->mounted);
@@ -2699,30 +2701,49 @@ static bool can_mount_now(struct mount_info *mi)
 	if (mi->mnt_master) {
 		struct mount_info *c, *s;
 
-		if (mi->bind == NULL)
+		if (mi->bind == NULL) {
+			pr_debug("%s: false as %d is slave with unmounted master %d",
+				 __func__, mi->mnt_id, mi->mnt_master->mnt_id);
 			return false;
+		}
 
-		list_for_each_entry(c, &mi->mnt_master->children, siblings)
-			if (!c->mounted)
+		list_for_each_entry(c, &mi->mnt_master->children, siblings) {
+			if (!c->mounted) {
+				pr_debug("%s: false as %d is slave with unmounted master's children %d",
+					 __func__, mi->mnt_id, c->mnt_id);
 				return false;
+			}
+		}
 
-		list_for_each_entry(s, &mi->mnt_master->mnt_share, mnt_share)
-			list_for_each_entry(c, &s->children, siblings)
-				if (!c->mounted)
+		list_for_each_entry(s, &mi->mnt_master->mnt_share, mnt_share) {
+			list_for_each_entry(c, &s->children, siblings) {
+				if (!c->mounted) {
+					pr_debug("%s: false as %d is slave with unmounted children of master's share",
+						 __func__, mi->mnt_id);
 					return false;
+				}
+			}
+		}
 	}
 
-	if (!fsroot_mounted(mi) && (mi->bind == NULL && !mi->need_plugin))
+	if (!fsroot_mounted(mi) && (mi->bind == NULL && !mi->need_plugin)) {
+		pr_debug("%s: false as %d is non-root without bind or plugin",
+			 __func__, mi->mnt_id);
 		return false;
+	}
 
 	if (mi->bind && mi->shared_id != mi->bind->shared_id) {
 		struct mount_info *n;
 		int len;
 
 		len = strlen(mi->root);
-		list_for_each_entry(n, &mi->mnt_share, mnt_share)
-			if (len > strlen(n->root))
+		list_for_each_entry(n, &mi->mnt_share, mnt_share) {
+			if (len > strlen(n->root)) {
+				pr_debug("%s: false as %d has a mount %d with wider root of same share",
+					 __func__, mi->mnt_id, n->mnt_id);
 				return false;
+			}
+		}
 	}
 shared:
 	/* Mount only after all parents of our propagation group mounted */
@@ -2731,8 +2752,11 @@ shared:
 
 		list_for_each_entry(p, &mi->mnt_propagate, mnt_propagate) {
 			BUG_ON(!p->parent);
-			if (!p->parent->mounted)
+			if (!p->parent->mounted) {
+				pr_debug("%s: false as %d has unmounted parent %d of its propagation group",
+					 __func__, mi->mnt_id, p->parent->mnt_id);
 				return false;
+			}
 		}
 	}
 
@@ -2779,8 +2803,11 @@ shared:
 
 		/* Check not propagated mounts mounted and cleanup list */
 		list_for_each_entry_safe(p, t, &mi_notprop, mnt_notprop) {
-			if (!p->mounted)
+			if (!p->mounted) {
+				pr_debug("%s: false as %d has unmounted 'anti'-propagation mount %d",
+					 __func__, mi->mnt_id, p->mnt_id);
 				can = false;
+			}
 			list_del_init(&p->mnt_notprop);
 		}
 
