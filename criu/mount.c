@@ -2565,8 +2565,29 @@ static int do_bind_mount(struct mount_info *mi)
 		 * is tuned in collect_mnt_from_image to refer
 		 * to proper location in the namespace we restore.
 		 */
-		root = mi->external;
 		private = !mi->master_id && (mi->internal_sharing || !mi->shared_id);
+
+		/*
+		 * External mount's parent can be in a shared mount group, thus
+		 * we need to restore shared options before mounting, else our
+		 * propagations may still have external sharing.
+		 *
+		 * FIXME Merge these with non-external code path.
+		 */
+		if (mount(mi->external , mnt_clean_path, NULL, MS_BIND, NULL)) {
+			pr_perror("Unable to bind-mount %s to %s",
+				  mi->external, mnt_clean_path);
+			return -1;
+		}
+		root = mnt_clean_path;
+		umount_mnt_fd = open(mnt_clean_path, O_PATH);
+		if (umount_mnt_fd < 0) {
+			pr_perror("Unable to open %s", mnt_clean_path);
+			return -1;
+		}
+		if (__restore_shared_options(root, mi->mnt_id, private,
+					     mi->shared_id, mi->master_id))
+			goto err;
 		goto do_bind;
 	}
 
@@ -2704,10 +2725,6 @@ do_bind:
 		}
 	}
 out:
-	if (mi->external && restore_shared_options(mi, private, mi->shared_id,
-						   mi->master_id))
-		goto err;
-
 	mi->mounted = true;
 	exit_code = 0;
 err:
