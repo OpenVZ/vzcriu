@@ -26,15 +26,14 @@ if [ ! -d "/proc/$CRTOOLS_INIT_PID" ]; then
 	exit 1
 fi
 
-NS_ENTER=/bin/nsenter
-[ ! -x $NS_ENTER ] || NS_ENTER=/usr/bin/nsenter
-
-if [ ! -x $NS_ENTER ]; then
-	echo "$NS_ENTER binary not found"
-	exit 2
+# It is not safe to execute binaries from CT while in VE0 so we've replaced
+# nsenters with vzctl enter as in post resume script the CT is running already.
+if [ -z "$VEID" ]; then
+        echo "VEID environment variable is not set"
+        exit 1
 fi
-
-JOIN_CT="$NS_ENTER -t $CRTOOLS_INIT_PID -m -u -p -n"
+VZCTL="/usr/sbin/vzctl"
+JOIN_CT="$VZCTL exec $VEID"
 
 BASENAME=/usr/bin/basename
 READLINK=/bin/readlink
@@ -45,7 +44,7 @@ SYSTEMCTL=/bin/systemctl
 MKTEMP=/bin/mktemp
 
 # Skip container, if it's not systemd based
-[ "$($JOIN_CT "$BASENAME" -- "$($JOIN_CT "$READLINK" /proc/1/exe)")" == "systemd" ] || exit 0
+[ "$($BASENAME -- "$($JOIN_CT "$READLINK" /proc/1/exe)")" == "systemd" ] || exit 0
 
 AUTOFS_SERVICES="$($JOIN_CT $SYSTEMCTL --no-legend  -t automount \
 	 --state=active list-units | awk '{ print $1 }')"
