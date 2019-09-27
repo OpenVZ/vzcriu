@@ -1356,7 +1356,8 @@ static int post_open_standalone(struct file_desc *d, int fd)
 	int cwd_fd = -1, root_fd = -1, ns_fd = -1;
 
 	ui = container_of(d, struct unix_sk_info, d);
-	BUG_ON((ui->flags & (USK_PAIR_MASTER | USK_PAIR_SLAVE)) || (ui->ue->uflags & (UNIX_UFLAGS__CALLBACK | UNIX_UFLAGS__INHERIT)));
+	BUG_ON((ui->flags & (USK_PAIR_MASTER | USK_PAIR_SLAVE)) ||
+	       (ui->ue->uflags & (UNIX_UFLAGS__CALLBACK | UNIX_UFLAGS__INHERIT)));
 
 	if (chk_restored_scms(ui))
 		return 1;

@@ -179,6 +179,7 @@ extern struct mount_info *lookup_mnt_id(unsigned int id);
 extern struct mount_info *lookup_mnt_sdev(unsigned int s_dev);
 
 extern dev_t phys_stat_resolve_dev(struct ns_id *, dev_t st_dev, const char *path);
+extern bool __phys_stat_dev_match(dev_t st_dev, dev_t phys_dev, struct ns_id *, const char *path, struct mount_info *m);
 extern bool phys_stat_dev_match(dev_t st_dev, dev_t phys_dev, struct ns_id *, const char *path);
 extern int mount_resolve_devpts_mnt_id(int mnt_id, int s_dev);
 extern struct mount_info *lookup_first_fstype(int code);
