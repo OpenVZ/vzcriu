@@ -345,11 +345,8 @@ struct mount_info *lookup_first_fstype(int code)
 	return NULL;
 }
 
-dev_t phys_stat_resolve_dev(struct ns_id *ns, dev_t st_dev, const char *path)
+static dev_t __phys_stat_resolve_dev(dev_t st_dev, struct mount_info *m)
 {
-	struct mount_info *m;
-
-	m = mount_resolve_path(ns->mnt.mntinfo_tree, path);
 	/*
 	 * BTRFS returns subvolume dev-id instead of
 	 * superblock dev-id, in such case return device
@@ -358,12 +355,28 @@ dev_t phys_stat_resolve_dev(struct ns_id *ns, dev_t st_dev, const char *path)
 	return strcmp(m->fstype->name, "btrfs") ? MKKDEV(major(st_dev), minor(st_dev)) : m->s_dev;
 }
 
-bool phys_stat_dev_match(dev_t st_dev, dev_t phys_dev, struct ns_id *ns, const char *path)
+dev_t phys_stat_resolve_dev(struct ns_id *ns, dev_t st_dev, const char *path)
+{
+	struct mount_info *m;
+
+	m = mount_resolve_path(ns->mnt.mntinfo_tree, path);
+	return __phys_stat_resolve_dev(st_dev, m);
+}
+
+bool __phys_stat_dev_match(dev_t st_dev, dev_t phys_dev, struct ns_id *ns, const char *path, struct mount_info *m)
 {
 	if (st_dev == kdev_to_odev(phys_dev))
 		return true;
 
+	if (m)
+		return phys_dev == __phys_stat_resolve_dev(st_dev, m);
+
 	return phys_dev == phys_stat_resolve_dev(ns, st_dev, path);
+}
+
+bool phys_stat_dev_match(dev_t st_dev, dev_t phys_dev, struct ns_id *ns, const char *path)
+{
+	return __phys_stat_dev_match(st_dev, phys_dev, ns, path, NULL);
 }
 
 /*
