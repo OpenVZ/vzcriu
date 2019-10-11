@@ -33,7 +33,7 @@ if [ ! -n "$VEID" ]; then
         exit 1
 fi
 VZCTL="/usr/sbin/vzctl"
-JOIN_CT="$VZCTL --skiplock exec3 $VEID"
+JOIN_CT="$VZCTL --skiplock --skipowner exec3 $VEID"
 
 BASENAME=/usr/bin/basename
 READLINK=/bin/readlink
