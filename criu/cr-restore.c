@@ -2199,6 +2199,28 @@ static int write_restored_pid(void)
 extern char *get_dumpee_veid(pid_t pid_real);
 
 #define join_veX(pid)	join_ve(pid, true)
+
+/*
+ * Use join_ve0 very carefully! We have checks in kernel to prohibit execution
+ * of files on CT mounts for security. All mounts created after join_veX are
+ * marked as CT mounts, including all mounts of the root_yard temporary mntns.
+ * So if you do join_ve0 you can be blocked from executing anything.
+ *
+ * https://jira.sw.ru/browse/PSBM-98702
+ *
+ * note: If for some reason we will desperately need to execute binaries from
+ * mounts in the root_yard temporary mntns from VE0 we have an option:
+ *
+ * In restore_root_task before calling join_veX we can clone a helper process
+ * which will create CT userns and mntns first (all mounts are marked as host
+ * mounts), next after join_veX in restore_root_task we create another helper
+ * process which setns'es to these user and mnt namespaces, and from these
+ * helper we can clone CT init process obviousely without CLONE_NEWNS and
+ * CLONE_NEWUSER. These way userns, mntns, ve will be preserved for all tasks
+ * but all mounts cloned from host will be marked as host mounts, and execution
+ * on them will be allowed even from VE0.
+ */
+
 #define join_ve0(pid)	join_ve(pid, false)
 
 /*
