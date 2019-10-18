@@ -1814,14 +1814,6 @@ static int run_iptables_tool(char *def_cmd, int fdin, int fdout)
 	return ret;
 }
 
-static int __iptables_tool_restore(char *def_cmd, int fdin, int fdout)
-{
-	if (join_ve(root_item->pid->real, false))
-		return -1;
-
-	return run_iptables_tool(def_cmd, fdin, fdout);
-}
-
 static int iptables_tool_restore(char *def_cmd, int fdin, int fdout)
 {
 	int child, status;
@@ -1831,7 +1823,7 @@ static int iptables_tool_restore(char *def_cmd, int fdin, int fdout)
 		pr_perror("failed to fork");
 		return -1;
 	} else if (!child) {
-		_exit(__iptables_tool_restore(def_cmd, fdin, fdout));
+		_exit(run_iptables_tool(def_cmd, fdin, fdout));
 	}
 
 	if (waitpid(child, &status, 0) != child) {
@@ -2721,14 +2713,6 @@ err:
 	return ret;
 }
 
-static int __iptables_restore(bool ipv6, char *buf, int size)
-{
-	if (join_ve(root_item->pid->real, false))
-		return -1;
-
-	return do_iptables_restore(ipv6, buf, size);
-}
-
 static int iptables_restore(bool ipv6, char *buf, int size)
 {
 	int child, status;
@@ -2738,7 +2722,7 @@ static int iptables_restore(bool ipv6, char *buf, int size)
 		pr_perror("failed to fork");
 		return -1;
 	} else if (!child) {
-		_exit(__iptables_restore(ipv6, buf, size));
+		_exit(do_iptables_restore(ipv6, buf, size));
 	}
 
 	if (waitpid(child, &status, 0) != child) {
