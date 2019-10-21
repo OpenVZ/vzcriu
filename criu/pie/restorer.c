@@ -1747,7 +1747,7 @@ long __export_restore_task(struct task_restore_args *args)
 			}
 
 			pr_debug("clone for pid %d last_pid %s\n",
-				 thread_args[i].pid, last_pid_buf);
+				 thread_args[i].pid, s);
 
 			/*
 			 * To achieve functionality like libc's clone()
