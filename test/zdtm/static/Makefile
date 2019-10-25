@@ -356,6 +356,7 @@ TST_DIR		=				\
 		overmounted_file		\
 		pty05				\
 		unlink_dir			\
+		symlink				\
 
 TST_DIR_FILE	=				\
 		chroot				\
