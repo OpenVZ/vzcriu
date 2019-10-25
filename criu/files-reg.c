@@ -1466,6 +1466,7 @@ static int check_path_remap(struct fd_link *link, const struct fd_parms *parms,
 	int ret, mntns_root;
 	struct stat pst;
 	const struct stat *ost = &parms->stat;
+	int flags = 0;
 
 	if (parms->fs_type == PROC_SUPER_MAGIC) {
 		/* The file points to /proc/pid/<foo> where pid is a dead
@@ -1567,7 +1568,10 @@ static int check_path_remap(struct fd_link *link, const struct fd_parms *parms,
 	if (mntns_root < 0)
 		return -1;
 
-	ret = fstatat(mntns_root, rpath, &pst, 0);
+	if (S_ISLNK(parms->stat.st_mode))
+		flags = AT_SYMLINK_NOFOLLOW;
+
+	ret = fstatat(mntns_root, rpath, &pst, flags);
 	if (ret < 0) {
 		/*
 		 * Linked file, but path is not accessible (unless any

@@ -563,7 +563,7 @@ static int dump_one_file(struct pid *pid, int fd, int lfd, struct fd_opts *opts,
 	}
 
 	if (S_ISREG(p.stat.st_mode) || S_ISDIR(p.stat.st_mode) ||
-	    S_ISBLK(p.stat.st_mode)) {
+	    S_ISBLK(p.stat.st_mode) || S_ISLNK(p.stat.st_mode)) {
 		struct fd_link link;
 
 		if (S_ISBLK(p.stat.st_mode)) {
