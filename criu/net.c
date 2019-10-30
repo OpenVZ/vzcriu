@@ -2483,6 +2483,54 @@ image_close_out:
 }
 #endif
 
+static int run_nftables_tool(char *def_cmd, int fdin, int fdout)
+{
+	int ret;
+	char *cmd;
+
+	cmd = getenv("CR_NFTABLES");
+	if (!cmd)
+		cmd = def_cmd;
+	pr_debug("\tRunning %s for %s\n", cmd, def_cmd);
+	ret = cr_system(fdin, fdout, -1, "sh", (char *[]){ "sh", "-c", cmd, NULL }, 0);
+	if (ret)
+		pr_err("%s failed\n", def_cmd);
+
+	return ret;
+}
+
+static inline int dump_nftables_vz(struct cr_imgset *fds)
+{
+	struct cr_img *img;
+
+	img = img_from_set(fds, CR_FD_NFTABLES);
+	if (run_nftables_tool("nft list ruleset", -1, img_raw_fd(img)))
+		return -1;
+
+	return 0;
+}
+
+static inline int restore_nftables_vz(int pid)
+{
+	int ret = -1;
+	struct cr_img *img;
+
+	img = open_image(CR_FD_NFTABLES, O_RSTR, pid);
+	if (img == NULL)
+		return -1;
+	if (empty_image(img)) {
+		/* Backward compatibility */
+		pr_info("Skipping nft restore, no image\n");
+		ret = 0;
+		goto out;
+	}
+
+	ret = run_nftables_tool("nft -f /proc/self/fd/0", img_raw_fd(img), -1);
+out:
+	close_image(img);
+	return ret;
+}
+
 int read_net_ns_img(void)
 {
 	struct ns_id *ns;
@@ -2716,10 +2764,15 @@ int dump_net_ns(struct ns_id *ns)
 			ret = dump_rule(fds);
 		if (!ret)
 			ret = dump_iptables(fds);
+		if (!opts.ve) {
 #if defined(CONFIG_HAS_NFTABLES_LIB_API_0) || defined(CONFIG_HAS_NFTABLES_LIB_API_1)
-		if (!ret)
-			ret = dump_nftables(fds);
+			if (!ret)
+				ret = dump_nftables(fds);
 #endif
+		} else {
+			if (!ret)
+				ret = dump_nftables_vz(fds);
+		}
 		if (!ret)
 			ret = dump_netns_conf(ns, fds);
 	} else if (ns->type != NS_ROOT) {
@@ -2813,10 +2866,15 @@ static int prepare_net_ns_second_stage(struct ns_id *ns)
 			ret = restore_rule(nsid);
 		if (!ret)
 			ret = restore_iptables(nsid);
+		if (!opts.ve) {
 #if defined(CONFIG_HAS_NFTABLES_LIB_API_0) || defined(CONFIG_HAS_NFTABLES_LIB_API_1)
-		if (!ret)
-			ret = restore_nftables(nsid);
+			if (!ret)
+				ret = restore_nftables(nsid);
 #endif
+		} else {
+			if (!ret)
+				ret = restore_nftables_vz(nsid);
+		}
 	}
 
 	if (!ret)
