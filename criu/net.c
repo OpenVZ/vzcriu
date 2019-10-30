@@ -1814,7 +1814,8 @@ static int run_iptables_tool(char *def_cmd, int fdin, int fdout)
 	return ret;
 }
 
-static int iptables_tool_restore(char *def_cmd, int fdin, int fdout)
+static int tables_restore(int (*run_fn)(char *def_cmd, int fdin, int fdout),
+			  char *def_cmd, int fdin, int fdout)
 {
 	int child, status;
 
@@ -1823,7 +1824,7 @@ static int iptables_tool_restore(char *def_cmd, int fdin, int fdout)
 		pr_perror("failed to fork");
 		return -1;
 	} else if (!child) {
-		_exit(run_iptables_tool(def_cmd, fdin, fdout));
+		_exit(run_fn(def_cmd, fdin, fdout));
 	}
 
 	if (waitpid(child, &status, 0) != child) {
@@ -1832,6 +1833,11 @@ static int iptables_tool_restore(char *def_cmd, int fdin, int fdout)
 	}
 
 	return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+}
+
+static int iptables_tool_restore(char *def_cmd, int fdin, int fdout)
+{
+	return tables_restore(run_iptables_tool, def_cmd, fdin, fdout);
 }
 
 static int iptables_tool_dump(char *def_cmd, int fdin, int fdout)
