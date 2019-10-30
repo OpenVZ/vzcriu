@@ -3,4 +3,4 @@
                '/usr/sbin/nft',
                '/usr/bin/diff'],
     'flags': 'suid',
-    'flavor': 'ns uns'}
+    'flavor': 'ns uns ve'}
