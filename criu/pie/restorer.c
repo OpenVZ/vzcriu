@@ -1272,27 +1272,20 @@ static int fd_poll(int inotify_fd)
  */
 #define EVENT_BUFF_SIZE ((sizeof(struct inotify_event) * 2 + PATH_MAX))
 
-/* We can get interrupted in poll PSBM-96973, so try some more */
-#define MAX_POLL_RETRY 5
-
 /*
  * Read all available events from inotify queue
  */
 static int cleanup_inotify_events(int inotify_fd)
 {
 	char buf[EVENT_BUFF_SIZE * 3];
-	int ret, retry = 0;
+	int ret;
 
 	/* Limit buf to be lesser than half of restorer's stack */
 	BUILD_BUG_ON(ARRAY_SIZE(buf) >= RESTORE_STACK_SIZE/2);
 
-	while (retry < MAX_POLL_RETRY) {
+	while (1) {
 		ret = fd_poll(inotify_fd);
 		if (ret < 0) {
-			if (ret == -EINTR) {
-				retry++;
-				continue;
-			}
 			pr_err("Failed to poll from inotify fd: %d\n", ret);
 			return -1;
 		} else if (ret == 0) {
@@ -1304,11 +1297,6 @@ static int cleanup_inotify_events(int inotify_fd)
 			pr_err("Failed to read inotify events\n");
 			return -1;
 		}
-	}
-
-	if (retry == MAX_POLL_RETRY) {
-		pr_err("Can't cleanup inotify events due to max retry\n");
-		return -1;
 	}
 
 	return 0;
