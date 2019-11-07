@@ -18,6 +18,8 @@
 #include <signal.h>
 #include <sys/inotify.h>
 
+#include <compel/plugins/std/string.h>
+
 #include "linux/userfaultfd.h"
 
 #include "common/config.h"
@@ -1325,6 +1327,78 @@ int cleanup_current_inotify_events(struct task_restore_args *task_args)
 	return 0;
 }
 
+static void debug_show_ps(int root_fd, char *group_leader, bool thread)
+{
+	char buf[256], cmdline[256], output[STD_LOG_SIMPLE_CHUNK];
+	int ret = 1, pos, i, j;
+
+	while (ret > 0) {
+		struct __linux_dirent64 {
+			uint64_t	d_ino;
+			int64_t		d_off;
+			unsigned short	d_reclen;
+			unsigned char	d_type;
+			char		d_name[0];
+		} *d;
+
+		ret = sys_getdents64(root_fd, buf, sizeof(buf));
+		if (ret <= 0) {
+			if (ret < 0) {
+				pr_err("sys_getdents64 returned %d\n", ret);
+				break;
+			}
+			break;
+		}
+
+		for (pos = 0; pos < ret; ) {
+			bool is_numeric = true;
+			int fd, len;
+
+			d = (void *)&buf[pos];
+			for (j = 0; ; j++) {
+				if (d->d_name[j] == '\0')
+					break;
+			}
+			for (i = 0; i < j; i++) {
+				if (d->d_name[i] >= '0' && d->d_name[i] <= '9')
+					continue;
+				is_numeric = false;
+				break;
+			}
+
+			if (!is_numeric)
+				goto next;
+
+			if (group_leader && !std_strcmp(group_leader, d->d_name))
+				goto next;
+
+			std_sprintf(output, "%s/cmdline", d->d_name);
+			fd = sys_openat(root_fd, output, O_RDONLY, 0);
+			if (fd < 0)
+				goto next;
+
+			len = sys_read(fd, cmdline, sizeof(cmdline));
+			cmdline[len > 0 ? len : 0] = '\0';
+			if (cmdline[len > 0 ? len-1 : len] == '\n')
+				cmdline[--len] = '\0';
+			sys_close(fd);
+
+			pr_debug("%s %s %s cmdline %s\n",
+				 thread ? "`- " : "",
+				 thread ? "tid" : "pid", d->d_name, cmdline);
+
+			std_sprintf(output, "%s/task", d->d_name);
+			fd = sys_openat(root_fd, output, O_RDONLY | O_DIRECTORY, 0);
+			if (fd >= 0) {
+				debug_show_ps(fd, d->d_name, true);
+				sys_close(fd);
+			}
+next:
+			pos += d->d_reclen;
+		}
+	}
+}
+
 /*
  * The main routine to restore task via sigreturn.
  * This one is very special, we never return there
@@ -1754,6 +1828,7 @@ long __export_restore_task(struct task_restore_args *args)
 					pr_err("Reread last_pid %s\n", last_pid_buf);
 				}
 				sys_close(fd);
+				debug_show_ps(args->proc_fd, NULL, -1);
 				mutex_unlock(&task_entries_local->last_pid_mutex);
 				goto core_restore_end;
 			}

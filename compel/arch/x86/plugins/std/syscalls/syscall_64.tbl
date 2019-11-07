@@ -107,3 +107,4 @@ __NR_kcmp			312		sys_kcmp		(pid_t pid1, pid_t pid2, int type, unsigned long idx1
 __NR_memfd_create		319		sys_memfd_create	(const char *name, unsigned int flags)
 __NR_userfaultfd		323		sys_userfaultfd		(int flags)
 __NR_ppoll			271		sys_ppoll		(struct pollfd *fds, unsigned int nfds, const struct timespec *tmo, const sigset_t *sigmask, size_t sigsetsize)
+__NR_getdents64			217		sys_getdents64		(unsigned int fd, void *dirent, unsigned int count)
