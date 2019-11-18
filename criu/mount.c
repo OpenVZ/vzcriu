@@ -4211,7 +4211,7 @@ struct ns_desc mnt_ns_desc = NS_DESC_ENTRY(CLONE_NEWNS, "mnt");
 
 static int call_helper_process(int (*call)(void *), void *arg)
 {
-	int pid, status, ret;
+	int pid, status, ret = -1;
 
 	/*
 	 * Running new helper process on the restore must be
