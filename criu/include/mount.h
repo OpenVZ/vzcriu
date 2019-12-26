@@ -87,6 +87,8 @@ struct mount_info {
 	int			is_overmounted;
 	int			*remounted_rw;
 
+	bool			external_slavery;
+
 	void			*private;	/* associated filesystem data */
 };
 
