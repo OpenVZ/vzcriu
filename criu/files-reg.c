@@ -315,19 +315,63 @@ static int mkreg_ghost(char *path, GhostFileEntry *gfe, struct cr_img *img)
 	return ret;
 }
 
+static int mklnk_ghost(char *path, GhostFileEntry *gfe, struct cr_img *img)
+{
+	char *target_path = "CRIU_GHOST_SYMLINK_PLACEHOLDER";
+	int ret;
+
+	/*
+	 * gfe->symlnk_target could be NULL, but in real we can't create
+	 * symlink with empty target.
+	 * If gfe->symlnk_target is NULL we have two possibilities:
+	 * 1. We works with ghost symlink that was dumped without content
+	 *            => this symlink lives on spfs.
+	 * This is not a problem to make it with fake target, because
+	 * later spfs will be remounted to NFS and symlink will have
+	 * original target.
+	 * 2. We works with an old image => we couldn't correctly restore symlink
+	 */
+	if (gfe->symlnk_target)
+		target_path = gfe->symlnk_target;
+	else
+		pr_info("Symlink target is NULL for ghost symlink %s replacing it with placeholder\n", path);
+
+	ret = symlink(target_path, path);
+	if (ret < 0) {
+		pr_perror("Could not create ghost symlink %s\n", path);
+		return -1;
+	}
+
+	return 0;
+}
+
 static int ghost_apply_metadata(const char *path, GhostFileEntry *gfe)
 {
 	struct timeval tv[2];
 	int ret = -1;
 
-	if (chown(path, gfe->uid, gfe->gid) < 0) {
-		pr_perror("Can't reset user/group on ghost %s", path);
-		goto err;
-	}
+	if (S_ISLNK(gfe->mode)) {
+		if (lchown(path, gfe->uid, gfe->gid) < 0) {
+			pr_perror("Can't reset user/group on ghost %s", path);
+			goto err;
+		}
 
-	if (chmod(path, gfe->mode)) {
-		pr_perror("Can't set perms %o on ghost %s", gfe->mode, path);
-		goto err;
+		/*
+		 * We have no lchmod() function, and fchmod() will fail on
+		 * O_PATH | O_NOFOLLOW fd. Yes, we have fchmodat()
+		 * function and flag AT_SYMLINK_NOFOLLOW described in
+		 * man 2 fchmodat, but it is not currently implemented. %)
+		 */
+	} else {
+		if (chown(path, gfe->uid, gfe->gid) < 0) {
+			pr_perror("Can't reset user/group on ghost %s", path);
+			goto err;
+		}
+
+		if (chmod(path, gfe->mode)) {
+			pr_perror("Can't set perms %o on ghost %s", gfe->mode, path);
+			goto err;
+		}
 	}
 
 	if (gfe->atim) {
@@ -365,6 +409,9 @@ again:
 	} else if (S_ISDIR(gfe->mode)) {
 		if ((ret = mkdirpat(AT_FDCWD, path, gfe->mode)) < 0)
 			msg = "Can't make ghost dir";
+	} else if (S_ISLNK(gfe->mode)) {
+		if ((ret = mklnk_ghost(path, gfe, img)) < 0)
+			msg = "Can't create ghost symlink";
 	} else {
 		if ((ret = mkreg_ghost(path, gfe, img)) < 0)
 			msg = "Can't create ghost regfile";
@@ -1031,6 +1078,7 @@ static int dump_ghost_file(int _fd, u32 id, const struct stat *st,
 	struct cr_img *img;
 	GhostFileEntry gfe = GHOST_FILE_ENTRY__INIT;
 	Timeval atim = TIMEVAL__INIT, mtim = TIMEVAL__INIT;
+	int ret = -1;
 
 	pr_info("Dumping ghost file contents (id %#x)\n", id);
 
@@ -1064,11 +1112,42 @@ static int dump_ghost_file(int _fd, u32 id, const struct stat *st,
 		gfe.size = st->st_size;
 	}
 
-	if (pb_write_one(img, &gfe, PB_GHOST_FILE))
-		return -1;
+	/*
+	 * We set gfe.symlnk_target only if we need to dump
+	 * symlink content, otherwise we leave it NULL.
+	 * It will be taken into account on restore in mklnk_ghost function.
+	 */
+	if (S_ISLNK(st->st_mode) && dump_content) {
+		char pathbuf[PATH_MAX];
+
+		/*
+		 * We assume that _fd opened with O_PATH | O_NOFOLLOW
+		 * flags because S_ISLNK(st->st_mode). With current kernel version,
+		 * it's looks like correct assumption in any case.
+		 */
+		ret = readlinkat(_fd, "", pathbuf, sizeof(pathbuf));
+		if (ret < 0) {
+			pr_perror("Can't readlinkat");
+			goto exit_close_image;
+		}
+
+		pathbuf[ret] = 0;
+
+		if (ret != st->st_size) {
+			pr_err("Buffer for readlinkat is too small: ret %u, st_size %u, buf %u %s",
+					(unsigned)ret, (unsigned)st->st_size, (unsigned)PATH_MAX, pathbuf);
+			goto exit_close_image;
+		}
+
+		gfe.symlnk_target = pathbuf;
+		ret = 0;
+	}
+
+	if ((ret = pb_write_one(img, &gfe, PB_GHOST_FILE)))
+		goto exit_close_image;
 
 	if (S_ISREG(st->st_mode) && dump_content) {
-		int fd, ret;
+		int fd;
 		char lpath[PSFDS];
 
 		/*
@@ -1079,20 +1158,20 @@ static int dump_ghost_file(int _fd, u32 id, const struct stat *st,
 		fd = open(lpath, O_RDONLY);
 		if (fd < 0) {
 			pr_perror("Can't open ghost original file");
-			return -1;
+			goto exit_close_image;
 		}
 
 		if (gfe.chunks)
 			ret = copy_file_to_chunks(fd, img, st->st_size);
 		else
 			ret = copy_file(fd, img_raw_fd(img), st->st_size);
+
 		close(fd);
-		if (ret)
-			return -1;
 	}
 
+exit_close_image:
 	close_image(img);
-	return 0;
+	return ret ? -1 : 0;
 }
 
 struct file_remap *lookup_ghost_remap(u32 dev, u32 ino)
@@ -1537,6 +1616,11 @@ static int check_path_remap(struct fd_link *link, const struct fd_parms *parms,
 	}
 
 	if (ost->st_nlink == 0) {
+		if (spfs_file(parms, nsid)) {
+			pr_err("Ghost files on NFS are not supported\n");
+			return -1;
+		}
+
 		/*
 		 * Unpleasant, but easy case. File is completely invisible
 		 * from the FS. Just dump its contents and that's it. But
