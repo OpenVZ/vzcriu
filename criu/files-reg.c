@@ -853,6 +853,14 @@ static int create_spfs(int mnt_id, const char *rpath, size_t size, GhostFileEntr
 	if (mkdirname(path, 0755))
 		return -1;
 
+	if (S_ISLNK(gfe->mode) && !gfe->symlnk_target) {
+		/*
+		 * Backward compatibility. Old images (vz7-u15) may have spfs
+		 * files without symlnk_target, but mklnk_ghost requires it.
+		 */
+		gfe->symlnk_target = "CRIU_SPFS_SYMLINK_PLACEHOLDER";
+	}
+
 	ret = create_ghost_dentry(path, gfe, img);
 	if (ret)
 		return -1;
@@ -1616,6 +1624,11 @@ static int check_path_remap(struct fd_link *link, const struct fd_parms *parms, 
 	}
 
 	if (ost->st_nlink == 0) {
+		if (spfs_file(parms, nsid)) {
+			pr_err("Ghost files on NFS are not supported\n");
+			return -1;
+		}
+
 		/*
 		 * Unpleasant, but easy case. File is completely invisible
 		 * from the FS. Just dump its contents and that's it. But

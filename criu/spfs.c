@@ -78,7 +78,7 @@ static int spfs_send_request(int sock, void *req, size_t len)
 
 int spfs_remap_path(const char *path, const char *link_remap)
 {
-	if (setxattr(path, "security.spfs.link_remap", link_remap, strlen(link_remap) + 1, XATTR_CREATE)) {
+	if (lsetxattr(path, "security.spfs.link_remap", link_remap, strlen(link_remap) + 1, XATTR_CREATE)) {
 		pr_perror("failed to set xattr security.spfs.link_remap with value %s for file %s", link_remap, path);
 		return -1;
 	}
