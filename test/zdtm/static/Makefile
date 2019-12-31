@@ -394,6 +394,7 @@ TST_DIR		=				\
 		unbindable			\
 		pty05				\
 		unlink_dir			\
+		mnt_ext_sharing			\
 
 TST_DIR_FILE	=				\
 		chroot				\
