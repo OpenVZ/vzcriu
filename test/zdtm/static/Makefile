@@ -359,6 +359,7 @@ TST_DIR		=				\
 		pty05				\
 		unlink_dir			\
 		symlink				\
+		mnt_ext_sharing			\
 
 TST_DIR_FILE	=				\
 		chroot				\
