@@ -542,7 +542,8 @@ static int try_resolve_ext_mount(struct mount_info *info)
 	snprintf(devstr, sizeof(devstr), "dev[%d/%d]",
 			kdev_major(info->s_dev),  kdev_minor(info->s_dev));
 
-	if (info->fstype->code == FSTYPE__UNSUPPORTED) {
+	if (info->fstype->code == FSTYPE__UNSUPPORTED &&
+	    fsroot_mounted(info)) {
 		char *val;
 
 		val = external_lookup_by_key(devstr);
@@ -2913,8 +2914,8 @@ static int do_mount_one(struct mount_info *mi)
 			return -1;
 		mi->mounted = true;
 		ret = 0;
-	} else if ((!mi->bind && !mi->need_plugin && !mi->external) ||
-		   (mi->external && !strcmp(mi->external, EXTERNAL_DEV_MOUNT)))
+	} else if (!mi->bind && !mi->need_plugin && (!mi->external ||
+		   !strcmp(mi->external, EXTERNAL_DEV_MOUNT)))
 		ret = do_new_mount(mi);
 	else
 		ret = do_bind_mount(mi);
