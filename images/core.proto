@@ -126,6 +126,7 @@ message thread_core_entry {
 
 	optional string			comm		= 13;
 	optional uint64			blk_sigset_extended	= 14;
+	optional uint64			vz_start_time	= 1001;
 }
 
 message task_rlimits_entry {

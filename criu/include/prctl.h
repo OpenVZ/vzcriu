@@ -82,4 +82,14 @@ struct prctl_mm_map {
 # define PR_GET_THP_DISABLE	42
 #endif
 
+#ifndef PR_SET_TASK_CT_FIELDS
+/* Set task container related fields */
+#define PR_SET_TASK_CT_FIELDS	1000
+#define PR_TASK_CT_FIELDS_START_TIME	(1ULL << 0)
+
+struct prctl_task_ct_fields {
+	s64 real_start_time;
+};
+#endif
+
 #endif /* __CR_PRCTL_H__ */

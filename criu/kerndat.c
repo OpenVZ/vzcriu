@@ -852,6 +852,33 @@ static int kerndat_x86_has_ptrace_fpu_xsave_bug(void)
 	return 0;
 }
 
+
+static int kerndat_task_ct_fields_supported(void)
+{
+	long ret;
+	struct prctl_task_ct_fields ct_fields = { 0 };
+	/*
+	 * arg2 to this prctl is flags. If flags are not set, nothing would
+	 * be done inside prctl, but it will still succeed.
+	 * But if it's unsupported, we will see EINVAL;
+	 */
+	ret = prctl(PR_SET_TASK_CT_FIELDS, (unsigned long)&ct_fields, 0, 0, 0);
+	if (ret) {
+	       if (errno == EINVAL) {
+			kdat.task_ct_fields_supported = false;
+			pr_info("prctl code PR_SET_TASK_CT_FIELDS is unsupported by kernel version. "
+				"Restore of task's start_time field will be skipped.\n");
+			return 0;
+	       }
+
+	       pr_perror("Failed to check ct-fields kernel support");
+	       return -1;
+	}
+
+	kdat.task_ct_fields_supported = true;
+	return 0;
+}
+
 #define KERNDAT_CACHE_FILE	KDAT_RUNDIR"/criu.kdat"
 #define KERNDAT_CACHE_FILE_TMP	KDAT_RUNDIR"/.criu.kdat"
 
@@ -1254,6 +1281,11 @@ int kerndat_init(void)
 	}
 	if (!ret && kerndat_ve_ctty()) {
 		pr_err("kerndat_ve_ctty failed when initializing kerndat.\n");
+		ret = -1;
+	}
+
+	if (!ret && kerndat_task_ct_fields_supported()) {
+		pr_err("kerndat_task_ct_fields_supported failed when initializing kerndat.\n");
 		ret = -1;
 	}
 

@@ -71,6 +71,7 @@ struct kerndat_s {
 	bool has_clone3_set_tid;
 	bool has_timens;
 	bool has_ve_ctty;
+	bool task_ct_fields_supported;
 };
 
 extern struct kerndat_s kdat;

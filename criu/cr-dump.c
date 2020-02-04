@@ -1004,11 +1004,64 @@ static int dump_task_ids(struct pstree_item *item, const struct cr_imgset *cr_im
 	return pb_write_one(img_from_set(cr_imgset, CR_FD_IDS), item->ids, PB_IDS);
 }
 
-int dump_thread_core(int pid, CoreEntry *core, const struct parasite_dump_thread *ti)
+struct get_internal_start_time_rq {
+	int pid;
+	unsigned long long result;
+};
 
+static int child_get_internal_start_time(void *arg)
+{
+	struct proc_pid_stat p;
+	struct get_internal_start_time_rq *r =
+		(struct get_internal_start_time_rq *)arg;
+
+	/* We need to join ve to access container relative
+	 * value of task's start_time, otherwize we will see
+	 * start_time visible to host.
+	 */
+	if (join_veX(r->pid)) {
+		pr_err("Failed to join ve, owning process %d\n", r->pid);
+		return -1;
+	}
+
+	if (parse_pid_stat(r->pid, &p)) {
+		pr_err("Failed to parse /proc/[pid]/stat for process: %d\n", r->pid);
+		return -1;
+	}
+
+	r->result = p.start_time;
+	return 0;
+}
+
+static int dump_thread_ve_start_time(int pid, ThreadCoreEntry *thread_core)
+{
+	int ret;
+	struct get_internal_start_time_rq r = {
+		.pid = pid,
+		.result = 0
+	};
+
+	ret = call_in_child_process(child_get_internal_start_time, &r);
+	if (ret) {
+		pr_err("Failed to get internal start_time of a process from ve\n");
+		return ret;
+	}
+
+	thread_core->has_vz_start_time = true;
+	thread_core->vz_start_time = r.result;
+
+	pr_info("Dumped start_time for task %d is %lu\n",
+		pid, thread_core->vz_start_time);
+	return 0;
+}
+
+int dump_thread_core(int pid, CoreEntry *core, const struct parasite_dump_thread *ti)
 {
 	int ret;
 	ThreadCoreEntry *tc = core->thread_core;
+
+	if (dump_thread_ve_start_time(pid, tc))
+		return -1;
 
 	ret = collect_lsm_profile(pid, tc->creds);
 	if (!ret) {
@@ -1225,11 +1278,15 @@ static int dump_one_zombie(const struct pstree_item *item,
 	int ret = -1;
 	struct cr_img *img;
 
-	core = core_entry_alloc(0, 1);
+	core = core_entry_alloc(1, 1);
 	if (!core)
 		return -1;
 
 	strlcpy((char *)core->tc->comm, pps->comm, TASK_COMM_LEN);
+
+	if (dump_thread_ve_start_time(vpid(item), core->thread_core))
+		return -1;
+
 	core->tc->task_state = TASK_DEAD;
 	core->tc->exit_code = pps->exit_code;
 
