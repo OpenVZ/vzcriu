@@ -119,6 +119,7 @@ message thread_core_entry {
 	optional uint32			seccomp_filter	= 12;
 
 	optional string			comm		= 13;
+	optional uint64			start_time	= 14;
 }
 
 message task_rlimits_entry {

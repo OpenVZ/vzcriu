@@ -74,6 +74,7 @@
 #include "sigframe.h"
 #include "fdstore.h"
 #include "spfs.h"
+#include "prctl.h"
 
 #include "parasite-syscall.h"
 #include "files-reg.h"
@@ -1122,6 +1123,63 @@ static int wait_on_helpers_zombies(void)
 
 static int wait_exiting_children(char *prefix);
 
+static int restore_zombie_start_time(CoreEntry *core, pid_t pid)
+{
+	/* Zombie's start_time restoration differs from the one for a live task.
+	 * Here is why:
+	 *
+	 * For alive task the main codepath is done in pie sigreturn
+	 * restorer. Each thread in a process executes restorer blob code before
+	 * doing a sigreturn. Within a restorer blob each thread get's the chance
+	 * to run start_time restoration code for itself via prctl. Prctl identifies
+	 * each thread and set's start_time field nicely.
+	 *
+	 * Zombie process is special. We don't support multithreaded zombies and we don't run
+	 * any parasite code. We just create one single-threaded process in this very callstack,
+	 * patch some stats and kill it back. Right now we are in this single zombie thread,
+	 * so we can call prctl to set start_time for it right here.
+	 * If we decide to somewhy support zombies more, this code might be changed.
+	 */
+
+	int ret;
+	unsigned long flags;
+	long ticks_per_sec;
+	struct prctl_task_ct_fields ct_fields;
+
+	if (!kdat.task_ct_fields_supported)
+		return 0;
+
+	if (!core->thread_core) {
+		pr_info("Skipping zombie start_time restore. thread_core missing in dump.\n");
+		return 0;
+	}
+
+	if (!core->thread_core->has_start_time) {
+		pr_info("Skipping start_time restore for old image format.\n");
+		return 0;
+	}
+
+	ticks_per_sec = sysconf(_SC_CLK_TCK);
+	if (ticks_per_sec == -1) {
+		pr_perror("Failed to get clock ticks via sysconf");
+		return -1;
+	}
+
+	ct_fields.real_start_time = core->thread_core->start_time * (NSEC_PER_SEC / ticks_per_sec);
+	flags = PR_TASK_CT_FIELDS_START_TIME;
+
+	ret = prctl(PR_SET_TASK_CT_FIELDS, (unsigned long)&ct_fields, flags, 0, 0);
+	if (ret) {
+		pr_perror("Failed to restore zombie start_time");
+		return ret;
+	}
+
+	pr_info("Restored zombie start_time for task %d is %lu\n",
+		pid,
+		core->thread_core->start_time);
+	return 0;
+}
+
 static int restore_one_zombie(CoreEntry *core)
 {
 	int exit_code = core->tc->exit_code;
@@ -1135,6 +1193,9 @@ static int restore_one_zombie(CoreEntry *core)
 		return -1;
 
 	prctl(PR_SET_NAME, (long)(void *)core->tc->comm, 0, 0, 0);
+
+	if (restore_zombie_start_time(core, vpid(current)))
+		return -1;
 
 	if (task_entries != NULL) {
 		if (wait_exiting_children("zombie"))
@@ -2160,31 +2221,6 @@ static int write_restored_pid(void)
 }
 
 extern char *get_dumpee_veid(pid_t pid_real);
-
-#define join_veX(pid)	join_ve(pid, true)
-
-/*
- * Use join_ve0 very carefully! We have checks in kernel to prohibit execution
- * of files on CT mounts for security. All mounts created after join_veX are
- * marked as CT mounts, including all mounts of the root_yard temporary mntns.
- * So if you do join_ve0 you can be blocked from executing anything.
- *
- * https://jira.sw.ru/browse/PSBM-98702
- *
- * note: If for some reason we will desperately need to execute binaries from
- * mounts in the root_yard temporary mntns from VE0 we have an option:
- *
- * In restore_root_task before calling join_veX we can clone a helper process
- * which will create CT userns and mntns first (all mounts are marked as host
- * mounts), next after join_veX in restore_root_task we create another helper
- * process which setns'es to these user and mnt namespaces, and from these
- * helper we can clone CT init process obviousely without CLONE_NEWNS and
- * CLONE_NEWUSER. These way userns, mntns, ve will be preserved for all tasks
- * but all mounts cloned from host will be marked as host mounts, and execution
- * on them will be allowed even from VE0.
- */
-
-#define join_ve0(pid)	join_ve(pid, false)
 
 /*
  * To eliminate overhead we don't parse VE cgroup mountpoint
@@ -3470,6 +3506,7 @@ static int sigreturn_restore(pid_t pid, struct task_restore_args *task_args, uns
 
 	long new_sp;
 	long ret;
+	long ticks_per_sec;
 
 	long rst_mem_size;
 	long memzone_size;
@@ -3497,6 +3534,12 @@ static int sigreturn_restore(pid_t pid, struct task_restore_args *task_args, uns
 
 	BUILD_BUG_ON(sizeof(struct task_restore_args) & 1);
 	BUILD_BUG_ON(sizeof(struct thread_restore_args) & 1);
+
+	ticks_per_sec = sysconf(_SC_CLK_TCK);
+	if (ticks_per_sec == -1) {
+		pr_perror("Failed to get clock ticks via sysconf");
+		return -1;
+	}
 
 	/*
 	 * Read creds info for every thread and allocate memory
@@ -3754,6 +3797,17 @@ static int sigreturn_restore(pid_t pid, struct task_restore_args *task_args, uns
 		else
 			strncpy(thread_args[i].comm, core->tc->comm, TASK_COMM_LEN - 1);
 		thread_args[i].comm[TASK_COMM_LEN - 1] = 0;
+
+		thread_args[i].restore_start_time = false;
+		if (kdat.task_ct_fields_supported) {
+			if (!tcore->thread_core->has_start_time) {
+				pr_warn("Skipping restore_start_time for old image version.\n");
+			} else {
+				thread_args[i].start_time =
+					tcore->thread_core->start_time * (NSEC_PER_SEC / ticks_per_sec);
+				thread_args[i].restore_start_time = true;
+			}
+		}
 
 		if (thread_args[i].pid != pid)
 			core_entry__free_unpacked(tcore, NULL);

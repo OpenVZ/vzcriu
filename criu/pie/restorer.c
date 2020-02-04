@@ -113,6 +113,28 @@ void parasite_cleanup(void)
 {
 }
 
+static int restore_start_time(struct thread_restore_args *args)
+{
+	int ret;
+	unsigned long flags;
+	struct prctl_task_ct_fields ct_fields;
+
+	if (!args->restore_start_time)
+		return 0;
+
+	ct_fields.real_start_time = args->start_time;
+	flags = PR_TASK_CT_FIELDS_START_TIME;
+
+	ret = sys_prctl_safe(PR_SET_TASK_CT_FIELDS, (unsigned long)&ct_fields, flags, 0);
+	if (ret) {
+		pr_info("Failed to restore start_time\n");
+		return ret;
+	}
+
+	pr_info("Restored start_time to %lld\n", args->start_time);
+	return 0;
+}
+
 extern void cr_restore_rt (void) asm ("__cr_restore_rt")
 			__attribute__ ((visibility ("hidden")));
 
@@ -522,6 +544,9 @@ static int restore_thread_common(struct thread_restore_args *args)
 		return -1;
 
 	restore_sched_info(&args->sp);
+
+	if (restore_start_time(args))
+		return -1;
 
 	if (restore_nonsigframe_gpregs(&args->gpregs))
 		return -1;

@@ -77,6 +77,7 @@ struct kerndat_s {
 	bool has_inotify_setnextwd;
 	bool has_kcmp_epoll_tfd;
 	bool has_ve_ctty;
+	bool task_ct_fields_supported;
 };
 
 extern struct kerndat_s kdat;
