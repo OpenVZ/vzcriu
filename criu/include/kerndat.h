@@ -89,6 +89,7 @@ struct kerndat_s {
 	bool has_ipv6_freebind;
 	bool has_ve_ctty;
 	bool has_beancounters;
+	bool task_ct_fields_supported;
 };
 
 extern struct kerndat_s kdat;
