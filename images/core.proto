@@ -107,6 +107,8 @@ message thread_core_entry {
 	optional uint64			blk_sigset_extended	= 14;
 	optional rseq_entry		rseq_entry	= 15;
 	optional uint32			cg_set		= 16;
+
+	optional uint64			vz_start_time	= 1001;
 }
 
 message task_rlimits_entry {

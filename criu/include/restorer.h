@@ -123,6 +123,17 @@ struct thread_restore_args {
 	char comm[TASK_COMM_LEN];
 	int cg_set;
 	int cgroupd_sk;
+
+	/*
+	 * set to 1 if start_time value is valid
+	 * and should be used for restore process
+	 */
+	bool restore_start_time;
+	/*
+	 * start_time of a recovered process
+	 * in ticks format as shown in /proc/pid/stat(22)
+	 */
+	unsigned long long start_time;
 } __aligned(64);
 
 typedef long (*thread_restore_fcall_t)(struct thread_restore_args *args);
