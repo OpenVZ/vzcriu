@@ -993,13 +993,30 @@ static int clean_ghost_dir(int rmntns_root, struct remap_info *ri)
 	struct file_remap *remap = ri->rfi->remap;
 	int ret = unlinkat(rmntns_root, remap->rpath, AT_REMOVEDIR);
 	/*
-	 * When deleting ghost directories here is two issues:
+	 * When deleting ghost directories here is an issue:
 	 * - names might duplicate, so we may receive ENOENT
 	 *   and should not treat it as an error
 	 */
-	if (ret)
-		return errno == ENOENT ? 0 : -errno;
-	return 0;
+	if (!ret || errno == ENOENT)
+		return 0;
+
+	/* Lets see what is inside for PSBM-101145 */
+	if (errno == ENOTEMPTY) {
+		int dfd, errno_saved = errno;
+
+		dfd = openat(rmntns_root, remap->rpath, O_DIRECTORY);
+		if (dfd >= 0) {
+			ret = is_empty_dir(dfd);
+			if (ret == 1)
+				pr_err("Got ENOTEMPTY on empty dir?\n");
+		} else {
+			pr_perror("Failed to openat %d:%s", rmntns_root, remap->rpath);
+		}
+
+		errno = errno_saved;
+	}
+
+	return -1;
 }
 
 static int clean_one_remap(struct remap_info *ri)

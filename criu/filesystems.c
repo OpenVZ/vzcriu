@@ -669,10 +669,11 @@ static int dump_empty_fs(struct mount_info *pm)
 		return fd;
 
 	ret = is_empty_dir(fd);
-	if (ret < 0) {
-		pr_err("%s isn't empty\n", pm->fstype->name);
+	if (ret < 0)
 		return -1;
-	}
+
+	if (!ret)
+		pr_warn("%d:%s isn't empty\n", pm->mnt_id, pm->fstype->name);
 
 	return ret ? 0 : -1;
 }
