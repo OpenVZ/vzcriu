@@ -1144,12 +1144,30 @@ static int clean_ghost_dir(char *rpath)
 
 	ret = rmdir(rpath);
 	/*
-	 * When deleting ghost directories here is two issues:
+	 * When deleting ghost directories here is an issue:
 	 * - names might duplicate, so we may receive ENOENT
 	 *   and should not treat it as an error
 	 */
-	if (ret && errno != ENOENT)
+	if (ret && errno != ENOENT) {
+		/* Lets see what is inside for PSBM-101145 */
+		if (errno == ENOTEMPTY) {
+			int dfd, errno_saved = errno;
+
+			dfd = open(rpath, O_DIRECTORY);
+			if (dfd >= 0) {
+				ret = is_empty_dir(dfd);
+				if (ret == 1)
+					pr_err("Got ENOTEMPTY on empty dir?\n");
+			} else {
+				pr_perror("Failed to open %s", rpath);
+			}
+
+			errno = errno_saved;
+		}
+
 		return -1;
+	}
+
 	return 0;
 }
 

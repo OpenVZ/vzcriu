@@ -870,6 +870,7 @@ int is_empty_dir(int dirfd)
 		if (dir_dots(de))
 			continue;
 
+		pr_debug("Dir %d is not empty, contains: %s\n", dirfd, de->d_name);
 		goto out;
 	}
 
