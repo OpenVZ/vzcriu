@@ -29,6 +29,7 @@
 #include "fdstore.h"
 #include "kerndat.h"
 #include "sockets.h"
+#include "rst-malloc.h"
 
 #include "images/mnt.pb-c.h"
 
@@ -1643,13 +1644,13 @@ err:
 	return -1;
 }
 
-static __maybe_unused struct mount_info *add_cr_time_mount(struct mount_info *root, char *fsname, const char *path, unsigned int s_dev)
+static __maybe_unused struct mount_info *add_cr_time_mount(struct mount_info *root, char *fsname, const char *path, unsigned int s_dev, bool rst)
 {
 	struct mount_info *mi, *t, *parent;
 	bool add_slash = false;
 	int len;
 
-	mi = mnt_entry_alloc();
+	mi = mnt_entry_alloc(rst);
 	if (!mi)
 		return NULL;
 
@@ -1855,7 +1856,7 @@ static __maybe_unused int mount_and_collect_binfmt_misc(void *unused)
 		ret = -1;
 	} else if (ret > 0) {
 		ret = -!add_cr_time_mount(ns->mnt.mntinfo_tree, "binfmt_misc",
-				       BINFMT_MISC_HOME, s_dev);
+					  BINFMT_MISC_HOME, s_dev, false);
 	}
 
 	return ret;
@@ -3158,7 +3159,7 @@ err_root:
 	return exit_code;
 }
 
-struct mount_info *mnt_entry_alloc()
+struct mount_info *mnt_entry_alloc(bool rst)
 {
 	struct mount_info *new;
 
@@ -3169,6 +3170,13 @@ struct mount_info *mnt_entry_alloc()
 
 	new = xzalloc(sizeof(struct mount_info));
 	if (new) {
+		if (rst) {
+			new->remounted_rw = shmalloc(sizeof(int));
+			if (!new->remounted_rw) {
+				xfree(new);
+				return NULL;
+			}
+		}
 		new->fd = -1;
 		new->is_overmounted = -1;
 		INIT_LIST_HEAD(&new->children);
@@ -3379,7 +3387,7 @@ static int collect_mnt_from_image(struct mount_info **head, struct mount_info **
 		if (ret <= 0)
 			break;
 
-		pm = mnt_entry_alloc();
+		pm = mnt_entry_alloc(true);
 		if (!pm)
 			goto err;
 
@@ -3675,7 +3683,7 @@ static int populate_mnt_ns(void)
 	struct mount_info *cr_time = NULL;
 	int ret;
 
-	root_yard_mp = mnt_entry_alloc();
+	root_yard_mp = mnt_entry_alloc(true);
 	if (!root_yard_mp)
 		return -1;
 
@@ -3695,7 +3703,8 @@ static int populate_mnt_ns(void)
 		 * friends, you can make non-restorable tree. But it works yet,
 		 * so leave it.
 		 */
-		cr_time = add_cr_time_mount(root_yard_mp, "binfmt_misc", "binfmt_misc", 0);
+		cr_time = add_cr_time_mount(root_yard_mp, "binfmt_misc",
+					    "binfmt_misc", 0, true);
 		if (!cr_time)
 			return -1;
 	}
@@ -4274,7 +4283,10 @@ int try_remount_writable(struct mount_info *mi, bool ns)
 	if (!ns)
 		remounted = REMOUNTED_RW_SERVICE;
 
-	if (mi->flags & MS_RDONLY && !(mi->remounted_rw & remounted)) {
+	/* All mounts in mntinfo list should have it on restore */
+	BUG_ON(mi->remounted_rw == NULL);
+
+	if (mi->flags & MS_RDONLY && !(*mi->remounted_rw & remounted)) {
 		if (mnt_is_overmounted(mi)) {
 			pr_err("The mount %d is overmounted so paths are invisible\n", mi->mnt_id);
 			return -1;
@@ -4297,7 +4309,7 @@ int try_remount_writable(struct mount_info *mi, bool ns)
 			if (call_helper_process(ns_remount_writable, mi))
 				return -1;
 		}
-		mi->remounted_rw |= remounted;
+		*mi->remounted_rw |= remounted;
 	}
 
 	return 0;
@@ -4312,7 +4324,7 @@ static int __remount_readonly_mounts(struct ns_id *ns)
 		if (ns && mi->nsid != ns)
 			continue;
 
-		if (!(mi->remounted_rw && REMOUNTED_RW))
+		if (!(*mi->remounted_rw && REMOUNTED_RW))
 			continue;
 
 		/*

@@ -83,7 +83,7 @@ struct mount_info {
 	struct list_head	postpone;
 
 	int			is_overmounted;
-	int			remounted_rw;
+	int			*remounted_rw;
 
 	void			*private;	/* associated filesystem data */
 };
@@ -96,7 +96,7 @@ extern int collect_binfmt_misc(void);
 static inline int collect_binfmt_misc(void) { return 0; }
 #endif
 
-extern struct mount_info *mnt_entry_alloc();
+extern struct mount_info *mnt_entry_alloc(bool rst);
 extern void mnt_entry_free(struct mount_info *mi);
 
 extern int __mntns_get_root_fd(pid_t pid);
