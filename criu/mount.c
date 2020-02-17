@@ -634,14 +634,14 @@ static bool mnt_needs_remap(struct mount_info *m)
 	return false;
 }
 
-static bool __mnt_is_external(struct mount_info *m, bool need_master)
-{
+static struct mount_info *__mnt_get_external(struct mount_info *m, bool need_master,
+					    bool need_mounted) {
 	struct mount_info *t;
 
 	BUG_ON(!m);
 
 	if (m->external)
-		return 1;
+		return m;
 
 	/*
 	 * Shouldn't use mnt_bind list before it was setup in
@@ -652,24 +652,30 @@ static bool __mnt_is_external(struct mount_info *m, bool need_master)
 	list_for_each_entry(t, &m->mnt_bind, mnt_bind)
 		if (t->external &&
 		    (!need_master || t->master_id == m->master_id) &&
+		    (!need_mounted || t->mounted) &&
 		    issubpath(m->root, t->root))
-			return 1;
+			return t;
 
-	return 0;
+	return NULL;
 }
 
 /*
  * Say mount is external if it was explicitly specified as an external or it
  * can be bind-mounted from such an explicit external mount.
  */
-static bool mnt_is_external(struct mount_info *m)
+static struct mount_info *mnt_is_external(struct mount_info *m)
 {
-	return __mnt_is_external(m, 0);
+	return __mnt_get_external(m, 0, 0);
 }
 
 static bool can_receive_master_from_external(struct mount_info *m)
 {
-	return __mnt_is_external(m, 1);
+	return __mnt_get_external(m, 1, 0);
+}
+
+static bool has_mounted_external_bind(struct mount_info *m)
+{
+	return __mnt_get_external(m, 0, 1);
 }
 
 /*
@@ -2816,6 +2822,8 @@ static bool rst_mnt_is_root(struct mount_info *m)
 
 static bool can_mount_now(struct mount_info *mi)
 {
+	struct mount_info *ext;
+
 	if (rst_mnt_is_root(mi)) {
 		pr_debug("%s: true as %d is mntns root\n", __func__, mi->mnt_id);
 		return true;
@@ -2826,6 +2834,12 @@ static bool can_mount_now(struct mount_info *mi)
 
 	if (mi->external)
 		goto shared;
+
+	if ((ext = mnt_is_external(mi)) && !has_mounted_external_bind(mi)) {
+		pr_debug("%s: false as %d's external %d is not mounted\n",
+			 __func__, mi->mnt_id, ext->mnt_id);
+		return false;
+	}
 
 	/*
 	 * We're the slave peer:
