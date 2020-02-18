@@ -1152,9 +1152,11 @@ static void __search_bindmounts(struct mount_info *m)
 		m->mnt_no_bind = true;
 }
 
-static int resolve_shared_mounts(struct mount_info *info, int root_master_id)
+static int resolve_shared_mounts(struct mount_info *info)
 {
 	struct mount_info *m, *t;
+	struct ns_id *root_mntns =
+		lookup_ns_by_id(root_item->ids->mnt_ns_id, &mnt_ns_desc);
 
 	/*
 	 * If we have a shared mounts, both master
@@ -1165,12 +1167,8 @@ static int resolve_shared_mounts(struct mount_info *info, int root_master_id)
 	for (m = info; m; m = m->next) {
 		bool need_share, need_master;
 
-		/* the root master_id can be ignored, because it's already created */
-		if (root_master_id && root_master_id == m->master_id)
-			m->master_id = -1;
-
 		need_share = m->shared_id && list_empty(&m->mnt_share);
-		need_master = m->master_id > 0;
+		need_master = m->master_id;
 
 		pr_debug("Inspecting sharing on %2d shared_id %d master_id %d (@%s)\n",
 			 m->mnt_id, m->shared_id, m->master_id, m->mountpoint);
@@ -1204,7 +1202,9 @@ static int resolve_shared_mounts(struct mount_info *info, int root_master_id)
 		 */
 		if (need_master && m->parent) {
 			t = mnt_get_external_need_master(m);
-			if (t) {
+			if (!t)
+				t = root_mntns->mnt.mntinfo_tree;
+			if (m->master_id == t->master_id) {
 				pr_debug("Detected external slavery on %d\n",
 					 m->mnt_id);
 				if (m != t)
@@ -2378,7 +2378,7 @@ skip_parent:
 				continue;
 			if (t->bind)
 				continue;
-			if (t->master_id > 0)
+			if (t->master_id)
 				continue;
 			if (!issubpath(t->root, mi->root))
 				continue;
@@ -2980,8 +2980,16 @@ shared:
 
 static int do_mount_root(struct mount_info *mi)
 {
-	if (restore_shared_options(mi, !mi->shared_id && !mi->master_id,
-						mi->shared_id, mi->master_id))
+	int private = (!mi->external_slavery || !mi->master_id) &&
+		      (mi->internal_sharing || !mi->shared_id);
+
+	if (!mi->external_slavery && mi->master_id) {
+		pr_err("%d: Internal slavery for root mount "
+		       "is not supported\n", mi->mnt_id);
+		return -1;
+	}
+
+	if (restore_shared_options(mi, private, mi->shared_id, mi->master_id))
 		return -1;
 
 	return fetch_rt_stat(mi, mi->mountpoint);
@@ -3849,7 +3857,7 @@ static int populate_mnt_ns(void)
 	}
 #endif
 
-	if (resolve_shared_mounts(mntinfo, 0))
+	if (resolve_shared_mounts(mntinfo))
 		return -1;
 
 	if (validate_mounts(mntinfo, false))
@@ -4264,7 +4272,6 @@ int mntns_get_root_by_mnt_id(int mnt_id)
 struct collect_mntns_arg {
 	bool need_to_validate;
 	bool for_dump;
-	int root_master_id;
 };
 
 static int collect_mntns(struct ns_id *ns, void *__arg)
@@ -4280,9 +4287,6 @@ static int collect_mntns(struct ns_id *ns, void *__arg)
 		arg->need_to_validate = true;
 
 	mntinfo_add_list(pms);
-
-	if (arg->need_to_validate && ns->id == root_item->ids->mnt_ns_id)
-		arg->root_master_id = ns->mnt.mntinfo_tree->master_id;
 
 	return 0;
 }
@@ -4314,7 +4318,7 @@ int collect_mnt_namespaces(bool for_dump)
 	if (arg.need_to_validate) {
 		ret = -1;
 
-		if (resolve_shared_mounts(mntinfo, arg.root_master_id))
+		if (resolve_shared_mounts(mntinfo))
 			goto err;
 		if (validate_mounts(mntinfo, true))
 			goto err;
