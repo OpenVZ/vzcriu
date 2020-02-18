@@ -360,6 +360,7 @@ TST_DIR		=				\
 		unlink_dir			\
 		symlink				\
 		mnt_ext_sharing			\
+		mnt_ext_root			\
 
 TST_DIR_FILE	=				\
 		chroot				\
