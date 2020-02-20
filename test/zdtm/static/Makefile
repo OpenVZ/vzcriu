@@ -437,6 +437,7 @@ TST_DIR		=				\
 		mnt_ext_sharing			\
 		mnt_ext_multiple		\
 		mount_complex_sharing		\
+		mnt_ext_master_manual		\
 		mnt_tracefs			\
 		mntns_deleted			\
 		mntns_deleted01			\
