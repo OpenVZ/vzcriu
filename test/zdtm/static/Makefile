@@ -361,6 +361,7 @@ TST_DIR		=				\
 		symlink				\
 		mnt_ext_sharing			\
 		mnt_ext_root			\
+		mnt_ext_master_manual		\
 
 TST_DIR_FILE	=				\
 		chroot				\
