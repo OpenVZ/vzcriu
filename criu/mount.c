@@ -668,7 +668,7 @@ static struct mount_info *mnt_is_external(struct mount_info *m)
 	return __mnt_get_external(m, 0, 0);
 }
 
-static bool can_receive_master_from_external(struct mount_info *m)
+static struct mount_info *mnt_get_external_need_master(struct mount_info *m)
 {
 	return __mnt_get_external(m, 1, 0);
 }
@@ -1203,9 +1203,12 @@ static int resolve_shared_mounts(struct mount_info *info, int root_master_id)
 		 * or bind of external, then we don't know where it came from.
 		 */
 		if (need_master && m->parent) {
-			if (can_receive_master_from_external(m)) {
+			t = mnt_get_external_need_master(m);
+			if (t) {
 				pr_debug("Detected external slavery on %d\n",
 					 m->mnt_id);
+				if (m != t)
+					list_add(&m->mnt_ext_slave, &t->mnt_ext_slave);
 				m->external_slavery = true;
 				continue;
 			}
@@ -2322,6 +2325,14 @@ static int propagate_siblings(struct mount_info *mi)
 		t->s_dev_rt = mi->s_dev_rt;
 	}
 
+	list_for_each_entry(t, &mi->mnt_ext_slave, mnt_ext_slave) {
+		if (t->mounted || t->bind)
+			continue;
+		pr_debug("\t\tBind ext-slave %s\n", t->mountpoint);
+		t->bind = mi;
+		t->s_dev_rt = mi->s_dev_rt;
+	}
+
 	return 0;
 }
 
@@ -3316,6 +3327,7 @@ struct mount_info *mnt_entry_alloc(bool rst)
 		INIT_LIST_HEAD(&new->siblings);
 		INIT_LIST_HEAD(&new->mnt_slave);
 		INIT_LIST_HEAD(&new->mnt_slave_list);
+		INIT_LIST_HEAD(&new->mnt_ext_slave);
 		INIT_LIST_HEAD(&new->mnt_share);
 		INIT_LIST_HEAD(&new->mnt_bind);
 		INIT_LIST_HEAD(&new->mnt_propagate);
