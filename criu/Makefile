@@ -136,6 +136,8 @@ mrproper: subproper
 
 UAPI_HEADERS := criu/include/criu-plugin.h
 UAPI_HEADERS += criu/include/criu-log.h
+UAPI_HEADERS += criu/include/cr-syslog.h
+UAPI_HEADERS += criu/include/log.h
 
 install: $(obj)/criu
 	$(E) "  INSTALL " $(obj)/criu
