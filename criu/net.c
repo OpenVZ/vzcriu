@@ -1946,6 +1946,24 @@ static int restore_links(void)
 	return 0;
 }
 
+static int run_ipset_tool(char *sub_cmd, int fdin, int fdout)
+{
+	char *cmd;
+	int ret;
+
+	cmd = getenv("CR_IPSET_TOOL");
+	if (!cmd)
+		cmd = "ipset";
+
+	ret = cr_system(fdin, fdout, -1, cmd, (char *[]){ cmd, sub_cmd, NULL }, 0);
+	if (ret) {
+		pr_err("ipset tool failed on %s\n", sub_cmd);
+		return -1;
+	}
+
+	return 0;
+}
+
 static int run_ip_tool(char *arg1, char *arg2, char *arg3, char *arg4, int fdin, int fdout, unsigned flags)
 {
 	char *ip_tool_cmd;
@@ -2027,6 +2045,15 @@ static inline int dump_rule(struct cr_imgset *fds)
 	free(path);
 
 	return 0;
+}
+
+static inline int dump_ipset(struct cr_imgset *fds)
+{
+	int ret;
+	struct cr_img *img;
+	img = img_from_set(fds, CR_FD_IPSET);
+	ret = run_ipset_tool("save", -1, img_raw_fd(img));
+	return ret;
 }
 
 static inline int dump_iptables(struct cr_imgset *fds)
@@ -2362,6 +2389,23 @@ static int prepare_xtable_lock(void)
 	}
 
 	return __prepare_xtable_lock();
+}
+
+static inline int restore_ipset(int pid)
+{
+	int ret;
+	struct cr_img *img;
+	img = open_image(CR_FD_IPSET, O_RSTR, pid);
+	if (img == NULL)
+		return -1;
+	if (empty_image(img)) {
+		ret = 0;
+		goto out;
+	}
+	ret = run_ipset_tool("restore", img_raw_fd(img), -1);
+out:
+	close_image(img);
+	return ret;
 }
 
 static inline int restore_iptables(int pid)
@@ -2880,6 +2924,8 @@ int dump_net_ns(struct ns_id *ns)
 		if (!ret)
 			ret = dump_rule(fds);
 		if (!ret)
+			ret = dump_ipset(fds);
+		if (!ret)
 			ret = dump_iptables(fds);
 		if (!opts.ve) {
 #if defined(CONFIG_HAS_NFTABLES_LIB_API_0) || defined(CONFIG_HAS_NFTABLES_LIB_API_1)
@@ -2981,6 +3027,8 @@ static int prepare_net_ns_second_stage(struct ns_id *ns)
 			ret = restore_route(nsid);
 		if (!ret)
 			ret = restore_rule(nsid);
+		if (!ret)
+			ret = restore_ipset(nsid);
 		if (!ret)
 			ret = restore_iptables(nsid);
 		if (!opts.ve) {
