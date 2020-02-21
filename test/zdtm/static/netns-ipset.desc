@@ -1,0 +1,13 @@
+{
+	'flavor': 'h ns uns',
+	'flags': 'suid',
+	'deps': [
+			'/usr/bin/rm',
+			'/usr/bin/sh',
+			'/usr/bin/diff',
+			'/usr/sbin/ipset',
+			'/usr/sbin/iptables',
+			'/usr/lib64/xtables/libxt_set.so',
+			'/usr/lib64/xtables/libxt_standard.so|/lib/xtables/libxt_standard.so|/usr/lib/powerpc64le-linux-gnu/xtables/libxt_standard.so|/usr/lib/x86_64-linux-gnu/xtables/libxt_standard.so|/usr/lib/xtables/libxt_standard.so'
+		]
+}
