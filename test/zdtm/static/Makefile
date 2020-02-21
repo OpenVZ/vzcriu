@@ -151,6 +151,7 @@ TST_NOFILE	:=				\
 		poll				\
 		mountpoints			\
 		netns				\
+		netns-ipset			\
 		netns-dev			\
 		session01			\
 		session02			\
