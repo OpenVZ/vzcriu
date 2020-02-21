@@ -74,6 +74,7 @@ struct cr_fd_desc_tmpl imgset_template[CR_FD_MAX] = {
 	FD_ENTRY_F(ROUTE,	"route-%u", O_NOBUF),
 	FD_ENTRY_F(ROUTE6,	"route6-%u", O_NOBUF),
 	FD_ENTRY_F(RULE,	"rule-%u", O_NOBUF),
+	FD_ENTRY_F(IPSET,	"ipset-%u", O_NOBUF),
 	FD_ENTRY_F(IPTABLES,	"iptables-%u", O_NOBUF),
 	FD_ENTRY_F(IP6TABLES,	"ip6tables-%u", O_NOBUF),
 	FD_ENTRY_F(NFTABLES,	"nftables-%u", O_NOBUF),
