@@ -84,12 +84,14 @@ extern struct task_entries *task_entries;
 
 static inline void lock_last_pid(void)
 {
-	mutex_lock(&task_entries->last_pid_mutex);
+	if (task_entries)
+		mutex_lock(&task_entries->last_pid_mutex);
 }
 
 static inline void unlock_last_pid(void)
 {
-	mutex_unlock(&task_entries->last_pid_mutex);
+	if (task_entries)
+		mutex_unlock(&task_entries->last_pid_mutex);
 }
 
 #endif /* __CR_RST_INFO_H__ */
