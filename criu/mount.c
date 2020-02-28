@@ -4312,42 +4312,6 @@ void clean_cr_time_mounts(void)
 
 struct ns_desc mnt_ns_desc = NS_DESC_ENTRY(CLONE_NEWNS, "mnt");
 
-static int call_helper_process(int (*call)(void *), void *arg)
-{
-	int pid, status, ret = -1;
-
-	/*
-	 * Running new helper process on the restore must be
-	 * done under last_pid mutex: other tasks may be restoring
-	 * threads and the PID we need there might be occupied by
-	 * this clone() call.
-	 */
-	lock_last_pid();
-
-	pid = clone_noasan(call, CLONE_VFORK | CLONE_VM | CLONE_FILES |
-			   CLONE_IO | CLONE_SIGHAND | CLONE_SYSVSEM, arg);
-	if (pid == -1) {
-		pr_perror("Can't clone helper process");
-		goto out;
-	}
-
-	errno = 0;
-	if (waitpid(pid, &status, __WALL) != pid) {
-		pr_perror("Unable to wait %d", pid);
-		goto out;
-	}
-
-	if (status) {
-		pr_err("Bad child exit status: %d\n", status);
-		goto out;
-	}
-
-	ret = 0;
-out:
-	unlock_last_pid();
-	return ret;
-}
-
 static int ns_remount_writable(void *arg)
 {
 	struct mount_info *mi = (struct mount_info *)arg;
@@ -4399,7 +4363,7 @@ int try_remount_writable(struct mount_info *mi, bool ns)
 				return -1;
 			}
 		} else {
-			if (call_helper_process(ns_remount_writable, mi))
+			if (call_in_child_process(ns_remount_writable, mi))
 				return -1;
 		}
 		*mi->remounted_rw |= remounted;
@@ -4466,7 +4430,7 @@ int remount_readonly_mounts(void)
 	 * Need a helper process because the root task can share fs via
 	 * CLONE_FS and we would not be able to enter mount namespaces
 	 */
-	return call_helper_process(ns_remount_readonly_mounts, NULL);
+	return call_in_child_process(ns_remount_readonly_mounts, NULL);
 }
 
 /*
@@ -4619,7 +4583,7 @@ int check_mounts(void)
 	int ret = 0;
 
 	pr_info("Check restored mount trees\n");
-	if (call_helper_process(ns_check_mounts, &ret))
+	if (call_in_child_process(ns_check_mounts, &ret))
 		return -1;
 
 	return ret;

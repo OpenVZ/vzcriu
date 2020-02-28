@@ -1496,6 +1496,7 @@ int call_in_child_process(int (*fn)(void *), void *arg)
 	pid_t pid;
 
 	in_child_process = true;
+	lock_last_pid();
 	/*
 	 * Parent freezes till child exit, so child may use the same stack.
 	 * No SIGCHLD flag, so it's not need to block signal.
@@ -1506,14 +1507,22 @@ int call_in_child_process(int (*fn)(void *), void *arg)
 		pr_perror("Can't clone");
 		goto err;
 	}
+
 	errno = 0;
-	if (waitpid(pid, &status, __WALL) != pid || !WIFEXITED(status) || WEXITSTATUS(status)) {
-		pr_err("Can't wait or bad status: errno=%d, status=%d\n", errno, status);
+	if (waitpid(pid, &status, __WALL) != pid) {
+		pr_perror("Unable to wait %d", pid);
 		goto err;
 	}
+
+	if (status) {
+		pr_err("Bad child exit status: %d\n", status);
+		goto err;
+	}
+
 	ret = 0;
 err:
 	in_child_process = old_in_child_process;
+	unlock_last_pid();
 	return ret;
 }
 
