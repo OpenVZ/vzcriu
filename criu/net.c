@@ -2834,121 +2834,102 @@ int netns_keep_nsfd(void)
 	return ret >= 0 ? 0 : -1;
 }
 
-/*
- * If we want to modify iptables, we need to received the current
- * configuration, change it and load a new one into the kernel.
- * iptables can change or add only one rule.
- * iptables-restore allows to make a few changes for one iteration,
- * so it works faster.
- */
-static int do_iptables_restore(bool ipv6, char *buf, int size)
+#if defined(CONFIG_HAS_NFTABLES_LIB_API_0) || defined(CONFIG_HAS_NFTABLES_LIB_API_1)
+static inline int nft_network_internal(char *nft_cmd)
 {
-	int pfd[2], ret = -1;
-	char *cmd4[] = {"iptables-restore", "-w", "--noflush", NULL};
-	char *cmd6[] = {"ip6tables-restore", "-w", "--noflush", NULL};
-	char **cmd = ipv6 ? cmd6 : cmd4;
-	int userns_pid = -1;
+	struct nft_ctx *nft;
+	int ret = -1;
 
-	if (pipe(pfd) < 0) {
-		pr_perror("Unable to create pipe");
+	nft = nft_ctx_new(NFT_CTX_DEFAULT);
+	if (!nft)
 		return -1;
-	}
 
-	if (write(pfd[1], buf, size) < size) {
-		pr_perror("Unable to write iptables configugration");
-		goto err;
-	}
-	close_safe(&pfd[1]);
+#if defined(CONFIG_HAS_NFTABLES_LIB_API_0)
+	if (nft_run_cmd_from_buffer(nft, nft_cmd, strlen(nft_cmd)))
+#elif defined(CONFIG_HAS_NFTABLES_LIB_API_1)
+	if (nft_run_cmd_from_buffer(nft, nft_cmd))
+#endif
+		goto nft_ctx_free_out;
 
-	/*
-	 * iptables-restore has to be executed in a network userns,
-	 * otherwise the kernel can return an error. One of these checks
-	 * is in xt_owner.c:owner_check(). But only if we're not
-	 * running zdtm testsuite.
-	 */
-	if (!is_zdtm_run())
-		userns_pid = root_item->pid->real;
+	ret = 0;
+nft_ctx_free_out:
+	nft_ctx_free(nft);
 
-	ret = cr_system_userns(pfd[0], -1, -1, cmd[0], cmd, 0, userns_pid);
-err:
-	close_safe(&pfd[1]);
-	close_safe(&pfd[0]);
 	return ret;
 }
 
-static int iptables_restore(bool ipv6, char *buf, int size)
+static inline int nft_network_lock_internal()
 {
-	int child, status;
+	char nft_lock[] =
+		"table inet criu-table {\n"
+		"	chain input {\n"
+		"		type filter hook input priority 0; policy accept;\n"
+		"		jump criu-chain\n"
+		"	}\n"
+		"\n"
+		"	chain output {\n"
+		"		type filter hook output priority 0; policy accept;\n"
+		"		jump criu-chain\n"
+		"	}\n"
+		"\n"
+		"	chain criu-chain {\n"
+		"		mark " __stringify(SOCCR_MARK) " counter packets 0 bytes 0 accept\n"
+		"		counter packets 0 bytes 0 drop\n"
+		"	}\n"
+		"}\n";
 
-	child = fork();
-	if (child < 0) {
-		pr_perror("failed to fork");
-		return -1;
-	} else if (!child) {
-		_exit(do_iptables_restore(ipv6, buf, size));
+	return nft_network_internal(nft_lock);
+}
+static inline int nft_network_unlock_internal()
+{
+	char nft_unlock[] = "delete table inet criu\n";
+
+	return nft_network_internal(nft_unlock);
+}
+#endif
+
+static int __network_lock_internal(void *arg)
+{
+	bool unlock = arg;
+	int ret = 0;
+
+#if defined(CONFIG_HAS_NFTABLES_LIB_API_0) || defined(CONFIG_HAS_NFTABLES_LIB_API_1)
+	if (switch_ns(root_item->pid->real, &net_ns_desc, NULL))
+		return 1;
+
+	/*
+	 * For zdtm flavour h and ns userns is the same and we get EINVAL
+	 */
+	if (!is_zdtm_run() &&
+	    switch_ns(root_item->pid->real, &user_ns_desc, NULL))
+		return 1;
+
+	if (unlock)
+		ret = nft_network_unlock_internal();
+	else
+		ret = nft_network_lock_internal();
+
+	if (ret) {
+		pr_err("NFT %slock failed, possibly kernel lacks some modules. "
+		       "(CONFIG_NFT_COUNTER and friends)\n", unlock ? "un" : "");
+		return 1;
 	}
+#else
+	BUILD_BUG_ON(1);
+#endif
 
-	if (waitpid(child, &status, 0) != child) {
-		pr_err("failed to collect child %d\n", child);
-		return -1;
-	}
-
-	return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+	return 0;
 }
 
 int network_lock_internal()
 {
-	char conf[] =	"*filter\n"
-				":CRIU - [0:0]\n"
-				"-I INPUT -j CRIU\n"
-				"-I OUTPUT -j CRIU\n"
-				"-A CRIU -m mark --mark " __stringify(SOCCR_MARK) " -j ACCEPT\n"
-				"-A CRIU -j DROP\n"
-				"COMMIT\n";
-	int ret = 0, nsret;
-
-	if (switch_ns(root_item->pid->real, &net_ns_desc, &nsret))
-		return -1;
-
-
-	ret |= iptables_restore(false, conf, sizeof(conf) - 1);
-	if (kdat.ipv6)
-		ret |= iptables_restore(true, conf, sizeof(conf) - 1);
-
-	if (ret)
-		pr_err("Locking network failed: iptables-restore returned %d. "
-			"This may be connected to disabled "
-			"CONFIG_NETFILTER_XT_MARK kernel build config "
-			"option.\n", ret);
-
-	if (restore_ns(nsret, &net_ns_desc))
-		ret = -1;
-
-	return ret;
+	return call_in_child_process(__network_lock_internal, 0);
 }
+
 
 static int network_unlock_internal()
 {
-	char conf[] =	"*filter\n"
-			":CRIU - [0:0]\n"
-			"-D INPUT -j CRIU\n"
-			"-D OUTPUT -j CRIU\n"
-			"-X CRIU\n"
-			"COMMIT\n";
-	int ret = 0, nsret;
-
-	if (switch_ns(root_item->pid->real, &net_ns_desc, &nsret))
-		return -1;
-
-
-	ret |= iptables_restore(false, conf, sizeof(conf) - 1);
-	if (kdat.ipv6)
-		ret |= iptables_restore(true, conf, sizeof(conf) - 1);
-
-	if (restore_ns(nsret, &net_ns_desc))
-		ret = -1;
-
-	return ret;
+	return call_in_child_process(__network_lock_internal, (void *)1);
 }
 
 int network_lock(void)
