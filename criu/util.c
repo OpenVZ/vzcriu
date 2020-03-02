@@ -374,15 +374,23 @@ static int open_proc_sfd(char *path)
 	return 0;
 }
 
+atomic_t in_child_process;
+
 inline int open_pid_proc(pid_t pid)
 {
 	char path[18];
 	int fd;
 	int dfd;
 
-	fd = get_proc_fd(pid);
-	if (fd >= 0)
-		return fd;
+	/*
+	 * Helper child processes can reuse same pid multiple times,
+	 * thus we can't use this cache for them.
+	 */
+	if (!atomic_read(&in_child_process)) {
+		fd = get_proc_fd(pid);
+		if (fd >= 0)
+			return fd;
+	}
 
 	dfd = get_service_fd(PROC_FD_OFF);
 	if (dfd < 0) {
@@ -1426,6 +1434,8 @@ int call_in_child_process(int (*fn)(void *), void *arg)
 {
 	int status, ret = -1;
 	pid_t pid;
+
+	atomic_inc(&in_child_process);
 	/*
 	 * Parent freezes till child exit, so child may use the same stack.
 	 * No SIGCHLD flag, so it's not need to block signal.
@@ -1433,20 +1443,16 @@ int call_in_child_process(int (*fn)(void *), void *arg)
 	pid = clone_noasan(fn, CLONE_VFORK | CLONE_VM | CLONE_FILES | CLONE_IO | CLONE_SIGHAND | CLONE_SYSVSEM, arg);
 	if (pid == -1) {
 		pr_perror("Can't clone");
-		return -1;
+		goto err;
 	}
 	errno = 0;
 	if (waitpid(pid, &status, __WALL) != pid || !WIFEXITED(status) || WEXITSTATUS(status)) {
 		pr_err("Can't wait or bad status: errno=%d, status=%d\n", errno, status);
-		goto out;
+		goto err;
 	}
 	ret = 0;
-	/*
-	 * Child opened PROC_SELF for pid. If we create one more child
-	 * with the same pid later, it will try to reuse this /proc/self.
-	 */
-out:
-	close_pid_proc();
+err:
+	atomic_dec(&in_child_process);
 	return ret;
 }
 
