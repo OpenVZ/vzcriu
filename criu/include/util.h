@@ -363,6 +363,7 @@ extern int epoll_prepare(int nr_events, struct epoll_event **evs);
 
 extern void rlimit_unlimit_nofile(void);
 
+extern bool in_child_process;
 extern int call_in_child_process(int (*fn)(void *), void *arg);
 #ifdef __GLIBC__
 extern void print_stack_trace(pid_t pid);
