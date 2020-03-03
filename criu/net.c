@@ -1916,7 +1916,7 @@ static inline int dump_ipset(struct cr_imgset *fds)
 	return ret;
 }
 
-static inline int dump_iptables(struct cr_imgset *fds)
+static inline __maybe_unused int dump_iptables(struct cr_imgset *fds)
 {
 	struct cr_img *img;
 
@@ -2220,7 +2220,7 @@ out:
 	return ret;
 }
 
-static inline int restore_iptables(int pid)
+static inline __maybe_unused int restore_iptables(int pid)
 {
 	int ret = -1;
 	struct cr_img *img;
@@ -2534,8 +2534,6 @@ int dump_net_ns(struct ns_id *ns)
 			ret = dump_rule(fds);
 		if (!ret)
 			ret = dump_ipset(fds);
-		if (!ret)
-			ret = dump_iptables(fds);
 #if defined(CONFIG_HAS_NFTABLES_LIB_API_0) || defined(CONFIG_HAS_NFTABLES_LIB_API_1)
 		if (!ret)
 			ret = dump_nftables(fds);
@@ -2633,8 +2631,6 @@ static int prepare_net_ns_second_stage(struct ns_id *ns)
 			ret = restore_rule(nsid);
 		if (!ret)
 			ret = restore_ipset(nsid);
-		if (!ret)
-			ret = restore_iptables(nsid);
 #if defined(CONFIG_HAS_NFTABLES_LIB_API_0) || defined(CONFIG_HAS_NFTABLES_LIB_API_1)
 		if (!ret)
 			ret = restore_nftables(nsid);
