@@ -2878,7 +2878,7 @@ static inline int nft_network_lock_internal()
 }
 static inline int nft_network_unlock_internal()
 {
-	char nft_unlock[] = "delete table inet criu\n";
+	char nft_unlock[] = "delete table inet criu-table\n";
 
 	return nft_network_internal(nft_unlock);
 }

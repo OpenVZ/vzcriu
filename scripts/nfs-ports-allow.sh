@@ -7,11 +7,7 @@ if [ ! -n "$CRTOOLS_INIT_PID" ]; then
 	exit 1
 fi
 
-CRTOOLS_IPTABLES_TABLE="CRIU"
-if [ ! -n "$CRTOOLS_IPTABLES_TABLE" ]; then
-	echo "CRTOOLS_IPTABLES_TABLE environment variable is not set"
-	exit 1
-fi
+CRTOOLS_NFT_TABLE_CHAIN="criu-table criu-chain"
 
 NS_ENTER=/bin/nsenter
 [ ! -x ${NS_ENTER} ] || NS_ENTER=/usr/bin/nsenter
@@ -41,10 +37,10 @@ function add_accept_rules {
 	local server=$1
 	local port=$2
 
-	${JOIN_CT} iptables -w -I ${CRTOOLS_IPTABLES_TABLE} -p tcp -s $server --sport $port -j ACCEPT &&
-	${JOIN_CT} iptables -w -I ${CRTOOLS_IPTABLES_TABLE} -p tcp -d $server --dport $port -j ACCEPT &&
-	${JOIN_CT} iptables -w -I ${CRTOOLS_IPTABLES_TABLE} -p udp -s $server --sport $port -j ACCEPT &&
-	${JOIN_CT} iptables -w -I ${CRTOOLS_IPTABLES_TABLE} -p udp -d $server --dport $port -j ACCEPT 
+	${JOIN_CT} nft add rule inet ${CRTOOLS_NFT_TABLE_CHAIN} ip protocol tcp ip saddr $server tcp sport $port counter accept &&
+	${JOIN_CT} nft add rule inet ${CRTOOLS_NFT_TABLE_CHAIN} ip protocol tcp ip daddr $server tcp dport $port counter accept &&
+	${JOIN_CT} nft add rule inet ${CRTOOLS_NFT_TABLE_CHAIN} ip protocol udp ip saddr $server udp sport $port counter accept &&
+	${JOIN_CT} nft add rule inet ${CRTOOLS_NFT_TABLE_CHAIN} ip protocol udp ip daddr $server udp dport $port counter accept
 }
 
 function iptables_allow_nfs_ports {
@@ -68,10 +64,10 @@ function allow_portmapper_port {
 	local server=$1
 	local port=111
 
-	${JOIN_CT} iptables -w -I ${CRTOOLS_IPTABLES_TABLE} -p udp -s $server --sport $port -j ACCEPT &&
-	${JOIN_CT} iptables -w -I ${CRTOOLS_IPTABLES_TABLE} -p udp -d $server --dport $port -j ACCEPT &&
-	${JOIN_CT} iptables -w -I ${CRTOOLS_IPTABLES_TABLE} -p tcp -s $server --sport $port -j ACCEPT &&
-	${JOIN_CT} iptables -w -I ${CRTOOLS_IPTABLES_TABLE} -p tcp -d $server --dport $port -j ACCEPT 
+	${JOIN_CT} nft add rule inet ${CRTOOLS_NFT_TABLE_CHAIN} ip protocol tcp ip saddr $server tcp sport $port counter accept &&
+	${JOIN_CT} nft add rule inet ${CRTOOLS_NFT_TABLE_CHAIN} ip protocol tcp ip daddr $server tcp dport $port counter accept &&
+	${JOIN_CT} nft add rule inet ${CRTOOLS_NFT_TABLE_CHAIN} ip protocol udp ip saddr $server udp sport $port counter accept &&
+	${JOIN_CT} nft add rule inet ${CRTOOLS_NFT_TABLE_CHAIN} ip protocol udp ip daddr $server udp dport $port counter accept
 }
 
 for s in $servers; do
