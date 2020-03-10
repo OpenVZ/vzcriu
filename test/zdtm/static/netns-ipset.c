@@ -24,8 +24,8 @@ int main(int argc, char **argv)
 {
 	char dump_ipset_old[]    = "ipset save > " FILE_IPSET_OLD;
 	char dump_ipset_new[]    = "ipset save > " FILE_IPSET_NEW;
-	char dump_iptables_old[] = "iptables -L INPUT 1 > " FILE_IPTABLES_OLD;
-	char dump_iptables_new[] = "iptables -L INPUT 1 > " FILE_IPTABLES_NEW;
+	char dump_iptables_old[] = "iptables -w -L INPUT 1 > " FILE_IPTABLES_OLD;
+	char dump_iptables_new[] = "iptables -w -L INPUT 1 > " FILE_IPTABLES_NEW;
 	char cmp_ipset[]         = "diff " FILE_IPSET_OLD " " FILE_IPSET_NEW;
 	char cmp_iptables[]      = "diff " FILE_IPTABLES_OLD " " FILE_IPTABLES_NEW;
 	char rm_ipset_files[]    = "rm -fv " FILE_IPSET_OLD " " FILE_IPSET_NEW;
@@ -38,7 +38,7 @@ int main(int argc, char **argv)
 	RUN_OR_ERR("ipset add netns-ipset-group 127.0.0.1/8", "Can't add ip addresses to ipset group");
 
 	/* Use netns-ipset-group in iptables rule */
-	RUN_OR_ERR("iptables -I INPUT 1 -p tcp -m set --match-set netns-ipset-group src,dst -j ACCEPT",
+	RUN_OR_ERR("iptables -w -I INPUT 1 -p tcp -m set --match-set netns-ipset-group src,dst -j ACCEPT",
 		"Failed to setup iptables rule with ipset group");
 
 	/* dump ipset and iptables states to text files */
