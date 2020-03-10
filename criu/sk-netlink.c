@@ -302,8 +302,8 @@ static int restore_netlink_queue(int sk, int id)
 		return 0;
 
 	val = 1;
-	if (setsockopt(sk, SOL_NETLINK, kdat.netlink_repair_nr, &val, sizeof(val))) {
-		pr_perror("Unable to set netlink repair");
+	if (setsockopt(sk, SOL_NETLINK, NETLINK_REPAIR, &val, sizeof(val))) {
+		pr_perror("Unable to set NETLINK_REPAIR");
 		return -1;
 	}
 
@@ -311,7 +311,7 @@ static int restore_netlink_queue(int sk, int id)
 		return -1;
 
 	val = 0;
-	if (setsockopt(sk, SOL_NETLINK, kdat.netlink_repair_nr, &val, sizeof(val)))
+	if (setsockopt(sk, SOL_NETLINK, NETLINK_REPAIR, &val, sizeof(val)))
 		return -1;
 
 	return 0;
