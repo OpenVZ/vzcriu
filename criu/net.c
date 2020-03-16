@@ -2671,6 +2671,11 @@ static int __create_net_namespaces(void *arg) {
 		}
 
 		close(ufd);
+
+		if (prepare_userns_creds() < 0) {
+			pr_err("Can't prepare creds");
+			return 1;
+		}
 	}
 
 	/* Pin one with a file descriptor */
