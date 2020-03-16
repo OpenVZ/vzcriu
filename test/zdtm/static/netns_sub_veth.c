@@ -22,6 +22,41 @@
 
 const char *test_doc	= "Check dump and restore a few network namespaces";
 
+#define ID_MAP "0 0 1"
+static int init_proc_id_maps(pid_t pid)
+{
+	char path[128];
+	int fd;
+
+	snprintf(path, sizeof(path), "/proc/%d/uid_map", pid);
+	fd = open(path, O_WRONLY);
+	if (fd < 0) {
+		pr_perror("Unable to open %s", path);
+		return -1;
+	}
+	if (write(fd, ID_MAP, sizeof(ID_MAP)) != sizeof(ID_MAP)) {
+		pr_perror("Unable to write into %s", path);
+		close(fd);
+		return -1;
+	}
+	close(fd);
+
+	snprintf(path, sizeof(path), "/proc/%d/gid_map", pid);
+	fd = open(path, O_WRONLY);
+	if (fd < 0) {
+		pr_perror("Unable to open %s", path);
+		return -1;
+	}
+	if (write(fd, ID_MAP, sizeof(ID_MAP)) != sizeof(ID_MAP)) {
+		pr_perror("Unable to write into %s", path);
+		close(fd);
+		return -1;
+	}
+	close(fd);
+
+	return 0;
+}
+
 #ifndef NSIO
 #define NSIO    0xb7
 #define NS_GET_USERNS   _IO(NSIO, 0x1)
@@ -36,9 +71,26 @@ int main(int argc, char **argv)
         struct rtnl_link *link = NULL, *new;
 	struct nl_sock *sk;
 	int has_index = 1;
+	bool userns;
 
 	test_init(argc, argv);
 	task_waiter_init(&lock);
+
+	userns = getenv("ZDTM_USERNS") != NULL;
+	if (userns) {
+		int fd, ufd;
+		fd = open("/proc/self/ns/net", O_RDONLY);
+		if (fd < 0) {
+			pr_perror("Unable to open /proc/self/ns/net");
+			return 1;
+		}
+		ufd = ioctl(fd, NS_GET_USERNS);
+		if (ufd < 0) {
+			userns = false;
+		} else
+			close(ufd);
+		close(fd);
+	}
 
 	for (i = 0; i < 2; i++) {
 		pid[i] = fork();
@@ -47,8 +99,14 @@ int main(int argc, char **argv)
 			return -1;
 		}
 		if (pid[i] == 0) {
-			if (unshare(CLONE_NEWNET))
+			if (userns && unshare(CLONE_NEWUSER)) {
+				task_waiter_complete(&lock, i);
 				return 1;
+			}
+			if (unshare(CLONE_NEWNET)) {
+				task_waiter_complete(&lock, i);
+				return 1;
+			}
 
 			task_waiter_complete(&lock, i);
 			test_waitsig();
@@ -56,6 +114,8 @@ int main(int argc, char **argv)
 			return 0;
 		}
 		task_waiter_wait4(&lock, i);
+		if (userns && init_proc_id_maps(pid[i]))
+			return 1;
 	}
 
 	sk = nl_socket_alloc();
