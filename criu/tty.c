@@ -1600,7 +1600,8 @@ out:
 		 */
 		if (!is_session_leader(root_item)) {
 			if (!equal_pid(root_item->pgid, root_item->pid)) {
-				if (tty_set_prgp(fd, root_item->pgid))
+				BUG_ON(current->pid->level != root_item->pgid->level);
+				if (tty_set_prgp(fd, last_level_pid(root_item->pgid)))
 					goto err;
 			} else {
 				pr_debug("Restore inherited group %d\n",
