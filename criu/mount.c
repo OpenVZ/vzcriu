@@ -2732,7 +2732,7 @@ do_bind:
 	if (mount(mnt_fd_path, mi->mountpoint, NULL, MS_BIND | (mi->flags & MS_REC), NULL) < 0) {
 		pr_perror("Can't mount at %s", mi->mountpoint);
 		close(fd);
-		goto err;
+		goto out;
 	}
 	close(fd);
 
