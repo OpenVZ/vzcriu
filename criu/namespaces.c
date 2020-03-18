@@ -1583,13 +1583,18 @@ static void usernsd_handler(int signal, siginfo_t *siginfo, void *data)
 
 static int usernsd_recv_transport(void *arg, int fd, pid_t pid)
 {
+	fd = dup(fd);
+	if (fd < 0) {
+		pr_perror("Unable to duplicate a file descriptor");
+		return -1;
+	}
+
 	if (install_service_fd(TRANSPORT_FD_OFF, fd) < 0) {
 		pr_perror("Can't install transport fd\n");
 		close(fd);
 		return -1;
 	}
 
-	close(fd);
 	return 0;
 }
 
