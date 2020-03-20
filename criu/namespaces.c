@@ -1047,9 +1047,9 @@ static int check_user_ns(int pid)
 
 int dump_user_ns(pid_t pid, int ns_id)
 {
-	int ret, exit_code = -1;
 	UsernsEntry *e = &userns_entry;
 	struct cr_img *img;
+	int ret;
 
 	ret = parse_id_map(pid, "uid_map", &e->uid_map);
 	if (ret < 0)
@@ -1062,7 +1062,7 @@ int dump_user_ns(pid_t pid, int ns_id)
 	e->n_gid_map = ret;
 
 	if (check_user_ns(pid))
-		return -1;
+		goto err;
 
 	img = open_image(CR_FD_USERNS, O_DUMP, ns_id);
 	if (!img)
@@ -1082,7 +1082,7 @@ err:
 		xfree(e->gid_map[0]);
 		xfree(e->gid_map);
 	}
-	return exit_code;
+	return -1;
 }
 
 void free_userns_maps()
