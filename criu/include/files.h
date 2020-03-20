@@ -113,6 +113,16 @@ struct file_desc_ops {
 	 */
 	int			(*open)(struct file_desc *d, int *new_fd);
 	char *			(*name)(struct file_desc *, char *b, size_t s);
+	/*
+	 * We may want to make some actions if fle->stage was
+	 * changed. For instance, during restoring UNIX sockets
+	 * we need to notify connected sockets when its peer fd was opened.
+	 *
+	 * Notes:
+	 * This callback is *not* called during fle initialization.
+	 * fle = file_master(d);
+	 */
+	int (*on_stage_change)(struct file_desc *d, u8 fle_stage);
 };
 
 int collect_fd(int pid, FdinfoEntry *e, struct rst_info *rst_info, bool ghost);
