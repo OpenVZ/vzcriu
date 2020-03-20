@@ -1183,6 +1183,7 @@ static int open_fd(struct fdinfo_list_entry *fle)
 	struct file_desc *d = fle->desc;
 	struct fdinfo_list_entry *flem;
 	int new_fd = -1, ret;
+	u8 initial_stage = fle->stage;
 
 	flem = file_master(d);
 	if (fle != flem) {
@@ -1223,6 +1224,11 @@ static int open_fd(struct fdinfo_list_entry *fle)
 out:
 	if (ret == 0)
 		fle->stage = FLE_RESTORED;
+
+	if (d->ops->on_stage_change && (initial_stage != fle->stage)
+	 && d->ops->on_stage_change(d, fle->stage))
+			return -1;
+
 	return ret;
 }
 
