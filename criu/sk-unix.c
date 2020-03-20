@@ -1750,10 +1750,8 @@ static int bind_unix_sk(int sk, struct unix_sk_info *ui, bool notify)
 		goto done;
 	}
 
-	if (notify && ui->ue->state != TCP_LISTEN) {
+	if (notify && ui->ue->state != TCP_LISTEN)
 		ui->bound = true;
-		wake_connected_sockets(ui);
-	}
 
 	exit_code = 0;
 done:
@@ -2067,7 +2065,6 @@ static int open_unixsk_standalone(struct unix_sk_info *ui, int *new_fd)
 			return -1;
 		}
 		ui->listen = 1;
-		wake_connected_sockets(ui);
 	}
 
 	if (ui->peer || ui->queuer) {
@@ -2125,10 +2122,45 @@ static char *socket_d_name(struct file_desc *d, char *buf, size_t s)
 	return buf;
 }
 
+static int on_stage_change(struct file_desc *d, u8 fle_stage)
+{
+	struct unix_sk_info *ui;
+
+	/*
+	 * Our aim:
+	 * caught moment when *peer* socket is in fle->stage >= FLE_OPEN
+	 * and then wake up all tasks that holds corresponding sockets
+	 * that connected to peer socket.
+	 */
+	ui = container_of(d, struct unix_sk_info, d);
+
+	/*
+	 * 1. If socket have peer => this socket is not a peer,
+	 * 2. if socket have empty name => it was not in listening/bounded state
+	 * 1 or 2 means that socket is not a peer socket => let's skip
+	 */
+	if (ui->peer || ui->ue->name.len == 0)
+		return 0;
+
+	/*
+	 * So, at the moment, socket *must* be in LISTEN or BOUNDED state.
+	 */
+	if (!ui->listen && !ui->bound) {
+		pr_err("BUG socket id %#x ino %u peer %u must be in LISTEN or BOUNDED state\n",
+			   ui->ue->id, ui->ue->ino, ui->ue->peer);
+		return -1;
+	}
+
+	wake_connected_sockets(ui);
+
+	return 0;
+}
+
 static struct file_desc_ops unix_desc_ops = {
 	.type = FD_TYPES__UNIXSK,
 	.open = open_unix_sk,
 	.name = socket_d_name,
+	.on_stage_change = on_stage_change,
 };
 
 /*
