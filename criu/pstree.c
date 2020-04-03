@@ -179,6 +179,8 @@ void pstree_free_cores(struct pstree_item *item)
 void free_pstree_item(struct pstree_item *item)
 {
 	pstree_free_cores(item);
+	if (item->shmalloced)
+		return;
 	xfree(item->threads);
 	xfree(item->pid);
 	xfree(item->pgid);
@@ -227,6 +229,8 @@ struct pstree_item *__alloc_pstree_item(bool rst, int level)
 		if (!item)
 			return NULL;
 		memset(item, 0, sz);
+		item->shmalloced = true;
+
 		vm_area_list_init(&rsti(item)->vmas);
 		INIT_LIST_HEAD(&rsti(item)->vma_io);
 		mutex_init(&rsti(item)->fds_mutex);
