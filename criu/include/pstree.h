@@ -33,6 +33,8 @@ struct pstree_item {
 		unsigned long task_st_le_bits;
 	};
 	struct ns_id *user_ns;
+
+	bool shmalloced;
 };
 
 #define vpid(item)    (item->pid->ns[0].virt)
