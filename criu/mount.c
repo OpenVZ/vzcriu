@@ -1762,8 +1762,7 @@ static __maybe_unused struct mount_info *add_cr_time_mount(struct mount_info *ro
 	mi->nsid = parent->nsid;
 	mi->parent = parent;
 	mi->parent_mnt_id = parent->mnt_id;
-	mi->next = parent->next;
-	parent->next = mi;
+	mntinfo_add_list_before(&parent->next, mi);
 	list_add(&mi->siblings, &parent->children);
 	pr_info("Add cr-time mountpoint %s with parent %s(%u)\n",
 		mi->mountpoint, parent->mountpoint, parent->mnt_id);
@@ -3489,8 +3488,7 @@ static int collect_mnt_from_image(struct mount_info **head, struct mount_info **
 			goto err;
 
 		pm->nsid = nsid;
-		pm->next = *head;
-		*head = pm;
+		mntinfo_add_list_before(head, pm);
 		if (!*tail)
 			*tail = pm;
 
@@ -3786,6 +3784,8 @@ static int populate_mnt_ns(void)
 
 	root_yard_mp->mountpoint = mnt_roots;
 	root_yard_mp->mounted = true;
+
+	mntinfo_add_list_before(&mntinfo, root_yard_mp);
 
 	if (merge_mount_trees(root_yard_mp))
 		return -1;
