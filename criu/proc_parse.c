@@ -1583,10 +1583,8 @@ end:
 		if (fsname)
 			free(fsname);
 
-		if (new) {
-			new->next = list;
-			list = new;
-		}
+		if (new) 
+			mntinfo_add_list_before(&list, new);
 
 		if (ret)
 			goto err;
