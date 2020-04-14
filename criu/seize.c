@@ -940,8 +940,10 @@ static int collect_threads(struct pstree_item *item)
 		item->nr_threads = 1;
 		item->threads[0]->item = NULL;
 		item->threads[0]->level = level;
-		for (j = 0; j < level; j++)
+		for (j = 0; j < level; j++) {
 			item->threads[0]->ns[j].virt = -1;
+			rb_init_node(&item->threads[0]->ns[j].node);
+		}
 	}
 
 	nr_inprogress = 0;
@@ -969,8 +971,10 @@ static int collect_threads(struct pstree_item *item)
 		item->threads[id]->item = NULL;
 		item->threads[id]->state = TASK_THREAD;
 		item->threads[id]->level = level;
-		for (j = 0; j < level; j++)
+		for (j = 0; j < level; j++) {
 			item->threads[id]->ns[j].virt = -1;
+			rb_init_node(&item->threads[id]->ns[j].node);
+		}
 
 		ret = compel_wait_task(pid, item_ppid(item), parse_pid_status, NULL, &t_creds.s, NULL);
 		if (ret < 0) {
