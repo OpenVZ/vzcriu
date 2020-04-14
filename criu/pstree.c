@@ -202,7 +202,7 @@ void free_pstree(struct pstree_item *root_item)
 struct pstree_item *__alloc_pstree_item(bool rst, int level)
 {
 	struct pstree_item *item;
-	int sz, p_sz;
+	int sz, p_sz, i;
 
 	p_sz = PID_SIZE(level);
 	if (!rst) {
@@ -257,6 +257,11 @@ struct pstree_item *__alloc_pstree_item(bool rst, int level)
 	item->pid->item = item;
 	futex_init(&item->task_st);
 	item->pid->level = item->sid->level = item->pgid->level = level;
+	for (i = 0; i < item->pid->level; i++) {
+		rb_init_node(&item->pid->ns[i].node);
+		rb_init_node(&item->sid->ns[i].node);
+		rb_init_node(&item->pgid->ns[i].node);
+	}
 
 	return item;
 }
@@ -637,7 +642,7 @@ static int read_one_pstree_item(struct cr_img *img, pid_t *pid_max)
 	struct pstree_item *pi, *parent;
 	TaskKobjIdsEntry *ids;
 	PstreeEntry *e;
-	int ret, i;
+	int ret, i, k;
 
 	ret = pb_read_one_eof(img, &e, PB_PSTREE);
 	if (ret <= 0)
@@ -737,6 +742,8 @@ static int read_one_pstree_item(struct cr_img *img, pid_t *pid_max)
 		pi->threads[i]->real = -1;
 		pi->threads[i]->level = pi->pid->level;
 		pi->threads[i]->ns[0].virt = e->threads[i];
+		for (k = 0; k < pi->pid->level; k++)
+			rb_init_node(&pi->threads[i]->ns[k].node);
 		pi->threads[i]->state = TASK_THREAD;
 		pi->threads[i]->item = NULL;
 		if (i == 0)
