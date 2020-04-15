@@ -2134,20 +2134,23 @@ static int on_stage_change(struct file_desc *d, u8 fle_stage)
 	ui = container_of(d, struct unix_sk_info, d);
 
 	/*
-	 * 1. If socket have peer => this socket is not a peer,
-	 * 2. if socket have empty name => it was not in listening/bounded state
-	 * 1 or 2 means that socket is not a peer socket => let's skip
+	 * 1. If socket has peer => this socket is not a peer
+	 * 2. If socket has empty name => it was not in listening/bounded state
+	 * 3. If socket is SOCK_STREAM and state is TCP_ESTABLISHED
+	 * one of the factors means that socket is not a peer socket => let's skip it
 	 */
-	if (ui->peer || ui->ue->name.len == 0)
+	if (ui->peer || ui->ue->name.len == 0 ||
+		(ui->ue->type == SOCK_STREAM && ui->ue->state == TCP_ESTABLISHED))
 		return 0;
 
 	/*
 	 * So, at the moment, socket *must* be in LISTEN or BOUNDED state.
+	 * We inform about possible bug, but not fail restore stage.
 	 */
 	if (!ui->listen && !ui->bound) {
 		pr_err("BUG socket id %#x ino %u peer %u must be in LISTEN or BOUNDED state\n",
 			   ui->ue->id, ui->ue->ino, ui->ue->peer);
-		return -1;
+		return 0;
 	}
 
 	wake_connected_sockets(ui);
