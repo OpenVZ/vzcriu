@@ -299,4 +299,8 @@ extern void unsc_msg_init(struct unsc_msg *m, uns_call_t *c, int *x, void *arg, 
 extern void unsc_msg_pid_fd(struct unsc_msg *um, pid_t *pid, int *fd);
 extern int start_unix_cred_daemon(pid_t *pid, int (*daemon_func)(int sk));
 
+extern struct ns_id *get_pidns_on_level(struct pstree_item *item, int level);
+extern struct ns_id *have_nested_pidns(struct pstree_item *ancestor,
+				       struct pstree_item *descendant);
+
 #endif /* __CR_NS_H__ */
