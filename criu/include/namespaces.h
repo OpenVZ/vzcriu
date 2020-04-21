@@ -283,4 +283,8 @@ extern int create_pid_ns_helper(struct ns_id *ns);
 extern int destroy_pid_ns_helpers(void);
 extern int request_set_next_pid(int pid_ns_id, pid_t pid, int sk);
 
+extern struct ns_id *get_pidns_on_level(struct pstree_item *item, int level);
+extern struct ns_id *have_nested_pidns(struct pstree_item *ancestor,
+				       struct pstree_item *descendant);
+
 #endif /* __CR_NS_H__ */
