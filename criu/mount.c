@@ -383,14 +383,21 @@ bool phys_stat_dev_match(dev_t st_dev, dev_t phys_dev,
  */
 static bool mounts_sb_equal(struct mount_info *a, struct mount_info *b)
 {
-	if (a->fstype != b->fstype)
-		return false;
-
 	if (a->s_dev != b->s_dev)
 		return false;
 
-	if (a->fstype->sb_equal) /* :) */
-		return b->fstype->sb_equal(a, b);
+	/*
+	 * If one of the compared mounts is external these mounts could
+	 * have FSTYPE__AUTO or FSTYPE__UNSUPPORTED as fstype code. So,
+	 * we shouldn't compare their fstypes.
+	 */
+	if (!a->external && !b->external) {
+		if (a->fstype != b->fstype)
+			return false;
+
+		if (a->fstype->sb_equal) /* :) */
+			return b->fstype->sb_equal(a, b);
+	}
 
 	if (strcmp(a->options, b->options))
 		return false;
