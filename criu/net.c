@@ -2973,7 +2973,7 @@ static int do_iptables_restore(bool ipv6, char *buf, int size)
 	 * is in xt_owner.c:owner_check(). But only if we're not
 	 * running zdtm testsuite.
 	 */
-	if (!is_zdtm_run())
+	if (root_ns_mask & CLONE_NEWUSER)
 		userns_pid = root_item->pid->real;
 
 	ret = cr_system_userns(pfd[0], -1, -1, cmd[0], cmd, 0, userns_pid);
