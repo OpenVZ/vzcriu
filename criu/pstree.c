@@ -1094,6 +1094,46 @@ pid_t *get_free_pids(struct ns_id *ns, pid_t *pids, int *level)
 	return &pids[i];
 }
 
+static int set_born_sid(struct pstree_item *item, int born_sid)
+{
+	if (item->born_sid != -1 && item->born_sid != born_sid) {
+		pr_err("Can't figure out which sid (%d or %d)"
+		       "the process %d was born with\n",
+		       item->born_sid, born_sid, vpid(item));
+		return -1;
+	}
+
+	item->born_sid = born_sid;
+	pr_info("%d was born with sid %d\n", vpid(item), born_sid);
+	return 0;
+}
+
+static int __can_inherit_sid(struct pstree_item *item, int set)
+{
+	struct pstree_item *parent;
+
+	parent = item->parent;
+	while (parent) {
+		/* parent will give the right sid to item */
+		if (vsid(item) == vsid(parent))
+			return 1;
+		/* non-leader can't give children sid different from it's own */
+		if (!is_session_leader(parent))
+			break;
+		/* parent should have had sid == born_sid before setsid */
+		if (set && set_born_sid(parent, vsid(item)))
+			return 0;
+		/* some other ancestor can have the right pid for item */
+		parent = parent->parent;
+	}
+	return 0;
+}
+
+static int __maybe_unused can_inherit_sid(struct pstree_item *item)
+{
+	return __can_inherit_sid(item, 0);
+}
+
 static int prepare_pstree_ids(pid_t pid)
 {
 	struct pstree_item *item, *child, *helper, *tmp;
