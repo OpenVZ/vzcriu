@@ -1291,6 +1291,26 @@ static int can_inherit_sid(struct pstree_item *item)
 	return __can_inherit_sid(item, 0);
 }
 
+/*
+ * Get pid of process item in pidns of process base,
+ * base and item should have ->ids initialized.
+ */
+static pid_t __maybe_unused get_relative_pid(struct pstree_item *base,
+					     struct pstree_item *item)
+{
+	/* Same level fast path */
+	if (item->pid->level == base->pid->level) {
+		if (base->ids->pid_ns_id == item->ids->pid_ns_id)
+			return last_level_pid(item->pid);
+		else
+			return 0;
+	}
+
+	if (have_nested_pidns(base, item))
+		return item->pid->ns[base->pid->level - 1].virt;
+	return 0;
+}
+
 static struct pstree_item *get_helper(int sid, unsigned int id, struct list_head *helpers)
 {
 	struct pstree_item *helper;
