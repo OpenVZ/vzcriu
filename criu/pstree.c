@@ -1127,6 +1127,15 @@ pid_t *get_free_pids(struct ns_id *ns, pid_t *pids, int *level)
 	return &pids[i];
 }
 
+int __maybe_unused is_group_leader(struct pstree_item *item)
+{
+	if (vpid(item) == vpgid(item)) {
+		BUG_ON(!equal_pid(item->pid, item->pgid));
+		return 1;
+	}
+	return 0;
+}
+
 static int set_born_sid(struct pstree_item *item, int born_sid)
 {
 	if (item->born_sid != -1 && item->born_sid != born_sid) {
