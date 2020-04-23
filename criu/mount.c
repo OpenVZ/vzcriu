@@ -2626,9 +2626,8 @@ static int do_bind_mount(struct mount_info *mi)
 
 	if (mi->external) {
 		if (!mi->external_slavery && mi->master_id) {
-			pr_err("%d: Internal slavery for external mounts "
+			pr_warn("%d: Internal slavery for external mounts "
 			       "is not supported\n", mi->mnt_id);
-			return -1;
 		}
 		/*
 		 * We have / pointing to criu's ns root still,
