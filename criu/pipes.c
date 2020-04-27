@@ -448,7 +448,7 @@ int dump_one_pipe_data(struct pipe_data_dump *pd, int lfd, const struct fd_parms
 
 	pipe_size = fcntl(lfd, F_GETPIPE_SZ);
 	if (pipe_size < 0) {
-		pr_err("Can't obtain piped data size\n");
+		pr_perror("Can't obtain piped data size");
 		goto err;
 	}
 
