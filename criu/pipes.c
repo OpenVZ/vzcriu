@@ -429,7 +429,7 @@ int dump_one_pipe_data(struct pipe_data_dump *pd, int lfd, const struct fd_parms
 	int ret = -1;
 	PipeDataEntry pde = PIPE_DATA_ENTRY__INIT;
 
-	if (p->flags & O_WRONLY)
+	if (p->flags & (O_WRONLY | O_PATH))
 		return 0;
 
 	/* Maybe we've dumped it already */
