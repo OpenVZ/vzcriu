@@ -128,6 +128,9 @@ struct mount_info {
 
 	bool			external_slavery;
 
+	unsigned int		ns_bind_id;
+	unsigned int		ns_bind_desc;
+
 	struct rst_mount_info	*rmi;
 
 	void			*private;	/* associated filesystem data */

@@ -2086,6 +2086,12 @@ static int dump_one_mountpoint(struct mount_info *pm, struct cr_img *img)
 		 */
 		me.ext_key = pm->external;
 	me.root = pm->root;
+	if (pm->ns_bind_id) {
+		me.has_ns_bind_id = true;
+		me.ns_bind_id = pm->ns_bind_id;
+		me.has_ns_bind_desc = true;
+		me.ns_bind_desc = pm->ns_bind_desc;
+	}
 
 	if (pb_write_one(img, &me, PB_MNT))
 		return -1;
@@ -3686,6 +3692,11 @@ static int collect_mnt_from_image(struct mount_info **head, struct mount_info **
 
 		if (get_mp_mountpoint(me->mountpoint, pm, root, root_len))
 			goto err;
+
+		if (me->has_ns_bind_id) {
+			pm->ns_bind_id = me->ns_bind_id;
+			pm->ns_bind_desc = me->ns_bind_desc;
+		}
 
 		pr_debug("\tRead %d mp @ %s\n", pm->mnt_id, pm->ns_mountpoint);
 	}
