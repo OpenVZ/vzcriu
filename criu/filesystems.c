@@ -638,6 +638,34 @@ static bool btrfs_sb_equal(struct mount_info *a, struct mount_info *b)
 	return true;
 }
 
+static int ns_proc_parse(struct mount_info *pm, bool for_dump)
+{
+	struct ns_desc *ns_d;
+	unsigned int ns_kid;
+	struct ns_id *nsid;
+
+	if (!for_dump)
+		return 0;
+
+	if (pm->root[0] == '/')
+		return 0;
+
+	ns_d = get_ns_kid(pm->root, strlen(pm->root), &ns_kid);
+	if (!ns_d)
+		return 0;
+
+	nsid = lookup_ns_by_kid(ns_kid, ns_d);
+	if (!nsid) {
+		pr_err("Ns files bind-mounts are not supported for detached ns\n");
+		return -1;
+	}
+
+	pm->ns_bind_id = nsid->id;
+	pm->ns_bind_desc = ns_d->cflag;
+
+	return 0;
+}
+
 static int dump_empty_fs(struct mount_info *pm)
 {
 	int fd, ret = -1;
@@ -794,6 +822,11 @@ static struct fstype fstypes[] = {
 		.name = "nfs4",
 		.code = FSTYPE__NFS4,
 		.mount = spfs_mount,
+	},
+	{
+		.name = "nsfs",
+		.code = FSTYPE__VZ_NSFS,
+		.parse = ns_proc_parse,
 	},
 };
 
