@@ -114,6 +114,9 @@ struct mount_info {
 
 	int is_overmounted;
 
+	unsigned int ns_bind_id;
+	unsigned int ns_bind_desc;
+
 	struct rst_mount_info *rmi;
 
 	void *private; /* associated filesystem data */
