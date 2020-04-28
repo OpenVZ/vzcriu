@@ -227,17 +227,29 @@ static unsigned int parse_ns_link(char *link, size_t len, struct ns_desc *d)
 	return (unsigned int)kid;
 }
 
-bool check_ns_proc(struct fd_link *link)
+struct ns_desc *get_ns_kid(char *ns_str, int len, unsigned int *ns_kid)
 {
 	unsigned int i, kid;
 
 	for (i = 0; i < ARRAY_SIZE(ns_desc_array); i++) {
-		kid = parse_ns_link(link->name + 1, link->len - 1, ns_desc_array[i]);
+		kid = parse_ns_link(ns_str, len, ns_desc_array[i]);
 		if (!kid)
 			continue;
 
-		link->ns_d = ns_desc_array[i];
-		link->ns_kid = kid;
+		*ns_kid = kid;
+		return ns_desc_array[i];
+	}
+
+	return NULL;
+}
+
+bool check_ns_proc(struct fd_link *link)
+{
+	struct ns_desc *ns_d;
+
+	ns_d = get_ns_kid(link->name + 1, link->len - 1, &link->ns_kid);
+	if (ns_d) {
+		link->ns_d = ns_d;
 		return true;
 	}
 
