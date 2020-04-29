@@ -2164,6 +2164,7 @@ again:
 				m->parent_mnt_id, m->root,
 				m->mountpoint, m->source);
 		}
+		return -1;
 	}
 
 	list_splice_init(&postpone2, &postpone);
@@ -2455,7 +2456,7 @@ static int do_new_mount(struct mount_info *mi)
 
 	if (do_mount(mi, src, mnt_fsname(mi), sflags) < 0) {
 		pr_perror("Can't mount at %s", mi->mountpoint);
-		goto out;
+		return -1;
 	}
 
 	if (tp->restore && tp->restore(mi))
@@ -2672,7 +2673,7 @@ static int do_bind_mount(struct mount_info *mi)
 	if (mount(mnt_path, mnt_clean_path, NULL, MS_BIND, NULL)) {
 		pr_perror("Unable to bind-mount %s to %s",
 			  mnt_path, mnt_clean_path);
-		return 0;
+		return -1;
 	}
 	mnt_path = mnt_clean_path;
 	umount_mnt_fd = open(mnt_clean_path, O_PATH);
@@ -2737,7 +2738,7 @@ do_bind:
 	if (mount(mnt_fd_path, mi->mountpoint, NULL, MS_BIND | (mi->flags & MS_REC), NULL) < 0) {
 		pr_perror("Can't mount at %s", mi->mountpoint);
 		close(fd);
-		goto out;
+		goto err;
 	}
 	close(fd);
 

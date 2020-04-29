@@ -1347,6 +1347,8 @@ static int restore_cgroup_prop(const CgroupPropEntry *cg_prop_entry_p,
 
 			if (write(fd, line, len) != len) {
 				pr_perror("Failed writing %s to %s", line, path);
+				if (!skip_fails)
+					goto out;
 			}
 			line = next_line + 1;
 		} while(*next_line != '\0');
@@ -1355,6 +1357,8 @@ static int restore_cgroup_prop(const CgroupPropEntry *cg_prop_entry_p,
 
 		if (write(fd, cg_prop_entry_p->value, len) != len) {
 			pr_perror("Failed writing %s to %s", cg_prop_entry_p->value, path);
+			if (!skip_fails)
+				goto out;
 		}
 	}
 
