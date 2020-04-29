@@ -194,6 +194,7 @@ extern struct ns_id *root_user_ns;
 
 extern struct ns_desc *get_ns_kid(char *ns_str, int len, unsigned int *ns_kid);
 extern bool check_ns_proc(struct fd_link *link);
+extern struct ns_desc *get_ns_desc_by_cflags(unsigned int cflags);
 extern unsigned int child_userns_xid(unsigned int xid, UidGidExtent **map, int n);
 
 extern struct ns_desc pid_ns_desc;
