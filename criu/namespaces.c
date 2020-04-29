@@ -253,6 +253,18 @@ bool check_ns_proc(struct fd_link *link)
 	return false;
 }
 
+struct ns_desc *get_ns_desc_by_cflags(unsigned int cflags)
+{
+	unsigned int i;
+
+	for (i = 0; i < ARRAY_SIZE(ns_desc_array); i++) {
+		if (ns_desc_array[i]->cflag == cflags)
+			return ns_desc_array[i];
+	}
+
+	return NULL;
+}
+
 int switch_ns(int pid, struct ns_desc *nd, int *rst)
 {
 	int nsfd;
