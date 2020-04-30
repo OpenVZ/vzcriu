@@ -6,6 +6,8 @@
 #include <unistd.h>
 #include <libgen.h>
 
+#include <sys/wait.h>
+#include <sched.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -17,6 +19,7 @@
 #include "util.h"
 #include "cr_options.h"
 #include "namespaces.h"
+#include "fdstore.h"
 #include "pstree.h"
 #include "spfs.h"
 #include "proc_parse.h"
@@ -76,7 +79,7 @@ static int spfs_send_request(int sock, void *req, size_t len)
 	return status;
 }
 
-int spfs_remap_path(const char *path, const char *link_remap)
+static int __spfs_remap_path(const char *path, const char *link_remap)
 {
 	if (lsetxattr(path, "security.spfs.link_remap", link_remap, strlen(link_remap) + 1, XATTR_CREATE)) {
 		pr_perror("failed to set xattr security.spfs.link_remap with value %s for file %s", link_remap, path);
@@ -84,6 +87,57 @@ int spfs_remap_path(const char *path, const char *link_remap)
 	}
 	pr_debug("set xattr security.spfs.link_remap with value %s for file %s\n", link_remap, path);
 	return 0;
+}
+
+typedef struct {
+	char path[PATH_MAX];
+	char link_remap[PATH_MAX];
+	int mntns_fd;
+} spfs_remap_path_arg_t;
+
+static int _spfs_remap_path_child_helper(void *arg)
+{
+	spfs_remap_path_arg_t *p = arg;
+
+	if (setns(p->mntns_fd, CLONE_NEWNS) < 0) {
+		pr_perror("Can't switch to target mount namespace");
+		return -1;
+	}
+
+	return __spfs_remap_path(p->path, p->link_remap);
+}
+
+static int _spfs_remap_path(void *arg, int mntns_fd, int pid)
+{
+	spfs_remap_path_arg_t *p = arg;
+
+	p->mntns_fd = mntns_fd;
+
+	return call_in_child_process(_spfs_remap_path_child_helper, p);
+}
+
+int spfs_remap_path(struct ns_id *nsid, const char *path, const char *link_remap)
+{
+	int ret, mntns_fd;
+	spfs_remap_path_arg_t args;
+
+	memcpy(args.path, path, strlen(path) + 1);
+	memcpy(args.link_remap, link_remap, strlen(link_remap) + 1);
+
+	mntns_fd = fdstore_get(nsid->mnt.nsfd_id);
+	if (mntns_fd < 0)
+		return -1;
+
+	ret = userns_call(_spfs_remap_path, 0, &args, sizeof(args), mntns_fd);
+	if (ret < 0) {
+		pr_perror("spfs_remap_path call in userns failed");
+		goto exit;
+	}
+
+	ret = 0;
+exit:
+	close(mntns_fd);
+	return ret;
 }
 
 #define WORK_DIR_MAX 32
