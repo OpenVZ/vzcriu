@@ -19,6 +19,6 @@ int spfs_set_mode(int sock, const char *mode);
 int spfs_release_replace(int sock);
 
 int spfs_create_file(int mnt_id, const char *path, unsigned mode, size_t size);
-int spfs_remap_path(const char *path, const char *link_remap);
+int spfs_remap_path(struct ns_id *nsid, const char *path, const char *link_remap);
 
 #endif

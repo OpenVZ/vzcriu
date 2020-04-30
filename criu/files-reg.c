@@ -957,7 +957,7 @@ static int open_remap_spfs_linked(struct reg_file_info *rfi, RemapFilePathEntry 
 
 	mi = lookup_mnt_id(rfi->rfe->mnt_id);
 
-	err = spfs_remap_path(path, link_remap + root_len + strlen(mi->ns_mountpoint));
+	err = spfs_remap_path(mi->nsid, path + root_len, link_remap + root_len + strlen(mi->ns_mountpoint));
 	if (err) {
 		pr_err("failed to remap SPFS %s to %s\n", path, link_remap);
 		return -errno;
