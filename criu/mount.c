@@ -994,15 +994,15 @@ static int resolve_external_mounts(struct mount_info *info)
 		char *p, *cut_root;
 		struct mount_info *match;
 
-		if (m->parent == NULL || m->is_ns_root)
-			continue;
-
 		/* Check mount has external sharing */
 		m->internal_sharing =
 			!has_external_sharing(ext_ns->mnt.mntinfo_list, m);
 		if (!m->internal_sharing)
 			pr_debug("Detected external sharing on %d\n",
 				 m->mnt_id);
+
+		if (m->parent == NULL || m->is_ns_root)
+			continue;
 
 		/*
 		 * Only allow external mounts in root mntns. External mounts
