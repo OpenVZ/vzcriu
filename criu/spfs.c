@@ -92,28 +92,33 @@ static int __spfs_remap_path(const char *path, const char *link_remap)
 typedef struct {
 	char path[PATH_MAX];
 	char link_remap[PATH_MAX];
-	int mntns_fd;
 } spfs_remap_path_arg_t;
+
+typedef struct {
+	spfs_remap_path_arg_t *arg;
+	int mntns_fd;
+} spfs_remap_path_child_arg_t;
 
 static int _spfs_remap_path_child_helper(void *arg)
 {
-	spfs_remap_path_arg_t *p = arg;
+	spfs_remap_path_child_arg_t *p = arg;
 
 	if (setns(p->mntns_fd, CLONE_NEWNS) < 0) {
 		pr_perror("Can't switch to target mount namespace");
 		return -1;
 	}
 
-	return __spfs_remap_path(p->path, p->link_remap);
+	return __spfs_remap_path(p->arg->path, p->arg->link_remap);
 }
 
 static int _spfs_remap_path(void *arg, int mntns_fd, int pid)
 {
-	spfs_remap_path_arg_t *p = arg;
+	spfs_remap_path_child_arg_t t;
 
-	p->mntns_fd = mntns_fd;
+	t.arg = arg;
+	t.mntns_fd = mntns_fd;
 
-	return call_in_child_process(_spfs_remap_path_child_helper, p);
+	return call_in_child_process(_spfs_remap_path_child_helper, &t);
 }
 
 int spfs_remap_path(struct ns_id *nsid, const char *path, const char *link_remap)
