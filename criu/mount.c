@@ -47,7 +47,8 @@
 #define LOG_PREFIX "mnt: "
 
 #define BINFMT_MISC_HOME "proc/sys/fs/binfmt_misc"
-#define CRTIME_MNT_ID 0
+
+#define HELPER_MNT_ID 0
 
 /* A helper mount_info entry for the roots yard */
 static struct mount_info *root_yard_mp = NULL;
@@ -1746,7 +1747,7 @@ static __maybe_unused struct mount_info *add_cr_time_mount(struct mount_info *ro
 		sprintf(mi->mountpoint, "%s%s", root->mountpoint, path);
 	else
 		sprintf(mi->mountpoint, "%s/%s", root->mountpoint, path);
-	mi->mnt_id = CRTIME_MNT_ID;
+	mi->mnt_id = HELPER_MNT_ID;
 	mi->flags = mi->sb_flags = 0;
 	mi->root = xstrdup("/");
 	mi->fsname = xstrdup(fsname);
@@ -1999,8 +2000,8 @@ static int dump_one_mountpoint(struct mount_info *pm, struct cr_img *img)
 			return -1;
 	}
 
-	if (pm->mnt_id == CRTIME_MNT_ID) {
-		pr_info("Skip dumping cr-time mountpoint: %s\n", pm->mountpoint);
+	if (pm->mnt_id == HELPER_MNT_ID) {
+		pr_info("Skip dumping helper mountpoint: %s\n", pm->mountpoint);
 		return 0;
 	}
 
@@ -2496,15 +2497,6 @@ static int do_new_mount(struct mount_info *mi)
 	if (tp->restore && tp->restore(mi))
 		return -1;
 
-	if (mi->mnt_id == CRTIME_MNT_ID) {
-		/* C-r time mountpoint, umount it */
-		if (umount(mi->mountpoint) < 0) {
-			pr_perror("Can't umount %s", mi->mountpoint);
-			return -1;
-		}
-		goto out;
-	}
-
 	if (!mi->is_ns_root && remount_ro) {
 		int fd;
 
@@ -2536,7 +2528,6 @@ static int do_new_mount(struct mount_info *mi)
 	BUG_ON(mi->master_id);
 	if (restore_shared_options(mi, !mi->shared_id, mi->shared_id, 0))
 		return -1;
-out:
 	mi->mounted = true;
 
 	return 0;
@@ -4347,7 +4338,7 @@ void clean_cr_time_mounts(void)
 	int mnt_fd, ret;
 
 	for (mi = mntinfo; mi; mi = mi->next) {
-		if (mi->mnt_id != CRTIME_MNT_ID)
+		if (mi->mnt_id != HELPER_MNT_ID)
 			continue;
 		ret = switch_ns(mi->nsid->ns_pid, &mnt_ns_desc, &mnt_fd);
 		if (ret) {
