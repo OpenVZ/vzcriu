@@ -283,7 +283,7 @@ static int spfs_request_mount(int sock, struct mount_info *mi, const char *sourc
 			      const char *type, unsigned long mountflags)
 {
 	int err;
-	char *mountpoint, *freeze_cgroup, *mount, *replace, *bindmounts = NULL;
+	char *freeze_cgroup, *mount, *replace, *bindmounts = NULL;
 	struct mount_info *bm;
 	int len;
 	char *freezer_root;
@@ -327,16 +327,10 @@ static int spfs_request_mount(int sock, struct mount_info *mi, const char *sourc
 		}
 	}
 
-	mountpoint = xsprintf("%s", mi->ns_mountpoint);
-	if (!mountpoint) {
-		pr_err("failed to allocate\n");
-		goto free_bindmounts;
-	}
-
 	freeze_cgroup = xsprintf("/sys/fs/cgroup/freezer%s", freezer_root);
 	if (!freeze_cgroup) {
 		pr_err("failed to construct freeze_cgroup\n");
-		goto free_mountpoint;
+		goto free_bindmounts;
 	}
 
 	mount = xsprintf("mount;id=%d;mode=restore;"
@@ -389,8 +383,6 @@ free_mount:
 	free(mount);
 free_freeze_cgroup:
 	free(freeze_cgroup);
-free_mountpoint:
-	free(mountpoint);
 free_bindmounts:
 	free(bindmounts);
 out:
