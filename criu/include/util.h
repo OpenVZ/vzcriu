@@ -254,6 +254,8 @@ static inline bool issubpath(const char *path, const char *sub_path)
 		(end == '/' || end == '\0');
 }
 
+extern char *get_relative_path(char *path, char *sub_path);
+
 /*
  * mkdir -p
  */
