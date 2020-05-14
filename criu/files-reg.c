@@ -1026,10 +1026,9 @@ int prepare_remaps(void)
 	return ret ? : order_remap_dirs();
 }
 
-static int clean_ghost_dir(int rmntns_root, struct remap_info *ri)
+static int clean_ghost_dir(char *rpath)
 {
-	struct file_remap *remap = ri->rfi->remap;
-	int ret = unlinkat(rmntns_root, remap->rpath, AT_REMOVEDIR);
+	int ret = rmdir(rpath);
 	/*
 	 * When deleting ghost directories here is an issue:
 	 * - names might duplicate, so we may receive ENOENT
@@ -1042,13 +1041,13 @@ static int clean_ghost_dir(int rmntns_root, struct remap_info *ri)
 	if (errno == ENOTEMPTY) {
 		int dfd, errno_saved = errno;
 
-		dfd = openat(rmntns_root, remap->rpath, O_DIRECTORY);
+		dfd = open(rpath, O_DIRECTORY);
 		if (dfd >= 0) {
 			ret = is_empty_dir(dfd);
 			if (ret == 1)
 				pr_err("Got ENOTEMPTY on empty dir?\n");
 		} else {
-			pr_perror("Failed to openat %d:%s", rmntns_root, remap->rpath);
+			pr_perror("Failed to open %s", rpath);
 		}
 
 		errno = errno_saved;
@@ -1060,49 +1059,52 @@ static int clean_ghost_dir(int rmntns_root, struct remap_info *ri)
 static int clean_one_remap(struct remap_info *ri)
 {
 	struct file_remap *remap = ri->rfi->remap;
-	int mnt_id, ret, rmntns_root;
+	int mnt_id, ret;
 	struct mount_info *mi;
-	char path[PATH_MAX];
+	char path[PATH_MAX], *rel_path;
 
 	if (remap->rpath[0] == 0)
 		return 0;
 
+	if (!(root_ns_mask & CLONE_NEWNS)) {
+		snprintf(path, sizeof(path), "/%s", remap->rpath);
+		goto nomntns;
+	}
+
 	mnt_id = ri->rfi->rfe->mnt_id; /* rirfirfe %) */
-	ret = rst_get_mnt_root(mnt_id, path, sizeof(path));
-	if (ret < 0)
-		return -1;
-	if (ret >= sizeof(path) - 1) {
-		pr_err("The path buffer is too small\n");
-		return -1;
-	}
-
-	rmntns_root = open(path, O_RDONLY);
-	if (rmntns_root < 0) {
-		pr_perror("Unable to open %s", path);
-		return -1;
-	}
-
 	mi = lookup_mnt_id(mnt_id);
-	/* We get here while in service mntns */
-	if (mi && try_remount_writable(mi, false)) {
-		close(rmntns_root);
+	if (!mi) {
+		pr_err("The %d mount is not found for ghost\n", mnt_id);
 		return -1;
 	}
 
-	pr_info("Unlink remap %s\n", remap->rpath);
+	rel_path = get_relative_path(remap->rpath, mi->ns_mountpoint);
+	if (!rel_path) {
+		pr_err("Can't get path %s relative to %s\n",
+		       remap->rpath, mi->ns_mountpoint);
+		return -1;
+	}
+
+	snprintf(path, sizeof(path), "%s%s%s", service_mountpoint(mi),
+		 strlen(rel_path) ? "/" : "", rel_path);
+
+	/* We get here while in service mntns */
+	if (try_remount_writable(mi, false))
+		return -1;
+
+nomntns:
+	pr_info("Unlink remap %s\n", path);
 
 	if (remap->is_dir)
-		ret = clean_ghost_dir(rmntns_root, ri);
+		ret = clean_ghost_dir(path);
 	else
-		ret = unlinkat(rmntns_root, remap->rpath, 0);
+		ret = unlink(path);
 
 	if (ret) {
-		pr_perror("Couldn't unlink remap %s %s", path, remap->rpath);
-		close(rmntns_root);
+		pr_perror("Couldn't unlink remap %s", path);
 		return -1;
 	}
 
-	close(rmntns_root);
 	remap->rpath[0] = 0;
 	return 0;
 }
