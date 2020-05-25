@@ -390,6 +390,8 @@ usage:
 "                        in lazy-pages mode: 'criu lazy-pages -D DIR'\n"
 "                        --lazy-pages and lazy-pages mode require userfaultfd\n"
 "  --stream              dump/restore images using criu-image-streamer\n"
+"  --mounts-v2           use v2 mount engine with more reliable algorithm\n"
+"                        based on Virtuozzo kernel hacks (see MS_SET_GROUP)\n"
 "\n"
 "* External resources support:\n"
 "  --external RES        dump objects from this list as external resources:\n"
