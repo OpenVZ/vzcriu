@@ -94,6 +94,7 @@ int criu_add_inherit_fd(int fd, const char *key);
 int criu_add_external(const char *key);
 int criu_set_page_server_address_port(const char *address, int port);
 void criu_set_check_mounts(bool val);
+void criu_set_mounts_v2(bool val);
 
 /*
  * The criu_notify_arg_t na argument is an opaque
@@ -210,6 +211,7 @@ int criu_local_add_inherit_fd(criu_opts *opts, int fd, const char *key);
 int criu_local_add_external(criu_opts *opts, const char *key);
 int criu_local_set_page_server_address_port(criu_opts *opts, const char *address, int port);
 void criu_local_set_check_mounts(criu_opts *opts, bool val);
+void criu_local_set_mounts_v2(criu_opts *opts, bool val);
 
 void criu_local_set_notify_cb(criu_opts *opts, int (*cb)(char *action, criu_notify_arg_t na));
 

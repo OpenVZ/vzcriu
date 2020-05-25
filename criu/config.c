@@ -509,6 +509,7 @@ int parse_options(int argc, char **argv, bool *usage_error,
 		{ "config",			required_argument,	0, 1089},
 		{ "no-default-config",		no_argument,		0, 1090},
 		BOOL_OPT("check-mounts", &opts.check_mounts),
+		BOOL_OPT("mounts-v2", &opts.mounts_v2),
 		{ },
 	};
 
