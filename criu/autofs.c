@@ -742,13 +742,13 @@ static int autofs_create_dentries(const struct mount_info *mi, char *mnt_path)
 	list_for_each_entry(c, &mi->children, siblings) {
 		char *path, *basename;
 
-		basename = strrchr(c->mountpoint, '/');
+		basename = get_relative_path(c->ns_mountpoint, mi->ns_mountpoint);
 		if (!basename) {
-			pr_info("%s: mount path \"%s\" doesn't have '/'\n",
-					__func__, c->mountpoint);
+			pr_err("Can't get path %s relative to %s\n",
+			       c->ns_mountpoint, mi->ns_mountpoint);
 			return -1;
 		}
-		path = xsprintf("%s%s", mnt_path, basename);
+		path = xsprintf("%s/%s", mnt_path, basename);
 		if (!path)
 			return -1;
 		if (mkdir(path, 0555) < 0) {
