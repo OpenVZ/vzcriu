@@ -2505,7 +2505,7 @@ static int do_new_mount(struct mount_info *mi)
 	if (tp->restore && tp->restore(mi))
 		return -1;
 
-	if (!mi->is_ns_root && remount_ro) {
+	if (remount_ro) {
 		int fd;
 
 		fd = open(mi->mountpoint, O_PATH);
