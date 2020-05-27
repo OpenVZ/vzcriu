@@ -949,6 +949,8 @@ class criu_rpc:
                 inhfd.key = key
             elif "--check-mounts" == arg:
                 criu.opts.check_mounts = True
+            elif "--mounts-v2" == arg:
+                criu.opts.mounts_v2 = True
             else:
                 raise test_fail_exc('RPC for %s(%s) required' % (arg, args.pop(0)))
 
@@ -1042,6 +1044,7 @@ class criu:
         self.__criu_bin = opts['criu_bin']
         self.__crit_bin = opts['crit_bin']
         self.__pre_dump_mode = opts['pre_dump_mode']
+        self.__mounts_v2 = (opts['mounts_v2'] and True or False)
 
     def fini(self):
         if self.__lazy_migrate:
@@ -1412,6 +1415,9 @@ class criu:
                                                   opts=lp_opts,
                                                   nowait=True)
             r_opts += ["--lazy-pages"]
+
+        if self.__mounts_v2:
+            r_opts += ['--mounts-v2']
 
         r_opts += ['--check-mounts']
 
@@ -1983,7 +1989,7 @@ class Launcher:
               'sat', 'script', 'rpc', 'lazy_pages', 'join_ns', 'dedup', 'sbs',
               'freezecg', 'user', 'dry_run', 'noauto_dedup',
               'remote_lazy_pages', 'show_stats', 'lazy_migrate', 'stream',
-              'tls', 'criu_bin', 'crit_bin', 'pre_dump_mode')
+              'tls', 'criu_bin', 'crit_bin', 'pre_dump_mode', 'mounts_v2')
         arg = repr((name, desc, flavor, {d: self.__opts[d] for d in nd}))
 
         if self.__use_log:
@@ -2648,6 +2654,9 @@ rp.add_argument("--pre-dump-mode",
                 help="Use splice or read mode of pre-dumping",
                 choices=['splice', 'read'],
                 default='splice')
+rp.add_argument("--mounts-v2",
+                help="Use new mounts-v2 restore engine",
+                action='store_true')
 
 lp = sp.add_parser("list", help="List tests")
 lp.set_defaults(action=list_tests)
