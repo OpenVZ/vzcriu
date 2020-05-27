@@ -641,7 +641,7 @@ static bool mnt_needs_remap(struct mount_info *m)
 }
 
 static struct mount_info *__mnt_get_external(struct mount_info *m, bool need_master,
-					    bool need_mounted) {
+					     bool need_mounted, bool non_dev) {
 	struct mount_info *t;
 
 	BUG_ON(!m);
@@ -659,6 +659,7 @@ static struct mount_info *__mnt_get_external(struct mount_info *m, bool need_mas
 		if (t->external &&
 		    (!need_master || t->master_id == m->master_id) &&
 		    (!need_mounted || t->mounted) &&
+		    (!non_dev || strcmp(t->external, EXTERNAL_DEV_MOUNT)) &&
 		    issubpath(m->root, t->root))
 			return t;
 
@@ -671,17 +672,22 @@ static struct mount_info *__mnt_get_external(struct mount_info *m, bool need_mas
  */
 static struct mount_info *mnt_is_external(struct mount_info *m)
 {
-	return __mnt_get_external(m, 0, 0);
+	return __mnt_get_external(m, 0, 0, 0);
 }
 
 static struct mount_info *mnt_get_external_need_master(struct mount_info *m)
 {
-	return __mnt_get_external(m, 1, 0);
+	return __mnt_get_external(m, 1, 0, 0);
 }
 
 static bool has_mounted_external_bind(struct mount_info *m)
 {
-	return __mnt_get_external(m, 0, 1);
+	return __mnt_get_external(m, 0, 1, 0);
+}
+
+struct mount_info __maybe_unused *mnt_get_external_nodev(struct mount_info *m)
+{
+	return __mnt_get_external(m, 0, 0, 1);
 }
 
 /*
