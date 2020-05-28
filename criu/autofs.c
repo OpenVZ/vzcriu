@@ -235,7 +235,7 @@ static int autofs_find_read_fd(int pgrp, long pipe_ino)
 	return read_fd;
 }
 
-static int parse_options(char *options, AutofsEntry *entry, long *pipe_ino)
+static int parse_autofs_options(char *options, AutofsEntry *entry, long *pipe_ino)
 {
 	char **opts;
 	int nr_opts, i;
@@ -467,7 +467,7 @@ static int autofs_create_entry(struct mount_info *pm, AutofsEntry *entry)
 {
 	long pipe_ino;
 
-	if (parse_options(pm->options, entry, &pipe_ino))
+	if (parse_autofs_options(pm->options, entry, &pipe_ino))
 		return -1;
 
 	if (entry->uid != AUTOFS_OPT_UNKNOWN)
@@ -501,7 +501,7 @@ static int autofs_create_entry(struct mount_info *pm, AutofsEntry *entry)
 				       service_mountpoint(pm) + 1);
 				return -1;
 			}
-			if (parse_options(pm->options, entry, &pipe_ino))
+			if (parse_autofs_options(pm->options, entry, &pipe_ino))
 				return -1;
 			if (entry->fd == AUTOFS_CATATONIC_FD)
 				return 0;

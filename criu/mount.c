@@ -3424,6 +3424,7 @@ void mnt_entry_free(struct mount_info *mi)
 	if (mi) {
 		xfree(mi->root);
 		xfree(mi->mountpoint);
+		xfree(mi->plain_mountpoint);
 		xfree(mi->source);
 		xfree(mi->options);
 		xfree(mi->fsname);
@@ -3566,9 +3567,18 @@ out:
 	return 0;
 }
 
+/*
+ * Helper for getting a path to mount's plain mountpoint
+ */
+int print_plain_mountpoint(struct mount_info *mi, char *buf, int bs)
+{
+	return snprintf(buf, bs, "%s/mnt-%010d", mnt_roots, mi->mnt_id);
+}
+
 static int get_mp_mountpoint(char *mountpoint, struct mount_info *mi,
 			     char *root, int root_len)
 {
+	char path[PATH_MAX];
 	int len;
 
 	len  = strlen(mountpoint) + root_len + 1;
@@ -3587,6 +3597,11 @@ static int get_mp_mountpoint(char *mountpoint, struct mount_info *mi,
 	strcpy(mi->mountpoint + root_len, mountpoint);
 
 	mi->ns_mountpoint = mi->mountpoint + root_len;
+
+	print_plain_mountpoint(mi, path, sizeof(path));
+	mi->plain_mountpoint = xstrdup(path);
+	if (!mi->plain_mountpoint)
+		return -1;
 
 	pr_debug("\t\tWill mount %d @ %s %s\n", mi->mnt_id,
 		 service_mountpoint(mi), mi->ns_mountpoint);
