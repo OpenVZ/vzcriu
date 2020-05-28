@@ -336,7 +336,7 @@ static int spfs_request_mount(int sock, struct mount_info *mi, const char *sourc
 	mount = xsprintf("mount;id=%d;mode=restore;"
 			 "mountpoint=%s;ns_mountpoint=%s;"
 			 "ns_pid=%d", mi->mnt_id,
-			 mi->mountpoint, mi->ns_mountpoint,
+			 service_mountpoint(mi), mi->ns_mountpoint,
 			 root_item->pid->real);
 	if (!mount) {
 		pr_err("failed to allocate mount request\n");
@@ -413,7 +413,7 @@ int spfs_mount(struct mount_info *mi, const char *source,
 	return 0;
 
 err:
-	pr_err("failed to mount NFS to path %s\n", mi->mountpoint);
+	pr_err("failed to mount NFS to path %s\n", service_mountpoint(mi));
 	return ret;
 }
 

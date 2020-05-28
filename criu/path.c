@@ -79,9 +79,9 @@ char *mnt_get_sibling_path(struct mount_info *m,
 	cut_root = cut_root_for_bind(pa->root, p->root);
 	if (cut_root == NULL)
 		return NULL;
-	if (p->mountpoint[1] != 0) /* not "/" */ {
-		off = snprintf(path, len, "%s", p->mountpoint);
-		if (path[off - 1] == '/') /* p->mountpoint = "./" */
+	if (service_mountpoint(p)[1] != 0) /* not "/" */ {
+		off = snprintf(path, len, "%s", service_mountpoint(p));
+		if (path[off - 1] == '/') /* service_mountpoint(p) = "./" */
 			off--;
 	}
 	len -= off;

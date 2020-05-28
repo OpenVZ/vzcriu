@@ -1811,7 +1811,7 @@ static __maybe_unused struct mount_info *add_cr_time_mount(struct mount_info *ro
 	parent = root;
 	while (1) {
 		list_for_each_entry(t, &parent->children, siblings) {
-			if (strstartswith(mi->mountpoint, t->mountpoint)) {
+			if (strstartswith(service_mountpoint(mi), service_mountpoint(t))) {
 				parent = t;
 				break;
 			}
@@ -1827,7 +1827,7 @@ static __maybe_unused struct mount_info *add_cr_time_mount(struct mount_info *ro
 	mntinfo_add_list_before(&parent->next, mi);
 	list_add(&mi->siblings, &parent->children);
 	pr_info("Add cr-time mountpoint %s with parent %s(%u)\n",
-		mi->mountpoint, parent->mountpoint, parent->mnt_id);
+		service_mountpoint(mi), service_mountpoint(parent), parent->mnt_id);
 	return mi;
 
 err:
@@ -2295,23 +2295,23 @@ static int __restore_shared_options(char *mountpoint, int mnt_id, bool private,
 static int restore_shared_options(struct mount_info *mi, bool private, bool shared, bool slave)
 {
 	pr_debug("%d:%s private %d shared %d slave %d\n",
-			mi->mnt_id, mi->mountpoint, private, shared, slave);
+		 mi->mnt_id, service_mountpoint(mi), private, shared, slave);
 
 	if (mi->flags & MS_UNBINDABLE) {
 		if (shared || slave) {
-			pr_warn("%s has both unbindable and sharing, ignoring unbindable\n", mi->mountpoint);
+			pr_warn("%s has both unbindable and sharing, ignoring unbindable\n", service_mountpoint(mi));
 		} else {
 			if (!mnt_is_overmounted(mi)) {
 				/* Someone may still want to bind from us, let them do it. */
-				pr_debug("Temporary leave unbindable mount %s as private\n", mi->mountpoint);
-				if (mount(NULL, mi->mountpoint, NULL, MS_PRIVATE, NULL)) {
+				pr_debug("Temporary leave unbindable mount %s as private\n", service_mountpoint(mi));
+				if (mount(NULL, service_mountpoint(mi), NULL, MS_PRIVATE, NULL)) {
 					pr_perror("Unable to make %d private", mi->mnt_id);
 					return -1;
 				}
 				list_add(&mi->mnt_unbindable, &delayed_unbindable);
 				return 0;
 			}
-			if (mount(NULL, mi->mountpoint, NULL, MS_UNBINDABLE, NULL)) {
+			if (mount(NULL, service_mountpoint(mi), NULL, MS_UNBINDABLE, NULL)) {
 				pr_perror("Unable to make %d unbindable", mi->mnt_id);
 				return -1;
 			}
@@ -2319,7 +2319,7 @@ static int restore_shared_options(struct mount_info *mi, bool private, bool shar
 		}
 	}
 
-	return __restore_shared_options(mi->mountpoint, mi->mnt_id,
+	return __restore_shared_options(service_mountpoint(mi), mi->mnt_id,
 					private, shared, slave);
 }
 
@@ -2475,9 +2475,9 @@ static int fetch_rt_stat(struct mount_info *m, const char *where)
 static int do_simple_mount(struct mount_info *mi, const char *src, const
 			   char *fstype, unsigned long mountflags)
 {
-	int ret = mount(src, mi->mountpoint, fstype, mountflags, mi->options);
+	int ret = mount(src, service_mountpoint(mi), fstype, mountflags, mi->options);
 	if (ret)
-		pr_perror("Unable to mount %s %s (id=%d)", src, mi->mountpoint, mi->mnt_id);
+		pr_perror("Unable to mount %s %s (id=%d)", src, service_mountpoint(mi), mi->mnt_id);
 	return ret;
 }
 
@@ -2542,7 +2542,7 @@ static int do_new_mount(struct mount_info *mi)
 		sflags &= ~MS_RDONLY;
 
 	if (do_mount(mi, src, mnt_fsname(mi), sflags) < 0) {
-		pr_perror("Can't mount at %s", mi->mountpoint);
+		pr_perror("Can't mount at %s", service_mountpoint(mi));
 		return -1;
 	}
 
@@ -2552,22 +2552,22 @@ static int do_new_mount(struct mount_info *mi)
 	if (remount_ro) {
 		int fd;
 
-		fd = open(mi->mountpoint, O_PATH);
+		fd = open(service_mountpoint(mi), O_PATH);
 		if (fd < 0) {
-			pr_perror("Unable to open %s", mi->mountpoint);
+			pr_perror("Unable to open %s", service_mountpoint(mi));
 			return -1;
 		}
 		sflags |= MS_RDONLY | MS_REMOUNT;
 		if (userns_call(apply_sb_flags, 0, &sflags, sizeof(sflags), fd)) {
 			pr_err("Unable to apply mount flags %d for %s",
-						mi->sb_flags, mi->mountpoint);
+			       mi->sb_flags, service_mountpoint(mi));
 			close(fd);
 			return -1;
 		}
 		close(fd);
 	}
 
-	if (mflags && mount(NULL, mi->mountpoint, NULL,
+	if (mflags && mount(NULL, service_mountpoint(mi), NULL,
 				MS_REMOUNT | MS_BIND | mflags, NULL)) {
 		pr_perror("Unable to apply bind-mount options");
 		return -1;
@@ -2589,8 +2589,8 @@ static int restore_ext_mount(struct mount_info *mi)
 {
 	int ret;
 
-	pr_debug("Restoring external bind mount %s\n", mi->mountpoint);
-	ret = run_plugins(RESTORE_EXT_MOUNT, mi->mnt_id, mi->mountpoint, "/", NULL);
+	pr_debug("Restoring external bind mount %s\n", service_mountpoint(mi));
+	ret = run_plugins(RESTORE_EXT_MOUNT, mi->mnt_id, service_mountpoint(mi), "/", NULL);
 	if (ret)
 		pr_err("Can't restore ext mount (%d)\n", ret);
 	return ret;
@@ -2722,7 +2722,7 @@ static int do_bind_mount(struct mount_info *mi)
 	 */
 	mi->private = mi->bind->private;
 
-	mnt_path = mi->bind->mountpoint;
+	mnt_path = service_mountpoint(mi->bind);
 
 	if (mi->fstype->code == FSTYPE__AUTOFS && mi->bind->fd < 0) {
 		mi->bind->fd = open(mnt_path, O_PATH); /* autofs hack*/
@@ -2732,7 +2732,7 @@ static int do_bind_mount(struct mount_info *mi)
 		}
 	}
 
-	/* Access a mount by fd if mi->bind->mountpoint is overmounted */
+	/* Access a mount by fd if service_mountpoint(mi->bind) is overmounted */
 	if (mi->bind->fd >= 0) {
 		snprintf(mnt_fd_path, sizeof(mnt_fd_path),
 					"/proc/self/fd/%d", mi->bind->fd);
@@ -2741,11 +2741,11 @@ static int do_bind_mount(struct mount_info *mi)
 
 	if (unix_prepare_bindmount(mi)) {
 		pr_err("Failed to prepare bindmount on unix at %s\n",
-		       mi->mountpoint);
+		       service_mountpoint(mi));
 		return -1;
 	}
 
-	/* mi->bind->mountpoint may be overmounted */
+	/* service_mountpoint(mi->bind) may be overmounted */
 	if (mount(mnt_path, mnt_clean_path, NULL, MS_BIND, NULL)) {
 		pr_perror("Unable to bind-mount %s to %s",
 			  mnt_path, mnt_clean_path);
@@ -2771,11 +2771,11 @@ static int do_bind_mount(struct mount_info *mi)
 	}
 do_bind:
 	pr_info("\tBind %s[%s] to %s\n", root,
-		mi->external ? "" : mi->bind->mountpoint, mi->mountpoint);
+		mi->external ? "" : service_mountpoint(mi->bind), service_mountpoint(mi));
 
 	if (unlikely(mi->deleted)) {
-		if (stat(mi->mountpoint, &st)) {
-			pr_perror("Can't fetch stat on %s", mi->mountpoint);
+		if (stat(service_mountpoint(mi), &st)) {
+			pr_perror("Can't fetch stat on %s", service_mountpoint(mi));
 			goto err;
 		}
 
@@ -2811,8 +2811,8 @@ do_bind:
 	snprintf(mnt_fd_path, sizeof(mnt_fd_path),
 				"/proc/self/fd/%d", fd);
 
-	if (mount(mnt_fd_path, mi->mountpoint, NULL, MS_BIND | (mi->flags & MS_REC), NULL) < 0) {
-		pr_perror("Can't mount at %s", mi->mountpoint);
+	if (mount(mnt_fd_path, service_mountpoint(mi), NULL, MS_BIND | (mi->flags & MS_REC), NULL) < 0) {
+		pr_perror("Can't mount at %s", service_mountpoint(mi));
 		close(fd);
 		goto err;
 	}
@@ -2820,8 +2820,8 @@ do_bind:
 
 	mflags = mi->flags & (~MS_PROPAGATE);
 	if (!mi->bind || mflags != (mi->bind->flags & (~MS_PROPAGATE)))
-		if (mount(NULL, mi->mountpoint, NULL, MS_BIND | MS_REMOUNT | mflags, NULL)) {
-			pr_perror("Can't mount at %s", mi->mountpoint);
+		if (mount(NULL, service_mountpoint(mi), NULL, MS_BIND | MS_REMOUNT | mflags, NULL)) {
+			pr_perror("Can't mount at %s", service_mountpoint(mi));
 			goto err;
 		}
 
@@ -3063,7 +3063,7 @@ static int do_mount_root(struct mount_info *mi)
 	if (restore_shared_options(mi, private, mi->shared_id, mi->master_id))
 		return -1;
 
-	return fetch_rt_stat(mi, mi->mountpoint);
+	return fetch_rt_stat(mi, service_mountpoint(mi));
 }
 
 static int do_close_one(struct mount_info *mi)
@@ -3074,7 +3074,7 @@ static int do_close_one(struct mount_info *mi)
 
 static int set_unbindable(struct mount_info *mi)
 {
-	if (mount(NULL, mi->mountpoint, NULL, MS_UNBINDABLE, NULL)) {
+	if (mount(NULL, service_mountpoint(mi), NULL, MS_UNBINDABLE, NULL)) {
 		pr_perror("Failed setting unbindable flag on %d", mi->mnt_id);
 		return -1;
 	}
@@ -3096,14 +3096,15 @@ static int do_mount_one(struct mount_info *mi)
 
 	if ((mi->parent != root_yard_mp) &&
 	    !strcmp(mi->parent->ns_mountpoint, mi->ns_mountpoint)) {
-		mi->parent->fd = open(mi->parent->mountpoint, O_PATH);
+		mi->parent->fd = open(service_mountpoint(mi->parent), O_PATH);
 		if (mi->parent->fd < 0) {
-			pr_perror("Unable to open %s", mi->mountpoint);
+			pr_perror("Unable to open %s", service_mountpoint(mi));
 			return -1;
 		}
 	}
 
-	pr_debug("\tMounting %s @%s (%d)\n", mi->fstype->name, mi->mountpoint, mi->need_plugin);
+	pr_debug("\tMounting %s %d@%s (%d)\n", mi->fstype->name, mi->mnt_id,
+		 service_mountpoint(mi), mi->need_plugin);
 
 	if (rst_mnt_is_root(mi)) {
 		int fd;
@@ -3116,21 +3117,21 @@ static int do_mount_one(struct mount_info *mi)
 
 		/* do_mount_root() is called from populate_mnt_ns() */
 		if (root_ns_mask & CLONE_NEWUSER) {
-			fd = open(mi->mountpoint, O_PATH);
+			fd = open(service_mountpoint(mi), O_PATH);
 			if (fd < 0) {
-				pr_perror("Unable to open %s", mi->mountpoint);
+				pr_perror("Unable to open %s", service_mountpoint(mi));
 				return -1;
 			}
 
 			if (userns_call(mount_root, 0, &flags, sizeof(flags), fd)) {
-				pr_err("Unable to mount %s\n", mi->mountpoint);
+				pr_err("Unable to mount %s\n", service_mountpoint(mi));
 				close(fd);
 				return -1;
 			}
 			close(fd);
 		} else {
-			if (mount(opts.root, mi->mountpoint, NULL, flags, NULL)) {
-				pr_perror("Unable to mount %s %s (id=%d)", opts.root, mi->mountpoint, mi->mnt_id);
+			if (mount(opts.root, service_mountpoint(mi), NULL, flags, NULL)) {
+				pr_perror("Unable to mount %s %s (id=%d)", opts.root, service_mountpoint(mi), mi->mnt_id);
 				return -1;
 			}
 		}
@@ -3145,7 +3146,7 @@ static int do_mount_one(struct mount_info *mi)
 	else
 		ret = do_bind_mount(mi);
 
-	if (ret == 0 && fetch_rt_stat(mi, mi->mountpoint))
+	if (ret == 0 && fetch_rt_stat(mi, service_mountpoint(mi)))
 		return -1;
 
 	if (ret == 0 && propagate_mount(mi))
@@ -3154,8 +3155,8 @@ static int do_mount_one(struct mount_info *mi)
 	if (mi->fstype->code == FSTYPE__UNSUPPORTED) {
 		struct statfs st;
 
-		if (statfs(mi->mountpoint, &st)) {
-			pr_perror("Unable to statfs %s", mi->mountpoint);
+		if (statfs(service_mountpoint(mi), &st)) {
+			pr_perror("Unable to statfs %s", service_mountpoint(mi));
 			return -1;
 		}
 		if (st.f_type == BTRFS_SUPER_MAGIC)
@@ -3170,17 +3171,17 @@ static int do_umount_one(struct mount_info *mi)
 	if (!mi->parent)
 		return 0;
 
-	if (mount("none", mi->parent->mountpoint, "none", MS_REC|MS_PRIVATE, NULL)) {
-		pr_perror("Can't mark %s as private", mi->parent->mountpoint);
+	if (mount("none", service_mountpoint(mi->parent), "none", MS_REC|MS_PRIVATE, NULL)) {
+		pr_perror("Can't mark %s as private", service_mountpoint(mi->parent));
 		return -1;
 	}
 
-	if (umount(mi->mountpoint)) {
-		pr_perror("Can't umount at %s", mi->mountpoint);
+	if (umount(service_mountpoint(mi))) {
+		pr_perror("Can't umount at %s", service_mountpoint(mi));
 		return -1;
 	}
 
-	pr_info("Umounted at %s\n", mi->mountpoint);
+	pr_info("Umounted at %s\n", service_mountpoint(mi));
 	return 0;
 }
 
@@ -3565,7 +3566,8 @@ out:
 	return 0;
 }
 
-static int get_mp_mountpoint(char *mountpoint, struct mount_info *mi, char *root, int root_len)
+static int get_mp_mountpoint(char *mountpoint, struct mount_info *mi,
+			     char *root, int root_len)
 {
 	int len;
 
@@ -3586,7 +3588,8 @@ static int get_mp_mountpoint(char *mountpoint, struct mount_info *mi, char *root
 
 	mi->ns_mountpoint = mi->mountpoint + root_len;
 
-	pr_debug("\t\tWill mount %d @ %s\n", mi->mnt_id, mi->mountpoint);
+	pr_debug("\t\tWill mount %d @ %s %s\n", mi->mnt_id,
+		 service_mountpoint(mi), mi->ns_mountpoint);
 	return 0;
 }
 
@@ -3864,14 +3867,14 @@ static int populate_roots_yard(struct mount_info *cr_time)
 	 * contains mounts which has to be restored separately
 	 */
 	list_for_each_entry(r, &mnt_remap_list, node) {
-		if (mkdirpat(AT_FDCWD, r->mi->mountpoint, 0755)) {
-			pr_perror("Unable to create %s", r->mi->mountpoint);
+		if (mkdirpat(AT_FDCWD, service_mountpoint(r->mi), 0755)) {
+			pr_perror("Unable to create %s", service_mountpoint(r->mi));
 			return -1;
 		}
 	}
 
-	if (cr_time && mkdirpat(AT_FDCWD, cr_time->mountpoint, 0755)) {
-		pr_perror("Unable to create %s", cr_time->mountpoint);
+	if (cr_time && mkdirpat(AT_FDCWD, service_mountpoint(cr_time), 0755)) {
+		pr_perror("Unable to create %s", service_mountpoint(cr_time));
 		return -1;
 	}
 
@@ -4483,11 +4486,11 @@ int try_remount_writable(struct mount_info *mi, bool ns)
 			return -1;
 		}
 
-		pr_info("Remount %d:%s writable\n", mi->mnt_id, mi->mountpoint);
+		pr_info("Remount %d:%s writable\n", mi->mnt_id, service_mountpoint(mi));
 		if (!ns) {
-			if (mount(NULL, mi->mountpoint, NULL, MS_REMOUNT | MS_BIND |
+			if (mount(NULL, service_mountpoint(mi), NULL, MS_REMOUNT | MS_BIND |
 				  (mi->flags & ~(MS_PROPAGATE | MS_RDONLY)), NULL) == -1) {
-				pr_perror("Failed to remount %d:%s writable", mi->mnt_id, mi->mountpoint);
+				pr_perror("Failed to remount %d:%s writable", mi->mnt_id, service_mountpoint(mi));
 				return -1;
 			}
 		} else {

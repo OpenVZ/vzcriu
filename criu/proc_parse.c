@@ -1637,14 +1637,14 @@ struct mount_info *parse_mountinfo(pid_t pid, struct ns_id *nsid, bool for_dump)
 			ret = new->fstype->parse(new, for_dump);
 			if (ret < 0) {
 				pr_err("Failed to parse FS specific data on %s\n",
-						new->mountpoint);
+				       service_mountpoint(new));
 				mnt_entry_free(new);
 				new = NULL;
 				goto end;
 			}
 
 			if (ret > 0) {
-				pr_info("\tskipping fs mounted at %s\n", new->mountpoint + 1);
+				pr_info("\tskipping fs mounted at %s\n", service_mountpoint(new) + 1);
 				mnt_entry_free(new);
 				new = NULL;
 				ret = 0;
