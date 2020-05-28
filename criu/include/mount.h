@@ -92,6 +92,11 @@ struct mount_info {
 	void			*private;	/* associated filesystem data */
 };
 
+static inline char *service_mountpoint(const struct mount_info *mi)
+{
+	return mi->mountpoint;
+}
+
 extern struct mount_info *mntinfo;
 
 static inline void mntinfo_add_list_before(struct mount_info **head, struct mount_info *new)
