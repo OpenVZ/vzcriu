@@ -4,6 +4,7 @@
 #include <sys/types.h>
 
 #include "common/list.h"
+#include "cr_options.h"
 
 struct proc_mountinfo;
 struct pstree_item;
@@ -44,6 +45,7 @@ struct mount_info {
 	 */
 	char			*mountpoint;
 	char			*ns_mountpoint;
+	char			*plain_mountpoint;
 	int			fd;
 	unsigned		flags;
 	unsigned		sb_flags;
@@ -94,6 +96,8 @@ struct mount_info {
 
 static inline char *service_mountpoint(const struct mount_info *mi)
 {
+	if (opts.mounts_v2 && mi->plain_mountpoint)
+		return mi->plain_mountpoint;
 	return mi->mountpoint;
 }
 
