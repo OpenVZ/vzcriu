@@ -2305,6 +2305,8 @@ static int umount_from_slaves(struct mount_info *mi)
 	struct mount_info *t;
 	char *mpath, buf[PATH_MAX];
 
+	BUG_ON(mi->parent == root_yard_mp);
+
 	list_for_each_entry(t, &mi->parent->mnt_slave_list, mnt_slave) {
 		if (!t->mounted)
 			continue;
@@ -2372,7 +2374,7 @@ static int propagate_mount(struct mount_info *mi)
 
 	propagate_siblings(mi);
 
-	if (!mi->parent)
+	if (!mi->parent || mi->parent == root_yard_mp)
 		goto skip_parent;
 
 	umount_from_slaves(mi);

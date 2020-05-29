@@ -49,16 +49,16 @@ char *mnt_get_sibling_path(struct mount_info *m,
 		return NULL;
 
 	/* It's a bind-mount loop, don't search for siblings inside itself. */
-	if (!strcmp(p->mountpoint, m->mountpoint))
+	if (p == m)
 		return NULL;
 
-	rpath = m->mountpoint + strlen(pa->mountpoint);
+	rpath = m->ns_mountpoint + strlen(pa->ns_mountpoint);
 	if (rpath[0] == '/')
 		rpath++;
 
 	/*
 	 * Get a path to a sibling of "m" with parent "p",
-	 * return NULL is p can't have a sibling of m.
+	 * return NULL if p can't have a sibling of m.
 	 *
 	 * Here are two cases:
 	 * When a parent of "m" has longer root than "p":
