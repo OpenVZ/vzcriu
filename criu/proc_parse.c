@@ -2780,7 +2780,7 @@ int aufs_parse(struct mount_info *new, bool for_dump)
 {
 	int ret = 0;
 
-	if (!strcmp(new->mountpoint, "./")) {
+	if (!strcmp(new->ns_mountpoint, "./")) {
 		opts.aufs = true;
 		ret = parse_aufs_branches(new);
 	}
