@@ -1449,7 +1449,7 @@ bool mnt_is_overmounted(struct mount_info *mi)
 		list_for_each_entry(t, &m->parent->children, siblings) {
 			if (m == t)
 				continue;
-			if (issubpath(m->mountpoint, t->mountpoint)) {
+			if (issubpath(m->ns_mountpoint, t->ns_mountpoint)) {
 				mi->is_overmounted = 1;
 				goto exit;
 			}
@@ -1465,7 +1465,7 @@ bool mnt_is_overmounted(struct mount_info *mi)
 
 	/* Check there is no children-overmount */
 	list_for_each_entry(c, &mi->children, siblings)
-		if (!strcmp(c->mountpoint, mi->mountpoint)) {
+		if (!strcmp(c->ns_mountpoint, mi->ns_mountpoint)) {
 			mi->is_overmounted = 1;
 			goto exit;
 		}
@@ -1474,10 +1474,35 @@ exit:
 	return mi->is_overmounted;
 }
 
-static int set_is_overmounted(struct mount_info *mi)
+static int __set_is_overmounted(struct mount_info *mi)
 {
 	mnt_is_overmounted(mi);
 	return 0;
+}
+
+static int mnt_tree_for_each(struct mount_info *start,
+			     int (*fn)(struct mount_info *));
+
+/*
+ * mnt_is_overmounted should only work on initial mount tree, then we merge all
+ * trees under the root yard all roots become siblings with same ns_mountpoint
+ * ("/"), and it breaks the mnt_is_overmounted function.
+ */
+static void set_is_overmounted(void)
+{
+	struct ns_id *nsid;
+
+	for (nsid = ns_ids; nsid; nsid = nsid->next) {
+		struct mount_info *root;
+
+		if (nsid->nd != &mnt_ns_desc)
+			continue;
+
+		root = nsid->mnt.mntinfo_tree;
+
+		BUG_ON(root->parent);
+		mnt_tree_for_each(root, __set_is_overmounted);
+	}
 }
 
 /*
@@ -3861,6 +3886,8 @@ static int populate_mnt_ns(void)
 
 	mntinfo_add_list_before(&mntinfo, root_yard_mp);
 
+	set_is_overmounted();
+
 	if (merge_mount_trees(root_yard_mp))
 		return -1;
 
@@ -3886,8 +3913,6 @@ static int populate_mnt_ns(void)
 
 	if (validate_mounts(mntinfo, false))
 		return -1;
-
-	mnt_tree_for_each(root_yard_mp, set_is_overmounted);
 
 	if (find_remap_mounts(root_yard_mp))
 		return -1;
