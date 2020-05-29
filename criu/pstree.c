@@ -1647,9 +1647,12 @@ static int prepare_pstree_kobj_ids(void)
 		 * The cgroup namespace is also unshared explicitly in the
 		 * move_in_cgroup(), so drop this flag here as well. And same
 		 * for time namespace.
+		 *
+		 * UTS namespaces also don't correlate with task hierarhy and
+		 * we create them in prepare_namespaces(...)
 		 */
 		rsti(item)->clone_flags &= ~(CLONE_NEWNET | CLONE_NEWCGROUP |
-					     CLONE_NEWTIME);
+					     CLONE_NEWTIME | CLONE_NEWUTS);
 
 		/**
 		 * Only child reaper can clone with CLONE_NEWPID

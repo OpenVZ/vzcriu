@@ -54,6 +54,7 @@
 #include "fsnotify.h"
 #include "pstree.h"
 #include "net.h"
+#include "uts_ns.h"
 #include "tty.h"
 #include "cpu.h"
 #include "file-lock.h"
@@ -1109,6 +1110,9 @@ static int restore_one_alive_task(int pid, CoreEntry *core)
 	 * so a task namespace has to be restored after sockets.
 	 */
 	if (restore_task_net_ns(current))
+		return -1;
+
+	if (restore_task_ns(current, current->ids->uts_ns_id, &uts_ns_desc))
 		return -1;
 
 	if (setup_uffd(pid, ta))
@@ -2194,6 +2198,8 @@ static int restore_task_with_children(void *_arg)
 			if (prepare_timens(0))
 				goto err;
 		}
+
+		make_root_ns(&uts_ns_desc);
 
 		/* Wait prepare_userns */
 		if (restore_finish_ns_stage(CR_STATE_ROOT_TASK, CR_STATE_PREPARE_NAMESPACES) < 0)
