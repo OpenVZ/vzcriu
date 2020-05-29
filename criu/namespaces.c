@@ -362,6 +362,7 @@ static struct ns_id *rst_new_ns_id(unsigned int id, pid_t pid, struct ns_desc *n
 		nsid->type = type;
 		nsid_add(nsid, nd, id, pid);
 		nsid->ns_populated = false;
+		nsid->nsfd_id = -1;
 
 		if (nd == &net_ns_desc) {
 			INIT_LIST_HEAD(&nsid->net.ids);
@@ -651,9 +652,12 @@ static int open_ns_fd(struct file_desc *d, int *new_fd)
 	for (ns = ns_ids; ns != NULL; ns = ns->next) {
 		if (ns->id != nfi->nfe->ns_id)
 			continue;
-		/* Check for CLONE_XXX as we use fdstore only if flag is set */
-		if (ns->nd == &net_ns_desc && (root_ns_mask & CLONE_NEWNET))
-			nsfd_id = ns->net.nsfd_id;
+		/*
+		 * For several namespace types we put namespace fd into fdstore after
+		 * namespace is fully restored.
+		 */
+		if (ns->nsfd_id >= 0)
+			nsfd_id = ns->nsfd_id;
 		else
 			break;
 		fd = fdstore_get(nsfd_id);
