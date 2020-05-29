@@ -948,8 +948,8 @@ int collect_unix_bindmounts(void)
 			return -1;
 		}
 
-		if (stat(mi->mountpoint, &st)) {
-			pr_warn("Can't stat on %s: %m\n", mi->mountpoint);
+		if (stat(mi->ns_mountpoint, &st)) {
+			pr_warn("Can't stat on %s: %m\n", mi->ns_mountpoint);
 			if (restore_ns(ns_old, &mnt_ns_desc)) {
 				pr_err("Can't switch mount ns back from mnt_id %d\n", mi->mnt_id);
 				return -1;
@@ -964,10 +964,10 @@ int collect_unix_bindmounts(void)
 				if (sk->vfs_ino == (int)st.st_ino &&
 				    __phys_stat_dev_match(st.st_dev, sk->vfs_dev, NULL, NULL, mi)) {
 					pr_debug("Found sock s_dev %#x ino %d bindmounted mnt_id %d %s\n",
-						 (int)st.st_dev, (int)st.st_ino, mi->mnt_id, mi->mountpoint);
+						 (int)st.st_dev, (int)st.st_ino, mi->mnt_id, mi->ns_mountpoint);
 					if (sk->bindmount) {
 						pr_err("Many bindings for sockets are not yet supported %d at %s\n",
-						       (int)st.st_ino, mi->mountpoint);
+						       (int)st.st_ino, mi->ns_mountpoint);
 						ret = -1;
 					} else {
 						sk->mnt_id = mi->mnt_id;
@@ -975,7 +975,7 @@ int collect_unix_bindmounts(void)
 					}
 					if (sk->type != SOCK_DGRAM && sk->state != TCP_CLOSE) {
 						pr_err("Unsupported bindmounted socket ino %d at %s\n",
-						       (int)st.st_ino, mi->mountpoint);
+						       (int)st.st_ino, mi->ns_mountpoint);
 						ret = -1;
 					}
 					break;
