@@ -38,7 +38,7 @@ err:
 	return ret < 0 ? -1 : 0;
 }
 
-int prepare_utsns(int pid)
+static int prepare_utsns(unsigned int pid)
 {
 	int ret;
 	struct cr_img *img;
@@ -68,4 +68,4 @@ out:
 	return ret;
 }
 
-struct ns_desc uts_ns_desc = NS_DESC_ENTRY(CLONE_NEWUTS, "uts", NULL);
+struct ns_desc uts_ns_desc = NS_DESC_ENTRY_PREP_FN(CLONE_NEWUTS, "uts", NULL, prepare_utsns);
