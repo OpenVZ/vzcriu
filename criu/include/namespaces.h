@@ -67,6 +67,7 @@ struct ns_desc {
 	char *str;
 	char *alt_str;
 	size_t len;
+	int (*ns_prepare)(unsigned int _nsid);
 };
 
 struct user_ns_extra {
@@ -179,6 +180,16 @@ extern struct ns_id *root_user_ns;
 		.str		= _str,		    \
 		.alt_str	= _alt_str,	    \
 		.len		= sizeof(_str) - 1, \
+		.ns_prepare	= NULL,		    \
+	}
+
+#define NS_DESC_ENTRY_PREP_FN(_cflag, _str, _alt_str, _ns_prepare) \
+	{							   \
+		.cflag		= _cflag,			   \
+		.str		= _str,				   \
+		.alt_str	= _alt_str,			   \
+		.len		= sizeof(_str) - 1,		   \
+		.ns_prepare	= _ns_prepare,			   \
 	}
 
 extern bool check_ns_proc(struct fd_link *link);
@@ -203,6 +214,9 @@ extern int set_ns_roots(void);
 extern int prepare_namespace_before_tasks(void);
 extern int prepare_namespace(struct pstree_item *item, unsigned long clone_flags);
 extern int prepare_userns_creds(void);
+extern int make_root_ns(struct ns_desc *nd);
+extern int prepare_namespaces(struct ns_desc *nd);
+extern int restore_task_ns(struct pstree_item *current, unsigned int _nsid, struct ns_desc *nd);
 
 extern int switch_ns(int pid, struct ns_desc *nd, int *rst);
 extern int switch_mnt_ns(int pid, int *rst, int *cwd_fd);
