@@ -55,6 +55,7 @@
 #include "pstree.h"
 #include "net.h"
 #include "uts_ns.h"
+#include "ipc_ns.h"
 #include "tty.h"
 #include "cpu.h"
 #include "file-lock.h"
@@ -1113,6 +1114,9 @@ static int restore_one_alive_task(int pid, CoreEntry *core)
 		return -1;
 
 	if (restore_task_ns(current, current->ids->uts_ns_id, &uts_ns_desc))
+		return -1;
+
+	if (restore_task_ns(current, current->ids->ipc_ns_id, &ipc_ns_desc))
 		return -1;
 
 	if (setup_uffd(pid, ta))
@@ -2200,6 +2204,7 @@ static int restore_task_with_children(void *_arg)
 		}
 
 		make_root_ns(&uts_ns_desc);
+		make_root_ns(&ipc_ns_desc);
 
 		/* Wait prepare_userns */
 		if (restore_finish_ns_stage(CR_STATE_ROOT_TASK, CR_STATE_PREPARE_NAMESPACES) < 0)
