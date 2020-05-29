@@ -2233,6 +2233,202 @@ int prepare_userns_creds(void)
 	return 0;
 }
 
+int make_root_ns(struct ns_desc *nd)
+{
+	if (root_ns_mask & nd->cflag) {
+		int ret = unshare(nd->cflag);
+		if (ret) {
+			pr_perror("Can't unshare %s-namespace", nd->str);
+			return -1;
+		}
+	}
+
+	return 0;
+}
+
+struct ns_create_arg {
+	struct ns_desc *nd;
+	struct ns_id *uns;
+	int root_nsfd;
+};
+
+static int open_ns(struct ns_id *nsid)
+{
+	int fd;
+
+	fd = open_proc(PROC_SELF, "ns/%s", nsid->nd->str);
+	if (fd < 0)
+		return -1;
+
+	nsid->ns_fd = fd;
+
+	return 0;
+}
+
+static int do_create_ns(struct ns_id *ns)
+{
+	int ret;
+
+	ret = unshare(ns->nd->cflag);
+
+	if (ret) {
+		pr_perror("Unable to create a new %s ns", ns->nd->str);
+		return -1;
+	}
+
+	if (open_ns(ns))
+		return -1;
+
+	return 0;
+}
+
+static int __create_namespaces(void *arg) {
+	struct ns_create_arg *nca = (struct ns_create_arg *)arg;
+	struct ns_id *uns = nca->uns, *ns;
+
+	if (uns && uns != root_user_ns) {
+		int ufd;
+
+		ufd = fdstore_get(uns->user.nsfd_id);
+		if (ufd < 0) {
+			pr_err("Can't get user ns %d\n", uns->id);
+			return 1;
+		}
+
+		if (setns(ufd, CLONE_NEWUSER) < 0) {
+			pr_perror("Can't set user ns %d", uns->id);
+			close(ufd);
+			return 1;
+		}
+
+		close(ufd);
+
+		if (prepare_userns_creds() < 0) {
+			pr_err("Can't prepare creds");
+			return 1;
+		}
+	}
+
+	for (ns = ns_ids; ns != NULL; ns = ns->next) {
+		if (ns->nd != nca->nd)
+			continue;
+		if (ns->user_ns != uns)
+			continue;
+
+		if (ns->type == NS_ROOT) {
+			ns->ns_fd = nca->root_nsfd;
+		} else {
+			if (do_create_ns(ns))
+				return 1;
+		}
+	}
+
+	return 0;
+}
+
+static int __prepare_namespaces(void *arg)
+{
+	struct ns_create_arg *nca = (struct ns_create_arg *)arg;
+	struct ns_id *nsid;
+
+	for (nsid = ns_ids; nsid != NULL; nsid = nsid->next) {
+		int fd;
+
+		if (nsid->nd != nca->nd)
+			continue;
+
+		if (switch_ns_by_fd(nsid->ns_fd, nca->nd, NULL))
+			goto err;
+
+		fd = nsid->ns_fd;
+		nsid->nsfd_id = fdstore_add(fd);
+		if (nsid->nsfd_id < 0)
+			return -1;
+		close(fd);
+
+		if (nca->nd->ns_prepare(nsid->id))
+			pr_err("%s namespace %u preparation failed\n", nsid->nd->str, nsid->id);
+
+		nsid->ns_populated = true;
+	}
+
+	return 0;
+err:
+	return 1;
+}
+
+int prepare_namespaces(struct ns_desc *nd)
+{
+	struct ns_create_arg nca;
+	struct ns_id *uns;
+
+	if (!(root_ns_mask & nd->cflag))
+		return 0;
+
+	nca.root_nsfd = open_proc(PROC_SELF, "ns/%s", nd->str);
+	if (nca.root_nsfd < 0)
+		return -1;
+
+	nca.nd = nd;
+
+	if ((root_ns_mask & CLONE_NEWUSER)) {
+		/* Create NSes in appropriate userns */
+		for (uns = ns_ids; uns != NULL; uns = uns->next) {
+			if (uns->nd != &user_ns_desc)
+				continue;
+			nca.uns = uns;
+			if (call_in_child_process(__create_namespaces, (void *)&nca))
+				return -1;
+		}
+	} else {
+		/* Create NSes with host userns owner */
+		nca.uns = NULL;
+		if (call_in_child_process(__create_namespaces, (void *)&nca))
+			return -1;
+	}
+
+	return call_in_child_process(__prepare_namespaces, (void *)&nca);
+}
+
+static int do_restore_task_ns(struct ns_id *nsid, struct pstree_item *current)
+{
+	int fd;
+
+	if (!(root_ns_mask & nsid->nd->cflag))
+		return 0;
+
+	fd = fdstore_get(nsid->nsfd_id);
+	if (fd < 0)
+		return -1;
+
+	if (setns(fd, nsid->nd->cflag)) {
+		pr_perror("Can't restore %s ns", nsid->nd->str);
+		close(fd);
+		return -1;
+	}
+	close(fd);
+
+	return 0;
+}
+
+int restore_task_ns(struct pstree_item *current, unsigned int _nsid, struct ns_desc *nd)
+{
+	struct ns_id *nsid;
+
+	nsid = lookup_ns_by_id(_nsid, nd);
+	if (nsid == NULL) {
+		pr_err("Can't find %s namespace %d\n", nd->str, _nsid);
+		return -1;
+	}
+
+	BUG_ON(nsid->type == NS_CRIU);
+
+	if (do_restore_task_ns(nsid, current))
+		return -1;
+
+	return 0;
+}
+
 static int get_join_ns_fd(struct join_ns *jn)
 {
 	int pid, fd;
