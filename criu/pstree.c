@@ -1642,8 +1642,11 @@ static int prepare_pstree_kobj_ids(void)
 		 *
 		 * The cgroup namespace is also unshared explicitly in the
 		 * move_in_cgroup(), so drop this flag here as well.
+		 *
+		 * UTS namespaces also don't correlate with task hierarhy and
+		 * we create them in prepare_namespaces(...)
 		 */
-		rsti(item)->clone_flags &= ~(CLONE_NEWNET | CLONE_NEWCGROUP);
+		rsti(item)->clone_flags &= ~(CLONE_NEWNET | CLONE_NEWCGROUP | CLONE_NEWUTS);
 		if (last_level_pid(item->pid) != INIT_PID)
 			rsti(item)->clone_flags &= ~CLONE_NEWPID;
 
