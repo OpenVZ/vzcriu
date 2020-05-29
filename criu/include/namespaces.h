@@ -126,6 +126,21 @@ struct ns_id {
 	 */
 	bool ns_populated;
 
+	/*
+	 * ns_fd is used when network, ipc, uts namespaces are being
+	 * restored. On this stage we access these file
+	 * descriptors many times and it is more efficient to
+	 * have them opened rather than to get them from fdstore.
+	 *
+	 * nsfd_id is used to restore sockets (not only). On this stage we
+	 * can't use random file descriptors to not conflict
+	 * with restored file descriptors.
+	 */
+	union {
+		int nsfd_id;	/* a namespace descriptor id in fdstore */
+		int ns_fd;	/* a namespace file descriptor */
+	};
+
 	union {
 		struct {
 			struct mount_info *mntinfo_list;
@@ -135,21 +150,6 @@ struct ns_id {
 		} mnt;
 
 		struct {
-
-			/*
-			 * ns_fd is used when network namespaces are being
-			 * restored. On this stage we access these file
-			 * descriptors many times and it is more efficient to
-			 * have them opened rather than to get them from fdstore.
-			 *
-			 * nsfd_id is used to restore sockets. On this stage we
-			 * can't use random file descriptors to not conflict
-			 * with restored file descriptors.
-			 */
-			union {
-				int nsfd_id;	/* a namespace descriptor id in fdstore */
-				int ns_fd;	/* a namespace file descriptor */
-			};
 			int nlsk;	/* for sockets collection */
 			int seqsk;	/* to talk to parasite daemons */
 			struct list_head ids;
