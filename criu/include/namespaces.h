@@ -48,7 +48,7 @@
 	 CLONE_NEWTIME)
 
 /* Nested namespaces are supported only for these types */
-#define CLONE_SUBNS (CLONE_NEWNS | CLONE_NEWNET | CLONE_NEWPID | CLONE_NEWUTS)
+#define CLONE_SUBNS (CLONE_NEWNS | CLONE_NEWNET | CLONE_NEWPID | CLONE_NEWUTS | CLONE_NEWIPC)
 
 #define MAX_NS_NESTING 32
 
