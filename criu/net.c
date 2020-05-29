@@ -1293,7 +1293,7 @@ static int veth_peer_info(struct net_link *link, struct newlink_req *req,
 
 	link->created = true;
 	if (peer_ns) {
-		addattr_l(&req->h, sizeof(*req), IFLA_NET_NS_FD, &peer_ns->net.ns_fd, sizeof(int));
+		addattr_l(&req->h, sizeof(*req), IFLA_NET_NS_FD, &peer_ns->ns_fd, sizeof(int));
 		return 0;
 	}
 out:
@@ -1757,7 +1757,7 @@ static int restore_links()
 			if (nsid->nd != &net_ns_desc)
 				continue;
 
-			if (switch_ns_by_fd(nsid->net.ns_fd, &net_ns_desc, NULL))
+			if (switch_ns_by_fd(nsid->ns_fd, &net_ns_desc, NULL))
 				return -1;
 
 			if (__restore_links(nsid, &nrlinks, &nrcreated))
@@ -2545,7 +2545,7 @@ static int restore_netns_ids(struct ns_id *ns)
 			goto out;
 		}
 
-		if (net_set_nsid(sk, tg_ns->net.ns_fd, id->netnsid_value))
+		if (net_set_nsid(sk, tg_ns->ns_fd, id->netnsid_value))
 			goto out;
 	}
 
@@ -2600,10 +2600,10 @@ static int prepare_net_ns_second_stage(struct ns_id *ns)
 		ret = restore_nf_ct(nsid, CR_FD_NETNF_EXP);
 
 	if (!ret) {
-		int fd = ns->net.ns_fd;
+		int fd = ns->ns_fd;
 
-		ns->net.nsfd_id = fdstore_add(fd);
-		if (ns->net.nsfd_id < 0)
+		ns->nsfd_id = fdstore_add(fd);
+		if (ns->nsfd_id < 0)
 			ret = -1;
 		close(fd);
 	}
@@ -2621,7 +2621,7 @@ static int open_net_ns(struct ns_id *nsid)
 	fd = open_proc(PROC_SELF, "ns/net");
 	if (fd < 0)
 		return -1;
-	nsid->net.ns_fd = fd;
+	nsid->ns_fd = fd;
 
 	return 0;
 }
@@ -2685,7 +2685,7 @@ static int __create_net_namespaces(void *arg) {
 			continue;
 
 		if (netns->type == NS_ROOT) {
-			netns->net.ns_fd = nca->root_nsfd;
+			netns->ns_fd = nca->root_nsfd;
 		} else {
 			if (do_create_net_ns(netns))
 				return 1;
@@ -2706,7 +2706,7 @@ static int __prepare_net_namespaces(void *arg)
 		if (nsid->nd != &net_ns_desc)
 			continue;
 
-		if (switch_ns_by_fd(nsid->net.ns_fd, &net_ns_desc, NULL))
+		if (switch_ns_by_fd(nsid->ns_fd, &net_ns_desc, NULL))
 			goto err;
 
 		if (prepare_net_ns_first_stage(nsid))
@@ -2727,7 +2727,7 @@ static int __prepare_net_namespaces(void *arg)
 		if (nsid->nd != &net_ns_desc)
 			continue;
 
-		if (switch_ns_by_fd(nsid->net.ns_fd, &net_ns_desc, NULL))
+		if (switch_ns_by_fd(nsid->ns_fd, &net_ns_desc, NULL))
 			goto err;
 
 		if (prepare_net_ns_second_stage(nsid))
@@ -2780,7 +2780,7 @@ static int do_restore_task_net_ns(struct ns_id *nsid, struct pstree_item *curren
 	if (!(root_ns_mask & CLONE_NEWNET))
 		return 0;
 
-	fd = fdstore_get(nsid->net.nsfd_id);
+	fd = fdstore_get(nsid->nsfd_id);
 	if (fd < 0)
 		return -1;
 

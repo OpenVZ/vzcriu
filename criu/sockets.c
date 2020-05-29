@@ -943,7 +943,7 @@ int set_netns(uint32_t ns_id)
 		pr_err("Unable to find a network namespace\n");
 		return -1;
 	}
-	nsfd = fdstore_get(ns->net.nsfd_id);
+	nsfd = fdstore_get(ns->nsfd_id);
 	if (nsfd < 0)
 		return -1;
 	if (setns(nsfd, CLONE_NEWNET)) {
