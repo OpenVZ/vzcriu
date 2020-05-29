@@ -1971,7 +1971,8 @@ static int dump_ns_with_hookups(int for_dump)
 		if (ns->nd != &user_ns_desc &&
 		    ns->nd != &pid_ns_desc &&
 		    ns->nd != &net_ns_desc &&
-		    ns->nd != &uts_ns_desc)
+		    ns->nd != &uts_ns_desc &&
+		    ns->nd != &ipc_ns_desc)
 			continue;
 		if (ns->type == NS_CRIU ||
 		    !(root_ns_mask & ns->nd->cflag))
@@ -2043,6 +2044,9 @@ int read_ns_with_hookups(void)
 			break;
 		case CLONE_NEWUTS:
 			desc = &uts_ns_desc;
+			break;
+		case CLONE_NEWIPC:
+			desc = &ipc_ns_desc;
 			break;
 		default:
 			pr_err("Bad ns cflag %x\n", e->ns_cflag);
@@ -2667,9 +2671,8 @@ static int create_user_ns_hierarhy(void)
 
 int prepare_namespace(struct pstree_item *item, unsigned long clone_flags)
 {
-	pid_t pid = vpid(item);
 	sigset_t sig_mask;
-	int id, ret = -1;
+	int ret = -1;
 
 	pr_info("Restoring namespaces %d flags 0x%lx\n",
 			vpid(item), clone_flags);
@@ -2689,8 +2692,8 @@ int prepare_namespace(struct pstree_item *item, unsigned long clone_flags)
 
 	if (prepare_namespaces(&uts_ns_desc))
 		goto out;
-	id = ns_per_id ? item->ids->ipc_ns_id : pid;
-	if ((clone_flags & CLONE_NEWIPC) && prepare_ipc_ns(id))
+
+	if (prepare_namespaces(&ipc_ns_desc))
 		goto out;
 
 	if (prepare_net_namespaces())

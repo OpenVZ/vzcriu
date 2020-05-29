@@ -923,7 +923,7 @@ static int prepare_ipc_var(int pid)
 	return 0;
 }
 
-int prepare_ipc_ns(int pid)
+static int prepare_ipc_ns(unsigned int pid)
 {
 	int ret;
 
@@ -943,4 +943,4 @@ int prepare_ipc_ns(int pid)
 	return 0;
 }
 
-struct ns_desc ipc_ns_desc = NS_DESC_ENTRY(CLONE_NEWIPC, "ipc", NULL);
+struct ns_desc ipc_ns_desc = NS_DESC_ENTRY_PREP_FN(CLONE_NEWIPC, "ipc", NULL, prepare_ipc_ns);
