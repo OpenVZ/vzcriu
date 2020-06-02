@@ -117,6 +117,7 @@ TST_NOFILE	:=				\
 		sock_opts01			\
 		sk-unix-unconn			\
 		ipc_namespace			\
+		ipc_namespace_sub		\
 		selfexe00			\
 		sem				\
 		maps01				\
@@ -556,6 +557,7 @@ socket-tcp6-closed:	CFLAGS += -D ZDTM_IPV6
 socket-tcp6-closed:	CFLAGS += -D ZDTM_IPV4V6
 socket-tcp-closed-last-ack:	CFLAGS += -D ZDTM_TCP_LAST_ACK
 socket-tcp-skip-in-flight:	CFLAGS += -D ZDTM_IPV4V6
+ipc_namespace_sub:		CFLAGS += -D IPC_SUB
 tun_ns:			CFLAGS += -DTUN_NS
 mnt_ext_manual:		CFLAGS += -D ZDTM_EXTMAP_MANUAL
 sigpending:		LDLIBS += -lrt
