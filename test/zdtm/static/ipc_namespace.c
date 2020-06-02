@@ -8,6 +8,7 @@
 #include <linux/shm.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <sched.h>
 
 #include "zdtmtst.h"
 
@@ -355,7 +356,12 @@ int main(int argc, char **argv)
 	int ret;
 
 	test_init(argc, argv);
-
+#ifdef IPC_SUB
+	if (unshare(CLONE_NEWIPC)) {
+		pr_perror("Unable to unshare ipc namespace");
+		exit(1);
+	}
+#endif
 	ret = rand_ipc_ns();
 	if (ret) {
 		pr_err("Failed to randomize ipc ns before migration\n");

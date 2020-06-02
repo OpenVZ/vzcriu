@@ -130,6 +130,7 @@ TST_NOFILE	:=				\
 		sk-unix-unconn			\
 		sk-unix-unconn-seqpacket	\
 		ipc_namespace			\
+		ipc_namespace_sub		\
 		selfexe00			\
 		sem				\
 		maps01				\
@@ -630,6 +631,7 @@ socket-tcp6-closed:	CFLAGS += -D ZDTM_IPV4V6
 socket-tcp-closed-last-ack:	CFLAGS += -D ZDTM_TCP_LAST_ACK
 socket-tcp-skip-in-flight:	CFLAGS += -D ZDTM_IPV4V6
 sock_ip_opts01:		CFLAGS += -DZDTM_VAL_ZERO
+ipc_namespace_sub:		CFLAGS += -D IPC_SUB
 tun_ns:			CFLAGS += -DTUN_NS
 mnt_ext_manual:		CFLAGS += -D ZDTM_EXTMAP_MANUAL
 mntns_pivot_root_ro:	CFLAGS += -DMNTNS_PIVOT_ROOT_RO
