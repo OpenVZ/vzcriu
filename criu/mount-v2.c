@@ -258,6 +258,42 @@ static int do_bind_mount_v2(struct mount_info *mi)
 		goto do_bind;
 	}
 
+	if (mi->ns_bind_id) {
+		struct ns_desc *ns_d;
+		struct ns_id *nsid;
+
+		ns_d = get_ns_desc_by_cflags(mi->ns_bind_desc);
+		if (!ns_d) {
+			pr_err("Unsupported cflags %u for ns bind-mount %d\n",
+					mi->ns_bind_desc, mi->mnt_id);
+			return -1;
+		}
+
+		nsid = lookup_ns_by_id(mi->ns_bind_id, ns_d);
+		if (!nsid) {
+			pr_err("Can't find %s namespace %u for ns bind-mount %d\n",
+			       ns_d->str, mi->ns_bind_id, mi->mnt_id);
+			return -1;
+		}
+
+		if (nsid->nsfd_id < 0) {
+			pr_err("There is no nsfd_id for %s ns %u for ns bind-mount %d\n",
+			       ns_d->str, nsid->id, mi->mnt_id);
+			return -1;
+		}
+
+		fd = fdstore_get(nsid->nsfd_id);
+		if (fd < 0) {
+			pr_err("Can't get fd from fdstore for %s ns %u for ns bind-mount %d\n",
+			       ns_d->str, nsid->id, mi->mnt_id);
+			return -1;
+		}
+
+		pr_info("\tBind %s ns %u fd %d to %s\n",
+			ns_d->str, nsid->id, fd, mi->plain_mountpoint);
+		goto do_bind_fd;
+	}
+
 	cut_root = get_relative_path(mi->root, mi->bind->root);
 	if (!cut_root) {
 		pr_err("Failed to find root for %d in our supposed bind %d\n",
@@ -323,6 +359,8 @@ do_bind:
 		pr_perror("Unable to open %s", root);
 		goto err;
 	}
+
+do_bind_fd:
 	snprintf(mnt_fd_path, sizeof(mnt_fd_path),
 				"/proc/self/fd/%d", fd);
 
@@ -430,6 +468,11 @@ static bool can_mount_now_v2(struct mount_info *mi)
 		return false;
 	}
 
+	if (mi->ns_bind_id) {
+		pr_debug("%s: true as %d is ns-bind\n", __func__, mi->mnt_id);
+		return true;
+	}
+
 	if (!fsroot_mounted(mi) && (mi->bind == NULL) && !mi->need_plugin) {
 		pr_debug("%s: false as %d is non-root without bind or plugin\n",
 			 __func__, mi->mnt_id);
@@ -515,8 +558,9 @@ static int do_mount_one_v2(struct mount_info *mi)
 			return -1;
 		}
 		ret = do_mount_root_v2(mi);
-	} else if (!mi->bind && !mi->need_plugin && (!mi->external ||
-		   !strcmp(mi->external, EXTERNAL_DEV_MOUNT)))
+	} else if (!mi->bind && !mi->need_plugin && !mi->ns_bind_id &&
+		   (!mi->external || !strcmp(mi->external,
+					     EXTERNAL_DEV_MOUNT)))
 		ret = do_new_mount_v2(mi);
 	else
 		ret = do_bind_mount_v2(mi);

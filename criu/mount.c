@@ -850,6 +850,9 @@ int validate_mounts(struct mount_info *info, bool for_dump)
 		if (mnt_get_root(m))
 			continue;
 
+		if (m->ns_bind_id)
+			continue;
+
 		/*
 		 * Mountpoint can point to / of an FS. In that case this FS
 		 * should be of some known type so that we can just mount one.
