@@ -362,6 +362,48 @@ static int do_bind_mount_v2(struct mount_info *mi)
 		return -1;
 	}
 
+	if (mi->ns_bind_id) {
+		struct ns_desc *ns_d;
+		struct ns_id *nsid;
+		int fd;
+
+		ns_d = get_ns_desc_by_cflags(mi->ns_bind_desc);
+		if (!ns_d) {
+			pr_err("Unsupported cflags %u for ns bind-mount %d\n",
+					mi->ns_bind_desc, mi->mnt_id);
+			return -1;
+		}
+
+		nsid = lookup_ns_by_id(mi->ns_bind_id, ns_d);
+		if (!nsid) {
+			pr_err("Can't find %s namespace %u for ns bind-mount %d\n",
+			       ns_d->str, mi->ns_bind_id, mi->mnt_id);
+			return -1;
+		}
+
+		if (nsid->nsfd_id < 0) {
+			pr_err("There is no nsfd_id for %s ns %u for ns bind-mount %d\n",
+			       ns_d->str, nsid->id, mi->mnt_id);
+			return -1;
+		}
+
+		fd = fdstore_get(nsid->nsfd_id);
+		if (fd < 0) {
+			pr_err("Can't get fd from fdstore for %s ns %u for ns bind-mount %d\n",
+			       ns_d->str, nsid->id, mi->mnt_id);
+			return -1;
+		}
+
+		pr_info("\tBind %s ns %u fd %d to %s\n",
+			ns_d->str, nsid->id, fd, mi->plain_mountpoint);
+		if (__do_bind_mount_v2(fd, "", AT_EMPTY_PATH, AT_FDCWD, mi->plain_mountpoint, 0)) {
+			close(fd);
+			return -1;
+		}
+		close(fd);
+		goto after_bind;
+	}
+
 	cut_root = get_relative_path(mi->root, mi->bind->root);
 	if (!cut_root) {
 		pr_err("Failed to find root for %d in our supposed bind %d\n", mi->mnt_id, mi->bind->mnt_id);
@@ -409,7 +451,7 @@ do_bind:
 
 	if (__do_bind_mount_v2(AT_FDCWD, root, 0, AT_FDCWD, mi->plain_mountpoint, 0))
 		goto err;
-
+after_bind:
 	/*
 	 * Mount-v2 relies that before mount tree is constructed all mounts
 	 * should remain private. Newly created mounts can become non-private
@@ -527,6 +569,11 @@ static bool can_mount_now_v2(struct mount_info *mi)
 				 ext->mnt_id);
 			return false;
 		}
+	}
+
+	if (mi->ns_bind_id) {
+		pr_debug("%s: true as %d is ns-bind\n", __func__, mi->mnt_id);
+		return true;
 	}
 
 	/* Non fsroot mounts can not be mounted without bind-mount */
@@ -738,7 +785,8 @@ static int do_mount_one_v2(struct mount_info *mi)
 			return -1;
 		}
 		ret = do_mount_root_v2(mi);
-	} else if (!mi->bind && !mi->need_plugin && (!mi->external || !strcmp(mi->external, EXTERNAL_DEV_MOUNT))) {
+	} else if (!mi->bind && !mi->need_plugin && !mi->ns_bind_id &&
+		   (!mi->external || !strcmp(mi->external, EXTERNAL_DEV_MOUNT))) {
 		ret = do_new_mount_v2(mi);
 	} else {
 		ret = do_bind_mount_v2(mi);
