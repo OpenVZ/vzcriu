@@ -3015,7 +3015,10 @@ static int do_close_one(struct mount_info *mi)
 static int set_unbindable(struct mount_info *mi)
 {
 	if (mi->flags & MS_UNBINDABLE && !mnt_is_overmounted(mi)) {
-		return mount(NULL, service_mountpoint(mi), NULL, MS_UNBINDABLE, NULL);
+		if (mount(NULL, service_mountpoint(mi), NULL, MS_UNBINDABLE, NULL)) {
+			pr_perror("Failed to set mount %d unbindable", mi->mnt_id);
+			return -1;
+		}
 	}
 	return 0;
 }
@@ -3868,7 +3871,8 @@ static int populate_mnt_ns(void)
 
 	ret = mnt_tree_for_each(root_yard_mp, do_mount_one);
 	mnt_tree_for_each(root_yard_mp, do_close_one);
-	mnt_tree_for_each(root_yard_mp, set_unbindable);
+	if (!ret)
+		ret = mnt_tree_for_each(root_yard_mp, set_unbindable);
 
 	/*
 	 * Remove auxiliary cr-time mount from the mount tree as early as
