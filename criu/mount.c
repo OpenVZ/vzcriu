@@ -4655,7 +4655,7 @@ static int __check_mounts(struct ns_id *ns)
 		return -1;
 
 	pr_debug("Checking mountinfo for mntns %d:%d\n", ns->kid, ns->id);
-	new = collect_mntinfo(new_ns, true);
+	new = collect_mntinfo(new_ns, false);
 	if (new == NULL)
 		return -1;
 
