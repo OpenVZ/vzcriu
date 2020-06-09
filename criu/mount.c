@@ -4584,12 +4584,30 @@ static int __check_mounts(struct ns_id *ns)
 	resort_siblings(new_mnt, __resort_children);
 
 	while (mnt && new_mnt) {
+		bool root_missmatch = false;
+
 		/* Consider that leading '.' was lost in collect_mnt_from_image. */
-		if (strcmp(mnt->ns_mountpoint, new_mnt->ns_mountpoint+1) ||
-		    strcmp(mnt->root, new_mnt->root)) {
-			pr_err("Mount (%d)[%s,%s] has different mp/root (%d)[%s,%s]\n",
-			       mnt->mnt_id, mnt->ns_mountpoint, mnt->root,
-			       new_mnt->mnt_id, new_mnt->ns_mountpoint+1, new_mnt->root);
+		if (strcmp(mnt->ns_mountpoint, new_mnt->ns_mountpoint+1)) {
+			pr_err("Mount (%d)[%s] has different mp (%d)[%s]\n",
+			       mnt->mnt_id, mnt->ns_mountpoint,
+			       new_mnt->mnt_id, new_mnt->ns_mountpoint+1);
+			goto err;
+		}
+
+		if (mnt->fstype->code == FSTYPE__NSFS) {
+			char *bracket;
+
+			/* Ignore namespace id on checking ns-bind root */
+			bracket = strchrnul(mnt->root, '[');
+			if (strncmp(mnt->root, new_mnt->root, bracket - mnt->root + 1))
+				root_missmatch = true;
+		} else if (strcmp(mnt->root, new_mnt->root)) {
+			root_missmatch = true;
+		}
+		if (root_missmatch) {
+			pr_err("Mount (%d)[%s] has different root (%d)[%s]\n",
+			       mnt->mnt_id, mnt->root,
+			       new_mnt->mnt_id, new_mnt->root);
 			goto err;
 		}
 
