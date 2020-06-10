@@ -1801,10 +1801,20 @@ def get_visible_state(test):
             r = re.compile(
                 r"^\S+\s\S+\s\S+\s(\S+)\s(\S+)\s(\S+)\s[^-]*?(shared)?[^-]*?(master)?[^-]*?-"
             )
+            # Namespace ids can change and for ns-bind they are
+            # printed in root, ignore them
+            r_ns_bind = re.compile(r"^([^:]*):\[.*\]$")
+
             with open("/proc/%s/root/proc/%s/mountinfo" %
                       (test.getpid(), pid)) as mountinfo:
                 for m in mountinfo:
-                    cmounts.append(r.match(m).groups())
+                    mount = r.match(m).groups()
+
+                    ns_match = r_ns_bind.match(mount[0])
+                    if ns_match:
+                        mount = (ns_match.groups()[0] + ":[]",) + mount[1:]
+
+                    cmounts.append(mount)
         except IOError as e:
             if e.errno != errno.EINVAL:
                 raise e
