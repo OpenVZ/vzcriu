@@ -48,6 +48,7 @@
 #include "namespaces.h"
 #include "mem.h"
 #include "mount.h"
+#include "mount-v2.h"
 #include "fsnotify.h"
 #include "pstree.h"
 #include "net.h"
@@ -2787,6 +2788,9 @@ skip_ns_bouncing:
 
 	ret = restore_wait_inprogress_tasks();
 	if (ret < 0)
+		goto out_destroy;
+
+	if (opts.mounts_v2 && fini_restore_mntns_v2())
 		goto out_destroy;
 
 	__restore_switch_stage(CR_STATE_RESTORE);
