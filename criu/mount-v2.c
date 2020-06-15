@@ -948,6 +948,8 @@ static int restore_one_sharing(struct sharing_group *sg, struct mount_info *targ
 
 			/* Get shared_id from parent sharing group */
 			first = get_first_mount(sg->parent);
+			pr_debug("Copy slavery from %d to %d\n",
+				 first->mnt_id, target->mnt_id);
 			if (move_mount_set_group(first->mnt_fd_id, NULL, target->mnt_fd_id)) {
 				pr_err("Failed to copy sharing from %d to %d\n", first->mnt_id, target->mnt_id);
 				close(target_fd);
@@ -961,6 +963,8 @@ static int restore_one_sharing(struct sharing_group *sg, struct mount_info *targ
 			 * or non-shared slave). If source is a private mount
 			 * we would fail.
 			 */
+			pr_debug("Copy slavery from external %s to %d\n",
+				 sg->source, target->mnt_id);
 			if (move_mount_set_group(-1, sg->source, target->mnt_fd_id)) {
 				pr_err("Failed to copy sharing from source %s to %d\n", sg->source, target->mnt_id);
 				close(target_fd);
@@ -978,6 +982,8 @@ static int restore_one_sharing(struct sharing_group *sg, struct mount_info *targ
 
 	/* Restore target's shared_id */
 	if (sg->shared_id) {
+		pr_debug("Create new shared group for %d\n",
+			 target->mnt_id);
 		if (mount(NULL, target_path, NULL, MS_SHARED, NULL)) {
 			pr_perror("Failed to make mount %d shared", target->mnt_id);
 			close(target_fd);
@@ -1004,6 +1010,8 @@ static int restore_one_sharing_group(struct sharing_group *sg)
 			continue;
 
 		if (is_sub_path(other->root, first->root)) {
+			pr_debug("Copy sharing group from %d to %d\n",
+				 first->mnt_id, other->mnt_id);
 			if (move_mount_set_group(first->mnt_fd_id, NULL, other->mnt_fd_id)) {
 				pr_err("Failed to copy sharing from %d to %d\n", first->mnt_id, other->mnt_id);
 				return -1;
