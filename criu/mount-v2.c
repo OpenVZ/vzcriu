@@ -984,9 +984,6 @@ int prepare_mnt_ns_v2(void)
 	}
 	close(rst);
 
-	if (restore_mount_sharing_options())
-		return -1;
-
 	return remove_sources_of_deleted_mounts();
 err:
 	if (rst >= 0)
@@ -996,4 +993,12 @@ err:
 
 int read_mnt_ns_img_v2(struct mount_info *info) {
 	return resolve_shared_mounts_v2(info);
+}
+
+int fini_restore_mntns_v2(void)
+{
+	if (!(root_ns_mask & CLONE_NEWNS))
+		return 0;
+
+	return restore_mount_sharing_options();
 }
