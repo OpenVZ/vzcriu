@@ -717,6 +717,302 @@ static int always_fail(struct mount_info *pm)
 	return -1;
 }
 
+typedef struct overlayfs_info_s {
+	char *lower;
+	char *upper;
+	int upper_mnt_id;
+	char *work;
+	char **opts;
+	char **lower_paths;
+	int *lower_mnt_ids;
+	int nr_opts;
+	int nr_lower_paths;
+	char *options;
+} overlayfs_info_t;
+
+static char *__get_path_ovl(char *out, int mnt_id, char *mnt_path)
+{
+	char *rel_path;
+	struct mount_info *mi;
+
+	mi = lookup_mnt_id(mnt_id);
+	if (!mi) {
+		pr_err("The %d mount is not found\n", mnt_id);
+		return NULL;
+	}
+
+	if (!mi->rmi->mounted)
+		return NULL;
+
+	/*
+	 * The path mnt_path is relative to mntns root, but we need a
+	 * path relative to mountpoint as mountpoints are mounted plain without
+	 * tree.
+	 */
+	rel_path = get_relative_path(mnt_path, mi->ns_mountpoint);
+	if (!rel_path) {
+		pr_err("Can't get path %s relative to %s\n",
+		       mnt_path, mi->ns_mountpoint);
+		return NULL;
+	}
+
+	return xstrcat(out, ":%s%s%s",
+		       service_mountpoint(mi), rel_path[0] ? "/" : "", rel_path);
+}
+
+static int __check_path_ovl(int mnt_id, char *mnt_path)
+{
+	int ret = 0;
+	char *path = NULL;
+
+	path = __get_path_ovl(NULL, mnt_id, mnt_path);
+	if (!path)
+		return 0;
+
+	ret = (access(path + 1, F_OK) == 0);
+
+	xfree(path);
+	return ret;
+}
+
+static void free_overlayfs_info(struct mount_info *mi)
+{
+	overlayfs_info_t *ofsi = mi->private;
+	int i;
+
+	if (!ofsi)
+		return;
+
+	for (i = 0; i < ofsi->nr_lower_paths; i++)
+		xfree(ofsi->lower_paths[i]);
+	xfree(ofsi->lower_paths);
+
+	for (i = 0; i < ofsi->nr_opts; i++)
+		xfree(ofsi->opts[i]);
+	xfree(ofsi->opts);
+
+	xfree(ofsi->lower_mnt_ids);
+	xfree(ofsi->options);
+
+	xfree(ofsi);
+	mi->private = NULL;
+}
+
+static int fill_overlayfs_info(struct mount_info *mi)
+{
+	overlayfs_info_t *ofsi = mi->private;
+	char *lower_mnt_id = NULL, *upper_mnt_id = NULL;
+	char **lower_mnt_ids = NULL;
+	int nr_lower_mnt_ids = 0;
+	int i;
+
+	if (ofsi)
+		return 0;
+
+	ofsi = xzalloc(sizeof(overlayfs_info_t));
+	if (!ofsi) {
+		pr_err("fail to alloc mem for overlayfs_info_t\n");
+		goto err;
+	}
+
+	mi->private = ofsi;
+
+	split(mi->options, ',', &ofsi->opts, &ofsi->nr_opts);
+	if (!ofsi->opts)
+		goto err;
+
+	for (i = 0; i < ofsi->nr_opts; i++) {
+		if (!strncmp(ofsi->opts[i], "lowerdir=", strlen("lowerdir="))) {
+			ofsi->lower = ofsi->opts[i] + strlen("lowerdir=");
+			continue;
+		}
+
+		if (!strncmp(ofsi->opts[i], "lowerdir_mnt_id=",
+					strlen("lowerdir_mnt_id="))) {
+			lower_mnt_id = ofsi->opts[i] + strlen("lowerdir_mnt_id=");
+			continue;
+		}
+
+		if (!strncmp(ofsi->opts[i], "upperdir=", strlen("upperdir="))) {
+			ofsi->upper = ofsi->opts[i] + strlen("upperdir=");
+			continue;
+		}
+
+		if (!strncmp(ofsi->opts[i], "upperdir_mnt_id=",
+					strlen("upperdir_mnt_id="))) {
+			upper_mnt_id = ofsi->opts[i] + strlen("upperdir_mnt_id=");
+			continue;
+		}
+
+		if (!strncmp(ofsi->opts[i], "workdir=", strlen("workdir="))) {
+			ofsi->work = ofsi->opts[i] + strlen("workdir=");
+			continue;
+		}
+
+		ofsi->options = xstrcat(ofsi->options, ",%s", ofsi->opts[i]);
+		if (!ofsi->options) {
+			pr_err("mount options (rest opts) build failed\n");
+			goto err;
+		}
+	}
+
+	if (!ofsi->lower || !lower_mnt_id || (ofsi->upper && !upper_mnt_id) ||
+	    (ofsi->upper && !ofsi->work)) {
+		pr_err("Some of required options are absent. Old kernel?\n");
+		goto err;
+	}
+
+	split(ofsi->lower, ':', &ofsi->lower_paths, &ofsi->nr_lower_paths);
+	if (!ofsi->lower_paths)
+		goto err;
+
+	split(lower_mnt_id, ':', &lower_mnt_ids, &nr_lower_mnt_ids);
+	if (!lower_mnt_ids)
+		goto err;
+
+	if (ofsi->nr_lower_paths != nr_lower_mnt_ids) {
+		pr_err("nr_lower_paths != nr_lower_mnt_ids. Kernel bug?\n");
+		goto err;
+	}
+
+	ofsi->lower_mnt_ids = xzalloc(nr_lower_mnt_ids * sizeof(int));
+	if (!ofsi->lower_mnt_ids)
+		goto err;
+
+	for (i = 0; i < ofsi->nr_lower_paths; i++) {
+		if (xatoi(lower_mnt_ids[i], &ofsi->lower_mnt_ids[i])) {
+			pr_err("Couldn't parse mnt_id %s\n", lower_mnt_ids[i]);
+			goto err;
+		}
+	}
+
+	/* upperdir option can absent */
+	if (ofsi->upper) {
+		if (xatoi(upper_mnt_id, &ofsi->upper_mnt_id)) {
+			pr_err("Couldn't parse mnt_id %s\n", upper_mnt_id);
+			goto err;
+		}
+	}
+
+	for (i = 0; i < nr_lower_mnt_ids; i++)
+		xfree(lower_mnt_ids[i]);
+	xfree(lower_mnt_ids);
+
+	return 0;
+
+err:
+	for (i = 0; i < nr_lower_mnt_ids; i++)
+		xfree(lower_mnt_ids[i]);
+	xfree(lower_mnt_ids);
+
+	free_overlayfs_info(mi);
+
+	return -1;
+}
+
+static int overlayfs_canmount(struct mount_info *mi)
+{
+	overlayfs_info_t *ofsi;
+	int i, ret = 0;
+
+	if (fill_overlayfs_info(mi)) {
+		pr_err("fill_overlayfs_info failed mnt_id %d\n", mi->mnt_id);
+		return -1;
+	}
+
+	ofsi = mi->private;
+
+	for (i = 0; i < ofsi->nr_lower_paths; i++) {
+		if (!__check_path_ovl(ofsi->lower_mnt_ids[i], ofsi->lower_paths[i])) {
+			pr_debug("lowerdir paths mnt_id %d path %s inaccessible\n",
+				ofsi->lower_mnt_ids[i], ofsi->lower_paths[i]);
+			goto exit;
+		}
+	}
+
+	/* upperdir option can absent */
+	if (ofsi->upper) {
+		if (!__check_path_ovl(ofsi->upper_mnt_id, ofsi->upper)) {
+			pr_debug("upperdir path inaccessible\n");
+			goto exit;
+		}
+
+		if (!__check_path_ovl(ofsi->upper_mnt_id, ofsi->work)) {
+			pr_debug("workdir path inaccessible\n");
+			goto exit;
+		}
+	}
+
+	ret = 1;
+
+exit:
+	return ret;
+}
+
+static int overlayfs_mount(struct mount_info *mi, const char *src, const
+			   char *fstype, unsigned long mountflags)
+{
+	overlayfs_info_t *ofsi = mi->private;
+	int i, ret = -1;
+	char    *lower_opt = NULL, *upper_opt = NULL,
+		*work_opt = NULL;
+
+	if (!ofsi) {
+		pr_err("Overlayfs info is uninitiallized!\n");
+		BUG();
+	}
+
+	for (i = 0; i < ofsi->nr_lower_paths; i++) {
+		lower_opt = __get_path_ovl(lower_opt, ofsi->lower_mnt_ids[i], ofsi->lower_paths[i]);
+		if (!lower_opt) {
+			pr_err("lowerdir option build failed\n");
+			goto exit;
+		}
+	}
+
+	ofsi->options = xstrcat(ofsi->options, ",lowerdir=%s", lower_opt + 1);
+	if (!ofsi->options) {
+		pr_err("mount options string (lowerdir) build failed\n");
+		goto exit;
+	}
+
+	/* upperdir option can absent */
+	if (ofsi->upper) {
+		upper_opt = __get_path_ovl(NULL, ofsi->upper_mnt_id, ofsi->upper);
+		if (!upper_opt) {
+			pr_err("upperdir path build failed\n");
+			goto exit;
+		}
+
+		work_opt = __get_path_ovl(NULL, ofsi->upper_mnt_id, ofsi->work);
+		if (!work_opt) {
+			pr_err("workdir path build failed\n");
+			goto exit;
+		}
+
+		ofsi->options = xstrcat(ofsi->options,
+					",upperdir=%s,workdir=%s",
+					upper_opt + 1,
+					work_opt + 1
+		);
+		if (!ofsi->options) {
+			pr_err("mount options (upperdir,workdir) build failed\n");
+			goto exit;
+		}
+	}
+
+	ret = mount(src, service_mountpoint(mi), fstype, mountflags, ofsi->options + 1);
+
+exit:
+	xfree(work_opt);
+	xfree(upper_opt);
+	xfree(lower_opt);
+
+	free_overlayfs_info(mi);
+
+	return ret;
+}
+
 static struct fstype fstypes[] = {
 	{
 		.name = "unsupported",
@@ -806,6 +1102,8 @@ static struct fstype fstypes[] = {
 		.name = "overlay",
 		.code = FSTYPE__OVERLAYFS,
 		.parse = overlayfs_parse,
+		.mount = overlayfs_mount,
+		.can_mount = overlayfs_canmount,
 	}, {
 		.name = "autofs",
 		.code = FSTYPE__AUTOFS,

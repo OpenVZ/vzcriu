@@ -2959,6 +2959,20 @@ static bool can_mount_now(struct mount_info *mi)
 		return false;
 	}
 
+	if (mi->fstype->can_mount) {
+		int can_mount = mi->fstype->can_mount(mi);
+
+		if (can_mount == -1) {
+			pr_err("fstype->can_mount error. mnt_id %d\n", mi->mnt_id);
+			return false;
+		}
+
+		if (can_mount == 0) {
+			pr_debug("mnt_id %d isn't mountable yet\n", mi->mnt_id);
+			return false;
+		}
+	}
+
 	if (mi->bind && mi->shared_id != mi->bind->shared_id) {
 		struct mount_info *n;
 		int len;
