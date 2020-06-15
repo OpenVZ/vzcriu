@@ -1310,8 +1310,13 @@ int prepare_mnt_ns_v2(void)
 	if (assemble_mount_namespaces())
 		return -1;
 
-	if (restore_mount_sharing_options())
-		return -1;
-
 	return remove_sources_of_deleted_mounts();
+}
+
+int fini_restore_mntns_v2(void)
+{
+	if (!(root_ns_mask & CLONE_NEWNS))
+		return 0;
+
+	return restore_mount_sharing_options();
 }
