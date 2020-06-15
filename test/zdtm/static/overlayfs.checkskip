@@ -1,0 +1,4 @@
+#!/bin/bash
+
+[ "$(cat /sys/module/overlay/parameters/mnt_id_path_opts)" == "Y" ] || exit 1
+[ "$(cat /sys/module/overlay/parameters/dyn_path_opts)" == "Y" ] || exit 1

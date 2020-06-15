@@ -340,6 +340,7 @@ TST_DIR		=				\
 		overmount_file			\
 		overmount_fifo			\
 		overmount_sock			\
+		overlayfs \
 		tempfs				\
 		tempfs_overmounted		\
 		tempfs_overmounted01		\
