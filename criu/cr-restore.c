@@ -2433,11 +2433,10 @@ static int restore_task_with_children(void *_arg)
 		if (ve_itty_resolve())
 			goto err;
 		fini_restore_mntns();
-		__restore_switch_stage(CR_STATE_RESTORE);
-	} else {
-		if (restore_finish_stage(task_entries, CR_STATE_FORKING) < 0)
-			goto err;
 	}
+
+	if (restore_finish_stage(task_entries, CR_STATE_FORKING) < 0)
+		goto err;
 
 	if (restore_one_task(vpid(current), ca->core))
 		goto err;
@@ -2892,6 +2891,12 @@ static int restore_root_task(struct pstree_item *init)
 	__restore_switch_stage(CR_STATE_FORKING);
 
 skip_ns_bouncing:
+
+	ret = restore_wait_inprogress_tasks();
+	if (ret < 0)
+		goto out_destroy;
+
+	__restore_switch_stage(CR_STATE_RESTORE);
 
 	ret = restore_wait_inprogress_tasks();
 	if (ret < 0)
