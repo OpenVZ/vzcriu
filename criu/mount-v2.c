@@ -736,6 +736,8 @@ static int restore_one_sharing_group(struct sharing_group *sg)
 			snprintf(_source, sizeof(_source),
 				 "/proc/self/fd/%d", sfd);
 			source = _source;
+			pr_debug("Copy slavery from %d to %d\n",
+				 p->mnt_id, first->mnt_id);
 		} else {
 			/*
 			 * External slavery. We rely on the user to give us the
@@ -746,6 +748,8 @@ static int restore_one_sharing_group(struct sharing_group *sg)
 			 */
 			BUG_ON(!sg->source);
 			source = sg->source;
+			pr_debug("Copy slavery from external %s to %d\n",
+				 source, first->mnt_id);
 		}
 
 		/* Copy shared_id of the source */
@@ -774,6 +778,8 @@ static int restore_one_sharing_group(struct sharing_group *sg)
 
 	/* Restore first's shared_id */
 	if (sg->shared_id) {
+		pr_debug("Create new shared group for %d\n",
+			 first->mnt_id);
 		if (mount(NULL, first_path, NULL, MS_SHARED, NULL)) {
 			pr_perror("Failed to make mount %d shared",
 				  first->mnt_id);
@@ -795,7 +801,8 @@ static int restore_one_sharing_group(struct sharing_group *sg)
 		snprintf(mntfd_path, sizeof(mntfd_path),
 			 "/proc/self/fd/%d", mntfd);
 
-		/* Copy shared_id of the source */
+		pr_debug("Copy sharing group from %d to %d\n",
+			 first->mnt_id, other->mnt_id);
 		if (mount(first_path, mntfd_path, NULL, MS_SET_GROUP, NULL)) {
 			pr_perror("Failed to copy sharing from %d to %d",
 				  first->mnt_id, other->mnt_id);
