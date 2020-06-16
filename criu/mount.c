@@ -3703,6 +3703,12 @@ int read_mnt_ns_img(void)
 	}
 
 	mntinfo = pms;
+
+	search_bindmounts();
+
+	if (opts.mounts_v2 && read_mnt_ns_img_v2(mntinfo))
+		return -1;
+
 	return 0;
 }
 
@@ -3863,8 +3869,6 @@ static int populate_mnt_ns(void)
 {
 	struct mount_info *cr_time = NULL;
 	int ret;
-
-	search_bindmounts();
 
 	root_yard_mp = mnt_entry_alloc(true);
 	if (!root_yard_mp)

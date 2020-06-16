@@ -39,5 +39,6 @@ struct sharing_group {
 };
 
 extern int prepare_mnt_ns_v2(void);
+extern int read_mnt_ns_img_v2(struct mount_info *info);
 
 #endif /* __CR_MOUNT_V2_H__ */

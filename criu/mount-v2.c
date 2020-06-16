@@ -617,8 +617,6 @@ static int populate_mnt_ns_v2(void)
 	struct mount_info *cr_time = NULL;
 	int ret;
 
-	search_bindmounts();
-
 	root_yard_mp = mnt_entry_alloc(true);
 	if (!root_yard_mp)
 		return -1;
@@ -650,9 +648,6 @@ static int populate_mnt_ns_v2(void)
 			return -1;
 	}
 #endif
-
-	if (resolve_shared_mounts_v2(mntinfo))
-		return -1;
 
 	if (validate_mounts(mntinfo, false))
 		return -1;
@@ -1038,4 +1033,8 @@ err:
 	if (rst >= 0)
 		restore_ns(rst, &mnt_ns_desc);
 	return -1;
+}
+
+int read_mnt_ns_img_v2(struct mount_info *info) {
+	return resolve_shared_mounts_v2(info);
 }
