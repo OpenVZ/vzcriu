@@ -713,9 +713,9 @@ static int move_mount_to_tree(struct mount_info *mi)
 		return -1;
 	}
 
-	mi->mp_fd_id = fdstore_add(fd);
+	mi->rmi->mp_fd_id = fdstore_add(fd);
 	close(fd);
-	if (mi->mp_fd_id < 0) {
+	if (mi->rmi->mp_fd_id < 0) {
 		pr_err("Can't add mountpoint of mount %d to fdstore\n", mi->mnt_id);
 		return -1;
 	}
@@ -734,9 +734,9 @@ static int move_mount_to_tree(struct mount_info *mi)
 		return -1;
 	}
 
-	mi->mnt_fd_id = fdstore_add(fd);
+	mi->rmi->mnt_fd_id = fdstore_add(fd);
 	close(fd);
-	if (mi->mnt_fd_id < 0) {
+	if (mi->rmi->mnt_fd_id < 0) {
 		pr_err("Can't add mount %d fd to fdstore\n", mi->mnt_id);
 		return -1;
 	}
@@ -757,7 +757,7 @@ static int restore_one_sharing_group(struct sharing_group *sg)
 
 	first = list_first_entry(&sg->mnt_list,
 			    struct mount_info, mnt_sharing);
-	first_fd = fdstore_get(first->mnt_fd_id);
+	first_fd = fdstore_get(first->rmi->mnt_fd_id);
 	BUG_ON(first_fd < 0);
 	snprintf(first_path, sizeof(first_path),
 		 "/proc/self/fd/%d", first_fd);
@@ -772,7 +772,7 @@ static int restore_one_sharing_group(struct sharing_group *sg)
 
 			p = list_first_entry(&sg->parent->mnt_list,
 					     struct mount_info, mnt_sharing);
-			sfd = fdstore_get(p->mnt_fd_id);
+			sfd = fdstore_get(p->rmi->mnt_fd_id);
 			BUG_ON(sfd < 0);
 			snprintf(_source, sizeof(_source),
 				 "/proc/self/fd/%d", sfd);
@@ -837,7 +837,7 @@ static int restore_one_sharing_group(struct sharing_group *sg)
 		if (other == first)
 			continue;
 
-		mntfd = fdstore_get(other->mnt_fd_id);
+		mntfd = fdstore_get(other->rmi->mnt_fd_id);
 		BUG_ON(mntfd < 0);
 		snprintf(mntfd_path, sizeof(mntfd_path),
 			 "/proc/self/fd/%d", mntfd);
