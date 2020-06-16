@@ -52,6 +52,10 @@ struct ns_id;
  */
 #define REMOUNTED_RW_SERVICE 2
 
+struct rst_mount_info {
+	int	remounted_rw;
+};
+
 struct mount_info {
 	int			mnt_id;
 	int			parent_mnt_id;
@@ -122,12 +126,13 @@ struct mount_info {
 	struct list_head	postpone;
 
 	int			is_overmounted;
-	int			*remounted_rw;
 
 	bool			external_slavery;
 
 	unsigned int		ns_bind_id;
 	unsigned int		ns_bind_desc;
+
+	struct rst_mount_info	*rmi;
 
 	void			*private;	/* associated filesystem data */
 };
