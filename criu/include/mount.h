@@ -42,6 +42,8 @@ struct ns_id;
 
 struct rst_mount_info {
 	int remounted_rw;
+	int mp_fd_id;
+	int mnt_fd_id;
 };
 
 struct mount_info {
@@ -66,8 +68,6 @@ struct mount_info {
 	/* Mount-v2 specific */
 	char *plain_mountpoint;
 	int is_dir;
-	int mp_fd_id;
-	int mnt_fd_id;
 	struct sharing_group *sg;
 	struct list_head mnt_sharing;
 

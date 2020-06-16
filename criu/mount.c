@@ -3217,9 +3217,9 @@ struct mount_info *mnt_entry_alloc(bool rst)
 				return NULL;
 			}
 			memset(new->rmi, 0, sizeof(struct rst_mount_info));
+			new->rmi->mp_fd_id = -1;
+			new->rmi->mnt_fd_id = -1;
 		}
-		new->mp_fd_id = -1;
-		new->mnt_fd_id = -1;
 		new->is_dir = -1;
 		new->fd = -1;
 		new->is_overmounted = -1;

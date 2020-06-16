@@ -797,9 +797,9 @@ static int move_mount_to_tree(struct mount_info *mi)
 		return -1;
 	}
 
-	mi->mp_fd_id = fdstore_add(fd);
+	mi->rmi->mp_fd_id = fdstore_add(fd);
 	close(fd);
-	if (mi->mp_fd_id < 0) {
+	if (mi->rmi->mp_fd_id < 0) {
 		pr_err("Can't add mountpoint of mount %d to fdstore\n", mi->mnt_id);
 		return -1;
 	}
@@ -816,9 +816,9 @@ static int move_mount_to_tree(struct mount_info *mi)
 		return -1;
 	}
 
-	mi->mnt_fd_id = fdstore_add(fd);
+	mi->rmi->mnt_fd_id = fdstore_add(fd);
 	close(fd);
-	if (mi->mnt_fd_id < 0) {
+	if (mi->rmi->mnt_fd_id < 0) {
 		pr_err("Can't add mount %d fd to fdstore\n", mi->mnt_id);
 		return -1;
 	}
@@ -937,7 +937,7 @@ static int restore_one_sharing(struct sharing_group *sg, struct mount_info *targ
 	char target_path[PATH_MAX];
 	int target_fd;
 
-	target_fd = fdstore_get(target->mnt_fd_id);
+	target_fd = fdstore_get(target->rmi->mnt_fd_id);
 	BUG_ON(target_fd < 0);
 	snprintf(target_path, sizeof(target_path), "/proc/self/fd/%d", target_fd);
 
@@ -950,7 +950,7 @@ static int restore_one_sharing(struct sharing_group *sg, struct mount_info *targ
 			first = get_first_mount(sg->parent);
 			pr_debug("Copy slavery from %d to %d\n",
 				 first->mnt_id, target->mnt_id);
-			if (move_mount_set_group(first->mnt_fd_id, NULL, target->mnt_fd_id)) {
+			if (move_mount_set_group(first->rmi->mnt_fd_id, NULL, target->rmi->mnt_fd_id)) {
 				pr_err("Failed to copy sharing from %d to %d\n", first->mnt_id, target->mnt_id);
 				close(target_fd);
 				return -1;
@@ -965,7 +965,7 @@ static int restore_one_sharing(struct sharing_group *sg, struct mount_info *targ
 			 */
 			pr_debug("Copy slavery from external %s to %d\n",
 				 sg->source, target->mnt_id);
-			if (move_mount_set_group(-1, sg->source, target->mnt_fd_id)) {
+			if (move_mount_set_group(-1, sg->source, target->rmi->mnt_fd_id)) {
 				pr_err("Failed to copy sharing from source %s to %d\n", sg->source, target->mnt_id);
 				close(target_fd);
 				return -1;
@@ -1012,7 +1012,7 @@ static int restore_one_sharing_group(struct sharing_group *sg)
 		if (is_sub_path(other->root, first->root)) {
 			pr_debug("Copy sharing group from %d to %d\n",
 				 first->mnt_id, other->mnt_id);
-			if (move_mount_set_group(first->mnt_fd_id, NULL, other->mnt_fd_id)) {
+			if (move_mount_set_group(first->rmi->mnt_fd_id, NULL, other->rmi->mnt_fd_id)) {
 				pr_err("Failed to copy sharing from %d to %d\n", first->mnt_id, other->mnt_id);
 				return -1;
 			}
