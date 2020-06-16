@@ -3379,11 +3379,12 @@ struct mount_info *mnt_entry_alloc(bool rst)
 	new = xzalloc(sizeof(struct mount_info));
 	if (new) {
 		if (rst) {
-			new->remounted_rw = shmalloc(sizeof(int));
-			if (!new->remounted_rw) {
+			new->rmi = shmalloc(sizeof(struct rst_mount_info));
+			if (!new->rmi) {
 				xfree(new);
 				return NULL;
 			}
+			memset(new->rmi, 0, sizeof(struct rst_mount_info));
 		}
 		new->mp_fd_id = -1;
 		new->mnt_fd_id = -1;
@@ -4481,9 +4482,9 @@ int try_remount_writable(struct mount_info *mi, bool ns)
 		remounted = REMOUNTED_RW_SERVICE;
 
 	/* All mounts in mntinfo list should have it on restore */
-	BUG_ON(mi->remounted_rw == NULL);
+	BUG_ON(mi->rmi == NULL);
 
-	if (mi->flags & MS_RDONLY && !(*mi->remounted_rw & remounted)) {
+	if (mi->flags & MS_RDONLY && !(mi->rmi->remounted_rw & remounted)) {
 		if (mnt_is_overmounted(mi)) {
 			pr_err("The mount %d is overmounted so paths are invisible\n", mi->mnt_id);
 			return -1;
@@ -4506,7 +4507,7 @@ int try_remount_writable(struct mount_info *mi, bool ns)
 			if (call_in_child_process(ns_remount_writable, mi))
 				return -1;
 		}
-		*mi->remounted_rw |= remounted;
+		mi->rmi->remounted_rw |= remounted;
 	}
 
 	return 0;
@@ -4521,7 +4522,7 @@ static int __remount_readonly_mounts(struct ns_id *ns)
 		if (ns && mi->nsid != ns)
 			continue;
 
-		if (!(*mi->remounted_rw & REMOUNTED_RW))
+		if (!(mi->rmi->remounted_rw & REMOUNTED_RW))
 			continue;
 
 		/*
