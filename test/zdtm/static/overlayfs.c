@@ -195,7 +195,10 @@ static int create_overlayfs_mount_overmount(const char *prefixdir)
 	snprintf(dir, PATH_MAX, "%s/%s", dirname, prefixdir);
 	mkdir(dir, 0700);
 
-	snprintf(lowerdir1, PATH_MAX, "%s/lower1", dir);
+	snprintf(lowerdir1, PATH_MAX, "%s/tmp", dir);
+	mkdir(lowerdir1, 0700);
+
+	snprintf(lowerdir1, PATH_MAX, "%s/tmp/lower1", dir);
 	mkdir(lowerdir1, 0700);
 
 	snprintf(lowerdir2, PATH_MAX, "%s/lower2", dir);
