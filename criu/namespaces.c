@@ -2412,12 +2412,12 @@ int prepare_namespaces(struct ns_desc *nd)
 			if (call_in_child_process(__create_namespaces, (void *)&nca))
 				return -1;
 		}
-	} else {
-		/* Create NSes with host userns owner */
-		nca.uns = NULL;
-		if (call_in_child_process(__create_namespaces, (void *)&nca))
-			return -1;
 	}
+
+	/* Create NSes with current userns owner for !CLONE_NEWUSER or old criu image */
+	nca.uns = NULL;
+	if (call_in_child_process(__create_namespaces, (void *)&nca))
+		return -1;
 
 	return call_in_child_process(__prepare_namespaces, (void *)&nca);
 }
