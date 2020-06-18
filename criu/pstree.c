@@ -838,12 +838,11 @@ static int read_pstree_ids(pid_t pid, TaskKobjIdsEntry **ids)
 	return ret;
 }
 
-static TaskKobjIdsEntry *dup_ns_ids(TaskKobjIdsEntry *ids)
+static TaskKobjIdsEntry *dup_zombie_ids(TaskKobjIdsEntry *ids)
 {
 	TaskKobjIdsEntry *copy;
-	int size = sizeof(*copy);
 
-	copy = shmalloc(size);
+	copy = xmalloc(sizeof(*copy));
 	if (!copy) {
 		pr_err("Can't allocate ids copy\n");
 		return NULL;
@@ -855,13 +854,9 @@ static TaskKobjIdsEntry *dup_ns_ids(TaskKobjIdsEntry *ids)
 		copy->has_##name##_ns_id = true;        \
 		copy->name##_ns_id = ids->name##_ns_id; \
 	}
-	COPY_NS_ID(copy, mnt);
-	COPY_NS_ID(copy, net);
+	/* Zombies only have pid and user ns ids */
 	COPY_NS_ID(copy, user);
 	COPY_NS_ID(copy, pid);
-	COPY_NS_ID(copy, ipc);
-	COPY_NS_ID(copy, uts);
-	COPY_NS_ID(copy, cgroup);
 #undef COPY_NS_ID
 
 	return copy;
@@ -958,7 +953,8 @@ static int read_one_pstree_item(struct cr_img *img, pid_t *pid_max)
 			pr_err("Parent or root_item has no ids\n");
 			goto err;
 		}
-		ids = dup_ns_ids(parent->ids);
+
+		ids = dup_zombie_ids(parent->ids);
 		if (!ids)
 			goto err;
 	}
@@ -1588,21 +1584,21 @@ static unsigned long get_clone_mask(TaskKobjIdsEntry *i, TaskKobjIdsEntry *p)
 {
 	unsigned long mask = 0;
 
-	if (i->files_id == p->files_id)
+	if (i->files_id && i->files_id == p->files_id)
 		mask |= CLONE_FILES;
-	if (i->pid_ns_id != p->pid_ns_id)
+	if (i->pid_ns_id && i->pid_ns_id != p->pid_ns_id)
 		mask |= CLONE_NEWPID;
-	if (i->net_ns_id != p->net_ns_id)
+	if (i->net_ns_id && i->net_ns_id != p->net_ns_id)
 		mask |= CLONE_NEWNET;
-	if (i->ipc_ns_id != p->ipc_ns_id)
+	if (i->ipc_ns_id && i->ipc_ns_id != p->ipc_ns_id)
 		mask |= CLONE_NEWIPC;
-	if (i->uts_ns_id != p->uts_ns_id)
+	if (i->uts_ns_id && i->uts_ns_id != p->uts_ns_id)
 		mask |= CLONE_NEWUTS;
-	if (i->time_ns_id != p->time_ns_id)
+	if (i->time_ns_id && i->time_ns_id != p->time_ns_id)
 		mask |= CLONE_NEWTIME;
-	if (i->mnt_ns_id != p->mnt_ns_id)
+	if (i->mnt_ns_id && i->mnt_ns_id != p->mnt_ns_id)
 		mask |= CLONE_NEWNS;
-	if (i->user_ns_id != p->user_ns_id)
+	if (i->user_ns_id && i->user_ns_id != p->user_ns_id)
 		mask |= CLONE_NEWUSER;
 
 	return mask;
