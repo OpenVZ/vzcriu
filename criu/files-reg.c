@@ -676,7 +676,11 @@ static int collect_remap_dead_process(struct reg_file_info *rfi,
 	vpgid(helper) = vpgid(root_item);
 	vpid(helper) = rfe->remap_id;
 	helper->parent = root_item;
-	helper->ids = root_item->ids;
+
+	helper->ids = dup_helper_ids(root_item->ids);
+	if (!helper->ids)
+		return -1;
+
 	if (init_pstree_helper(helper)) {
 		pr_err("Can't init helper\n");
 		return -1;

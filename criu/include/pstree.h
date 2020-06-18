@@ -155,4 +155,5 @@ extern int fixup_pid_for_children_ns(TaskKobjIdsEntry *ids);
 
 extern int preorder_pstree_traversal(struct pstree_item *item, int (*f)(struct pstree_item *));
 extern int __set_next_pid(pid_t pid);
+extern TaskKobjIdsEntry *dup_helper_ids(TaskKobjIdsEntry *ids);
 #endif /* __CR_PSTREE_H__ */
