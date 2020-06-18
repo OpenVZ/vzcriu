@@ -1091,6 +1091,36 @@ pid_t *get_free_pids(struct ns_id *ns, pid_t *pids, int *level)
 	return &pids[i];
 }
 
+TaskKobjIdsEntry *dup_helper_ids(TaskKobjIdsEntry *ids)
+{
+	TaskKobjIdsEntry *copy;
+
+	copy = xmalloc(sizeof(*copy));
+	if (!copy) {
+		pr_err("Can't allocate ids copy\n");
+		return NULL;
+	}
+	task_kobj_ids_entry__init(copy);
+
+#define COPY_NS_ID(copy, name)				\
+	if (ids->has_##name##_ns_id) {			\
+		copy->has_##name##_ns_id = true;	\
+		copy->name##_ns_id = ids->name##_ns_id;	\
+	}
+	/* Helpers inherit all namespaces */
+	COPY_NS_ID(copy, mnt);
+	COPY_NS_ID(copy, net);
+	COPY_NS_ID(copy, user);
+	COPY_NS_ID(copy, pid);
+	COPY_NS_ID(copy, ipc);
+	COPY_NS_ID(copy, uts);
+	COPY_NS_ID(copy, cgroup);
+	COPY_NS_ID(copy, pid);
+#undef COPY_NS_ID
+
+	return copy;
+}
+
 int is_group_leader(struct pstree_item *item)
 {
 	if (vpid(item) == vpgid(item)) {
@@ -1101,7 +1131,7 @@ int is_group_leader(struct pstree_item *item)
 }
 
 /* Add session and process group leader helpers to proper namespaces */
-static void prepare_pstree_leaders(void) {
+static int prepare_pstree_leaders(void) {
 	struct pstree_item *item;
 
 	for_each_pstree_item(item) {
@@ -1141,7 +1171,9 @@ static void prepare_pstree_leaders(void) {
 			 */
 			memcpy(session_leader->sid, item->sid, PID_SIZE(session_leader->sid->level));
 			memcpy(session_leader->pgid, item->sid, PID_SIZE(session_leader->pgid->level));
-			session_leader->ids = init->ids;
+			session_leader->ids = dup_helper_ids(init->ids);
+			if (!session_leader->ids)
+				return -1;
 			session_leader->parent = init;
 			add_child_task(session_leader, session_leader->parent);
 			init_pstree_helper(session_leader);
@@ -1206,7 +1238,9 @@ skip_sessions:
 			 */
 			memcpy(group_leader->sid, item->sid, PID_SIZE(group_leader->sid->level));
 			memcpy(group_leader->pgid, item->pgid, PID_SIZE(group_leader->pgid->level));
-			group_leader->ids = init->ids;
+			group_leader->ids = dup_helper_ids(init->ids);
+			if (!group_leader->ids)
+				return -1;
 			group_leader->parent = parent;
 			add_child_task(group_leader, group_leader->parent);
 			init_pstree_helper(group_leader);
@@ -1215,6 +1249,8 @@ skip_sessions:
 					vpid(group_leader), vpgid(group_leader));
 		}
 	}
+
+	return 0;
 }
 
 static int set_born_sid(struct pstree_item *item, int born_sid)
@@ -1465,7 +1501,9 @@ skip:
 
 			memcpy(helper->sid, item->sid, PID_SIZE(helper->sid->level));
 			memcpy(helper->pgid, item->sid, PID_SIZE(helper->pgid->level));
-			helper->ids = init->ids;
+			helper->ids = dup_helper_ids(init->ids);
+			if (!helper->ids)
+				return -1;
 			helper->parent = leader;
 
 			list_add_tail(&helper->sibling, &helpers);
@@ -1507,7 +1545,8 @@ static int prepare_pstree_ids(void)
 {
 	struct pstree_item *item;
 
-	prepare_pstree_leaders();
+	if (prepare_pstree_leaders())
+		return -1;
 
 	/*
 	 * Some task can be reparented to init. A helper task should be added
