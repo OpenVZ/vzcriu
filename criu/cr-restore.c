@@ -1020,6 +1020,34 @@ static int open_core(int pid, CoreEntry **pcore)
 	return ret <= 0 ? open_core_VZ730(pid, pcore) : 0;
 }
 
+static TaskKobjIdsEntry *dup_thread_ids(TaskKobjIdsEntry *ids)
+{
+	TaskKobjIdsEntry *copy;
+
+	copy = xmalloc(sizeof(*copy));
+	if (!copy) {
+		pr_err("Can't allocate ids copy\n");
+		return NULL;
+	}
+	task_kobj_ids_entry__init(copy);
+
+#define COPY_NS_ID(copy, name)				\
+	if (ids->has_##name##_ns_id) {			\
+		copy->has_##name##_ns_id = true;	\
+		copy->name##_ns_id = ids->name##_ns_id;	\
+	}
+	/* Threads only have pid pid_for_children ns ids */
+	COPY_NS_ID(copy, pid);
+#undef COPY_NS_ID
+
+	if (fixup_pid_for_children_ns(copy)) {
+		xfree(copy);
+		return NULL;
+	}
+
+	return copy;
+}
+
 static int open_cores(int pid, CoreEntry *leader_core)
 {
 	int i, tpid;
@@ -1047,8 +1075,13 @@ static int open_cores(int pid, CoreEntry *leader_core)
 				core_entry__free_unpacked(cores[i], NULL);
 				goto err;
 			}
-		} else
-			cores[i]->ids = current->ids;
+		} else {
+			cores[i]->ids = dup_thread_ids(current->ids);
+			if (!cores[i]->ids) {
+				core_entry__free_unpacked(cores[i], NULL);
+				goto err;
+			}
+		}
 	}
 
 	current->core = cores;
