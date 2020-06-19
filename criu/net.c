@@ -1494,7 +1494,7 @@ static int veth_peer_info(struct net_link *link, struct newlink_req *req, struct
 
 	snprintf(key, sizeof(key), "veth[%s]", nde->name);
 	val = external_lookup_by_key(key);
-	if (!IS_ERR_OR_NULL(val)) {
+	if (!IS_ERR_OR_NULL(val) && ns->id == root_item->ids->net_ns_id) {
 		char *aux;
 
 		aux = strchrnul(val, '@');
