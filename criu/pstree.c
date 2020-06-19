@@ -1383,24 +1383,27 @@ static int check_set_pgid(struct pstree_item *curr, struct pstree_item *item,
 		return 1;
 	}
 
+	/**
+	 * FIXME: checks below are racy as we access ->forked
+	 * ->curr_pgid and ->curr_sid of other tasks, and this needs
+	 *  some syncronization. But we can still use them as a hint
+	 *  for investigation if setpgid will evenutially fail.
+	 */
 	/* Everybody should be already forked */
 	if (!rsti(item)->forked || !rsti(leader)->forked) {
-		pr_err("Can't setpgid %d: item or leader is not alive\n", vpid(item));
-		return 1;
+		pr_warn("Can't setpgid %d: item or leader is not alive\n", vpid(item));
 	}
 
 	/* Leader should be the group leader already */
 	if (item != leader && rsti(leader)->curr_pgid != pgid) {
-		pr_err("Can't setpgid %d: leader does not have the right pgid %d/%d\n",
-				vpid(item), rsti(leader)->curr_pgid, pgid);
-		return 1;
+		pr_warn("Can't setpgid %d: leader does not have the right pgid %d/%d\n",
+			vpid(item), rsti(leader)->curr_pgid, pgid);
 	}
 
 	/* Everybody should be in a same session */
 	if (rsti(curr)->curr_sid != rsti(item)->curr_sid || rsti(item)->curr_sid != rsti(leader)->curr_sid) {
-		pr_err("Can't setpgid %d: sessions does not match %d/%d/%d\n", vpid(item),
-				rsti(item)->curr_sid, rsti(leader)->curr_sid, rsti(curr)->curr_sid);
-		return 1;
+		pr_warn("Can't setpgid %d: sessions does not match %d/%d/%d\n", vpid(item),
+			rsti(item)->curr_sid, rsti(leader)->curr_sid, rsti(curr)->curr_sid);
 	}
 
 	if (pitem_pid)
