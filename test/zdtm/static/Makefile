@@ -227,6 +227,7 @@ TST_NOFILE	:=				\
 		pidns01				\
 		pidns02				\
 		pidns03				\
+		zombie_leader			\
 #		jobctl00			\
 
 ifneq ($(SRCARCH),arm)
