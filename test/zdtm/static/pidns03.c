@@ -129,6 +129,7 @@ static int child_fn(void)
 {
 	long thread_retval;
 	pthread_t thread;
+	siginfo_t infop;
 	pid_t pid;
 	int ret;
 
@@ -149,6 +150,11 @@ static int child_fn(void)
 		goto err;
 	} else if (!pid) {
 		exit(0);
+	}
+
+	if (waitid(P_PID, pid, &infop, WNOWAIT | WEXITED) < 0) {
+		pr_perror("Failed to waitid zombie");
+		goto err;
 	}
 
 	futex_set_and_wake(futex, CHILD_PREPARED);
