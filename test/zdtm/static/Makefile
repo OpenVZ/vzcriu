@@ -287,6 +287,7 @@ TST_NOFILE	:=				\
 		pidns01				\
 		pidns02				\
 		pidns03				\
+		somaxconn			\
 #		jobctl00			\
 
 PKG_CONFIG ?= pkg-config
