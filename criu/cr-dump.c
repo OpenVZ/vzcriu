@@ -1656,7 +1656,19 @@ static int pre_dump_one_task(struct pstree_item *item, InventoryEntry *parent_ie
 		goto err_cure;
 	}
 
-	vpid(item) = misc.pid;
+	if (vpid(item) == -1) {
+		vpid(item) = misc.pid;
+		vsid(item) = misc.sid;
+		vpgid(item) = misc.pgid;
+	} else {
+		/* They were collected in parse_pid_status() */
+		if (last_level_pid(item->pid) != misc.pid ||
+		    last_level_pid(item->sid) != misc.sid ||
+		    last_level_pid(item->pgid) != misc.pgid) {
+			pr_err("Parasite and /proc/[pid]/status gave different pids\n");
+			goto err;
+		}
+	}
 
 	mdc.pre_dump = true;
 	mdc.lazy = false;
