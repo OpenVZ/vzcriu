@@ -1387,13 +1387,13 @@ static char *get_clean_mnt(struct mount_info *mi, char *mnt_path_tmp, char *mnt_
 	if (mnt_path == NULL && errno == ENOENT)
 		mnt_path = mkdtemp(mnt_path_root);
 	if (mnt_path == NULL) {
-		pr_perror("Can't create a temporary directory");
+		pr_warn("Can't create a temporary directory: %s\n", strerror(errno));
 		return NULL;
 	}
 
 	if (mount(mi->ns_mountpoint, mnt_path, NULL, MS_BIND, NULL)) {
-		pr_perror("Can't bind-mount %d:%s to %s",
-			  mi->mnt_id, mi->ns_mountpoint, mnt_path);
+		pr_warn("Can't bind-mount %d:%s to %s: %s\n",
+			  mi->mnt_id, mi->ns_mountpoint, mnt_path, strerror(errno));
 		rmdir(mnt_path);
 		return NULL;
 	}
