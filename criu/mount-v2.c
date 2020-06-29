@@ -1138,6 +1138,47 @@ err:
 	return -1;
 }
 
+LIST_HEAD(nested_pidns_procs);
+
+static void search_nested_pidns_proc(void) {
+	struct mount_info *mi, *t;
+
+	for (mi = mntinfo; mi; mi = mi->next) {
+		if (mi->fstype->code != FSTYPE__PROC)
+			continue;
+
+		if (mi->nses.pidns_id)
+			continue;
+
+		BUG_ON(list_empty(&mi->mnt_bind) && !mi->mnt_no_bind);
+		list_for_each_entry(t, &mi->mnt_bind, mnt_bind) {
+			if (t->nses.pidns_id) {
+				mi->nses.pidns_id = t->nses.pidns_id;
+				break;
+			}
+		}
+
+		if (!mi->nses.pidns_id) {
+			pr_warn("Proc %d lacks owner pidns info, assume root pidns\n", mi->mnt_id);
+			mi->nses.pidns_id = root_item->ids->pid_ns_id;
+		}
+
+		list_for_each_entry(t, &mi->mnt_bind, mnt_bind) {
+			BUG_ON(t->nses.pidns_id &&
+			       t->nses.pidns_id != mi->nses.pidns_id);
+			t->nses.pidns_id = mi->nses.pidns_id;
+		}
+	}
+
+	for (mi = mntinfo; mi; mi = mi->next) {
+		if (mi->fstype->code != FSTYPE__PROC)
+			continue;
+
+		if (mi->nses.pidns_id != root_item->ids->pid_ns_id)
+			list_add(&mi->mnt_proc, &nested_pidns_procs);
+	}
+}
+
 static int setup_internal_yards(void)
 {
 	struct ns_id *ns;
@@ -1186,6 +1227,8 @@ static int setup_internal_yards(void)
 }
 
 int read_mnt_ns_img_v2(struct mount_info *info) {
+	search_nested_pidns_proc();
+
 	if (resolve_shared_mounts_v2(info))
 		return -1;
 
