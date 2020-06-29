@@ -3735,6 +3735,21 @@ int read_mnt_ns_img(void)
 	if (opts.mounts_v2 && read_mnt_ns_img_v2(mntinfo))
 		return -1;
 
+	root_yard_mp = mnt_entry_alloc(true);
+	if (!root_yard_mp)
+		return -1;
+
+	root_yard_mp->mountpoint = mnt_roots;
+	root_yard_mp->rmi->mounted = true;
+	root_yard_mp->mnt_no_bind = true;
+
+	mntinfo_add_list_before(&mntinfo, root_yard_mp);
+
+	set_is_overmounted();
+
+	if (merge_mount_trees(root_yard_mp))
+		return -1;
+
 	return 0;
 }
 
@@ -3895,22 +3910,6 @@ static int populate_mnt_ns(void)
 {
 	struct mount_info *cr_time = NULL;
 	int ret;
-
-	root_yard_mp = mnt_entry_alloc(true);
-	if (!root_yard_mp)
-		return -1;
-
-	root_yard_mp->mountpoint = mnt_roots;
-	root_yard_mp->ns_mountpoint = mnt_roots;
-	root_yard_mp->rmi->mounted = true;
-	root_yard_mp->mnt_no_bind = true;
-
-	mntinfo_add_list_before(&mntinfo, root_yard_mp);
-
-	set_is_overmounted();
-
-	if (merge_mount_trees(root_yard_mp))
-		return -1;
 
 #ifdef CONFIG_BINFMT_MISC_VIRTUALIZED
 	if (!opts.has_binfmt_misc && !list_empty(&binfmt_misc_list)) {
