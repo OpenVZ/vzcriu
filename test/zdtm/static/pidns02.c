@@ -100,9 +100,10 @@ static int get_ns_pid(pid_t pid, char **str)
  */
 int main(int argc, char **argv)
 {
-	int i, status, ret = -1;
+	int i, status, ret = 1;
 	pid_t pid[] = {-1, -1};
 	char *ns_pid, *tmp;
+	siginfo_t infop;
 
 	test_init(argc, argv);
 	futex = mmap(NULL, sizeof(*futex), PROT_WRITE | PROT_READ, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
@@ -114,14 +115,14 @@ int main(int argc, char **argv)
 
 	if (unshare(CLONE_NEWPID) < 0) {
 		fail("Can't unshare");
-		return 1;
+		goto out;
 	}
 
 	/* Create child 1, child reaper of the new namespace */
 	pid[0] = fork();
 	if (pid[0] < 0) {
 		fail("Can't fork");
-		return 1;
+		goto out;
 	} else if (pid[0] == 0)
 		exit(child());
 
@@ -149,14 +150,22 @@ int main(int argc, char **argv)
 		goto out;
 	}
 
-	if (kill(pid[1], SIGKILL))
+	/* Make second child zombie */
+	if (kill(pid[1], SIGKILL)) {
 		pr_perror("Can't kill");
+		goto out;
+	}
+
+	if (waitid(P_PID, pid[1], &infop, WNOWAIT | WEXITED) < 0) {
+		pr_perror("Failed to waitid zombie");
+		goto out;
+	}
 
 	test_daemon();
 	test_waitsig();
 
 	if (get_ns_pid(pid[1], &tmp) < 0) {
-		pr_perror("Can't fork");
+		pr_perror("Can't get ns_pid");
 		goto out;
 	}
 
@@ -169,12 +178,19 @@ int main(int argc, char **argv)
 out:
 	/* Wait child reaper last as it waits namespace processes itself */
 	for (i = 1; i >= 0; i--) {
+		if (pid[i] == -1)
+			continue;
+
 		kill(pid[i], SIGKILL);
 		waitpid(pid[i], &status, 0);
 	}
+
+	munmap(futex, sizeof(*futex));
+
 	if (ret)
 		fail("Test failed");
 	else
 		pass();
+
 	return ret;
 }
