@@ -36,6 +36,11 @@ enum fstype {
 	VZ_NSFS			= 1001;
 };
 
+/* Namespaces from which mount should be mounted */
+message mnt_nses_entry {
+	optional uint32		pidns_id		= 1;
+}
+
 message mnt_entry {
 	required uint32		fstype			= 1;
 	required uint32		mnt_id			= 2;
@@ -64,4 +69,5 @@ message mnt_entry {
 
 	optional uint32		vz_ns_bind_id		= 1001;
 	optional uint32		vz_ns_bind_desc		= 1002;
+	optional mnt_nses_entry	vz_nses			= 1003;
 }

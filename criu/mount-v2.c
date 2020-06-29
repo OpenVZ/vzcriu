@@ -1469,6 +1469,48 @@ int prepare_mnt_ns_v2(void)
 	return remove_sources_of_deleted_mounts();
 }
 
+LIST_HEAD(nested_pidns_procs);
+
+void search_nested_pidns_proc(void)
+{
+	struct mount_info *mi, *t;
+
+	for (mi = mntinfo; mi; mi = mi->next) {
+		if (mi->fstype->code != FSTYPE__PROC)
+			continue;
+
+		if (mi->nses.pidns_id)
+			continue;
+
+		BUG_ON(!mi->mnt_bind_is_populated);
+		list_for_each_entry(t, &mi->mnt_bind, mnt_bind) {
+			if (t->nses.pidns_id) {
+				mi->nses.pidns_id = t->nses.pidns_id;
+				break;
+			}
+		}
+
+		if (!mi->nses.pidns_id) {
+			pr_warn("Proc %d lacks owner pidns info, assume root pidns\n", mi->mnt_id);
+			mi->nses.pidns_id = root_item->ids->pid_ns_id;
+		}
+
+		list_for_each_entry(t, &mi->mnt_bind, mnt_bind) {
+			BUG_ON(t->nses.pidns_id &&
+			       t->nses.pidns_id != mi->nses.pidns_id);
+			t->nses.pidns_id = mi->nses.pidns_id;
+		}
+	}
+
+	for (mi = mntinfo; mi; mi = mi->next) {
+		if (mi->fstype->code != FSTYPE__PROC)
+			continue;
+
+		if (mi->nses.pidns_id != root_item->ids->pid_ns_id)
+			list_add(&mi->mnt_proc, &nested_pidns_procs);
+	}
+}
+
 int setup_internal_yards(void)
 {
 	struct ns_id *ns;
