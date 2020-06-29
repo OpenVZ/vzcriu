@@ -2032,6 +2032,7 @@ static int dump_one_fs(struct mount_info *mi)
 static int dump_one_mountpoint(struct mount_info *pm, struct cr_img *img)
 {
 	MntEntry me = MNT_ENTRY__INIT;
+	MntNsesEntry mne = MNT_NSES_ENTRY__INIT;
 
 	pr_info("\t%d: %x:%s @ %s\n", pm->mnt_id, pm->s_dev,
 		pm->root, pm->ns_mountpoint);
@@ -2095,6 +2096,12 @@ static int dump_one_mountpoint(struct mount_info *pm, struct cr_img *img)
 		me.ns_bind_id = pm->ns_bind_id;
 		me.has_ns_bind_desc = true;
 		me.ns_bind_desc = pm->ns_bind_desc;
+	}
+
+	if (pm->nses.pidns_id) {
+		mne.has_pidns_id = true;
+		mne.pidns_id = pm->nses.pidns_id;
+		me.nses = &mne;
 	}
 
 	if (pb_write_one(img, &me, PB_MNT))
@@ -3428,6 +3435,7 @@ struct mount_info *mnt_entry_alloc(bool rst)
 		INIT_LIST_HEAD(&new->postpone);
 		INIT_LIST_HEAD(&new->mnt_sharing);
 		INIT_LIST_HEAD(&new->deleted_list);
+		INIT_LIST_HEAD(&new->mnt_proc);
 	}
 	return new;
 }
@@ -3698,7 +3706,6 @@ static int collect_mnt_from_image(struct mount_info **head, struct mount_info **
 		if (pm->fstype->collect && (pm->fstype->collect(pm) < 0))
 			goto err;
 
-
 		if (me->fsname) {
 			pm->fsname = xstrdup(me->fsname);
 			if (!pm->fsname)
@@ -3715,6 +3722,9 @@ static int collect_mnt_from_image(struct mount_info **head, struct mount_info **
 			pm->ns_bind_id = me->ns_bind_id;
 			pm->ns_bind_desc = me->ns_bind_desc;
 		}
+
+		if (me->nses && me->nses->has_pidns_id)
+			pm->nses.pidns_id = me->nses->pidns_id;
 
 		pr_debug("\tRead %d mp @ %s\n", pm->mnt_id, pm->ns_mountpoint);
 	}

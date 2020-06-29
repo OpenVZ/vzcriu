@@ -34,6 +34,11 @@ enum fstype {
 	NSFS			= 24;
 };
 
+/* Namespaces from which mount should be mounted */
+message mnt_nses_entry {
+	optional uint32		pidns_id		= 1;
+}
+
 message mnt_entry {
 	required uint32		fstype			= 1;
 	required uint32		mnt_id			= 2;
@@ -61,4 +66,6 @@ message mnt_entry {
 	optional string		ext_key			= 18;
 	optional uint32		ns_bind_id		= 19;
 	optional uint32		ns_bind_desc		= 20;
+
+	optional mnt_nses_entry	nses			= 21;
 }

@@ -59,6 +59,10 @@ struct rst_mount_info {
 	bool	mounted;
 };
 
+struct mount_namespaces {
+	unsigned int pidns_id;
+};
+
 struct mount_info {
 	int			mnt_id;
 	int			parent_mnt_id;
@@ -130,6 +134,9 @@ struct mount_info {
 
 	unsigned int		ns_bind_id;
 	unsigned int		ns_bind_desc;
+
+	struct mount_namespaces nses;
+	struct list_head	mnt_proc;
 
 	struct rst_mount_info	*rmi;
 
