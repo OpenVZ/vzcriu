@@ -1996,6 +1996,7 @@ static int dump_one_fs(struct mount_info *mi)
 static int dump_one_mountpoint(struct mount_info *pm, struct cr_img *img)
 {
 	MntEntry me = MNT_ENTRY__INIT;
+	MntNsesEntry mne = MNT_NSES_ENTRY__INIT;
 
 	pr_info("\t%d: %x:%s @ %s\n", pm->mnt_id, pm->s_dev, pm->root, pm->ns_mountpoint);
 
@@ -2056,6 +2057,12 @@ static int dump_one_mountpoint(struct mount_info *pm, struct cr_img *img)
 		me.vz_ns_bind_id = pm->ns_bind_id;
 		me.has_vz_ns_bind_desc = true;
 		me.vz_ns_bind_desc = pm->ns_bind_desc;
+	}
+
+	if (pm->nses.pidns_id) {
+		mne.has_pidns_id = true;
+		mne.pidns_id = pm->nses.pidns_id;
+		me.vz_nses = &mne;
 	}
 
 	if (pb_write_one(img, &me, PB_MNT))
@@ -3257,6 +3264,7 @@ struct mount_info *mnt_entry_alloc(bool rst)
 		INIT_LIST_HEAD(&new->mnt_unbindable);
 		INIT_LIST_HEAD(&new->postpone);
 		INIT_LIST_HEAD(&new->deleted_list);
+		INIT_LIST_HEAD(&new->mnt_proc);
 	}
 	return new;
 }
@@ -3582,6 +3590,9 @@ static int collect_mnt_from_image(struct mount_info **head, struct mount_info **
 			pm->ns_bind_desc = me->vz_ns_bind_desc;
 		}
 
+		if (me->vz_nses && me->vz_nses->has_pidns_id)
+			pm->nses.pidns_id = me->vz_nses->pidns_id;
+
 		pr_debug("\t"
 			 "Read %d mp @ %s\n",
 			 pm->mnt_id, pm->ns_mountpoint);
@@ -3669,6 +3680,8 @@ int read_mnt_ns_img(void)
 	prepare_is_overmounted();
 
 	if (!opts.mntns_compat_mode) {
+		search_nested_pidns_proc();
+
 		if (resolve_shared_mounts_v2())
 			return -1;
 		if (setup_internal_yards())

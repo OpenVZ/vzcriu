@@ -377,6 +377,50 @@ int collect_binfmt_misc(void)
 #define binfmt_misc_collect NULL
 #endif
 
+static int procfs_dump(struct mount_info *pm)
+{
+	struct ns_desc *ns_d;
+	unsigned int ns_kid;
+	struct ns_id *nsid;
+	int proc_fd, len;
+	char link[PATH_MAX];
+
+	proc_fd = open_mountpoint(pm);
+	if (proc_fd < 0)
+		return MNT_UNREACHABLE;
+
+	len = readlinkat(proc_fd, "1/ns/pid", link, sizeof(link) - 1);
+	if (len < 0) {
+		pr_perror("Can't readlink 1/ns/pid at mount %d", pm->mnt_id);
+		close(proc_fd);
+		return -1;
+	}
+	close(proc_fd);
+	link[len] = '\0';
+
+	ns_d = get_ns_kid(link, len, &ns_kid);
+	if (!ns_d || ns_d != &pid_ns_desc) {
+		pr_err("Failed to get ns kid from %s for mount %d\n", link, pm->mnt_id);
+		return -1;
+	}
+
+	nsid = lookup_ns_by_kid(ns_kid, ns_d);
+	if (!nsid) {
+		pr_err("Found proc mount %d with bad pid namespace %d\n",
+		       pm->mnt_id, ns_kid);
+		return -1;
+	}
+
+	if (nsid->type == NS_CRIU) {
+		pr_err("Proc mount %d has external (not supported) pid namespace %d\n",
+		       pm->mnt_id, ns_kid);
+		return -1;
+	}
+
+	pm->nses.pidns_id = nsid->id;
+	return 0;
+}
+
 static int tmpfs_dump(struct mount_info *pm)
 {
 	int ret = -1, fd = -1, userns_pid = -1;
@@ -994,6 +1038,7 @@ static struct fstype fstypes[] = {
 	{
 		.name = "proc",
 		.code = FSTYPE__PROC,
+		.dump = procfs_dump,
 	},
 	{
 		.name = "sysfs",
