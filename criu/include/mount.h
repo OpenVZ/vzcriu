@@ -80,7 +80,7 @@ struct mount_info {
 
 	/* Mount-v2 specific */
 	char			*plain_mountpoint;
-	bool			is_dir;
+	int			is_dir;
 	struct sharing_group	*sg;
 	struct list_head	mnt_sharing;
 

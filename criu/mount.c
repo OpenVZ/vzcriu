@@ -3412,7 +3412,7 @@ struct mount_info *mnt_entry_alloc(bool rst)
 			new->rmi->mp_fd_id = -1;
 			new->rmi->mnt_fd_id = -1;
 		}
-		new->is_dir = true;
+		new->is_dir = -1;
 		new->fd = -1;
 		new->is_overmounted = -1;
 		INIT_LIST_HEAD(&new->children);

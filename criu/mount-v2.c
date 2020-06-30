@@ -511,7 +511,7 @@ static int create_plain_mountpoint(struct mount_info *mi) {
 	char mountpoint[PATH_MAX], *rel_path;
 	struct stat st;
 
-	if (!mi->parent || mi->parent == root_yard_mp)
+	if (!mi->parent || mi->parent == root_yard_mp || mi->is_dir != -1)
 		goto create;
 
 	rel_path = get_relative_path(mi->ns_mountpoint, mi->parent->ns_mountpoint);
@@ -525,7 +525,9 @@ static int create_plain_mountpoint(struct mount_info *mi) {
 		return -1;
 	}
 
-	if (!S_ISDIR(st.st_mode))
+	if (S_ISDIR(st.st_mode))
+		mi->is_dir = true;
+	else
 		mi->is_dir = false;
 create:
 	pr_info("Create plain mountpoint %s for %d\n", mi->plain_mountpoint, mi->mnt_id);
