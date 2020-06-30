@@ -3684,6 +3684,9 @@ int read_mnt_ns_img(void)
 			return -1;
 		if (setup_internal_yards())
 			return -1;
+
+		if (handle_nested_pidns_proc())
+			return -1;
 	}
 
 	if (merge_mount_trees())
