@@ -140,6 +140,7 @@ struct ns_id {
 		struct {
 			struct mount_info *mntinfo_list;
 			struct mount_info *mntinfo_tree;
+			struct mount_info *internal_yard;
 			int nsfd_id;
 			int root_fd_id;
 		} mnt;
