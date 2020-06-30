@@ -3668,8 +3668,12 @@ int read_mnt_ns_img(void)
 	search_bindmounts();
 	prepare_is_overmounted();
 
-	if (!opts.mntns_compat_mode && resolve_shared_mounts_v2())
-		return -1;
+	if (!opts.mntns_compat_mode) {
+		if (resolve_shared_mounts_v2())
+			return -1;
+		if (setup_internal_yards())
+			return -1;
+	}
 
 	if (merge_mount_trees())
 		return -1;
