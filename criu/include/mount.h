@@ -138,6 +138,7 @@ struct mount_info {
 	struct list_head	mnt_proc;
 
 	struct rst_mount_info	*rmi;
+	struct mount_info	*helper;
 
 	void			*private;	/* associated filesystem data */
 };

@@ -1226,6 +1226,95 @@ static int setup_internal_yards(void)
 	return 0;
 }
 
+int print_plain_helper_mountpoint(struct mount_info *mi, char *buf, int bs)
+{
+	return snprintf(buf, bs, "%s/hlp-%010d", mnt_roots, mi->mnt_id);
+}
+
+static int handle_nested_pidns_proc(void)
+{
+	struct mount_info *mi;
+
+	/**
+	 * Temporary remove nested pidns proc mounts from tree, so that it is
+	 * easier to do a walk over all their descendants visiting each only
+	 * once.
+	 */
+	list_for_each_entry(mi, &nested_pidns_procs, mnt_proc)
+		list_del_init(&mi->siblings);
+
+	list_for_each_entry(mi, &nested_pidns_procs, mnt_proc) {
+		struct mount_info *c = mi;
+		struct ns_id *nsid = mi->nsid;
+
+		nsid->mnt.enable_internal_yard = true;
+
+		while ((c = mnt_subtree_next(c, mi))) {
+			char path[PATH_MAX];
+			struct mount_info *h;
+			int len;
+
+			/**
+			 * Create a helper mount in internal yard for each
+			 * mount of second step:
+			 *
+			 * 1) Will bind real mount from helper later when in
+			 * proper mntns;
+			 * 2) Helper should effectively be the same as it's
+			 * prototype mount, except it's mountpoint is in
+			 * internal yard and its root is wider ("/") so that
+			 * helpers are not "deleted" or "file" mounts.
+			 */
+			h = mnt_entry_alloc(true);
+			if (!h)
+				return -1;
+
+			h->nsid = c->nsid;
+			h->mnt_id = c->mnt_id;
+			print_plain_helper_mountpoint(h, path, sizeof(path));
+			h->plain_mountpoint = xstrdup(path);
+			if (!h->plain_mountpoint)
+				return -1;
+			/* FIXME external mounts sometimes can't have root "/" */
+			h->root = xstrdup("/");
+			if (!h->root)
+				return -1;
+			h->deleted = false;
+			h->s_dev = c->s_dev;
+			h->fstype = c->fstype;
+			h->is_dir = true;
+			h->external = c->external;
+			h->need_plugin = c->need_plugin;
+			h->source = c->source;
+			h->ns_bind_id = c->ns_bind_id;
+			h->ns_bind_desc = c->ns_bind_desc;
+			h->private = c->private;
+
+			len = print_ns_root(nsid, 0, path, sizeof(path));
+			snprintf(path + len, sizeof(path) - len,
+				 "/internal-yard-XXXXXX/hlp-%010d", c->mnt_id);
+			h->mountpoint = shmalloc(strlen(path) + 1);
+			if (!h->mountpoint)
+				return -1;
+			strcpy(h->mountpoint, path);
+			h->ns_mountpoint = h->mountpoint + len;
+
+			h->parent = nsid->mnt.internal_yard;
+			list_add(&h->siblings, &h->parent->children);
+
+			list_add(&h->mnt_bind, &c->mnt_bind);
+			c->mnt_no_bind = false;
+			c->helper = h;
+		}
+	}
+
+	/* Put nested pidns proc mounts back to tree */
+	list_for_each_entry(mi, &nested_pidns_procs, mnt_proc)
+		list_add(&mi->siblings, &mi->parent->children);
+
+	return 0;
+}
+
 int read_mnt_ns_img_v2(struct mount_info *info) {
 	search_nested_pidns_proc();
 
@@ -1233,6 +1322,9 @@ int read_mnt_ns_img_v2(struct mount_info *info) {
 		return -1;
 
 	if (setup_internal_yards())
+		return -1;
+
+	if (handle_nested_pidns_proc())
 		return -1;
 
 	return 0;
