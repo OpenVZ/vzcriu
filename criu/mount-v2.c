@@ -23,6 +23,7 @@
 #include "common/list.h"
 #include "common/bug.h"
 #include "common/compiler.h"
+#include "rst-malloc.h"
 
 #include "images/mnt.pb-c.h"
 
@@ -1373,6 +1374,53 @@ int prepare_mnt_ns_v2(void)
 		return -1;
 
 	return remove_sources_of_deleted_mounts();
+}
+
+int setup_internal_yards(void)
+{
+	struct ns_id *ns;
+
+	for (ns = ns_ids; ns != NULL; ns = ns->next) {
+		struct mount_info *yard;
+		char yard_mp[PATH_MAX], plain[PATH_MAX];
+		int len;
+
+		if (ns->nd != &mnt_ns_desc)
+			continue;
+
+		yard = mnt_entry_alloc(true);
+		if (!yard)
+			return -1;
+
+		len = print_ns_root(ns, 0, yard_mp, sizeof(yard_mp));
+		snprintf(yard_mp + len, sizeof(yard_mp) - len, "/internal-yard-XXXXXX");
+		yard->mountpoint = shmalloc(strlen(yard_mp) + 1);
+		if (!yard->mountpoint)
+			return -1;
+		strcpy(yard->mountpoint, yard_mp);
+		yard->ns_mountpoint = yard->mountpoint + len;
+
+		snprintf(plain, sizeof(plain), "%s/internal-yard-%010d", mnt_roots, ns->id);
+		yard->plain_mountpoint = xstrdup(plain);
+		if (!yard->plain_mountpoint)
+			return -1;
+
+		yard->root = xstrdup("/");
+		if (!yard->root)
+			return -1;
+
+		yard->fstype = find_fstype_by_name("tmpfs");
+		yard->is_dir = true;
+
+		yard->nsid = ns;
+		yard->rmi->mounted = false;
+		yard->mnt_bind_is_populated = true;
+
+		yard->parent = ns->mnt.mntinfo_tree;
+		ns->mnt.internal_yard = yard;
+	}
+
+	return 0;
 }
 
 int fini_restore_mntns_v2(void)

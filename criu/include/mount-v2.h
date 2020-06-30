@@ -90,6 +90,7 @@ struct sharing_group {
 };
 
 extern int resolve_shared_mounts_v2(void);
+extern int setup_internal_yards(void);
 extern int prepare_mnt_ns_v2(void);
 extern int fini_restore_mntns_v2(void);
 
