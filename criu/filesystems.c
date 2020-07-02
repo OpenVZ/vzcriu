@@ -742,7 +742,7 @@ static char *__get_path_ovl(char *out, int mnt_id, char *mnt_path)
 		return NULL;
 	}
 
-	if (!mi->mounted)
+	if (!mi->rmi->mounted)
 		return NULL;
 
 	/*
