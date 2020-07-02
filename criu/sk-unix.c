@@ -2439,7 +2439,7 @@ int unix_prepare_bindmount(struct mount_info *mi)
 		BUG_ON(!mi->bind);
 		sk_mi = mi->bind;
 
-		if (!sk_mi->mounted) {
+		if (!sk_mi->rmi->mounted) {
 			pr_err("bindmount: The mount %d is not mounted for unix sk id %#x\n",
 			       sk_mi->mnt_id, ui->ue->id);
 			return -1;
