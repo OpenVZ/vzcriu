@@ -157,7 +157,7 @@ static int propagate_mount_v2(struct mount_info *mi)
 	struct mount_info *t;
 
 	list_for_each_entry(t, &mi->mnt_bind, mnt_bind) {
-		if (t->mounted)
+		if (t->rmi->mounted)
 			continue;
 		if (t->bind)
 			continue;
@@ -231,7 +231,7 @@ static int do_new_mount_v2(struct mount_info *mi)
 		return -1;
 	}
 
-	mi->mounted = true;
+	mi->rmi->mounted = true;
 	return 0;
 }
 
@@ -348,7 +348,7 @@ do_bind:
 		}
 
 out:
-	mi->mounted = true;
+	mi->rmi->mounted = true;
 	if (mi->deleted) {
 		/*
 		 * Deleted mounts can't be moved, will delete source after
@@ -396,7 +396,7 @@ static int do_mount_root_v2(struct mount_info *mi)
 		return -1;
 	}
 
-	mi->mounted = true;
+	mi->rmi->mounted = true;
 
 	return 0;
 }
@@ -406,14 +406,14 @@ static bool can_mount_now_v2(struct mount_info *mi)
 	struct mount_info *ext, *root;
 
 	/* Parent should be mounted already, that's how mnt_tree_for_each works */
-	BUG_ON(mi->parent && !mi->parent->mounted);
+	BUG_ON(mi->parent && !mi->parent->rmi->mounted);
 
 	if (rst_mnt_is_root(mi)) {
 		pr_debug("%s: true as %d is global root\n", __func__, mi->mnt_id);
 		return true;
 	}
 
-	if ((root = mnt_get_root(mi)) && !root->mounted) {
+	if ((root = mnt_get_root(mi)) && !root->rmi->mounted) {
 		pr_debug("%s: false as %d is bind of not mounted global root %d\n",
 			 __func__, mi->mnt_id, root->mnt_id);
 		return false;
@@ -496,7 +496,7 @@ static int do_mount_one_v2(struct mount_info *mi)
 {
 	int ret;
 
-	if (mi->mounted)
+	if (mi->rmi->mounted)
 		return 0;
 
 	if (!can_mount_now_v2(mi)) {
@@ -583,7 +583,7 @@ static int populate_mnt_ns_v2(void)
 		return -1;
 
 	root_yard_mp->mountpoint = mnt_roots;
-	root_yard_mp->mounted = true;
+	root_yard_mp->rmi->mounted = true;
 	root_yard_mp->mnt_no_bind = true;
 
 	mntinfo_add_list_before(&mntinfo, root_yard_mp);

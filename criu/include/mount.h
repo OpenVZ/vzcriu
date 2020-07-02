@@ -56,6 +56,7 @@ struct rst_mount_info {
 	int	remounted_rw;
 	int	mp_fd_id;
 	int	mnt_fd_id;
+	bool	mounted;
 };
 
 struct mount_info {
@@ -92,10 +93,7 @@ struct mount_info {
 	char			*source;
 	char			*options;
 	char			*fsname;
-	union {
-		bool		mounted;
-		bool		dumped;
-	};
+	bool			dumped;
 	bool			need_plugin;
 	bool			is_ns_root;
 	bool			deleted;

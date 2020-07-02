@@ -652,7 +652,7 @@ static struct mount_info *__mnt_get_external(struct mount_info *m, bool need_mas
 	list_for_each_entry(t, &m->mnt_bind, mnt_bind)
 		if (t->external &&
 		    (!need_master || t->master_id == m->master_id) &&
-		    (!need_mounted || t->mounted) &&
+		    (!need_mounted || t->rmi->mounted) &&
 		    (!non_dev || strcmp(t->external, EXTERNAL_DEV_MOUNT)) &&
 		    issubpath(m->root, t->root))
 			return t;
@@ -2331,7 +2331,7 @@ static int umount_from_slaves(struct mount_info *mi)
 	BUG_ON(mi->parent == root_yard_mp);
 
 	list_for_each_entry(t, &mi->parent->mnt_slave_list, mnt_slave) {
-		if (!t->mounted)
+		if (!t->rmi->mounted)
 			continue;
 
 		mpath = mnt_get_sibling_path(mi, t, buf, sizeof(buf));
@@ -2363,7 +2363,7 @@ static int propagate_siblings(struct mount_info *mi)
 	 * to inherit shared group or master id
 	 */
 	list_for_each_entry(t, &mi->mnt_share, mnt_share) {
-		if (t->mounted)
+		if (t->rmi->mounted)
 			continue;
 		if (t->bind && t->bind->shared_id == mi->shared_id)
 			continue;
@@ -2373,7 +2373,7 @@ static int propagate_siblings(struct mount_info *mi)
 	}
 
 	list_for_each_entry(t, &mi->mnt_slave_list, mnt_slave) {
-		if (t->mounted || t->bind)
+		if (t->rmi->mounted || t->bind)
 			continue;
 		pr_debug("\t\tBind slave %s(%d)\n", t->ns_mountpoint, t->mnt_id);
 		t->bind = mi;
@@ -2381,7 +2381,7 @@ static int propagate_siblings(struct mount_info *mi)
 	}
 
 	list_for_each_entry(t, &mi->mnt_ext_slave, mnt_ext_slave) {
-		if (t->mounted || t->bind)
+		if (t->rmi->mounted || t->bind)
 			continue;
 		pr_debug("\t\tBind ext-slave %s(%d)\n", t->ns_mountpoint, t->mnt_id);
 		t->bind = mi;
@@ -2405,7 +2405,7 @@ static int propagate_mount(struct mount_info *mi)
 	/* Mark mounts in propagation group mounted */
 	list_for_each_entry(p, &mi->mnt_propagate, mnt_propagate) {
 		/* Should not propagate the same mount twice */
-		BUG_ON(p->mounted);
+		BUG_ON(p->rmi->mounted);
 		pr_debug("\t\tPropagate %s(%d)\n", p->ns_mountpoint, p->mnt_id);
 
 		/*
@@ -2415,7 +2415,7 @@ static int propagate_mount(struct mount_info *mi)
 		 */
 		if (restore_shared_options(p, !p->shared_id, 0, 0))
 			return -1;
-		p->mounted = true;
+		p->rmi->mounted = true;
 		propagate_siblings(p);
 		umount_from_slaves(p);
 	}
@@ -2429,7 +2429,7 @@ skip_parent:
 		struct mount_info *t;
 
 		list_for_each_entry(t, &mi->mnt_bind, mnt_bind) {
-			if (t->mounted)
+			if (t->rmi->mounted)
 				continue;
 			if (t->bind)
 				continue;
@@ -2567,7 +2567,7 @@ static int do_new_mount(struct mount_info *mi)
 	BUG_ON(mi->master_id);
 	if (restore_shared_options(mi, !mi->shared_id, mi->shared_id, 0))
 		return -1;
-	mi->mounted = true;
+	mi->rmi->mounted = true;
 
 	return 0;
 }
@@ -2826,7 +2826,7 @@ do_bind:
 		}
 	}
 out:
-	mi->mounted = true;
+	mi->rmi->mounted = true;
 	exit_code = 0;
 err:
 	if (level)
@@ -2899,7 +2899,7 @@ static bool can_mount_now(struct mount_info *mi)
 	}
 
 	/* Parent should be mounted already, that's how mnt_tree_for_each works */
-	BUG_ON(mi->parent && !mi->parent->mounted);
+	BUG_ON(mi->parent && !mi->parent->rmi->mounted);
 
 	if (mi->external)
 		goto shared;
@@ -2926,7 +2926,7 @@ static bool can_mount_now(struct mount_info *mi)
 		}
 
 		list_for_each_entry(c, &mi->mnt_master->children, siblings) {
-			if (!c->mounted) {
+			if (!c->rmi->mounted) {
 				pr_debug("%s: false as %d is slave with unmounted master's children %d\n",
 					 __func__, mi->mnt_id, c->mnt_id);
 				return false;
@@ -2935,7 +2935,7 @@ static bool can_mount_now(struct mount_info *mi)
 
 		list_for_each_entry(s, &mi->mnt_master->mnt_share, mnt_share) {
 			list_for_each_entry(c, &s->children, siblings) {
-				if (!c->mounted) {
+				if (!c->rmi->mounted) {
 					pr_debug("%s: false as %d is slave with unmounted children of master's share\n",
 						 __func__, mi->mnt_id);
 					return false;
@@ -2970,7 +2970,7 @@ shared:
 
 		list_for_each_entry(p, &mi->mnt_propagate, mnt_propagate) {
 			BUG_ON(!p->parent);
-			if (!p->parent->mounted) {
+			if (!p->parent->rmi->mounted) {
 				pr_debug("%s: false as %d has unmounted parent %d of its propagation group\n",
 					 __func__, mi->mnt_id, p->parent->mnt_id);
 				return false;
@@ -3021,7 +3021,7 @@ shared:
 
 		/* Check not propagated mounts mounted and cleanup list */
 		list_for_each_entry_safe(p, t, &mi_notprop, mnt_notprop) {
-			if (!p->mounted) {
+			if (!p->rmi->mounted) {
 				pr_debug("%s: false as %d has unmounted 'anti'-propagation mount %d\n",
 					 __func__, mi->mnt_id, p->mnt_id);
 				can = false;
@@ -3073,7 +3073,7 @@ static int do_mount_one(struct mount_info *mi)
 {
 	int ret;
 
-	if (mi->mounted)
+	if (mi->rmi->mounted)
 		return 0;
 
 	if (!can_mount_now(mi)) {
@@ -3125,7 +3125,7 @@ static int do_mount_one(struct mount_info *mi)
 
 		if (do_mount_root(mi))
 			return -1;
-		mi->mounted = true;
+		mi->rmi->mounted = true;
 		ret = 0;
 	} else if (!mi->bind && !mi->need_plugin && (!mi->external ||
 		   !strcmp(mi->external, EXTERNAL_DEV_MOUNT)))
@@ -3898,7 +3898,7 @@ static int populate_mnt_ns(void)
 
 	root_yard_mp->mountpoint = mnt_roots;
 	root_yard_mp->ns_mountpoint = mnt_roots;
-	root_yard_mp->mounted = true;
+	root_yard_mp->rmi->mounted = true;
 	root_yard_mp->mnt_no_bind = true;
 
 	mntinfo_add_list_before(&mntinfo, root_yard_mp);
