@@ -149,6 +149,7 @@ struct ns_id {
 			struct mount_info *internal_yard;
 			int nsfd_id;
 			int root_fd_id;
+			bool enable_internal_yard;
 		} mnt;
 
 		struct {

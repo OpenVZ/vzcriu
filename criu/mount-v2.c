@@ -695,6 +695,36 @@ static int populate_roots_yard_v2(struct mount_info *cr_time)
 	return 0;
 }
 
+void insert_internal_yards(void)
+{
+	struct ns_id *nsid;
+
+	for (nsid = ns_ids; nsid != NULL; nsid = nsid->next) {
+		struct mount_info *yard = nsid->mnt.internal_yard;
+
+		if (nsid->nd != &mnt_ns_desc)
+			continue;
+
+		if (nsid->mnt.enable_internal_yard)
+			list_add_tail(&yard->siblings, &yard->parent->children);
+	}
+}
+
+void extract_internal_yards(void)
+{
+	struct ns_id *nsid;
+
+	for (nsid = ns_ids; nsid != NULL; nsid = nsid->next) {
+		struct mount_info *yard = nsid->mnt.internal_yard;
+
+		if (nsid->nd != &mnt_ns_desc)
+			continue;
+
+		if (nsid->mnt.enable_internal_yard)
+			list_del_init(&yard->siblings);
+	}
+}
+
 static int populate_mnt_ns_v2(void)
 {
 	struct mount_info *cr_time = NULL;
@@ -722,6 +752,8 @@ static int populate_mnt_ns_v2(void)
 
 	if (populate_roots_yard_v2(cr_time))
 		return -1;
+
+	insert_internal_yards();
 
 	ret = mnt_tree_for_each(root_yard_mp, do_mount_one_v2);
 	if (!ret)
@@ -1114,6 +1146,8 @@ int prepare_mnt_ns_v2(void)
 	}
 	close(rst);
 
+	extract_internal_yards();
+
 	return remove_sources_of_deleted_mounts();
 err:
 	if (rst >= 0)
@@ -1178,10 +1212,93 @@ int read_mnt_ns_img_v2(struct mount_info *info) {
 	return 0;
 }
 
+static int __fini_restore_mntns_v2(void *arg)
+{
+	struct ns_id *nsid;
+	bool cleanup = (bool)arg;
+
+	if (root_ns_mask & CLONE_NEWUSER) {
+		int fd, ret;
+
+		nsid = lookup_ns_by_id(root_item->ids->user_ns_id, &user_ns_desc);
+		if (!nsid) {
+			pr_err("Can't find root item's userns\n");
+			return 1;
+		}
+
+		fd = fdstore_get(nsid->user.nsfd_id);
+		if (fd < 0) {
+			pr_perror("Can't fdstore_get userns fd");
+			return 1;
+		}
+
+		ret = setns(fd, CLONE_NEWUSER);
+		close(fd);
+		if (ret) {
+			pr_perror("Can't setns to root item's userns");
+			return 1;
+		}
+
+		if (prepare_userns_creds()) {
+			pr_err("Can't set creds\n");
+			return 1;
+		}
+	}
+
+	for (nsid = ns_ids; nsid != NULL; nsid = nsid->next) {
+		if (nsid->nd != &mnt_ns_desc)
+			continue;
+
+		if (!nsid->mnt.enable_internal_yard)
+			continue;
+
+		if (cleanup && nsid->mnt.nsfd_id == -1)
+			continue;
+
+		if (do_restore_task_mnt_ns(nsid))
+			return 1;
+
+		if (cleanup && !strcmp(nsid->mnt.internal_yard->ns_mountpoint,
+				       "/internal-yard-XXXXXX"))
+			continue;
+
+		pr_info("Unmounting internal yard\n");
+		if (umount2(nsid->mnt.internal_yard->ns_mountpoint,
+			    MNT_DETACH)) {
+			pr_perror("Failed to unmount internal yard of %d",
+				  nsid->id);
+			return 1;
+		}
+
+		if (rmdir(nsid->mnt.internal_yard->ns_mountpoint) &&
+		    errno != ENOENT) {
+			pr_perror("Failed to rmdir internal yard of %d",
+				  nsid->id);
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
 int fini_restore_mntns_v2(void)
 {
 	if (!(root_ns_mask & CLONE_NEWNS))
 		return 0;
 
+	if (call_in_child_process(__fini_restore_mntns_v2, (void*)false))
+		return -1;
+
 	return restore_mount_sharing_options();
+}
+
+int cleanup_internal_yards(void)
+{
+	if (!(root_ns_mask & CLONE_NEWNS))
+		return 0;
+
+	if (call_in_child_process(__fini_restore_mntns_v2, (void*)true))
+		return -1;
+
+	return 0;
 }

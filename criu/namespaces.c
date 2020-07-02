@@ -358,7 +358,10 @@ static struct ns_id *rst_new_ns_id(unsigned int id, pid_t pid,
 			nsid->pid.rb_root = RB_ROOT;
 			nsid->pid.nsfd_id = -1;
 			futex_init(&nsid->pid.helper_created);
+		} else if (nd == &mnt_ns_desc) {
+			nsid->mnt.enable_internal_yard = false;
 		}
+
 
 		INIT_LIST_HEAD(&nsid->children);
 		INIT_LIST_HEAD(&nsid->siblings);
