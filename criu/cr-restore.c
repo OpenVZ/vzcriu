@@ -2902,7 +2902,7 @@ static int restore_root_task(struct pstree_item *init)
 	if (root_ns_mask & CLONE_NEWNS) {
 		mnt_ns_fd = open_proc(init->pid->real, "ns/mnt");
 		if (mnt_ns_fd < 0)
-			goto out_destroy;
+			goto out_destroy_cleanup;
 	}
 
 	if (root_ns_mask & opts.empty_ns & CLONE_NEWNET) {
@@ -2915,12 +2915,12 @@ static int restore_root_task(struct pstree_item *init)
 		 */
 		ret = network_lock_internal();
 		if (ret)
-			goto out_destroy;
+			goto out_destroy_cleanup;
 	}
 
 	ret = run_scripts(ACT_POST_SETUP_NS);
 	if (ret)
-		goto out_destroy;
+		goto out_destroy_cleanup;
 
 	__restore_switch_stage(CR_STATE_FORKING);
 
@@ -2928,7 +2928,7 @@ skip_ns_bouncing:
 
 	ret = restore_wait_inprogress_tasks();
 	if (ret < 0)
-		goto out_destroy;
+		goto out_destroy_cleanup;
 
 	if (!opts.mntns_compat_mode && fini_restore_mntns_v2())
 		goto out_destroy;
@@ -3124,6 +3124,8 @@ skip_ns_bouncing:
 out_kill_network_unlocked:
 	pr_err("Killing processes because of failure on restore.\nThe Network was unlocked so some data or a connection may have been lost.\n");
 	goto out_kill;
+out_destroy_cleanup:
+	cleanup_internal_yards();
 out_destroy:
 	destroy_pid_ns_helpers();
 out_kill:

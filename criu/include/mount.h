@@ -238,6 +238,7 @@ extern int mount_root(void *args, int fd, pid_t pid);
 extern int restore_ext_mount(struct mount_info *mi);
 extern int cr_pivot_root(char *root);
 extern int print_ns_root(struct ns_id *ns, int remap_id, char *buf, int bs);
+extern int do_restore_task_mnt_ns(struct ns_id *nsid);
 
 extern struct mount_info *root_yard_mp;
 extern char *mnt_roots;
