@@ -870,7 +870,16 @@ static int do_mount_one_v2(struct mount_info *mi)
 
 void insert_internal_yards(void)
 {
+	struct mount_info *mi;
 	struct ns_id *nsid;
+
+	/**
+	 * Temporary remove nested pidns proc mounts from tree, they and their
+	 * descendants will be mounted later after forking all tasks, and they
+	 * have replacements in intenral yards.
+	 */
+	list_for_each_entry(mi, &nested_pidns_procs, mnt_proc)
+		list_del_init(&mi->siblings);
 
 	for (nsid = ns_ids; nsid != NULL; nsid = nsid->next) {
 		struct mount_info *yard = nsid->mnt.internal_yard;
@@ -885,7 +894,11 @@ void insert_internal_yards(void)
 
 void extract_internal_yards(void)
 {
+	struct mount_info *mi;
 	struct ns_id *nsid;
+
+	list_for_each_entry(mi, &nested_pidns_procs, mnt_proc)
+		list_add(&mi->siblings, &mi->parent->children);
 
 	for (nsid = ns_ids; nsid != NULL; nsid = nsid->next) {
 		struct mount_info *yard = nsid->mnt.internal_yard;
@@ -1714,7 +1727,7 @@ static int __resolve_mnt_path_fd(struct mount_info *mi, char *path, char **rel,
  * the mount. We can open any path on the parent mount which is covered by our
  * mount from it.
  */
-static int __maybe_unused resolve_mnt_path_fd(struct mount_info *mi, char *path)
+static int resolve_mnt_path_fd(struct mount_info *mi, char *path)
 {
 	char *rel_path;
 	int fd;
@@ -1740,7 +1753,7 @@ static int __maybe_unused resolve_mnt_path_fd(struct mount_info *mi, char *path)
 }
 
 /* Get an fd to the root dentry of the mount which was just mounted */
-static int __maybe_unused resolve_mnt_fd(struct mount_info *mi)
+static int resolve_mnt_fd(struct mount_info *mi)
 {
 	struct mount_info *ancestor = mi->parent, *skip = mi;
 	char *rel_path = NULL;
@@ -1793,6 +1806,170 @@ static int __maybe_unused resolve_mnt_fd(struct mount_info *mi)
 	return fd;
 }
 
+#define FSMOUNT_VALID_FLAGS                                                                                 \
+	(MOUNT_ATTR_RDONLY | MOUNT_ATTR_NOSUID | MOUNT_ATTR_NODEV | MOUNT_ATTR_NOEXEC | MOUNT_ATTR__ATIME | \
+	 MOUNT_ATTR_NODIRATIME | MOUNT_ATTR_NOSYMFOLLOW)
+
+static void prepare_mount_setattr_flags(unsigned mnt_flags, struct mount_attr *attr)
+{
+	attr->attr_set = 0;
+	if (mnt_flags & MS_RDONLY)
+		attr->attr_set |= MOUNT_ATTR_RDONLY;
+	if (mnt_flags & MS_NOSUID)
+		attr->attr_set |= MOUNT_ATTR_NOSUID;
+	if (mnt_flags & MS_NODEV)
+		attr->attr_set |= MOUNT_ATTR_NODEV;
+	if (mnt_flags & MS_NOEXEC)
+		attr->attr_set |= MOUNT_ATTR_NOEXEC;
+	if (mnt_flags & MS_RELATIME)
+		attr->attr_set |= MOUNT_ATTR_RELATIME;
+	if (mnt_flags & MS_NOATIME)
+		attr->attr_set |= MOUNT_ATTR_NOATIME;
+	if (mnt_flags & MS_STRICTATIME)
+		attr->attr_set |= MOUNT_ATTR_STRICTATIME;
+	if (mnt_flags & MS_NODIRATIME)
+		attr->attr_set |= MOUNT_ATTR_NODIRATIME;
+	if (mnt_flags & MS_NOSYMFOLLOW)
+		attr->attr_set |= MOUNT_ATTR_NOSYMFOLLOW;
+
+	attr->attr_clr = FSMOUNT_VALID_FLAGS;
+}
+
+static int do_mount_second_stage_v2(struct mount_info *mi)
+{
+	char source[PATH_MAX];
+	int mp_fd, mfd = -1;
+	struct mount_info *yard = mi->nsid->mnt.internal_yard;
+	struct mount_attr attr = {};
+
+	if (mi->rmi->mounted)
+		return 0;
+
+	mp_fd = resolve_mnt_path_fd(mi->parent, mi->ns_mountpoint);
+	if (mp_fd < 0)
+		return -1;
+
+	mi->rmi->mp_fd_id = fdstore_add(mp_fd);
+	if (mi->rmi->mp_fd_id < 0) {
+		pr_err("Can't fdstore_add mountpoint fd\n");
+		close(mp_fd);
+		return -1;
+	}
+
+	if (list_empty(&mi->mnt_proc)) {
+		snprintf(source, sizeof(source), "%s/hlp-%010d%s",
+			 yard->ns_mountpoint, mi->mnt_id, mi->root);
+	} else {
+		snprintf(source, sizeof(source), "%s/proc-%d%s",
+			 yard->ns_mountpoint, mi->nses.pidns_id, mi->root);
+	}
+
+	if (__do_bind_mount_v2(AT_FDCWD, source, 0, mp_fd, "", MOVE_MOUNT_T_EMPTY_PATH)) {
+		pr_perror("Failed to bindmount %d", mi->mnt_id);
+		close(mp_fd);
+		return -1;
+	}
+	close(mp_fd);
+
+	mfd = resolve_mnt_fd(mi);
+	if (mfd < 0)
+		return -1;
+
+	attr.propagation = MS_PRIVATE;
+	prepare_mount_setattr_flags(mi->flags & (~MS_PROPAGATE), &attr);
+	if (sys_mount_setattr(mfd, "", AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW | AT_NO_AUTOMOUNT, &attr, sizeof(attr))) {
+		pr_perror("Failed to set propagation and mount flags for %d", mi->mnt_id);
+		close(mfd);
+		return -1;
+	}
+
+	mi->rmi->mnt_fd_id = fdstore_add(mfd);
+	if (mi->rmi->mnt_fd_id < 0) {
+		pr_err("Can't fdstore_add mount fd\n");
+		close(mfd);
+		return -1;
+	}
+	close(mfd);
+
+	mi->rmi->mounted = true;
+	return 0;
+}
+
+struct mount_proc_args {
+	struct ns_id *pid_ns;
+	struct mount_info *mi;
+};
+
+static int __do_mount_proc(void *arg)
+{
+	struct mount_proc_args *mpa = (struct mount_proc_args *)arg;
+	char proc[PATH_MAX];
+
+	snprintf(proc, sizeof(proc), "%s/proc-%d",
+		 mpa->mi->nsid->mnt.internal_yard->ns_mountpoint,
+		 mpa->pid_ns->id);
+
+	if (mkdir(proc, 0777)) {
+		pr_perror("Failed to mkdir proc in internal yard");
+		return 1;
+	}
+
+	if (mount(mpa->mi->source, proc, "proc", 0, NULL)) {
+		pr_perror("Failed to mount proc in internal yard");
+		return 1;
+	}
+
+	return 0;
+}
+
+static int fixup_nested_pidns_proc(struct ns_id *nsid)
+{
+	struct mount_info *mi;
+	struct mount_proc_args mpa;
+	struct ns_id *pid_ns;
+
+	for (pid_ns = ns_ids; pid_ns != NULL; pid_ns = pid_ns->next) {
+		int fd;
+
+		if (pid_ns->nd != &pid_ns_desc)
+			continue;
+
+		list_for_each_entry(mi, &nested_pidns_procs, mnt_proc) {
+			if (mi->nsid == nsid &&
+			    mi->nses.pidns_id == pid_ns->id)
+				break;
+		}
+
+		if (&mi->mnt_proc == &nested_pidns_procs)
+			continue;
+
+		fd = fdstore_get(pid_ns->pid.nsfd_id);
+		if (fd < 0) {
+			pr_err("Can't fdstore_get pid_ns fd\n");
+			return -1;
+		}
+
+		if (setns(fd, CLONE_NEWPID) < 0) {
+			pr_perror("Can't set pidns %d", pid_ns->id);
+			close(fd);
+			return -1;
+		}
+		close(fd);
+
+		mpa.pid_ns = pid_ns;
+		mpa.mi = mi;
+		if (call_in_child_process(__do_mount_proc, &mpa))
+			return -1;
+	}
+
+	if (mnt_tree_for_each(nsid->mnt.mntinfo_tree, do_mount_second_stage_v2)) {
+		pr_err("Failed to mount mounts on second step\n");
+		return -1;
+	}
+
+	return 0;
+}
+
 static int __fini_restore_mntns_v2(void *arg)
 {
 	struct ns_id *nsid;
@@ -1842,6 +2019,9 @@ static int __fini_restore_mntns_v2(void *arg)
 		if (cleanup && !strcmp(nsid->mnt.internal_yard->ns_mountpoint,
 				       "/internal-yard-XXXXXX"))
 			continue;
+
+		if (!cleanup && fixup_nested_pidns_proc(nsid))
+			return 1;
 
 		pr_info("Unmounting internal yard\n");
 		if (umount2(nsid->mnt.internal_yard->ns_mountpoint, MNT_DETACH)) {
