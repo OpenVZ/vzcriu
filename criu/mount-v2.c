@@ -223,7 +223,7 @@ static int propagate_mount_v2(struct mount_info *mi)
 	struct mount_info *t;
 
 	list_for_each_entry(t, &mi->mnt_bind, mnt_bind) {
-		if (t->mounted)
+		if (t->rmi->mounted)
 			continue;
 		if (t->bind)
 			continue;
@@ -303,7 +303,7 @@ static int do_new_mount_v2(struct mount_info *mi)
 		return -1;
 	}
 
-	mi->mounted = true;
+	mi->rmi->mounted = true;
 	return 0;
 }
 
@@ -438,7 +438,7 @@ do_bind:
 		list_add(&mi->deleted_list, &deleted_mounts);
 	}
 out:
-	mi->mounted = true;
+	mi->rmi->mounted = true;
 	exit_code = 0;
 err:
 	if (level)
@@ -484,7 +484,7 @@ static int do_mount_root_v2(struct mount_info *mi)
 		return -1;
 	}
 
-	mi->mounted = true;
+	mi->rmi->mounted = true;
 
 	return 0;
 }
@@ -495,7 +495,7 @@ static bool can_mount_now_v2(struct mount_info *mi)
 	struct mount_info *root, *ext;
 
 	/* Parent should be mounted already, that's how mnt_tree_for_each works */
-	BUG_ON(mi->parent && !mi->parent->mounted);
+	BUG_ON(mi->parent && !mi->parent->rmi->mounted);
 
 	/* Root mounts can be mounted at any moment */
 	if (rst_mnt_is_root(mi)) {
@@ -617,7 +617,7 @@ static int detect_is_dir(struct mount_info *mi)
 		return -1;
 	}
 
-	if (!mi->parent->mounted) {
+	if (!mi->parent->rmi->mounted) {
 		pr_err("Parent mount %d of %d should be mounted\n", mi->parent->mnt_id, mi->mnt_id);
 		return -1;
 	}
@@ -716,7 +716,7 @@ static int do_mount_one_v2(struct mount_info *mi)
 {
 	int ret;
 
-	if (mi->mounted)
+	if (mi->rmi->mounted)
 		return 0;
 
 	if (!can_mount_now_v2(mi)) {
