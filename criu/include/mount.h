@@ -239,6 +239,7 @@ extern int mnt_tree_for_each(struct mount_info *start,
 			     int (*fn)(struct mount_info *));
 extern int cr_pivot_root(char *root);
 extern void set_is_overmounted(void);
+extern int do_restore_task_mnt_ns(struct ns_id *nsid);
 
 struct mount_info *root_yard_mp;
 char *mnt_roots;

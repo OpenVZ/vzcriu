@@ -3755,7 +3755,7 @@ int mntns_maybe_create_roots(void)
 	return create_mnt_roots();
 }
 
-static int do_restore_task_mnt_ns(struct ns_id *nsid)
+int do_restore_task_mnt_ns(struct ns_id *nsid)
 {
 	int fd;
 
