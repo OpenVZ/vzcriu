@@ -1514,7 +1514,8 @@ int call_in_child_process(int (*fn)(void *), void *arg)
 	pid_t pid;
 
 	in_child_process = true;
-	lock_last_pid();
+	if (!old_in_child_process)
+		lock_last_pid();
 	/*
 	 * Parent freezes till child exit, so child may use the same stack.
 	 * No SIGCHLD flag, so it's not need to block signal.
@@ -1540,7 +1541,8 @@ int call_in_child_process(int (*fn)(void *), void *arg)
 	ret = 0;
 err:
 	in_child_process = old_in_child_process;
-	unlock_last_pid();
+	if (!old_in_child_process)
+		unlock_last_pid();
 	return ret;
 }
 
