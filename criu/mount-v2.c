@@ -1647,6 +1647,81 @@ int handle_nested_pidns_proc(void)
 	return 0;
 }
 
+/**
+ * This function performs a lookup of path in specified mount and opens it.
+ *
+ * Each mounted mount has mnt_fd_id in fdstore, which is a root dentry of the
+ * mount. We can open any path on the mount from it if the path is not covered
+ * by children mounts.
+ *
+ * Each mounted mount has mp_fd_id in fdstore, which is a mountpoint dentry of
+ * the mount. We can open any path on the parent mount which is covered by our
+ * mount from it.
+ */
+static int __maybe_unused resolve_mnt_path_fd(struct mount_info *mi, char *path)
+{
+	struct mount_info *t;
+	int len, fd_id, fd;
+	char *rel_path;
+
+	/* Not yet mounted */
+	if (mi->rmi->mnt_fd_id == -1) {
+		pr_err("Mount %d is not yet mounted\n", mi->mnt_id);
+		return -1;
+	}
+
+	rel_path = get_relative_path(path, mi->ns_mountpoint);
+	if (!rel_path) {
+		pr_err("Failed to find %s in %s\n",
+		       path, mi->ns_mountpoint);
+		return -1;
+	}
+
+	len = strlen(rel_path);
+	fd_id = mi->rmi->mnt_fd_id;
+
+	list_for_each_entry(t, &mi->children, siblings) {
+		char *tmp_rel_path;
+		int tmp_len;
+
+		/* Not yet mounted */
+		if (t->rmi->mp_fd_id == -1)
+			continue;
+
+		tmp_rel_path = get_relative_path(path, t->ns_mountpoint);
+		if (!tmp_rel_path)
+			continue;
+		tmp_len = strlen(tmp_rel_path);
+
+		if (tmp_len < len) {
+			rel_path = tmp_rel_path;
+			len = tmp_len;
+			fd_id = t->rmi->mp_fd_id;
+		}
+	}
+
+	fd = fdstore_get(fd_id);
+	if (fd < 0) {
+		pr_err("Can't fdstore_get for %d\n", fd_id);
+		return -1;
+	}
+
+	if (rel_path[0]) {
+		int tmp;
+
+		tmp = openat(fd, rel_path, O_PATH);
+		if (tmp < 0) {
+			pr_err("Can't openat %d:%s\n", fd, rel_path);
+			close(fd);
+			return -1;
+		}
+		close(fd);
+		fd = tmp;
+	}
+
+	return fd;
+}
+
 static int __fini_restore_mntns_v2(void *arg)
 {
 	struct ns_id *nsid;
