@@ -1330,18 +1330,7 @@ int read_mnt_ns_img_v2(struct mount_info *info) {
 	return 0;
 }
 
-/**
- * This function performs a lookup of path in specified mount and opens it.
- *
- * Each mounted mount has mnt_fd_id in fdstore, which is a root dentry of the
- * mount. We can open any path on the mount from it if the path is not covered
- * by children mounts.
- *
- * Each mounted mount has mp_fd_id in fdstore, which is a mountpoint dentry of
- * the mount. We can open any path on the parent mount which is covered by our
- * mount from it.
- */
-static int resolve_mnt_path_fd(struct mount_info *mi, char *path)
+static int __resolve_mnt_path_fd(struct mount_info *mi, char *path, char **rel)
 {
 	struct mount_info *t;
 	int len, fd_id, fd;
@@ -1388,6 +1377,30 @@ static int resolve_mnt_path_fd(struct mount_info *mi, char *path)
 		pr_err("Can't fdstore_get for %d\n", fd_id);
 		return -1;
 	}
+
+	*rel = rel_path;
+	return fd;
+}
+
+/**
+ * This function performs a lookup of path in specified mount and opens it.
+ *
+ * Each mounted mount has mnt_fd_id in fdstore, which is a root dentry of the
+ * mount. We can open any path on the mount from it if the path is not covered
+ * by children mounts.
+ *
+ * Each mounted mount has mp_fd_id in fdstore, which is a mountpoint dentry of
+ * the mount. We can open any path on the parent mount which is covered by our
+ * mount from it.
+ */
+static int resolve_mnt_path_fd(struct mount_info *mi, char *path)
+{
+	char *rel_path;
+	int fd;
+
+	fd = __resolve_mnt_path_fd(mi, path, &rel_path);
+	if (fd < 0)
+		return -1;
 
 	if (rel_path[0]) {
 		int tmp;
