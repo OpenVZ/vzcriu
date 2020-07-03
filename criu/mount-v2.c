@@ -1330,7 +1330,8 @@ int read_mnt_ns_img_v2(struct mount_info *info) {
 	return 0;
 }
 
-static int __resolve_mnt_path_fd(struct mount_info *mi, char *path, char **rel)
+static int __resolve_mnt_path_fd(struct mount_info *mi, char *path, char **rel,
+				 struct mount_info *skip)
 {
 	struct mount_info *t;
 	int len, fd_id, fd;
@@ -1358,6 +1359,9 @@ static int __resolve_mnt_path_fd(struct mount_info *mi, char *path, char **rel)
 
 		/* Not yet mounted */
 		if (t->rmi->mp_fd_id == -1)
+			continue;
+
+		if (skip && t == skip)
 			continue;
 
 		tmp_rel_path = get_relative_path(path, t->ns_mountpoint);
@@ -1398,7 +1402,7 @@ static int resolve_mnt_path_fd(struct mount_info *mi, char *path)
 	char *rel_path;
 	int fd;
 
-	fd = __resolve_mnt_path_fd(mi, path, &rel_path);
+	fd = __resolve_mnt_path_fd(mi, path, &rel_path, NULL);
 	if (fd < 0)
 		return -1;
 
@@ -1414,6 +1418,60 @@ static int resolve_mnt_path_fd(struct mount_info *mi, char *path)
 		close(fd);
 		fd = tmp;
 	}
+
+	return fd;
+}
+
+/* Get an fd to the root dentry of the mount which was just mounted */
+static int resolve_mnt_fd(struct mount_info *mi)
+{
+	struct mount_info *ancestor = mi->parent, *skip = mi;
+	char *rel_path = NULL;
+	int fd, tmp;
+
+	/*
+	 * Don't support overmounted "/". It can be open through setns as it
+	 * will get mntns chrooted into overmount, but it can't be open from
+	 * where we are right now.
+	 */
+	BUG_ON(get_relative_path("/", mi->ns_mountpoint));
+
+	/* Find first ancestor with different mountpoint */
+	while (ancestor) {
+		rel_path = get_relative_path(mi->ns_mountpoint, ancestor->ns_mountpoint);
+		if (!rel_path) {
+			pr_err("Failed to find %s in %s\n",
+			       mi->ns_mountpoint, ancestor->ns_mountpoint);
+			return -1;
+		}
+
+		if (rel_path[0])
+			break;
+
+		skip = ancestor;
+		ancestor = ancestor->parent;
+	}
+
+	if (!rel_path || !rel_path[0]) {
+		pr_err("Failed to find ancestor with diffrent mp for %d\n",
+		       mi->mnt_id);
+		return -1;
+	}
+
+	fd = __resolve_mnt_path_fd(ancestor, mi->ns_mountpoint, &rel_path, skip);
+	if (fd < 0)
+		return -1;
+
+	BUG_ON(!rel_path[0]);
+
+	tmp = openat(fd, rel_path, O_PATH);
+	if (tmp < 0) {
+		pr_err("Can't openat %d:%s\n", fd, rel_path);
+		close(fd);
+		return -1;
+	}
+	close(fd);
+	fd = tmp;
 
 	return fd;
 }
