@@ -381,6 +381,7 @@ TST_DIR		=				\
 		mnt_ext_root			\
 		mnt_ext_master_manual		\
 		ns_file_bindmount		\
+		pidns_proc			\
 
 TST_DIR_FILE	=				\
 		chroot				\
