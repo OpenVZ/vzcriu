@@ -477,6 +477,7 @@ TST_DIR		=				\
 		pty05				\
 		unlink_dir			\
 		ns_file_bindmount		\
+		pidns_proc			\
 
 TST_DIR_FILE	=				\
 		chroot				\
