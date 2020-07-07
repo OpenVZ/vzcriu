@@ -525,8 +525,6 @@ static void __mnt_resort_children(struct mount_info *parent)
 	list_splice(&list, &parent->children);
 }
 
-static struct mount_info *mnt_subtree_next(struct mount_info *mi, struct mount_info *root);
-
 static void resort_siblings(struct mount_info *root, void (*resort_children)(struct mount_info *))
 {
 	struct mount_info *mi = root;
@@ -4461,7 +4459,7 @@ int remount_readonly_mounts(void)
 	return call_in_child_process(ns_remount_readonly_mounts, NULL);
 }
 
-static struct mount_info *mnt_subtree_next(struct mount_info *mi, struct mount_info *root)
+struct mount_info *mnt_subtree_next(struct mount_info *mi, struct mount_info *root)
 {
 	if (!list_empty(&mi->children))
 		return list_entry(mi->children.next, struct mount_info, siblings);
