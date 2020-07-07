@@ -468,13 +468,8 @@ static int create_plain_mountpoint(struct mount_info *mi) {
 		return -1;
 	}
 
-	if (S_ISREG(st.st_mode)) {
+	if (!S_ISDIR(st.st_mode))
 		mi->is_dir = false;
-	} else if (!S_ISDIR(st.st_mode)) {
-		pr_err("Unsupported st_mode 0%o for %s\n",
-		       (int)st.st_mode, mountpoint);
-		return -1;
-	}
 create:
 	pr_info("Create plain mountpoint %s for %d\n", mi->plain_mountpoint, mi->mnt_id);
 	if (mi->is_dir) {
