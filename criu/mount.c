@@ -509,9 +509,6 @@ static void __mnt_resort_children(struct mount_info *parent)
 	list_splice(&list, &parent->children);
 }
 
-static struct mount_info *mnt_subtree_next(struct mount_info *mi,
-					   struct mount_info *root);
-
 static void resort_siblings(struct mount_info *root,
 			    void (*resort_children)(struct mount_info *)) {
 	struct mount_info *mi = root;
@@ -4657,8 +4654,8 @@ static struct mount_info *mnt_subtree_step(struct mount_info *mi,
 	return NULL;
 }
 
-static struct mount_info *mnt_subtree_next(struct mount_info *mi,
-					   struct mount_info *root)
+struct mount_info *mnt_subtree_next(struct mount_info *mi,
+				    struct mount_info *root)
 {
 	return mnt_subtree_step(mi, root, NULL);
 }
