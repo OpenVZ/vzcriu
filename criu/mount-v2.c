@@ -535,6 +535,67 @@ create:
 	return 0;
 }
 
+static bool is_internal_yard(struct mount_info *mi)
+{
+	return mi == mi->nsid->mnt.internal_yard;
+}
+
+static int do_internal_yard_mount_v2(struct mount_info *mi)
+{
+	struct mount_info *c;
+	char proc[PATH_MAX], path[PATH_MAX], *rel_path;
+
+	pr_info("Creating internal yard for mntns %d\n", mi->nsid->id);
+
+	if (make_yard(mi->plain_mountpoint))
+		return -1;
+
+	snprintf(proc, sizeof(proc), "%s/proc", mi->plain_mountpoint);
+	if (mkdir(proc, 0777)) {
+		pr_perror("Failed to mkdir proc in internal yard for mntns %d",
+			  mi->nsid->id);
+		return -1;
+	}
+
+	/**
+	 * Add service proc mount from host pidns it will be moved to the
+	 * tree together with internal yard. It may have MNT_LOCKED mounts on
+	 * top so we need a recursive bind.
+	 */
+	if (mount("/proc", proc, NULL, MS_BIND | MS_REC, NULL)) {
+		pr_perror("Failed to mount proc in internal yard for mntns %d",
+			  mi->nsid->id);
+		return -1;
+	}
+
+	if (mount(NULL, proc, NULL, MS_PRIVATE | MS_REC, NULL)) {
+		pr_perror("Can't remount %s with MS_PRIVATE", proc);
+		return -1;
+	}
+
+	list_for_each_entry(c, &mi->children, siblings) {
+		rel_path = get_relative_path(c->ns_mountpoint, mi->ns_mountpoint);
+		if (!rel_path && !rel_path[0]) {
+			pr_err("Failed to find %s in %s\n",
+			       c->ns_mountpoint, mi->ns_mountpoint);
+			return -1;
+		}
+
+		snprintf(path, sizeof(path), "%s/%s", mi->plain_mountpoint,
+			 rel_path);
+
+		if (mkdir(path, 0777)) {
+			pr_perror("Failed to mkdir internal yard child %d for %d",
+				  c->mnt_id, mi->mnt_id);
+			return -1;
+
+		}
+	}
+
+	mi->rmi->mounted = true;
+	return 0;
+}
+
 static int do_mount_one_v2(struct mount_info *mi)
 {
 	int ret;
@@ -552,7 +613,9 @@ static int do_mount_one_v2(struct mount_info *mi)
 
 	pr_debug("\tMounting %s @%d (%d)\n", mi->fstype->name, mi->mnt_id, mi->need_plugin);
 
-	if (rst_mnt_is_root(mi)) {
+	if (is_internal_yard(mi)) {
+		ret = do_internal_yard_mount_v2(mi);
+	} else if (rst_mnt_is_root(mi)) {
 		if (opts.root == NULL) {
 			pr_err("The --root option is required to restore a mount namespace\n");
 			return -1;
@@ -689,6 +752,27 @@ static int populate_mnt_ns_v2(void)
 static int move_mount_to_tree(struct mount_info *mi)
 {
 	int fd;
+
+	/* Create temporary directory for the internal yard */
+	if (is_internal_yard(mi)) {
+		struct mount_info *c;
+		int len;
+
+		if (!mkdtemp(mi->mountpoint)) {
+			pr_perror("Failed to create temporary dir for internal yard %d\n",
+				  mi->nsid->id);
+			return -1;
+		}
+		len = strlen(mi->mountpoint);
+
+		/*
+		 * Copy temporary directory path to all helper mounts. It is
+		 * allocated on the shared memory so we will see this change
+		 * later in main task.
+		 */
+		list_for_each_entry(c, &mi->children, siblings)
+			strncpy(c->mountpoint, mi->mountpoint, len);
+	}
 
 	fd = open(mi->mountpoint, O_PATH);
 	if (fd < 0) {
