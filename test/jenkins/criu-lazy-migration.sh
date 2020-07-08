@@ -13,7 +13,7 @@ LAZY_MIGRATE_EXCLUDE="-x fifo_loop -x file_locks -x ptrace_sig -x overmount_file
 	       --lazy-migrate $LAZY_EXCLUDE $LAZY_MIGRATE_EXCLUDE || fail
 
 # During pre-dump + lazy-pages we leave VM_NOHUGEPAGE set
-LAZY_EXCLUDE="$LAZY_EXCLUDE -x maps02"
+LAZY_EXCLUDE="$LAZY_EXCLUDE -x maps02 -x thp_disable"
 
 # lazy restore from images with pre-dumps
 ./test/zdtm.py run --all --keep-going --report report --parallel 4 -f uns \
