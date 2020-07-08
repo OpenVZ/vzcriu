@@ -541,7 +541,7 @@ static bool can_mount_now_v2(struct mount_info *mi)
 static int __set_unbindable_v2(struct mount_info *mi)
 {
 	if (mi->flags & MS_UNBINDABLE) {
-		if (mount(NULL, service_mountpoint(mi), NULL, MS_UNBINDABLE, NULL)) {
+		if (mount(NULL, mi->plain_mountpoint, NULL, MS_UNBINDABLE, NULL)) {
 			pr_perror("Failed to set mount %d unbindable", mi->mnt_id);
 			return -1;
 		}
