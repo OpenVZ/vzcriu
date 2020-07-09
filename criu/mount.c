@@ -3387,6 +3387,7 @@ struct mount_info *mnt_entry_alloc(bool rst)
 		INIT_LIST_HEAD(&new->mnt_notprop);
 		INIT_LIST_HEAD(&new->mnt_unbindable);
 		INIT_LIST_HEAD(&new->postpone);
+		INIT_LIST_HEAD(&new->mnt_sharing);
 		INIT_LIST_HEAD(&new->deleted_list);
 	}
 	return new;
