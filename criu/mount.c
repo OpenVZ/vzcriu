@@ -3956,6 +3956,7 @@ static int populate_mnt_ns(void)
 		BUG_ON(!list_empty(&cr_time->children));
 		BUG_ON(!list_empty(&cr_time->mnt_slave));
 		BUG_ON(!list_empty(&cr_time->mnt_slave_list));
+		BUG_ON(!list_empty(&cr_time->mnt_ext_slave));
 		BUG_ON(!list_empty(&cr_time->mnt_share));
 		BUG_ON(!list_empty(&cr_time->mnt_bind));
 		BUG_ON(!list_empty(&cr_time->mnt_propagate));
