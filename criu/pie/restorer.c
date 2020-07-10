@@ -1850,6 +1850,15 @@ long __export_restore_task(struct task_restore_args *args)
 			if (vma_entry->madv & (1ul << m)) {
 				ret = sys_madvise(vma_entry->start, vma_entry_len(vma_entry), m);
 				if (ret) {
+					/*
+					 * Disabling THP (in case of pre-dump + lazy migration)
+					 * makes kernel allocate vmas with MADV_NOHUGEPAGE flag (rhel7).
+					 * If MADV_NOHUGEPAGE is already set, madvise will
+					 * return -EINVAL if you try to set it again (rhel7).
+					 */
+					if (args->uffd > -1 && m == MADV_NOHUGEPAGE && ret == -EINVAL)
+						continue;
+
 					pr_err("madvise(%" PRIx64 ", %" PRIu64 ", %ld) "
 					       "failed with %ld\n",
 					       vma_entry->start, vma_entry_len(vma_entry), m, ret);
