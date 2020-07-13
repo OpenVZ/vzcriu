@@ -818,6 +818,17 @@ static bool unsupported_mount(const struct mount_info *m)
 	return nfs_mount(m) ? unsupported_nfs_mount(m) : false;
 }
 
+int validate_mntns_root_overmount(struct mount_info *m)
+{
+	struct mount_info *parent = m->parent;
+
+	if (!parent || !m->is_ns_root || !parent->is_ns_root)
+		return 0;
+
+	pr_err("Overmounted mntns root is not supported\n");
+	return -1;
+}
+
 int validate_mounts(struct mount_info *info, bool for_dump)
 {
 	struct mount_info *m, *t;
@@ -828,6 +839,9 @@ int validate_mounts(struct mount_info *info, bool for_dump)
 			continue;
 
 		if (validate_children_collision(m))
+			return -1;
+
+		if (validate_mntns_root_overmount(m))
 			return -1;
 
 		if (mnt_is_external(m))
