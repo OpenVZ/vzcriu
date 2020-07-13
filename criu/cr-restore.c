@@ -2941,6 +2941,7 @@ skip_ns_bouncing:
 
 out_kill_network_unlocked:
 	pr_err("Killing processes because of failure on restore.\nThe Network was unlocked so some data or a connection may have been lost.\n");
+	goto out_kill;
 out_destroy:
 	destroy_pid_ns_helpers();
 out_kill:
