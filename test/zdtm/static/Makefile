@@ -372,6 +372,7 @@ TST_DIR		=				\
 		bind-mount-unix02			\
 		bind-mount-unix03			\
 		bind-mount-unix04			\
+		bind-mount-unix-multi		\
 		unsupported_children_collision  \
 		shared_slave_mount_children	\
 		non_uniform_share_propagation	\
