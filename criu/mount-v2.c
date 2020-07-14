@@ -801,6 +801,7 @@ static int populate_mnt_ns_v2(void)
 		BUG_ON(!list_empty(&cr_time->postpone));
 		BUG_ON(!list_empty(&cr_time->mnt_sharing));
 		BUG_ON(!list_empty(&cr_time->deleted_list));
+		BUG_ON(!list_empty(&cr_time->mnt_usk_bind));
 
 		cr_time->parent->next = cr_time->next;
 		list_del(&cr_time->siblings);
