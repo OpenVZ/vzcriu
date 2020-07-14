@@ -20,7 +20,7 @@ TEST_OPTION(dirname, string, "directory name", 1);
 
 int main(int argc, char **argv)
 {
-	char path_unix[PATH_MAX], path_bind[PATH_MAX];
+	char path_unix[PATH_MAX], path_bind[PATH_MAX], path[PATH_MAX];
 	char unix_name[] = "criu-log";
 	char bind_name[] = "criu-bind-log";
 	int sk = -1, skc = -1, ret = 1, fd;
@@ -30,6 +30,7 @@ int main(int argc, char **argv)
 	struct stat st;
 	int status;
 	pid_t pid;
+	char *cwd;
 
 	char buf[] = "123456";
 	char rbuf[sizeof(buf)];
@@ -43,8 +44,128 @@ int main(int argc, char **argv)
 		return 1;
 	}
 
-	ssprintf(path_bind, "%s/%s", dirname, bind_name);
-	ssprintf(path_unix, "%s/%s", dirname, unix_name);
+	ssprintf(path, "%s/%s", dirname, "aaa");
+	mkdir(path, 0700);
+	ssprintf(path, "%s/%s", dirname, "aaa/bbb");
+	mkdir(path, 0700);
+
+	cwd = get_current_dir_name();
+	if (!cwd) {
+		pr_perror("getcwd");
+		exit(1);
+	}
+	ssprintf(path_bind, "%s/%s/%s", cwd, dirname, bind_name);
+
+	/*
+	 * Mounts-v2 engine uses "plain" structure of mounts,
+	 * all mounts within mount namespace are mounted in
+	 * one yard directory without nesting. This approach
+	 * gives us big advantages: plain mounts allows us
+	 * support overmounting case. But with unix sockets
+	 * there is a problem.
+	 * Generally, working with unix socket on server side
+	 * looks like this:
+	 *
+	 * sizeof(struct sockaddr_un) = 110
+	 * but may be we have a long path, so, we want to chdir
+	 * somewhere and use relative path in addr.sun_path
+	 * to make path shorter.
+	 * chdir(namedir(.))
+	 *
+	 * addr.sun_family = AF_UNIX;
+	 * sstrncpy(addr.sun_path, name(%)); <- max 108 bytes
+	 *
+	 * addrlen = sizeof(addr.sun_family) + strlen(addr.sun_path);
+	 * sk = socket(AF_UNIX, SOCK_DGRAM, 0);
+	 * ret = bind(sk, (struct sockaddr *)&addr, addrlen);
+	 *
+	 * We binding socket to somewhere on vfs, path where we bind
+	 * socket corresponds to some mount. Let's assume that
+	 * full path in mount namespace to mountpoint of this mount is
+	 * ns_mountpoint(+).
+	 *
+	 * Let's set up some symbols:
+	 * namedir (.) - full path to CWD of process from where we bind sk
+	 * ns_mountpoint (+) - full path to mountpoint where we binding sk
+	 * name (%) - relative to namedir (.) path where we binding sk
+	 * So, namedir (.) + name (%) - full path to binding place of sk
+	 * in mount namespace.
+	 *
+	 * Now we are ready to draw pictures:
+	 * full_path = /zdtm/static/bind-mount-unix.test/aaa/bbb/sk
+	 *
+	 * 1st case:
+	 *                          %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+	 * full_path = /zdtm/static/bind-mount-unix.test/aaa/bbb/sk
+	 *             ............^
+	 *             +++++++++++++++++++++++++++++++++^
+	 * in this case we have ns_mountpoint (+) > namedir(.)
+	 * in mount-v2 with plain mounts structure we couldn't get "parent"
+	 * directories for mount! In this case we "reconstructing" fake
+	 * directory tree, chdir to some point, bind sk, then destroy tree.
+	 * We should check in test that this case works fine.
+	 *
+	 * 2nd case:
+	 *                                              %%%%%%%%%%%
+	 * full_path = /zdtm/static/bind-mount-unix.test/aaa/bbb/sk
+	 *             .................................^
+	 *             +++++++++++++++++++++++++++++++++^
+	 * this is corner case. We can (!) chdir to ns_mountpoint (+)
+	 * and bind sk.
+	 *
+	 * 3rd case:
+	 *                                                  %%%%%%%
+	 * full_path = /zdtm/static/bind-mount-unix.test/aaa/bbb/sk
+	 *             .....................................^
+	 *             +++++++++++++++++++++++++++++++++^
+	 * this is good and easy case - we just chdir to some path
+	 * under (!) ns_mountpoint and bind sk. No problem here.
+	 *
+	 * 4th case (full path case):
+	 *             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+	 * full_path = /zdtm/static/bind-mount-unix.test/aaa/bbb/sk
+	 *             +++++++++++++++++++++++++++++++++^
+	 */
+
+#ifdef ZDTM_BM_UNIX_SK_CASE1
+	/* CWD = /test/zdtm
+	 * path_unix = bind-mount-unix.test/aaa/bbb/sk
+	 */
+	ssprintf(path_unix, "%s/aaa/bbb/%s", dirname, unix_name);
+#endif
+
+#ifdef ZDTM_BM_UNIX_SK_CASE2
+	if (chdir(dirname)) {
+		pr_perror("Unable to chdir %s", dirname);
+		return 1;
+	}
+
+	/* CWD = /test/zdtm/bind-mount-unix02.test
+	 * path_unix = aaa/bbb/sk
+	 */
+	ssprintf(path_unix, "aaa/bbb/%s", unix_name);
+#endif
+
+#ifdef ZDTM_BM_UNIX_SK_CASE3
+	ssprintf(path, "%s/%s", dirname, "aaa");
+	if (chdir(path)) {
+		pr_perror("Unable to chdir %s", path);
+		return 1;
+	}
+
+	/* CWD = /test/zdtm/bind-mount-unix03.test/aaa
+	 * path_unix = bbb/sk
+	 */
+	ssprintf(path_unix, "bbb/%s", unix_name);
+#endif
+
+#ifdef ZDTM_BM_UNIX_SK_CASE4
+	/* CWD = *not important*
+	 * path_unix = /zdtm/static/bind-mount-unix.test/aaa/bbb/sk
+	 */
+	ssprintf(path_unix, "%s/%s/aaa/bbb/%s",
+		 cwd, dirname, unix_name);
+#endif
 
 	unlink(path_bind);
 	unlink(path_unix);
