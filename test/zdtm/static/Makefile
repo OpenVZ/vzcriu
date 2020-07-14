@@ -397,6 +397,9 @@ TST_DIR		=				\
 		sk-unix01			\
 		sk-unix-dgram-ghost			\
 		bind-mount-unix			\
+		bind-mount-unix02			\
+		bind-mount-unix03			\
+		bind-mount-unix04			\
 		unsupported_children_collision  \
 		shared_slave_mount_children	\
 		non_uniform_share_propagation	\
@@ -611,6 +614,11 @@ socket-tcp6-unconn:	CFLAGS += -D ZDTM_IPV6
 socket-tcp4v6-last-ack:	CFLAGS += -D ZDTM_TCP_LAST_ACK -D ZDTM_IPV4V6
 socket-tcp4v6-closing:	CFLAGS += -D ZDTM_IPV4V6
 shm-unaligned:		CFLAGS += -DZDTM_SHM_UNALIGNED
+
+bind-mount-unix:		CFLAGS += -DZDTM_BM_UNIX_SK_CASE1
+bind-mount-unix02:		CFLAGS += -DZDTM_BM_UNIX_SK_CASE2
+bind-mount-unix03:		CFLAGS += -DZDTM_BM_UNIX_SK_CASE3
+bind-mount-unix04:		CFLAGS += -DZDTM_BM_UNIX_SK_CASE4
 
 pty-console:		CFLAGS += -D ZDTM_DEV_CONSOLE
 userns02:		CFLAGS += -D USERNS02
