@@ -316,6 +316,7 @@ TST_DIR		=				\
 		overmount_sock			\
 		overlayfs			\
 		overlayfs_fanotify00		\
+		overlayfs_fanotify01		\
 		tempfs				\
 		tempfs_overmounted		\
 		tempfs_overmounted01		\

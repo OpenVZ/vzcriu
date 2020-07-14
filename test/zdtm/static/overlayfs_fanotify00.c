@@ -17,9 +17,6 @@ const char *test_author = "Valeriy Vdovin <valeriy.vdovin@virtuozzo.com>";
 char *dirname = "overlayfs_mount";
 TEST_OPTION(dirname, string, "directory name", 1);
 
-#define TEST_WORD	"testtest"
-#define TEST_WORD2	"TESTTEST"
-
 struct test_context {
 	int fa_fd;
 	int opened_fd;
