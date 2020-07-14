@@ -77,6 +77,8 @@ struct unix_sk_desc {
 
 	bool bindmount;
 	unsigned int mnt_id;
+	size_t mnt_usk_bind_list_size;
+	struct list_head mnt_usk_bind_list; /* bindmounts of unix sk list */
 
 	mode_t mode;
 	uid_t uid;
@@ -388,8 +390,18 @@ static int dump_one_unix_fd(int lfd, uint32_t id, const struct fd_parms *p)
 	if (unix_resolve_name(lfd, id, sk, ue, p))
 		goto err;
 
-	if (sk->bindmount)
+	if (sk->bindmount) {
+		struct mount_info *mi;
+		int i = 0;
+
 		ue->uflags |= UNIX_UFLAGS__BINDMOUNT;
+
+		ue->n_vz_bind_mnt_ids = sk->mnt_usk_bind_list_size;
+		ue->vz_bind_mnt_ids = xzalloc(ue->n_vz_bind_mnt_ids * sizeof(uint32_t));
+
+		list_for_each_entry(mi, &sk->mnt_usk_bind_list, mnt_usk_bind)
+			ue->vz_bind_mnt_ids[i++] = mi->mnt_id;
+	}
 
 	/*
 	 * Check if this socket is connected to criu service.
@@ -797,6 +809,8 @@ static int unix_collect_one(const struct unix_diag_msg *m, struct nlattr **tb, s
 	d->fd = -1;
 	d->mnt_id = -1;
 
+	INIT_LIST_HEAD(&d->mnt_usk_bind_list);
+
 	if (tb[UNIX_DIAG_SHUTDOWN])
 		d->shutdown = nla_get_u8(tb[UNIX_DIAG_SHUTDOWN]);
 	else
@@ -1029,14 +1043,11 @@ int collect_unix_bindmounts(void)
 			    __phys_stat_dev_match(st.st_dev, sk->vfs_dev, NULL, NULL, mi)) {
 				pr_debug("Found sock s_dev %#x ino %d bindmounted mnt_id %d %s\n",
 					 (int)st.st_dev, (int)st.st_ino, mi->mnt_id, mi->ns_mountpoint);
-				if (sk->bindmount) {
-					pr_err("Many bindings for sockets are not yet supported %d at %s\n",
-					       (int)st.st_ino, mi->ns_mountpoint);
-					return -1;
-				} else {
-					sk->mnt_id = mi->mnt_id;
-					sk->bindmount = true;
-				}
+
+				sk->bindmount = true;
+				sk->mnt_usk_bind_list_size++;
+				list_add_tail(&mi->mnt_usk_bind, &sk->mnt_usk_bind_list);
+
 				if (sk->type != SOCK_DGRAM && (sk->state != TCP_CLOSE && sk->state != TCP_ESTABLISHED) {
 					pr_err("Unsupported bindmounted socket ino %d at %s\n",
 					       (int)st.st_ino, mi->ns_mountpoint);
@@ -2383,6 +2394,21 @@ static int print_sk_root(struct unix_sk_info *ui, char *buf, int bs)
 	return snprintf(buf, bs, "%s/sk-unix-%010d", mnt_roots, ui->ue->id);
 }
 
+static int sk_has_bindmount(struct unix_sk_info *ui, struct mount_info *mi)
+{
+	int i;
+	for (i = 0; i < ui->ue->n_vz_bind_mnt_ids; i++) {
+		if (ui->ue->vz_bind_mnt_ids[i] == mi->mnt_id)
+			return 1;
+	}
+
+	/* compatibility with old images */
+	if (ui->ue->mnt_id == mi->mnt_id)
+		return 1;
+
+	return 0;
+}
+
 int unix_prepare_bindmount(struct mount_info *mi)
 {
 	int prev_cwd_fd = -1, prev_root_fd = -1;
@@ -2392,7 +2418,7 @@ int unix_prepare_bindmount(struct mount_info *mi)
 	struct mount_info *sk_mi = NULL;
 
 	list_for_each_entry(ui, &unix_mnt_sockets, mnt_list) {
-		if (ui->ue->mnt_id == mi->mnt_id) {
+		if (sk_has_bindmount(ui, mi)) {
 			char type_name[64], state_name[64];
 			pr_info("bindmount: id %#x ino %d type %s state %s (queuer id %#x ino %d) peer %d (name %.*s dir %s)\n",
 				ui->ue->id, ui->ue->ino,
@@ -2408,6 +2434,12 @@ int unix_prepare_bindmount(struct mount_info *mi)
 
 	if (&ui->mnt_list == &unix_mnt_sockets)
 		return 0;
+
+	if (ui->fdstore_mnt_id[0] > 0 || ui->fdstore_mnt_id[1] > 0) {
+		pr_debug("bindmount: sk id %#x already in fdstore. skipping\n",
+			 ui->ue->id);
+		return 0;
+	}
 
 	/*
 	 * Mark it as bindmount so when need to use we

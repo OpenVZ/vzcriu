@@ -117,6 +117,8 @@ struct mount_info {
 
 	struct list_head postpone;
 
+	struct list_head mnt_usk_bind;	/* bindmounts of unix sk list entry */
+
 	int is_overmounted;
 
 	unsigned int ns_bind_id;

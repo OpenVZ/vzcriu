@@ -3269,6 +3269,7 @@ struct mount_info *mnt_entry_alloc(bool rst)
 		INIT_LIST_HEAD(&new->postpone);
 		INIT_LIST_HEAD(&new->deleted_list);
 		INIT_LIST_HEAD(&new->mnt_proc);
+		INIT_LIST_HEAD(&new->mnt_usk_bind);
 	}
 	return new;
 }
