@@ -7,6 +7,7 @@
 #include <netinet/tcp.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <sys/mount.h>
 #include <sys/un.h>
 #include <stdlib.h>
 #include <dlfcn.h>
@@ -2341,12 +2342,22 @@ struct collect_image_info unix_sk_cinfo = {
 	.flags = COLLECT_SHARED,
 };
 
+/*
+ * Helper directory where we would construct fake directory structure,
+ * to make "plain" mount look like a "mount in tree". (Mounts-v2 only)
+ */
+static int print_sk_root(struct unix_sk_info *ui, char *buf, int bs)
+{
+	return snprintf(buf, bs, "%s/sk-unix-%010d", mnt_roots, ui->ue->id);
+}
+
 int unix_prepare_bindmount(struct mount_info *mi)
 {
 	int prev_cwd_fd = -1, prev_root_fd = -1;
 	int ret = -1, sks[2] = { -1, -1 };
 	struct unix_sk_info *ui;
-	char path[PATH_MAX];
+	char path[PATH_MAX], plain_mount_tmp[PATH_MAX];
+	struct mount_info *sk_mi = NULL;
 
 	list_for_each_entry(ui, &unix_mnt_sockets, mnt_list) {
 		if (ui->ue->mnt_id == mi->mnt_id) {
@@ -2373,9 +2384,63 @@ int unix_prepare_bindmount(struct mount_info *mi)
 	 */
 	ui->flags |= USK_BINDMOUNT | USK_NOCWD;
 
-	if (rst_get_mnt_root(mi->mnt_id, path, sizeof(path)) < 0) {
-		pr_err("bindmount: Can't setup mnt_root for %s\n", mi->ns_mountpoint);
-		return -1;
+	/*
+	 * This is unix_prepare_bindmount() part for mounts-v2 engine.
+	 * If you want to get some extra details, please also check and read
+	 * test/zdtm/static/bind-mount-unix.c testcases.
+	 *
+	 * General idea is to reconstruct fake mount namespace root
+	 * and move plain mounted mount to this fake tree, then
+	 * chroot(fake_mntns_root(=path)) -> chdir(ui->name_dir)
+	 * -> bind socket
+	 */
+	if (!opts.mntns_compat_mode) {
+		/*
+		 * We need to know on which mount socket was
+		 * bounded. We could determine that by taking
+		 * mi->bind - is source mount for our bindmount.
+		 *
+		 * It's also good to check that mi->bind is already
+		 * mounted.
+		 */
+		BUG_ON(!mi->bind);
+		sk_mi = mi->bind;
+
+		if (!sk_mi->mounted) {
+			pr_err("bindmount: The mount %d is not mounted for unix sk id %#x\n",
+			       sk_mi->mnt_id, ui->ue->id);
+			return -1;
+		}
+
+		print_sk_root(ui, path, sizeof(path));
+		if (mkdir(path, 0600)) {
+			pr_perror("bindmount: Unable to create fake nsroot %s", path);
+			return -1;
+		}
+
+		if (snprintf(plain_mount_tmp, sizeof(plain_mount_tmp), "%s/%s",
+			     path, sk_mi->ns_mountpoint) >= sizeof(plain_mount_tmp)) {
+			pr_perror("bindmount: Unable to create fake nsroot %s", path);
+			return -1;
+		}
+
+		if (mkdirpat(AT_FDCWD, plain_mount_tmp, 0755)) {
+			pr_perror("bindmount: Unable to create %s", plain_mount_tmp);
+			return -1;
+		}
+
+		pr_debug("Move mount %d from %s to %s\n",
+			 sk_mi->mnt_id, sk_mi->plain_mountpoint, plain_mount_tmp);
+		if (mount(sk_mi->plain_mountpoint, plain_mount_tmp, NULL, MS_MOVE, NULL)) {
+			pr_perror("bindmount: Failed to move mount %d from %s to %s",
+				  sk_mi->mnt_id, sk_mi->plain_mountpoint, plain_mount_tmp);
+			return -1;
+		}
+	} else {
+		if (rst_get_mnt_root(mi->mnt_id, path, sizeof(path)) < 0) {
+			pr_err("bindmount: Can't setup mnt_root for %s\n", mi->ns_mountpoint);
+			return -1;
+		}
 	}
 
 	prev_cwd_fd = open(".", O_RDONLY);
@@ -2438,6 +2503,16 @@ int unix_prepare_bindmount(struct mount_info *mi)
 	} else if (fchdir(prev_cwd_fd)) {
 		pr_perror("bindmount: Can't revert working dir");
 		goto out;
+	}
+
+	if (!opts.mntns_compat_mode) {
+		pr_debug("bindmount: Move mount %d back from %s to %s\n",
+			 sk_mi->mnt_id, plain_mount_tmp, sk_mi->plain_mountpoint);
+		if (mount(plain_mount_tmp, sk_mi->plain_mountpoint, NULL, MS_MOVE, NULL)) {
+			pr_perror("bindmount: Failed to move mount %d back from %s to %s",
+				  sk_mi->mnt_id, plain_mount_tmp, sk_mi->plain_mountpoint);
+			goto out;
+		}
 	}
 
 	ret = 0;
