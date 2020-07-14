@@ -857,7 +857,7 @@ static int open_remap_spfs_linked(struct reg_file_info *rfi,
 		RemapFilePathEntry *rfe)
 {
 	int err;
-	struct mount_info *mi, *rmi;
+	struct mount_info *mi;
 	struct file_desc *rdesc;
 	struct reg_file_info *rrfi;
 	char *rel_path, *rrel_path;
@@ -883,23 +883,17 @@ static int open_remap_spfs_linked(struct reg_file_info *rfi,
 		return -1;
 	}
 
-	rmi = lookup_mnt_id(rrfi->rfe->mnt_id);
-	if (!rmi) {
-		pr_err("The %d mount is not found for ghost\n", rrfi->rfe->mnt_id);
-		return -1;
-	}
-
-	rrel_path = get_relative_path(rrfi->path, rmi->ns_mountpoint);
+	rrel_path = get_relative_path(rrfi->path, mi->ns_mountpoint);
 	if (!rel_path) {
 		pr_err("Can't get path %s relative to %s\n",
-		       rrfi->path, rmi->ns_mountpoint);
+		       rrfi->path, mi->ns_mountpoint);
 		return -1;
 	}
 
 	snprintf(path, sizeof(path), "%s%s%s",
 		 service_mountpoint(mi), rel_path[0] ? "/" : "", rel_path);
 	snprintf(link_remap, sizeof(link_remap), "%s%s%s",
-		 service_mountpoint(rmi), rrel_path[0] ? "/" : "", rrel_path);
+		 service_mountpoint(mi), rrel_path[0] ? "/" : "", rrel_path);
 	pr_info("Creating spfs link %s for %s\n", link_remap, path);
 
 	err = link(path, link_remap);
