@@ -18,6 +18,7 @@
 #include "path.h"
 #include "files-reg.h"
 #include "fdstore.h"
+#include "sockets.h"
 #include "common/list.h"
 #include "common/bug.h"
 #include "common/compiler.h"
@@ -293,6 +294,12 @@ static int do_bind_mount_v2(struct mount_info *mi)
 		pr_info("\tBind %s ns %u fd %d to %s\n",
 			ns_d->str, nsid->id, fd, mi->plain_mountpoint);
 		goto do_bind_fd;
+	}
+
+	if (unix_prepare_bindmount(mi)) {
+		pr_err("Failed to prepare bindmount on unix at %s\n",
+		       service_mountpoint(mi));
+		return -1;
 	}
 
 	cut_root = get_relative_path(mi->root, mi->bind->root);
