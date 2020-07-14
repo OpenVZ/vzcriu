@@ -3385,6 +3385,7 @@ struct mount_info *mnt_entry_alloc(bool rst)
 		INIT_LIST_HEAD(&new->mnt_sharing);
 		INIT_LIST_HEAD(&new->deleted_list);
 		INIT_LIST_HEAD(&new->mnt_proc);
+		INIT_LIST_HEAD(&new->mnt_usk_bind);
 	}
 	return new;
 }
@@ -3963,6 +3964,7 @@ static int populate_mnt_ns(void)
 		BUG_ON(!list_empty(&cr_time->postpone));
 		BUG_ON(!list_empty(&cr_time->mnt_sharing));
 		BUG_ON(!list_empty(&cr_time->deleted_list));
+		BUG_ON(!list_empty(&cr_time->mnt_usk_bind));
 
 		cr_time->parent->next = cr_time->next;
 		list_del(&cr_time->siblings);
