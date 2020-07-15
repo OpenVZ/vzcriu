@@ -362,7 +362,6 @@ static struct ns_id *rst_new_ns_id(unsigned int id, pid_t pid,
 			nsid->mnt.enable_internal_yard = false;
 		}
 
-
 		INIT_LIST_HEAD(&nsid->children);
 		INIT_LIST_HEAD(&nsid->siblings);
 	}
