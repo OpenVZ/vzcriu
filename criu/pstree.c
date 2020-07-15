@@ -823,9 +823,16 @@ static TaskKobjIdsEntry *dup_zombie_ids(TaskKobjIdsEntry *ids)
 		copy->has_##name##_ns_id = true;	\
 		copy->name##_ns_id = ids->name##_ns_id;	\
 	}
-	/* Zombies only have pid and user ns ids */
+	/*
+	 * Zombies only have pid and user ns ids
+	 * but on restore stage we also need to set
+	 * mount ns, cgroup ns before task will
+	 * become zombie
+	 */
+	COPY_NS_ID(copy, mnt);
 	COPY_NS_ID(copy, user);
 	COPY_NS_ID(copy, pid);
+	COPY_NS_ID(copy, cgroup);
 #undef COPY_NS_ID
 
 	return copy;
