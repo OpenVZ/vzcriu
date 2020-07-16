@@ -100,7 +100,7 @@ int main (int argc, char *argv[])
 
 	fanotify_obj_show(&new);
 
-	if (fanotify_obj_cmp(&old, &new)) {
+	if (fanotify_obj_cmp(&old, &new, true)) {
 		fail("fanotify mismatch on fdinfo level\n");
 		exit(1);
 	}

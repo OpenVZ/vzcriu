@@ -69,7 +69,7 @@ void fanotify_obj_show(struct fanotify_obj *obj)
 		 obj->mount.mask, obj->mount.ignored_mask);
 }
 
-int fanotify_obj_cmp(struct fanotify_obj *old, struct fanotify_obj *new)
+int fanotify_obj_cmp(struct fanotify_obj *old, struct fanotify_obj *new, bool inode_should_match)
 {
 	/*
 	 * mnt_id and s_dev may change during container migration,
@@ -78,15 +78,22 @@ int fanotify_obj_cmp(struct fanotify_obj *old, struct fanotify_obj *new)
 	 */
 	if ((old->glob.faflags != new->glob.faflags)			||
 	    (old->glob.evflags != new->glob.evflags)			||
-	    (old->inode.i_ino != new->inode.i_ino)			||
 	    (old->inode.mflags != new->inode.mflags)			||
 	    (old->inode.mask != new->inode.mask)			||
 	    (old->inode.ignored_mask != new->inode.ignored_mask))
 		return -1;
 
-	if (memcmp(old->inode.fhandle, new->inode.fhandle,
-		   sizeof(new->inode.fhandle)))
-		return -2;
+	/*
+	 * inode number and fhandle might not match in case of composite
+	 * filesystems like overlayfs
+	 */
+	if (inode_should_match) {
+		if (old->inode.i_ino != new->inode.i_ino)
+			return -1;
+		if (memcmp(old->inode.fhandle, new->inode.fhandle,
+		    sizeof(new->inode.fhandle)))
+			return -2;
+	}
 
 	if ((old->mount.mflags != new->mount.mflags)			||
 	    (old->mount.mask != new->mount.mask)			||
