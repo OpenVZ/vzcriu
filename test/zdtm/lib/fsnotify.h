@@ -1,4 +1,5 @@
 #pragma once
+#include <stdbool.h>
 
 struct fanotify_mark_inode {
 	unsigned long i_ino;
@@ -35,6 +36,6 @@ int fanotify_mark(int fanotify_fd, unsigned int flags, unsigned long mask, int d
 
 void fanotify_obj_show(struct fanotify_obj *obj);
 
-int fanotify_obj_cmp(struct fanotify_obj *old, struct fanotify_obj *new);
+int fanotify_obj_cmp(struct fanotify_obj *old, struct fanotify_obj *new, bool inode_should_match);
 
 int fanotify_obj_parse(int fd, struct fanotify_obj *obj, unsigned int expected_to_meet);
