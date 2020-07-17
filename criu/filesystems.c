@@ -3,6 +3,7 @@
 #include <string.h>
 #include <fcntl.h>
 #include <sys/mount.h>
+#include <sched.h>
 
 #include "common/config.h"
 #include "int.h"
@@ -20,6 +21,8 @@
 #include "fs-magic.h"
 #include "tty.h"
 #include "spfs.h"
+#include "net.h"
+#include "fdstore.h"
 
 #include "images/mnt.pb-c.h"
 #include "images/binfmt-misc.pb-c.h"
@@ -733,6 +736,128 @@ static int ns_proc_parse(struct mount_info *pm, bool for_dump)
 	return 0;
 }
 
+#define KERNIO 0xb8
+#define KERNFS_GET_NS _IO(KERNIO, 0x1)
+
+static int sysfs_after_parse(struct mount_info *pm, bool for_dump)
+{
+	struct ns_desc *ns_d;
+	unsigned int ns_kid;
+	char link[PATH_MAX];
+	struct ns_id *nsid;
+	int mntfd, nsfd;
+
+	if (!for_dump)
+		return 0;
+
+	if (!(root_ns_mask & CLONE_NEWNS))
+		return 0;
+
+	mntfd = open_mountpoint(pm);
+	if (mntfd < 0)
+		return -1;
+
+	nsfd = ioctl(mntfd, KERNFS_GET_NS, NULL);
+	if (nsfd < 0) {
+		pr_warn("Failed to get netns tag of sysfs mount %d. Old kernel? %m\n",
+			pm->mnt_id);
+		close(mntfd);
+		return 0;
+	}
+	close(mntfd);
+
+	if (read_fd_link(nsfd, link, sizeof(link)) < 0) {
+		close(nsfd);
+		return -1;
+	}
+	close(nsfd);
+
+	ns_d = get_ns_kid(link, strlen(link), &ns_kid);
+	if (!ns_d || ns_d != &net_ns_desc) {
+		pr_err("Failed to get ns kid from %s for mount %d\n",
+		       link, pm->mnt_id);
+		return -1;
+	}
+
+	nsid = lookup_ns_by_kid(ns_kid, ns_d);
+	if (!nsid) {
+		pr_err("Found sysfs mount %d with bad net namespace %u\n",
+		       pm->mnt_id, ns_kid);
+		return -1;
+	}
+
+	if (nsid->type == NS_CRIU) {
+		pr_err("Sysfs mount %d has external (not supported) net namespace %u\n",
+				pm->mnt_id, ns_kid);
+		return -1;
+	}
+
+	pm->nses.netns_id = nsid->id;
+	return 0;
+}
+
+struct sysfs_mount_args {
+	struct mount_info *mi;
+	const char *src;
+	const char *fstype;
+	unsigned long mountflags;
+};
+
+static int __sysfs_mount(void *arg)
+{
+	struct sysfs_mount_args *sma = (struct sysfs_mount_args *)arg;
+	struct ns_id *net_ns;
+	int fd;
+
+
+	net_ns = lookup_ns_by_id(sma->mi->nses.netns_id, &net_ns_desc);
+	if (!net_ns) {
+		pr_err("Failed to lookup netns %u for sysfs %d\n",
+		       sma->mi->nses.netns_id, sma->mi->mnt_id);
+		return 1;
+	}
+
+	fd = fdstore_get(net_ns->nsfd_id);
+	if (fd < 0)
+		return 1;
+
+	if (setns(fd, CLONE_NEWNET)) {
+		pr_perror("Can't setns net");
+		close(fd);
+		return 1;
+	}
+	close(fd);
+
+	if (mount(sma->src, service_mountpoint(sma->mi), sma->fstype,
+		  sma->mountflags, sma->mi->options))
+		return 1;
+
+	return 0;
+}
+
+static int sysfs_mount(struct mount_info *mi, const char *src,
+		       const char *fstype, unsigned long mountflags)
+{
+	struct sysfs_mount_args sma = {
+		mi = mi,
+		src = src,
+		fstype = fstype,
+		mountflags = mountflags,
+	};
+
+	if (!(root_ns_mask & CLONE_NEWNET)) {
+		pr_err("Can't mount sysfs with no netns\n");
+		return -1;
+	}
+
+	if (!mi->nses.netns_id) {
+		pr_warn("Sysfs %d lacks owner netns info, assume root netns\n", mi->mnt_id);
+		mi->nses.netns_id = root_item->ids->net_ns_id;
+	}
+
+	return call_in_child_process(__sysfs_mount, &sma);
+}
+
 static int dump_empty_fs(struct mount_info *pm)
 {
 	int fd, ret = -1;
@@ -1072,6 +1197,8 @@ static struct fstype fstypes[] = {
 	}, {
 		.name = "sysfs",
 		.code = FSTYPE__SYSFS,
+		.after_parse = sysfs_after_parse,
+		.mount = sysfs_mount,
 	}, {
 		.name = "devtmpfs",
 		.code = FSTYPE__DEVTMPFS,
