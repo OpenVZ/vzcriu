@@ -2092,6 +2092,12 @@ static int dump_one_mountpoint(struct mount_info *pm, struct cr_img *img)
 		me.nses = &mne;
 	}
 
+	if (pm->nses.netns_id) {
+		mne.has_netns_id = true;
+		mne.netns_id = pm->nses.netns_id;
+		me.nses = &mne;
+	}
+
 	if (pb_write_one(img, &me, PB_MNT))
 		return -1;
 
@@ -3666,8 +3672,12 @@ static int collect_mnt_from_image(struct mount_info **head, struct mount_info **
 			pm->ns_bind_desc = me->ns_bind_desc;
 		}
 
-		if (me->nses && me->nses->has_pidns_id)
-			pm->nses.pidns_id = me->nses->pidns_id;
+		if (me->nses) {
+			if (me->nses->has_pidns_id)
+				pm->nses.pidns_id = me->nses->pidns_id;
+			if (me->nses->has_netns_id)
+				pm->nses.netns_id = me->nses->netns_id;
+		}
 
 		pr_debug("\tRead %d mp @ %s\n", pm->mnt_id, pm->ns_mountpoint);
 	}

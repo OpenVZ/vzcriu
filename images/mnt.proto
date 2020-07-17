@@ -38,6 +38,7 @@ enum fstype {
 /* Namespaces from which mount should be mounted */
 message mnt_nses_entry {
 	optional uint32		pidns_id		= 1;
+	optional uint32		netns_id		= 2;
 }
 
 message mnt_entry {
