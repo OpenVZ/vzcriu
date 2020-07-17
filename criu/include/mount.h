@@ -49,6 +49,7 @@ struct rst_mount_info {
 
 struct mount_namespaces {
 	unsigned int pidns_id;
+	unsigned int netns_id;
 };
 
 struct mount_info {
