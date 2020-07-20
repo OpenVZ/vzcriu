@@ -49,5 +49,21 @@ typedef struct {
 extern mnt_info_t *mnt_info_alloc(void);
 extern void mnt_info_free(mnt_info_t **m);
 extern mnt_info_t *get_cwd_mnt_info(void);
+int mkdirp(const char *pathname, mode_t mode);
+
+/*
+ * Setup filesystem layout ready for overlayfs testing.
+ * all directories
+ * parentdir - location, where all needed dirs will be created.
+ * lower     - a list of lowerdir names, terminated by NULL. All these
+ *             dirs will be created.
+ * upper     - upperdir with this name will be created.
+ * work      - name for workdir that will be created for internal
+ *             needs of overlayfs
+ * mountdir  - name of resulting mountpoint directory and mount name
+ *             of overlayfs mount.
+ */
+int overlayfs_setup(const char *parentdir, const char **lower,
+		    const char *upper, const char *work, const char *mountdir);
 
 #endif /* ZDTM_FS_H_ */
