@@ -4,6 +4,7 @@
 #include <sys/stat.h>
 #include <sys/mount.h>
 #include <linux/limits.h>
+#include "fs.h"
 
 #include "zdtmtst.h"
 
@@ -97,33 +98,25 @@ static int check_test_file(const char *prefixdir)
 /* overlayfs mount without upperdir */
 static int create_overlayfs_mount_ro(const char *prefixdir)
 {
-	char    lowerdir1[PATH_MAX],
-		lowerdir2[PATH_MAX],
-		mountdir[PATH_MAX],
-		dir[PATH_MAX],
-		opts[255];
+	const char *lower_list[] = { "lower0", "lower1", NULL };
+	char dir[PATH_MAX],
+	     lowerdir1[PATH_MAX],
+	     lowerdir2[PATH_MAX];
 
 	snprintf(dir, PATH_MAX, "%s/%s", dirname, prefixdir);
+	snprintf(lowerdir1, PATH_MAX, "%s/%s", dir, lower_list[0]);
+	snprintf(lowerdir2, PATH_MAX, "%s/%s", dir, lower_list[1]);
+
 	mkdir(dir, 0700);
 
-	snprintf(lowerdir1, PATH_MAX, "%s/lower1", dir);
-	mkdir(lowerdir1, 0700);
-
-	snprintf(lowerdir2, PATH_MAX, "%s/lower2", dir);
-	mkdir(lowerdir2, 0700);
-
-	snprintf(mountdir, PATH_MAX, "%s/overlayfs", dir);
-	mkdir(mountdir, 0700);
-
-	snprintf(opts, 255, "lowerdir=%s:%s", lowerdir1, lowerdir2);
-	if (mount("none", mountdir, "overlay", 0, opts) < 0) {
-		fail("Can't mount ro overlay");
+	if (overlayfs_setup(dir, lower_list, NULL, NULL, "overlayfs")) {
+		fail("failed to setup overlayfs for %s test", prefixdir);
 		return 1;
 	}
 
 	/*
 	 * Creating files on two lower layers with the same name,
-	 * in result mount we should see the file from lowerest
+	 * in result mount we should see the file from the lowest
 	 * layer.
 	 */
 	if (create_test_file(lowerdir1, TEST_WORD, sizeof(TEST_WORD)))
@@ -137,36 +130,19 @@ static int create_overlayfs_mount_ro(const char *prefixdir)
 /* overlayfs mount with upperdir (as docker uses) */
 static int create_overlayfs_mount_rw(const char *prefixdir)
 {
-	char    lowerdir1[PATH_MAX],
-		lowerdir2[PATH_MAX],
-		upperdir[PATH_MAX],
-		workdir[PATH_MAX],
-		mountdir[PATH_MAX],
-		dir[PATH_MAX],
-		opts[255];
+	const char *lower_list[] = { "lower0", "lower1", NULL };
+	const char *upper = "upper";
+	char dir[PATH_MAX],
+	     upperdir[PATH_MAX],
+	     lowerdir2[PATH_MAX];
 
 	snprintf(dir, PATH_MAX, "%s/%s", dirname, prefixdir);
+	snprintf(upperdir, PATH_MAX, "%s/%s", dir, upper);
+	snprintf(lowerdir2, PATH_MAX, "%s/%s", dir, lower_list[1]);
 	mkdir(dir, 0700);
 
-	snprintf(lowerdir1, PATH_MAX, "%s/lower1", dir);
-	mkdir(lowerdir1, 0700);
-
-	snprintf(lowerdir2, PATH_MAX, "%s/lower2", dir);
-	mkdir(lowerdir2, 0700);
-
-	snprintf(upperdir, PATH_MAX, "%s/upper", dir);
-	mkdir(upperdir, 0700);
-
-	snprintf(workdir, PATH_MAX, "%s/work", dir);
-	mkdir(workdir, 0700);
-
-	snprintf(mountdir, PATH_MAX, "%s/overlayfs", dir);
-	mkdir(mountdir, 0700);
-
-	snprintf(opts, 255, "lowerdir=%s:%s,upperdir=%s,workdir=%s",
-		 lowerdir1, lowerdir2, upperdir, workdir);
-	if (mount("none", mountdir, "overlay", 0, opts) < 0) {
-		fail("Can't mount rw overlay");
+	if (overlayfs_setup(dir, lower_list, upper, "work", "overlayfs")) {
+		fail("failed to setup overlayfs for %s test", prefixdir);
 		return 1;
 	}
 
@@ -186,36 +162,23 @@ static int create_overlayfs_mount_rw(const char *prefixdir)
 /* overlayfs mount with overmounted source dirs */
 static int create_overlayfs_mount_overmount(const char *prefixdir)
 {
-	char    lowerdir1[PATH_MAX],
-		lowerdir2[PATH_MAX],
-		mountdir[PATH_MAX],
-		dir[PATH_MAX],
-		opts[255];
+	const char *lower_list[] = { "tmp/lower1", "lower2", NULL };
+	char dir[PATH_MAX],
+	     lowerdir1[PATH_MAX];
 
 	snprintf(dir, PATH_MAX, "%s/%s", dirname, prefixdir);
+	snprintf(lowerdir1, PATH_MAX, "%s/%s", dir, lower_list[0]);
+
 	mkdir(dir, 0700);
 
-	snprintf(lowerdir1, PATH_MAX, "%s/tmp", dir);
-	mkdir(lowerdir1, 0700);
-
-	snprintf(lowerdir1, PATH_MAX, "%s/tmp/lower1", dir);
-	mkdir(lowerdir1, 0700);
-
-	snprintf(lowerdir2, PATH_MAX, "%s/lower2", dir);
-	mkdir(lowerdir2, 0700);
-
-	snprintf(mountdir, PATH_MAX, "%s/overlayfs", dir);
-	mkdir(mountdir, 0700);
-
-	snprintf(opts, 255, "lowerdir=%s:%s", lowerdir1, lowerdir2);
-	if (mount("none", mountdir, "overlay", 0, opts) < 0) {
-		fail("Can't mount overmounted-source overlay %s", opts);
+	if (overlayfs_setup(dir, lower_list, NULL, NULL, "overlayfs")) {
+		fail("failed to setup overlayfs for %s test", prefixdir);
 		return 1;
 	}
 
 	/*
-	 * Creating first file on lowerest layer, after overmount
-	 * lowerest layer path, and create second file on overmounted
+	 * Creating first file on the lowest layer, after overmount
+	 * the lowest layer path, and create second file on overmounted
 	 * path. We should see first file (overlayfs must be mounted
 	 * before lowerest layer path will be overmounted).
 	 */

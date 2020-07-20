@@ -7,6 +7,7 @@
 #include <linux/fanotify.h>
 #include "fsnotify.h"
 #include "zdtmtst.h"
+#include "fs.h"
 
 #define BUFF_SIZE (8192)
 
@@ -34,6 +35,7 @@ static int fanotify_setup(struct test_context *ctx)
 	char ovl_file[PATH_MAX];
 	snprintf(ovl_file, sizeof(ovl_file), "%s/ovl_file", ctx->ovl_dir);
 	ctx->ovl_file = strdup(ovl_file);
+
 	if (!ctx->ovl_file) {
 		pr_perror("Can't copy ovl file name");
 		return 1;
@@ -164,38 +166,24 @@ static int prepare_dirname(void)
 }
 
 /* overlayfs mount with upperdir (as docker uses) */
-static int overlayfs_setup(struct test_context *ctx)
+static int prepare_overlayfs(struct test_context *ctx)
 {
-	char    lowerdir[PATH_MAX],
-		upperdir[PATH_MAX],
-		workdir[PATH_MAX],
-		mountdir[PATH_MAX],
-		opts[255];
+	const char *lower_list[] = { "lower", NULL };
+	const char *mountdir = "overlayfs";
+	char mountpath[PATH_MAX];
 
-	snprintf(lowerdir, PATH_MAX, "%s/lower", dirname);
-	mkdir(lowerdir, 0700);
+	if (overlayfs_setup(dirname, lower_list, "upper", "work", mountdir)) {
+		fail("failed to setup overlayfs for ro test");
+		return 1;
+	}
 
-	snprintf(upperdir, PATH_MAX, "%s/upper", dirname);
-	mkdir(upperdir, 0700);
-
-	snprintf(workdir, PATH_MAX, "%s/work", dirname);
-	mkdir(workdir, 0700);
-
-	snprintf(mountdir, PATH_MAX, "%s/overlay" , dirname);
-	mkdir(mountdir, 0700);
-
-	ctx->ovl_dir = strdup(mountdir);
+	snprintf(mountpath, sizeof(mountpath), "%s/%s", dirname, mountdir);
+	ctx->ovl_dir = strdup(mountpath);
 	if (!ctx->ovl_dir) {
 		fail("Can't copy ovl dir name");
 		return 1;
 	}
 
-	snprintf(opts, 255, "lowerdir=%s,upperdir=%s,workdir=%s,nfs_export=on,index=on",
-		 lowerdir, upperdir, workdir);
-	if (mount("none", mountdir, "overlay", 0, opts) < 0) {
-		fail("Can't mount rw overlay");
-		return 1;
-	}
 	return 0;
 }
 
@@ -210,7 +198,7 @@ int main(int argc, char **argv)
 	if (prepare_dirname())
 		return 1;
 
-	if (overlayfs_setup(&ctx))
+	if (prepare_overlayfs(&ctx))
 		goto err;
 
 	if (fanotify_setup(&ctx))
