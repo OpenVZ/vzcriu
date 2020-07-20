@@ -4,6 +4,8 @@
 #include <errno.h>
 #include <unistd.h>
 #include <limits.h>
+#include <sys/mount.h>
+#include <sys/stat.h>
 
 #include "zdtmtst.h"
 #include "fs.h"
@@ -113,5 +115,90 @@ int get_cwd_check_perm(char **result)
 	}
 
 	*result = cwd;
+	return 0;
+}
+
+int mkdirp(const char *pathname, mode_t mode)
+{
+	char tmp[PATH_MAX];
+	int len;
+	char c;
+	const char *path_end = pathname;
+
+	if (strlen(pathname) >= PATH_MAX) {
+		pr_err("path %s is longer than PATH_MAX\n", pathname);
+		return -1;
+	}
+
+	do {
+		c = *path_end;
+		if (c == '/' || !c) {
+			len = path_end - pathname;
+			memcpy(tmp, pathname, len);
+			tmp[len] = 0;
+			if (mkdir(tmp, mode) && errno != EEXIST) {
+				pr_perror("mkdir failed for path %s", tmp);
+				return -1;
+			}
+		}
+		path_end++;
+	} while (c);
+
+	return 0;
+}
+
+#define OPT_PRINT(fmt, ...)\
+	do {\
+		mntopt_n += snprintf(mntopt + mntopt_n,\
+			sizeof(mntopt) - mntopt_n,\
+			fmt, ## __VA_ARGS__);\
+	} while(0)
+
+#define SETUP_DIR(__parent, __name)\
+	do {\
+		snprintf(path, sizeof(path), "%s/%s", __parent, __name);\
+		if (mkdirp(path, 0700)) {\
+			pr_perror("mkdir failed, path: %s", path);\
+			return 1;\
+		}\
+	} while(0)
+
+int overlayfs_setup(const char *parentdir, const char **lower,
+		    const char *upper, const char *work, const char *mountdir)
+{
+	int mntopt_n = 0;
+	char mntopt[PATH_MAX];
+	char path[PATH_MAX];
+
+	const char **current_lower = lower;
+	if (*lower == NULL) {
+		pr_err("overlayfs_setup error: should be at least one lower dir\n");
+		return 1;
+	}
+
+	OPT_PRINT("nfs_export=on,index=on,lowerdir=");
+
+	while (*current_lower) {
+		SETUP_DIR(parentdir, *current_lower);
+		OPT_PRINT("%s%s", current_lower > lower ? ":" : "", path);
+		current_lower++;
+	}
+
+	if (upper) {
+		SETUP_DIR(parentdir, upper);
+		OPT_PRINT(",upperdir=%s,", path);
+	}
+
+	if (work) {
+		SETUP_DIR(parentdir, work);
+		OPT_PRINT(",workdir=%s", path);
+	}
+
+	SETUP_DIR(parentdir, mountdir);
+
+	if (mount("none", path, "overlay", 0, mntopt)) {
+		pr_perror("Failed to mount overlayfs on %s with opts: %s", path, mntopt);
+		return 1;
+	}
 	return 0;
 }
