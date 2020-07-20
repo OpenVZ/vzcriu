@@ -479,6 +479,7 @@ TST_DIR		=				\
 		unlink_dir			\
 		ns_file_bindmount		\
 		pidns_proc			\
+		netns_sysfs			\
 
 TST_DIR_FILE	=				\
 		chroot				\
