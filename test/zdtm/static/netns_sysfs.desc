@@ -1,0 +1,3 @@
+{   'deps': ['/sbin/ip|/bin/ip'],
+    'flags': 'suid',
+    'flavor': 'ns'}
