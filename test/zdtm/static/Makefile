@@ -342,7 +342,7 @@ TST_DIR		=				\
 		overmount_fifo			\
 		overmount_sock			\
 		overlayfs			\
-		overlayfs_fanotify		\
+		overlayfs_fanotify00		\
 		tempfs				\
 		tempfs_overmounted		\
 		tempfs_overmounted01		\
