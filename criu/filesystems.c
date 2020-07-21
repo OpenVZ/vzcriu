@@ -739,16 +739,13 @@ static int ns_proc_parse(struct mount_info *pm, bool for_dump)
 #define KERNIO 0xb8
 #define KERNFS_GET_NS _IO(KERNIO, 0x1)
 
-static int sysfs_parse(struct mount_info *pm, bool for_dump)
+static int dump_sysfs(struct mount_info *pm)
 {
 	struct ns_desc *ns_d;
 	unsigned int ns_kid;
 	char link[PATH_MAX];
 	struct ns_id *nsid;
 	int mntfd, nsfd;
-
-	if (!for_dump)
-		return 0;
 
 	mntfd = open_mountpoint(pm);
 	if (mntfd < 0)
@@ -1195,7 +1192,7 @@ static struct fstype fstypes[] = {
 	}, {
 		.name = "sysfs",
 		.code = FSTYPE__SYSFS,
-		.parse = sysfs_parse,
+		.dump = dump_sysfs,
 		.mount = sysfs_mount,
 	}, {
 		.name = "devtmpfs",

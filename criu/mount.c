@@ -3694,6 +3694,39 @@ err:
 	return -1;
 }
 
+static void search_nested_netns_sysfs(void) {
+	struct mount_info *mi, *t;
+
+	for (mi = mntinfo; mi; mi = mi->next) {
+		if (mi->fstype->code != FSTYPE__SYSFS)
+			continue;
+
+		if (mi->nses.netns_id)
+			continue;
+
+		BUG_ON(list_empty(&mi->mnt_bind) && !mi->mnt_no_bind);
+		list_for_each_entry(t, &mi->mnt_bind, mnt_bind) {
+			if (t->nses.netns_id) {
+				mi->nses.netns_id = t->nses.netns_id;
+				break;
+			}
+		}
+
+		if (!mi->nses.netns_id) {
+			pr_warn("Sysfs %d lacks owner netns info, assume root netns\n",
+				mi->mnt_id);
+			mi->nses.netns_id = root_item->ids->net_ns_id;
+		}
+
+		list_for_each_entry(t, &mi->mnt_bind, mnt_bind) {
+			BUG_ON(t->nses.netns_id &&
+			       t->nses.netns_id != mi->nses.netns_id);
+			t->nses.netns_id = mi->nses.netns_id;
+		}
+	}
+}
+
+
 int read_mnt_ns_img(void)
 {
 	struct mount_info *pms = NULL;
@@ -3724,6 +3757,8 @@ int read_mnt_ns_img(void)
 	mntinfo = pms;
 
 	search_bindmounts();
+
+	search_nested_netns_sysfs();
 
 	if (opts.mounts_v2 && read_mnt_ns_img_v2(mntinfo))
 		return -1;
