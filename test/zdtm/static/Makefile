@@ -397,6 +397,7 @@ TST_DIR		=				\
 		overlayfs			\
 		overlayfs_fanotify00		\
 		overlayfs_fsnotify00		\
+		overlayfs_fsnotify01		\
 		tempfs				\
 		tempfs_overmounted		\
 		tempfs_overmounted01		\
@@ -644,6 +645,7 @@ socket-tcp-skip-in-flight:	CFLAGS += -D ZDTM_IPV4V6
 sock_ip_opts01:		CFLAGS += -DZDTM_VAL_ZERO
 ipc_namespace_sub:		CFLAGS += -D IPC_SUB
 overlayfs_fsnotify00:	CFLAGS += -D ZDTM_OVL_FSNOTIFY_FANOTIFY
+overlayfs_fsnotify01:	CFLAGS += -D ZDTM_OVL_FSNOTIFY_INOTIFY
 tun_ns:			CFLAGS += -DTUN_NS
 mnt_ext_manual:		CFLAGS += -D ZDTM_EXTMAP_MANUAL
 mntns_pivot_root_ro:	CFLAGS += -DMNTNS_PIVOT_ROOT_RO
