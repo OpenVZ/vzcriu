@@ -67,8 +67,8 @@ struct action {
 	int flags;
 	/* file op mode arg if applicable */
 	int mode;
-	/* expected fanotify_mask for this event */
-	int fanotify_mask;
+	/* expected event_mask for this event */
+	int event_mask;
 };
 
 struct action_script {
@@ -82,6 +82,23 @@ struct test_context {
 	 * to pass around.
 	 */
 	char *ovl_dir;
+
+	/*
+	 * notify_fd - file descriptor, aquired after fsnotify
+	 * init function (fanotify_init or inotify_init)
+	 */
+	int notify_fd;
+
+	/* current working directory queried once */
+	char *cwd;
+};
+
+struct fsnotify_test_ops {
+	int (*setup)(struct test_context *ctx);
+	int (*generate_actions)(struct test_context *ctx);
+	int (*process_events)(struct test_context *ctx, const char *eventbuf,
+			      int eventbuf_sz, struct action **action,
+			      struct action *end_action);
 };
 
 static struct test_context context;
@@ -98,6 +115,11 @@ static void sigchld_handler(int signum)
 	pid = wait(&status);
 	event_generator_exited = true;
 	test_msg("Process %d exited with status:%d\n", pid, status);
+}
+
+static inline bool is_same_filepath(const char *path1, const char *path2)
+{
+	return !strcmp(path1, path2);
 }
 
 static inline int sleep_ms(int msec)
@@ -169,29 +191,6 @@ static int setup_overlayfs(struct test_context *ctx)
 	return 0;
 }
 
-int fanotify_setup(const char *ovl_dir)
-{
-	int fa_flags;
-	int fa_fd;
-
-	fa_fd = fanotify_init(FAN_CLASS_NOTIF | FAN_CLOEXEC | FAN_NONBLOCK, 0);
-
-	if (fa_fd == -1) {
-		pr_perror("fanotify_init");
-		return -1;
-	}
-
-	fa_flags = FAN_ACCESS | FAN_MODIFY | FAN_OPEN |
-		   FAN_CLOSE | FAN_ONDIR | FAN_EVENT_ON_CHILD;
-
-	if (fanotify_mark(fa_fd, FAN_MARK_ADD, fa_flags, AT_FDCWD, ovl_dir)) {
-		pr_perror("fanotify_mark FAN_MARK_ADD");
-		close(fa_fd);
-		return -1;
-	}
-	return fa_fd;
-}
-
 static void action_to_string(char *buf, int bufsz, struct action *a)
 {
 	snprintf(buf, bufsz, "action: path:%s, fd:%d, type:%s, mode:%d",
@@ -236,7 +235,7 @@ void action_script_init()
 }
 
 int action_script_add(struct fileobject *f, int type,
-	int flags, int mode, int fanotify_mask)
+	int flags, int mode, int event_mask)
 {
 	struct action *a;
 	if (script.num_actions > ARRAY_SIZE(script.actions)) {
@@ -249,68 +248,34 @@ int action_script_add(struct fileobject *f, int type,
 	a->type = type;
 	a->mode = mode;
 	a->flags = flags;
-	a->fanotify_mask = fanotify_mask;
+	a->event_mask = event_mask;
 	return 0;
 }
 
-#define ACTION_ADD(f, t, fl, m, fm) \
+#define ACTION_ADD(f, t, fl, m, em) \
 	do {\
-		if (action_script_add(f, t, fl, m, fm)) \
+		if (action_script_add(f, t, fl, m, em)) \
 			return -1;\
 	} while (0)
 
-static int fanotify_generate_actions(const char *ovl_dir)
-{
-	char cwd[PATH_MAX];
-	struct fileobject *f;
-
-	action_script_init();
-
-	if (getcwd(cwd, sizeof(cwd)) == NULL) {
-		pr_perror("getcwd failed");
-		return 1;
-	}
-
-	f = fileobject_new(cwd, ovl_dir, "file1");
-	if (f == NULL) {
-		pr_err("failed to create fileobject");
-		return 1;
-	}
-
-	ACTION_ADD(f, ACTION_TYPE_CREATE, 0     , 0, FAN_OPEN);
-	ACTION_ADD(f, ACTION_TYPE_CLOSE , 0     , 0, FAN_CLOSE_NOWRITE);
-	ACTION_ADD(f, ACTION_TYPE_OPEN  , O_RDWR, 0, FAN_OPEN);
-	ACTION_ADD(f, ACTION_TYPE_MODIFY, 0     , 0, FAN_MODIFY);
-	ACTION_ADD(f, ACTION_TYPE_CLOSE , 0     , 0, FAN_CLOSE_WRITE);
-
-	f = fileobject_new(cwd, ovl_dir, NULL);
-	if (f == NULL) {
-		pr_err("failed to create fileobject");
-		return 1;
-	}
-	ACTION_ADD(f, ACTION_TYPE_OPEN  , 0     , 0, FAN_OPEN);
-	ACTION_ADD(f, ACTION_TYPE_CLOSE , 0     , 0, FAN_CLOSE_NOWRITE);
-	return 0;
-}
-
-int fanotify_action_run_create(struct action *a)
+int fsnotify_action_run_create(struct action *a)
 {
 	if (a->f->fd != -1) {
-		pr_err("fanotify_action_run_create: failed, fd for file %s already opened",
+		pr_err("fsnotify_action_run_create: failed, fd for file %s already opened",
 			a->f->filepath);
 		return 1;
 	}
 
 	a->f->fd = open(a->f->filepath, O_CREAT | O_TRUNC | a->flags, a->mode);
 	if (a->f->fd == -1) {
-		pr_perror("fanotify_action_run_create: failed to create %s",
+		pr_perror("fsnotify_action_run_create: failed to create %s",
 			a->f->filepath);
 		return 1;
 	}
 	return 0;
 }
 
-int fanotify_action_run_open(struct action *a)
+int fsnotify_action_run_open(struct action *a)
 {
 	a->f->fd = open(a->f->filepath, a->flags, a->mode);
 	if (a->f->fd == -1) {
@@ -321,13 +286,13 @@ int fanotify_action_run_open(struct action *a)
 	return 0;
 }
 
-int fanotify_action_run_modify(struct action *a)
+int fsnotify_action_run_modify(struct action *a)
 {
 	int n;
 	char payload[64];
 
 	if (a->f->fd == -1) {
-		pr_err("fanotify_action_run_modify: fd for file %s not opened",
+		pr_err("fsnotify_action_run_modify: fd for file %s not opened",
 			a->f->filepath);
 		return 1;
 	}
@@ -336,14 +301,14 @@ int fanotify_action_run_modify(struct action *a)
 
 	n = write(a->f->fd, payload, sizeof(payload));
 	if (n != sizeof(payload)) {
-		pr_perror("fanotify_action_run_modify: write to %s failed",
+		pr_perror("fsnotify_action_run_modify: write to %s failed",
 			a->f->filepath);
 		return 1;
 	}
 	return 0;
 }
 
-int fanotify_action_run_access(struct action *a)
+int fsnotify_action_run_access(struct action *a)
 {
 	if (access(a->f->filepath, a->mode)) {
 		pr_perror("access %s mode: %d failed",
@@ -353,10 +318,10 @@ int fanotify_action_run_access(struct action *a)
 	return 0;
 }
 
-int fanotify_action_run_close(struct action *a)
+int fsnotify_action_run_close(struct action *a)
 {
 	if (a->f->fd == -1) {
-		pr_err("fanotify_action_run_close: failed, fd for file %s not opened",
+		pr_err("fsnotify_action_run_close: failed, fd for file %s not opened",
 			a->f->filepath);
 		return 1;
 	}
@@ -366,40 +331,40 @@ int fanotify_action_run_close(struct action *a)
 	return 0;
 }
 
-static inline int fanotify_action_run(struct action *a)
+static inline int fsnotify_action_run(struct action *a)
 {
 	char actionbuf[512];
 
 	action_to_string(actionbuf, sizeof(actionbuf), a);
 
-	test_msg("fanotify_action_run: run: %s\n", actionbuf);
+	test_msg("fsnotify_action_run: run: %s\n", actionbuf);
 	switch (a->type) {
 	case ACTION_TYPE_ACCESS:
-		return fanotify_action_run_access(a);
+		return fsnotify_action_run_access(a);
 	case ACTION_TYPE_OPEN:
-		return fanotify_action_run_open(a);
+		return fsnotify_action_run_open(a);
 	case ACTION_TYPE_CLOSE:
-		return fanotify_action_run_close(a);
+		return fsnotify_action_run_close(a);
 	case ACTION_TYPE_CREATE:
-		return fanotify_action_run_create(a);
+		return fsnotify_action_run_create(a);
 	case ACTION_TYPE_MODIFY:
-		return fanotify_action_run_modify(a);
+		return fsnotify_action_run_modify(a);
 	default:
 		pr_err("unknown action type %d\n", a->type);
 		return 1;
 	}
 }
 
-static int fanotify_actions_run()
+static int fsnotify_actions_run()
 {
 	int i;
 
-	test_msg("fanotify_actions_run, will perform %d actions\n",
+	test_msg("fsnotify_actions_run, will perform %d actions\n",
 		script.num_actions);
 
 	for (i = 0; i < script.num_actions; ++i) {
-		if (fanotify_action_run(&script.actions[i])) {
-			pr_err("fanotify_action_run failed");
+		if (fsnotify_action_run(&script.actions[i])) {
+			pr_err("fsnotify_action_run failed");
 			return 1;
 		}
 		if (sleep_ms(500)) {
@@ -427,9 +392,63 @@ static int event_generator_fork()
 	}
 
 	if (pid == 0)
-		exit(fanotify_actions_run());
+		exit(fsnotify_actions_run());
 	else
 		test_msg("event_generator forked with pid %d\n", pid);
+	return 0;
+}
+
+#ifdef ZDTM_OVL_FSNOTIFY_FANOTIFY
+static int fanotify_setup(struct test_context *ctx)
+{
+	int fa_flags;
+	int fa_fd;
+
+	fa_fd = fanotify_init(FAN_CLASS_NOTIF | FAN_CLOEXEC | FAN_NONBLOCK, 0);
+
+	if (fa_fd == -1) {
+		pr_perror("fanotify_init");
+		return -1;
+	}
+
+	fa_flags = FAN_ACCESS | FAN_MODIFY | FAN_OPEN |
+		   FAN_CLOSE | FAN_ONDIR | FAN_EVENT_ON_CHILD;
+
+	if (fanotify_mark(fa_fd, FAN_MARK_ADD, fa_flags, AT_FDCWD,
+		ctx->ovl_dir)) {
+		pr_perror("fanotify_mark FAN_MARK_ADD");
+		close(fa_fd);
+		return -1;
+	}
+	ctx->notify_fd = fa_fd;
+	return 0;
+}
+
+static int fanotify_generate_actions(struct test_context *ctx)
+{
+	struct fileobject *f;
+
+	action_script_init();
+
+	f = fileobject_new(ctx->cwd, ctx->ovl_dir, "file1");
+	if (f == NULL) {
+		pr_err("failed to create fileobject");
+		return 1;
+	}
+
+	ACTION_ADD(f, ACTION_TYPE_CREATE, 0     , 0, FAN_OPEN);
+	ACTION_ADD(f, ACTION_TYPE_CLOSE , 0     , 0, FAN_CLOSE_NOWRITE);
+	ACTION_ADD(f, ACTION_TYPE_OPEN  , O_RDWR, 0, FAN_OPEN);
+	ACTION_ADD(f, ACTION_TYPE_MODIFY, 0     , 0, FAN_MODIFY);
+	ACTION_ADD(f, ACTION_TYPE_CLOSE , 0     , 0, FAN_CLOSE_WRITE);
+
+	f = fileobject_new(ctx->cwd, ctx->ovl_dir, NULL);
+	if (f == NULL) {
+		pr_err("failed to create fileobject");
+		return 1;
+	}
+	ACTION_ADD(f, ACTION_TYPE_OPEN  , 0     , 0, FAN_OPEN);
+	ACTION_ADD(f, ACTION_TYPE_CLOSE , 0     , 0, FAN_CLOSE_NOWRITE);
 	return 0;
 }
 
@@ -477,12 +496,7 @@ static void fanotify_event_print(struct fanotify_event_metadata *meta,
 		meta->fd, meta->pid, meta->mask, path, eventbuf);
 }
 
-static inline bool is_same_filepath(const char *path1, const char *path2)
-{
-	return !strcmp(path1, path2);
-}
-
-static int fanotify_event_process(struct fanotify_event_metadata *meta,
+static int fanotify_process_event(struct fanotify_event_metadata *meta,
 				  struct action *expected_action)
 {
 	char path[PATH_MAX];
@@ -503,7 +517,7 @@ static int fanotify_event_process(struct fanotify_event_metadata *meta,
 			path, expected_action->f->filepath);
 		return 1;
 	}
-	if (expected_action->fanotify_mask != meta->mask) {
+	if (expected_action->event_mask != meta->mask) {
 		fail("fanotify event mismatch");
 		return 1;
 	}
@@ -511,36 +525,64 @@ static int fanotify_event_process(struct fanotify_event_metadata *meta,
 	return 0;
 }
 
-int fanotify_events_skip(int fa_fd)
+static int fanotify_process_events(struct test_context *ctx,
+				   const char *eventbuf, int eventbuf_sz,
+				   struct action **expected_action,
+				   struct action *end_action)
 {
-	int n, num_events;
-	struct fanotify_event_metadata events[32];
+	struct fanotify_event_metadata *meta;
 
-	n = read(fa_fd, events, sizeof(events));
+	meta = (struct fanotify_event_metadata *)eventbuf;
+	while (FAN_EVENT_OK(meta, eventbuf_sz)) {
+		if (*expected_action == end_action)
+			break;
+
+		if (fanotify_process_event(meta, *expected_action)) {
+			fail("fanotify_process_events failed");
+			return 1;
+		}
+		(*expected_action)++;
+		meta = FAN_EVENT_NEXT(meta, eventbuf_sz);
+	}
+	return 0;
+}
+#endif /* ZDTM_OVL_FSNOTIFY_FANOTIFY */
+
+static int fsnotify_events_skip(int notify_fd)
+{
+	int n;
+	char buf[256];
+
+	n = read(notify_fd, buf, sizeof(buf));
 	if (n == -1) {
-		if (errno == EAGAIN)
+		if (errno == EAGAIN) {
 			n = 0;
-		else {
-			pr_perror("read fafd");
+		} else {
+			pr_perror("read error on notify_fd=%d", notify_fd);
 			return 1;
 		}
 	}
-	num_events = n / sizeof(events[0]);
-	test_msg("skipped %d events\n", num_events);
+
+	/*
+	 * For now do not differentiate between inotify/fanotify events,
+	 * just skip raw reports.
+	 */
+	test_msg("skipped events with total report size: %d\n", n);
 	return 0;
 }
 
-int fanotify_events_catch(int fa_fd)
+int fsnotify_events_catch(struct test_context *ctx,
+			  struct fsnotify_test_ops *notify_ops, int notify_fd)
 {
 	time_t timeout;
 	int n;
-	struct fanotify_event_metadata *meta;
-	struct fanotify_event_metadata events[32];
+	char eventbuf[256];
+
 	struct action_script *s = &script;
 	struct action *expected_action = &s->actions[0];
 	struct action *end_action = &s->actions[s->num_actions];
 
-	memset(events, 0, sizeof(events));
+	memset(eventbuf, 0, sizeof(eventbuf));
 
 	/*
 	 * In this loop we read from fanotify descriptor
@@ -569,25 +611,20 @@ int fanotify_events_catch(int fa_fd)
 			fail("timeout reached");
 			return 1;
 		}
-		n = read(fa_fd, events, sizeof(events));
+		n = read(notify_fd, eventbuf, sizeof(eventbuf));
 		if (n == -1) {
 			if (errno == EAGAIN)
 				continue;
 
-			pr_perror("read fafd");
+			pr_perror("read error on notify_fd=%d", notify_fd);
 			return 1;
 		}
 
-		meta = &events[0];
-		while (FAN_EVENT_OK(meta, n)) {
-			if (fanotify_event_process(meta, expected_action)) {
-				fail("fanotify_events_catch: failed");
-				return 1;
-			}
-			expected_action++;
-			meta = FAN_EVENT_NEXT(meta, n);
-		}
+		if (notify_ops->process_events(ctx, eventbuf, n,
+			&expected_action, end_action))
+			break;
 	}
+
 	if (expected_action != end_action) {
 		fail("not all actions have been checked\n");
 		return -1;
@@ -601,23 +638,42 @@ static void event_generator_wait()
 		sleep_ms(100);
 }
 
+void fsnotify_test_ops_init(struct fsnotify_test_ops *ops)
+{
+#if defined(ZDTM_OVL_FSNOTIFY_FANOTIFY)
+	ops->setup = fanotify_setup;
+	ops->generate_actions = fanotify_generate_actions;
+	ops->process_events = fanotify_process_events;
+#else
+#error "ZDTM_OVL_FSNOTIFY_* not defined"
+#endif
+}
+
 int main(int argc, char **argv)
 {
 	int err;
-	int fa_fd;
 	struct test_context *ctx = &context;
+	struct fsnotify_test_ops notify_ops;
 
 	test_init(argc, argv);
 
-	memset(ctx, 0, sizeof(*ctx));
+	fsnotify_test_ops_init(&notify_ops);
 
-	if (setup_overlayfs(&context)) {
+	memset(ctx, 0, sizeof(*ctx));
+	ctx->cwd = get_current_dir_name();
+	test_msg("cwd: %s\n", ctx->cwd);
+	if (!ctx->cwd) {
+		pr_perror("getcwd failed with err: %d(%s)\n", errno,
+			strerror(errno));
+		return -1;
+	}
+
+	if (setup_overlayfs(ctx)) {
 		fail("failed to setup overlayfd");
 		return 1;
 	}
 
-	fa_fd = fanotify_setup(ctx->ovl_dir);
-	if (fa_fd == -1) {
+	if (notify_ops.setup(ctx)) {
 		fail("fanotify_setup failed");
 		return 1;
 	}
@@ -629,8 +685,8 @@ int main(int argc, char **argv)
 	 * Skip events that may have happened during overlayfs restore,
 	 * because in this test we want to track events in given order
 	 */
-	if (fanotify_events_skip(fa_fd)) {
-		fail("fanotify_events_skip failed");
+	if (fsnotify_events_skip(ctx->notify_fd)) {
+		fail("fsnotify_events_skip failed");
 		return 1;
 	}
 
@@ -638,8 +694,8 @@ int main(int argc, char **argv)
 	 * Generate a list of events that should be generated by event
 	 * generator and expected by testing code.
 	 */
-	if (fanotify_generate_actions(ctx->ovl_dir) == -1) {
-		fail("fanotify_generate_actions failed");
+	if (notify_ops.generate_actions(ctx) == -1) {
+		fail("fsnotify generate_actions failed");
 		return 1;
 	}
 
@@ -661,7 +717,7 @@ int main(int argc, char **argv)
 	 * Catch fanotify events from event_generator according to
 	 * generated script.
 	 */
-	err = fanotify_events_catch(fa_fd);
+	err = fsnotify_events_catch(ctx, &notify_ops, ctx->notify_fd);
 
 	/*
 	 * Wait for event generator to exit.
@@ -669,7 +725,7 @@ int main(int argc, char **argv)
 	event_generator_wait();
 
 	if (err) {
-		fail("fanotify_events_catch failed");
+		fail("fsnotify_events_catch failed");
 		return 1;
 	}
 
