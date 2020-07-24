@@ -18,7 +18,7 @@
 const char *test_doc    = "Check that fanotify work on overlayfs mounts";
 const char *test_author = "Valeriy Vdovin <valeriy.vdovin@virtuozzo.com>";
 
-char *dirname = "overlayfs_fanotify01";
+char *dirname = "overlayfs_fsnotify";
 TEST_OPTION(dirname, string, "directory name", 1);
 
 /*
