@@ -6,6 +6,7 @@
 #include <sys/wait.h>
 #include <linux/limits.h>
 #include <sys/fanotify.h>
+#include <sys/inotify.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -39,7 +40,9 @@ enum {
 	ACTION_TYPE_MODIFY,
 	ACTION_TYPE_DELETE,
 	ACTION_TYPE_ACCESS,
-	ACTION_TYPE_CLOSE
+	ACTION_TYPE_CLOSE,
+	/* skip any real action, but still expect event */
+	ACTION_TYPE_SKIP
 };
 
 const char *action_type_to_string(int type)
@@ -89,8 +92,14 @@ struct test_context {
 	 */
 	int notify_fd;
 
+	/* watch_fd - results from inotify_add_watch */
+	int watch_fd;
+
 	/* current working directory queried once */
 	char *cwd;
+
+	/* full path of ovl_dir */
+	char *root_dir;
 };
 
 struct fsnotify_test_ops {
@@ -219,6 +228,7 @@ static struct fileobject *fileobject_new(const char *current_dir,
 	else
 		snprintf(filepath, sizeof(filepath), "%s/%s", current_dir,
 			ovl_dir);
+	test_msg("fileobject_new: %s\n", filepath);
 
 	f->filepath = strdup(filepath);
 	if (!f->filepath) {
@@ -331,6 +341,11 @@ int fsnotify_action_run_close(struct action *a)
 	return 0;
 }
 
+int fsnotify_action_run_skip(struct action *a)
+{
+	return 0;
+}
+
 static inline int fsnotify_action_run(struct action *a)
 {
 	char actionbuf[512];
@@ -349,6 +364,8 @@ static inline int fsnotify_action_run(struct action *a)
 		return fsnotify_action_run_create(a);
 	case ACTION_TYPE_MODIFY:
 		return fsnotify_action_run_modify(a);
+	case ACTION_TYPE_SKIP:
+		return fsnotify_action_run_skip(a);
 	default:
 		pr_err("unknown action type %d\n", a->type);
 		return 1;
@@ -548,6 +565,162 @@ static int fanotify_process_events(struct test_context *ctx,
 }
 #endif /* ZDTM_OVL_FSNOTIFY_FANOTIFY */
 
+#ifdef ZDTM_OVL_FSNOTIFY_INOTIFY
+int inotify_setup(struct test_context *ctx)
+{
+	char root_dir[PATH_MAX];
+
+	ctx->notify_fd = inotify_init1(IN_CLOEXEC | IN_NONBLOCK);
+
+	if (ctx->notify_fd == -1) {
+		pr_perror("inotify_init");
+		return -1;
+	}
+
+	ctx->watch_fd = inotify_add_watch(ctx->notify_fd, ctx->ovl_dir,
+		IN_ALL_EVENTS);
+
+	if (ctx->watch_fd == -1) {
+		pr_perror("inotify_add_watch");
+		close(ctx->notify_fd);
+		return -1;
+	}
+
+	snprintf(root_dir, sizeof(root_dir), "%s/%s", ctx->cwd, ctx->ovl_dir);
+	ctx->root_dir = strdup(root_dir);
+	if (!ctx->root_dir) {
+		close(ctx->notify_fd);
+		pr_err("failed to copy root_dir");
+		return -1;
+	}
+
+	return 0;
+}
+
+static int inotify_generate_actions(struct test_context *ctx)
+{
+	struct fileobject *f;
+	action_script_init();
+
+	f = fileobject_new(ctx->cwd, ctx->ovl_dir, "file1");
+	if (f == NULL)
+		return -1;
+
+	ACTION_ADD(f, ACTION_TYPE_CREATE, 0     , 0, IN_CREATE);
+	ACTION_ADD(f, ACTION_TYPE_SKIP  , 0     , 0, IN_OPEN);
+	ACTION_ADD(f, ACTION_TYPE_CLOSE , 0     , 0, IN_CLOSE_NOWRITE);
+	ACTION_ADD(f, ACTION_TYPE_OPEN  , O_RDWR, 0, IN_OPEN);
+	ACTION_ADD(f, ACTION_TYPE_MODIFY, 0     , 0, IN_MODIFY);
+	ACTION_ADD(f, ACTION_TYPE_CLOSE , 0     , 0, IN_CLOSE_WRITE);
+
+	f = fileobject_new(ctx->cwd, ctx->ovl_dir, NULL);
+	ACTION_ADD(f, ACTION_TYPE_OPEN , 0, 0, IN_OPEN          | IN_ISDIR);
+	ACTION_ADD(f, ACTION_TYPE_CLOSE, 0, 0, IN_CLOSE_NOWRITE | IN_ISDIR);
+	return 0;
+}
+
+static int inotify_event_get_path(struct test_context *ctx,
+				  const struct inotify_event *i, char *buf,
+				  int bufsz)
+{
+	if (strlen(ctx->cwd) + i->len >= bufsz) {
+		pr_err("failed to copy filepath, buffer too small");
+		return 1;
+	}
+	snprintf(buf, bufsz, "%s%s%.*s", ctx->root_dir,
+		i->len ? "/" : "", i->len, i->name);
+	return 0;
+}
+
+static void inotify_event_mask_to_string(char *buf, int bufsz, int mask)
+{
+	int n = 0;
+	int first = 1;
+#define IN_MASK_PRINT(a)\
+	do {\
+		if (mask & IN_ ## a) {\
+			n += snprintf(buf + n, bufsz - n, "%s"#a,\
+				first ? "" : " ");\
+			first = 0;\
+		} \
+	} while (0)
+
+	IN_MASK_PRINT(ACCESS);
+	IN_MASK_PRINT(MODIFY);
+	IN_MASK_PRINT(ATTRIB);
+	IN_MASK_PRINT(CLOSE_WRITE);
+	IN_MASK_PRINT(CLOSE_NOWRITE);
+	IN_MASK_PRINT(OPEN);
+	IN_MASK_PRINT(MOVED_FROM);
+	IN_MASK_PRINT(MOVED_TO);
+	IN_MASK_PRINT(CREATE);
+	IN_MASK_PRINT(DELETE);
+	IN_MASK_PRINT(DELETE_SELF);
+	IN_MASK_PRINT(MOVE_SELF);
+
+#undef IN_MASK_PRINT
+}
+
+static void inotify_event_print(const struct inotify_event *i,
+				const char *path)
+{
+	char buf[2048];
+
+	inotify_event_mask_to_string(buf, sizeof(buf), i->mask);
+	test_msg("i_event: %s, wd:%08x, mask:%08x, cookie:%08x, len:%02d %s\n",
+		path, i->wd, i->mask, i->cookie, i->len, buf);
+}
+
+static int inotify_event_process(struct test_context *ctx,
+	const struct inotify_event *i_event, struct action *a)
+{
+	char path[PATH_MAX];
+	if (inotify_event_get_path(ctx, i_event, path, sizeof(path))) {
+		pr_err("failed to get full path for event");
+		return 1;
+	}
+
+	inotify_event_print(i_event, path);
+
+	if (!is_same_filepath(path, a->f->filepath)) {
+		fail("inotify event filepath mismatch: expected: %s, got:%s",
+			a->f->filepath, path);
+		return -1;
+	}
+
+	if (a->event_mask != i_event->mask) {
+		fail("inotify event mask mismatch: expected:%08x, got:%08x",
+			a->event_mask, i_event->mask);
+		return -1;
+	}
+
+	return 0;
+}
+
+int inotify_process_events(struct test_context *ctx,
+	const char *events, int num_bytes, struct action **action,
+	struct action *end_action)
+{
+	int i;
+	const struct inotify_event *i_event;
+
+	printf("processing event batch, num_bytes:%d\n", num_bytes);
+
+	i = 0;
+	while (i < num_bytes && *action != end_action) {
+		i_event = (struct inotify_event *)&events[i];
+		if (inotify_event_process(ctx, i_event, *action)) {
+			printf("inotify_events_catch: failed\n");
+			return -1;
+		}
+
+		(*action)++;
+		i += sizeof(struct inotify_event) + i_event->len;
+	}
+	return 0;
+}
+#endif /* ZDTM_OVL_FSNOTIFY_INOTIFY */
+
 static int fsnotify_events_skip(int notify_fd)
 {
 	int n;
@@ -644,6 +817,10 @@ void fsnotify_test_ops_init(struct fsnotify_test_ops *ops)
 	ops->setup = fanotify_setup;
 	ops->generate_actions = fanotify_generate_actions;
 	ops->process_events = fanotify_process_events;
+#elif defined(ZDTM_OVL_FSNOTIFY_INOTIFY)
+	ops->setup = inotify_setup;
+	ops->generate_actions = inotify_generate_actions;
+	ops->process_events = inotify_process_events;
 #else
 #error "ZDTM_OVL_FSNOTIFY_* not defined"
 #endif
