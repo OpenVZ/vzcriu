@@ -569,6 +569,7 @@ socket-tcp6-closed:	CFLAGS += -D ZDTM_IPV4V6
 socket-tcp-closed-last-ack:	CFLAGS += -D ZDTM_TCP_LAST_ACK
 socket-tcp-skip-in-flight:	CFLAGS += -D ZDTM_IPV4V6
 ipc_namespace_sub:		CFLAGS += -D IPC_SUB
+overlayfs_fsnotify00:	CFLAGS += -D ZDTM_OVL_FSNOTIFY_FANOTIFY
 tun_ns:			CFLAGS += -DTUN_NS
 mnt_ext_manual:		CFLAGS += -D ZDTM_EXTMAP_MANUAL
 sigpending:		LDLIBS += -lrt
