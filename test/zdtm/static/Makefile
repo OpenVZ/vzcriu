@@ -390,6 +390,7 @@ TST_DIR		=				\
 		ns_file_bindmount		\
 		pidns_proc			\
 		netns_sysfs			\
+		mount_complex_sharing		\
 
 TST_DIR_FILE	=				\
 		chroot				\
