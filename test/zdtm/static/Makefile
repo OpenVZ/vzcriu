@@ -215,6 +215,7 @@ TST_NOFILE	:=				\
 		pipe03				\
 		netns_sub			\
 		netns_sub_veth			\
+		netns_vxlan			\
 		unlink_multiple_largefiles	\
 		config_inotify_irmap		\
 		thp_disable			\
