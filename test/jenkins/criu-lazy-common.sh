@@ -8,4 +8,4 @@ else
 		      -x socket_close_data01 -x file_read"
 fi
 
-LAZY_EXCLUDE="$LAZY_EXCLUDE -x maps04 -x ns_file_bindmount -x pidns_proc -x overlayfs -x mount_complex_sharing"
+LAZY_EXCLUDE="$LAZY_EXCLUDE -x maps04"
