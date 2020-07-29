@@ -1,0 +1,3 @@
+{   'deps': ['/bin/sh', '/sbin/ip|/bin/ip', '/usr/bin/ping'],
+    'flags': 'suid',
+    'flavor': 'ns'}

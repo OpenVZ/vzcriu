@@ -254,7 +254,8 @@ TST_NOFILE	:=				\
 		net_lock_socket_nftables6		\
 		netns_sub			\
 		netns_sub_veth			\
-		netns_sub_sysctl	\
+		netns_sub_sysctl		\
+		netns_vxlan			\
 		unlink_multiple_largefiles	\
 		thp_disable			\
 		pid_file			\
