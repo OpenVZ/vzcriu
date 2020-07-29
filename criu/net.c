@@ -88,6 +88,12 @@ enum {
 };
 #define IFLA_IPTUN_MAX  (__IFLA_IPTUN_MAX - 1)
 
+#ifndef IFLA_VXLAN_DF
+#define IFLA_VXLAN_DF 29
+#undef IFLA_VXLAN_MAX
+#define IFLA_VXLAN_MAX IFLA_VXLAN_DF
+#endif
+
 static int ns_sysfs_fd = -1;
 
 int read_ns_sys_file(char *path, char *buf, int len)
@@ -748,6 +754,96 @@ static int dump_macvlan(NetDeviceEntry *nde, struct cr_imgset *imgset, struct nl
 	return write_netdev_img(nde, imgset, info);
 }
 
+static int dump_vxlan(NetDeviceEntry *nde, struct cr_imgset *imgset, struct nlattr **info)
+{
+	VxlanLinkEntry vxlan = VXLAN_LINK_ENTRY__INIT;
+	int ret;
+	struct nlattr *data[IFLA_VXLAN_MAX+1];
+
+	if (!info || !info[IFLA_INFO_DATA]) {
+		pr_err("no data for vxlan\n");
+		return -1;
+	}
+
+	ret = nla_parse_nested(data, IFLA_VXLAN_MAX, info[IFLA_INFO_DATA], NULL);
+	if (ret < 0) {
+		pr_err("failed ot parse vxlan data\n");
+		return -1;
+	}
+
+#define ENCODE_ENTRY(__type, __ifla, __proto) \
+	do {									\
+		if (data[__ifla]) {						\
+			vxlan.__proto = *(__type *)nla_data(data[__ifla]);	\
+			vxlan.has_##__proto = true;				\
+		}								\
+	} while (0)
+
+	BUG_ON(!data[IFLA_VXLAN_ID]);
+	vxlan.id = *((u32 *)RTA_DATA(data[IFLA_VXLAN_ID]));
+
+	if (data[IFLA_VXLAN_GROUP]) {
+		BUG_ON(nla_len(data[IFLA_VXLAN_GROUP]) != 4);
+		vxlan.n_group = 1;
+		vxlan.group = nla_data(data[IFLA_VXLAN_GROUP]);
+	}
+
+	if (data[IFLA_VXLAN_GROUP6]) {
+		BUG_ON(nla_len(data[IFLA_VXLAN_GROUP6]) != 16);
+		vxlan.n_group6 = 4;
+		vxlan.group6 = nla_data(data[IFLA_VXLAN_GROUP6]);
+	}
+
+	ENCODE_ENTRY(u32, IFLA_VXLAN_LINK, link);
+
+	if (data[IFLA_VXLAN_LOCAL]) {
+		BUG_ON(nla_len(data[IFLA_VXLAN_LOCAL]) != 4);
+		vxlan.n_local = 1;
+		vxlan.local = nla_data(data[IFLA_VXLAN_LOCAL]);
+	}
+
+	if (data[IFLA_VXLAN_LOCAL6]) {
+		BUG_ON(nla_len(data[IFLA_VXLAN_LOCAL6]) != 16);
+		vxlan.n_local6 = 4;
+		vxlan.local6 = nla_data(data[IFLA_VXLAN_LOCAL6]);
+	}
+
+	ENCODE_ENTRY(u8,  IFLA_VXLAN_TOS,      tos);
+	ENCODE_ENTRY(u8,  IFLA_VXLAN_TTL,      ttl);
+	ENCODE_ENTRY(u32, IFLA_VXLAN_LABEL,    label);
+	ENCODE_ENTRY(u8,  IFLA_VXLAN_LEARNING, learning);
+	ENCODE_ENTRY(u32, IFLA_VXLAN_AGEING,   ageing);
+	ENCODE_ENTRY(u32, IFLA_VXLAN_LIMIT,    limit);
+
+	if (data[IFLA_VXLAN_PORT_RANGE]) {
+		vxlan.port_range.data = nla_data(data[IFLA_VXLAN_PORT_RANGE]);
+		vxlan.port_range.len = nla_len(data[IFLA_VXLAN_PORT_RANGE]);
+	}
+
+	ENCODE_ENTRY(u8,  IFLA_VXLAN_PROXY,             proxy);
+	ENCODE_ENTRY(u8,  IFLA_VXLAN_RSC,               rsc);
+	ENCODE_ENTRY(u8,  IFLA_VXLAN_L2MISS,            l2miss);
+	ENCODE_ENTRY(u8,  IFLA_VXLAN_L3MISS,            l3miss);
+	ENCODE_ENTRY(u8,  IFLA_VXLAN_COLLECT_METADATA,  collect_metadata);
+	ENCODE_ENTRY(u16, IFLA_VXLAN_PORT,              port);
+	ENCODE_ENTRY(u8,  IFLA_VXLAN_UDP_CSUM,          udp_csum);
+	ENCODE_ENTRY(u8,  IFLA_VXLAN_UDP_ZERO_CSUM6_TX, udp_zero_csum6_tx);
+	ENCODE_ENTRY(u8,  IFLA_VXLAN_UDP_ZERO_CSUM6_RX, udp_zero_csum6_rx);
+	ENCODE_ENTRY(u8,  IFLA_VXLAN_REMCSUM_TX,        remcsum_tx);
+	ENCODE_ENTRY(u8,  IFLA_VXLAN_REMCSUM_RX,        remcsum_rx);
+
+	ENCODE_ENTRY(u8, IFLA_VXLAN_GBP,               gbp);
+	ENCODE_ENTRY(u8, IFLA_VXLAN_GPE,               gpe);
+	ENCODE_ENTRY(u8, IFLA_VXLAN_REMCSUM_NOPARTIAL, remcsum_nopartial);
+	ENCODE_ENTRY(u8, IFLA_VXLAN_TTL_INHERIT,       ttl_inherit);
+	ENCODE_ENTRY(u8, IFLA_VXLAN_DF,                df);
+
+#undef ENCODE_ENTRY
+
+	nde->vz_vxlan = &vxlan;
+	return write_netdev_img(nde, imgset, info);
+}
+
 static int dump_one_ethernet(struct ifinfomsg *ifi, char *kind,
 		struct nlattr **tb, struct ns_id *ns, struct cr_imgset *fds)
 {
@@ -782,6 +878,8 @@ static int dump_one_ethernet(struct ifinfomsg *ifi, char *kind,
 	}
 	if (!strcmp(kind, "macvlan"))
 		return dump_one_netdev(ND_TYPE__MACVLAN, ifi, tb, ns, fds, dump_macvlan);
+	if (!strcmp(kind, "vxlan"))
+		return dump_one_netdev(ND_TYPE__VZ_VXLAN, ifi, tb, ns, fds, dump_vxlan);
 
 	return dump_unknown_device(ifi, kind, tb, ns, fds);
 }
@@ -1430,6 +1528,83 @@ static int venet_link_info(struct ns_id *ns, struct net_link *link, struct newli
 	return 0;
 }
 
+static int vxlan_link_info(struct ns_id *ns, struct net_link *link, struct newlink_req *req)
+{
+	struct rtattr *vxlan_data;
+	NetDeviceEntry *nde = link->nde;
+	VxlanLinkEntry *vxlan = nde->vz_vxlan;
+
+	if (!vxlan) {
+		pr_err("Missing vxlan link entry %d\n", nde->ifindex);
+		return -1;
+	}
+
+	addattr_l(&req->h, sizeof(*req), IFLA_INFO_KIND, "vxlan", 5);
+
+	vxlan_data = NLMSG_TAIL(&req->h);
+	addattr_l(&req->h, sizeof(*req), IFLA_INFO_DATA, NULL, 0);
+
+#define DECODE_ENTRY(__type, __ifla, __proto) \
+		do {								\
+			__type aux;						\
+			if (vxlan->has_##__proto) {				\
+				aux = vxlan->__proto;				\
+				addattr_l(&req->h, sizeof(*req), __ifla,	\
+						&aux, sizeof(__type));		\
+			}							\
+		} while (0)
+
+	addattr_l(&req->h, sizeof(*req), IFLA_VXLAN_ID, &vxlan->id, sizeof(uint32_t));
+
+	if (vxlan->n_group)
+		addattr_l(&req->h, sizeof(*req), IFLA_VXLAN_GROUP, vxlan->group, sizeof(uint32_t) * vxlan->n_group);
+
+	if (vxlan->n_group6)
+		addattr_l(&req->h, sizeof(*req), IFLA_VXLAN_GROUP6, vxlan->group6, sizeof(uint32_t) * vxlan->n_group6);
+
+	DECODE_ENTRY(u32, IFLA_VXLAN_LINK, link);
+
+	if (vxlan->n_local)
+		addattr_l(&req->h, sizeof(*req), IFLA_VXLAN_LOCAL, vxlan->local, sizeof(uint32_t) * vxlan->n_local);
+
+	if (vxlan->n_local6)
+		addattr_l(&req->h, sizeof(*req), IFLA_VXLAN_LOCAL6, vxlan->local6, sizeof(uint32_t) * vxlan->n_local6);
+
+	DECODE_ENTRY(u8,  IFLA_VXLAN_TOS,      tos);
+	DECODE_ENTRY(u8,  IFLA_VXLAN_TTL,      ttl);
+	DECODE_ENTRY(u32, IFLA_VXLAN_LABEL,    label);
+	DECODE_ENTRY(u8,  IFLA_VXLAN_LEARNING, learning);
+	DECODE_ENTRY(u32, IFLA_VXLAN_AGEING,   ageing);
+	DECODE_ENTRY(u32, IFLA_VXLAN_LIMIT,    limit);
+
+	if (vxlan->has_port_range)
+		addattr_l(&req->h, sizeof(*req), IFLA_VXLAN_PORT_RANGE, vxlan->port_range.data, vxlan->port_range.len);
+
+	DECODE_ENTRY(u8,  IFLA_VXLAN_PROXY,             proxy);
+	DECODE_ENTRY(u8,  IFLA_VXLAN_RSC,               rsc);
+	DECODE_ENTRY(u8,  IFLA_VXLAN_L2MISS,            l2miss);
+	DECODE_ENTRY(u8,  IFLA_VXLAN_L3MISS,            l3miss);
+	DECODE_ENTRY(u8,  IFLA_VXLAN_COLLECT_METADATA,  collect_metadata);
+	DECODE_ENTRY(u16, IFLA_VXLAN_PORT,              port);
+	DECODE_ENTRY(u8,  IFLA_VXLAN_UDP_CSUM,          udp_csum);
+	DECODE_ENTRY(u8,  IFLA_VXLAN_UDP_ZERO_CSUM6_TX, udp_zero_csum6_tx);
+	DECODE_ENTRY(u8,  IFLA_VXLAN_UDP_ZERO_CSUM6_RX, udp_zero_csum6_rx);
+	DECODE_ENTRY(u8,  IFLA_VXLAN_REMCSUM_TX,        remcsum_tx);
+	DECODE_ENTRY(u8,  IFLA_VXLAN_REMCSUM_RX,        remcsum_rx);
+
+	DECODE_ENTRY(u8, IFLA_VXLAN_GBP,               gbp);
+	DECODE_ENTRY(u8, IFLA_VXLAN_GPE,               gpe);
+	DECODE_ENTRY(u8, IFLA_VXLAN_REMCSUM_NOPARTIAL, remcsum_nopartial);
+	DECODE_ENTRY(u8, IFLA_VXLAN_TTL_INHERIT,       ttl_inherit);
+	DECODE_ENTRY(u8, IFLA_VXLAN_DF,                df);
+
+#undef DECODE_ENTRY
+
+	vxlan_data->rta_len = (void *)NLMSG_TAIL(&req->h) - (void *)vxlan_data;
+
+	return 0;
+}
+
 static int bridge_link_info(struct ns_id *ns, struct net_link *link, struct newlink_req *req)
 {
 	struct rtattr *bridge_data;
@@ -1672,6 +1847,8 @@ static int __restore_link(struct ns_id *ns, struct net_link *link, int nlsk)
 		return restore_one_link(ns, link, nlsk, bridge_link_info, NULL);
 	case ND_TYPE__MACVLAN:
 		return restore_one_macvlan(ns, link, nlsk);
+	case ND_TYPE__VZ_VXLAN:
+		return restore_one_link(ns, link, nlsk, vxlan_link_info, NULL);
 	case ND_TYPE__SIT:
 		return restore_one_link(ns, link, nlsk, sit_link_info, NULL);
 	default:
@@ -1804,6 +1981,29 @@ static int __restore_links(struct ns_id *nsid, int *nrlinks, int *nrcreated)
 			if (!mlink->created) {
 				pr_debug("The master %d:%d:%s isn't created yet",
 					nsid->id, mlink->nde->ifindex, mlink->nde->name);
+				continue;
+			}
+		}
+
+		/*
+		 * vxlan link may have IFLA_VXLAN_LINK set. In that field stored
+		 * ifindex of the interface which will be used for transmitting
+		 * vxlan UDP traffic. We should restore this interface at first.
+		 */
+		if (link->nde->type == ND_TYPE__VZ_VXLAN && link->nde->vz_vxlan->has_link) {
+			uint32_t idx = link->nde->vz_vxlan->link;
+			struct net_link *tlink;
+
+			tlink = lookup_net_link(nsid, idx);
+			if (tlink == NULL) {
+				pr_err("Unable to find the interface with ifindex %d\n", idx);
+				return -1;
+			}
+
+			if (!tlink->created) {
+				pr_debug("The iface %d:%d:%s isn't created yet for vxlan %d:%d:%s",
+					nsid->id, tlink->nde->ifindex, tlink->nde->name,
+					nsid->id, link->nde->ifindex, link->nde->name);
 				continue;
 			}
 		}

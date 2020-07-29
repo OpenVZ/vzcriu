@@ -5,6 +5,7 @@ import "opts.proto";
 import "tun.proto";
 import "sysctl.proto";
 import "sit.proto";
+import "vxlan.proto";
 
 enum nd_type {
 	LOOPBACK	= 1;
@@ -21,6 +22,7 @@ enum nd_type {
 	BRIDGE		= 6;
 	MACVLAN		= 7;
 	SIT		= 8;
+	VZ_VXLAN	= 1001;
 }
 
 message net_device_entry {
@@ -46,6 +48,7 @@ message net_device_entry {
 	optional uint32 peer_nsid	= 13;
 	optional uint32 master		= 14;
 	optional sit_entry sit		= 15;
+	optional vxlan_link_entry vz_vxlan	= 1001;
 }
 
 message netns_id {
