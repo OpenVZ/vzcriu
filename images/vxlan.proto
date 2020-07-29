@@ -1,0 +1,35 @@
+syntax = "proto2";
+
+import "opts.proto";
+
+message vxlan_link_entry {
+	required uint32	id			= 1;
+	repeated uint32 group			= 2 [(criu).ipadd = true];
+	repeated uint32 group6			= 3 [(criu).ipadd = true];
+	optional uint32 link			= 4;
+	repeated uint32 local			= 5 [(criu).ipadd = true];
+	repeated uint32 local6			= 6 [(criu).ipadd = true];
+	optional uint32 tos			= 7;
+	optional uint32 ttl			= 8;
+	optional uint32 label			= 9;
+	optional uint32 learning		= 10;
+	optional uint32 ageing			= 11;
+	optional uint32 limit			= 12;
+	optional bytes port_range		= 13;
+	optional uint32 proxy			= 14;
+	optional uint32 rsc			= 15;
+	optional uint32 l2miss			= 16;
+	optional uint32 l3miss			= 17;
+	optional uint32 collect_metadata	= 18;
+	optional uint32 port			= 19;
+	optional uint32 udp_csum		= 20;
+	optional uint32 udp_zero_csum6_tx	= 21;
+	optional uint32 udp_zero_csum6_rx	= 22;
+	optional uint32 remcsum_tx		= 23;
+	optional uint32 remcsum_rx		= 24;
+	optional bool gbp			= 25;
+	optional bool gpe			= 26;
+	optional bool remcsum_nopartial		= 27;
+	optional bool ttl_inherit		= 28;
+	optional uint32 df			= 29;
+}
