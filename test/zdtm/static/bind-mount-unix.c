@@ -30,6 +30,7 @@ int main(int argc, char **argv)
 	struct stat st;
 	int status;
 	pid_t pid;
+	char *cwd;
 
 	char buf[] = "123456";
 	char rbuf[sizeof(buf)];
@@ -47,6 +48,14 @@ int main(int argc, char **argv)
 	mkdir(path, 0700);
 	ssprintf(path, "%s/%s", dirname, "aaa/bbb");
 	mkdir(path, 0700);
+
+	cwd = get_current_dir_name();
+	if (!cwd) {
+		pr_perror("getcwd");
+		exit(1);
+	}
+	ssprintf(path_bind, "%s/%s/%s", cwd, dirname, bind_name);
+
 
 	/*
 	 * Mounts-v2 engine uses "plain" structure of mounts,
@@ -159,8 +168,6 @@ int main(int argc, char **argv)
 		 "/zdtm/static/%s/aaa/bbb/%s",
 		 dirname, unix_name);
 #endif
-
-	ssprintf(path_bind, "/zdtm/static/%s/%s", dirname, bind_name);
 
 	unlink(path_bind);
 	unlink(path_unix);
