@@ -172,7 +172,7 @@ int main(int argc, char **argv)
 		goto err;
 	}
 
-	snprintf(dir_bind, sizeof(dir_bind), "%s/sibling/proc/tty", dirname);
+	snprintf(dir_bind, sizeof(dir_bind), "%s/sibling/proc/vz", dirname);
 	if (mount(dir, dir_bind, NULL, MS_BIND, NULL)) {
 		pr_perror("Failed to make %s bind to %s", dir, dir_bind);
 		goto err;
