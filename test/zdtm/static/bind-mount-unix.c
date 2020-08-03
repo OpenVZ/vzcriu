@@ -164,9 +164,8 @@ int main(int argc, char **argv)
 	/* CWD = *not important*
 	 * path_unix = /zdtm/static/bind-mount-unix.test/aaa/bbb/sk
 	 */
-	ssprintf(path_unix,
-		 "/zdtm/static/%s/aaa/bbb/%s",
-		 dirname, unix_name);
+	ssprintf(path_unix, "%s/%s/aaa/bbb/%s",
+		 cwd, dirname, unix_name);
 #endif
 
 	unlink(path_bind);
