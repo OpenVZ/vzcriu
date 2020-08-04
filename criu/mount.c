@@ -1771,6 +1771,7 @@ err:
 struct mount_info __maybe_unused *add_cr_time_mount(struct mount_info *root, char *fsname, const char *path, unsigned int s_dev, bool rst)
 {
 	struct mount_info *mi, *t, *parent;
+	char plain_mountpoint[PATH_MAX];
 	bool add_slash = false;
 	int len;
 
@@ -1793,6 +1794,10 @@ struct mount_info __maybe_unused *add_cr_time_mount(struct mount_info *root, cha
 		sprintf(mi->mountpoint, "%s%s", root->mountpoint, path);
 	else
 		sprintf(mi->mountpoint, "%s/%s", root->mountpoint, path);
+	if (rst) {
+		snprintf(plain_mountpoint, sizeof(plain_mountpoint), "%s/mnt-crtime", mnt_roots);
+		mi->plain_mountpoint = xstrdup(plain_mountpoint);
+	}
 	mi->mnt_id = HELPER_MNT_ID;
 	mi->flags = mi->sb_flags = 0;
 	mi->root = xstrdup("/");
