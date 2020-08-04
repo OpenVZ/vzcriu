@@ -1768,6 +1768,7 @@ struct mount_info __maybe_unused *add_cr_time_mount(struct mount_info *root, cha
 {
 	struct mount_info *mi, *t, *parent;
 	bool add_slash = false;
+	char path[PATH_MAX];
 	int len;
 
 	mi = mnt_entry_alloc(rst);
@@ -1789,6 +1790,8 @@ struct mount_info __maybe_unused *add_cr_time_mount(struct mount_info *root, cha
 		sprintf(mi->mountpoint, "%s%s", root->mountpoint, path);
 	else
 		sprintf(mi->mountpoint, "%s/%s", root->mountpoint, path);
+	snprintf(path, sizeof(path), "%s/mnt-crtime", mnt_roots);
+	mi->plain_mountpoint = xstrdup(path);
 	mi->mnt_id = HELPER_MNT_ID;
 	mi->flags = mi->sb_flags = 0;
 	mi->root = xstrdup("/");
