@@ -440,8 +440,8 @@ int walk_namespaces(struct ns_desc *nd, int (*cb)(struct ns_id *, void *), void 
 	return ret;
 }
 
-static unsigned int generate_ns_id(int pid, unsigned int kid, struct ns_desc *nd,
-		struct ns_id **ns_ret, bool alternative)
+unsigned int generate_ns_id(int pid, unsigned int kid, struct ns_desc *nd,
+			    struct ns_id **ns_ret, bool alternative, int nsfd)
 {
 	struct ns_id *nsid;
 	enum ns_type type;
@@ -477,6 +477,10 @@ static unsigned int generate_ns_id(int pid, unsigned int kid, struct ns_desc *nd
 	nsid->alternative = alternative;
 	BUG_ON(ns_next_id == UINT_MAX);
 	nsid_add(nsid, nd, ns_next_id++, pid);
+	if (nsfd != -1)
+		nsid->ns_fd = dup(nsfd);
+	else
+		nsid->ns_fd = -1;
 
 	if (nd == &net_ns_desc) {
 		INIT_LIST_HEAD(&nsid->net.ids);
@@ -518,7 +522,7 @@ static unsigned int __get_ns_id(int pid, struct ns_desc *nd, bool alternative,
 out:
 	if (supported)
 		*supported = kid != 0;
-	return generate_ns_id(pid, kid, nd, ns, alternative);
+	return generate_ns_id(pid, kid, nd, ns, alternative, -1);
 }
 
 static unsigned int get_ns_id(int pid, struct ns_desc *nd, protobuf_c_boolean *supported)
@@ -869,16 +873,20 @@ out:
 	return ret;
 }
 
-static int set_ns_hookups(struct ns_id *ns)
+int __set_ns_hookups(struct ns_id *ns, int fd)
 {
 	struct ns_desc *nd = ns->nd;
 	struct ns_id *u_ns;
-	int fd, ret = -1;
+	int ret = -1;
 
-	fd = open_proc(ns->ns_pid, "ns/%s", !ns->alternative ? nd->str : nd->alt_str);
-	if (fd < 0) {
-		pr_perror("Can't open %s, pid %d", nd->str, ns->ns_pid);
-		return -1;
+	if (fd == -1) {
+		fd = open_proc(ns->ns_pid, "ns/%s",
+			       !ns->alternative ? nd->str : nd->alt_str);
+		if (fd < 0) {
+			pr_perror("Can't open %s, pid %d",
+				  nd->str, ns->ns_pid);
+			return -1;
+		}
 	}
 
 	if (ns->type != NS_ROOT && (nd == &pid_ns_desc || nd == &user_ns_desc)) {
@@ -931,6 +939,11 @@ static int set_ns_hookups(struct ns_id *ns)
 out:
 	close(fd);
 	return ret;
+}
+
+static int set_ns_hookups(struct ns_id *ns)
+{
+	return __set_ns_hookups(ns, -1);
 }
 
 struct ns_id *top_pid_ns = NULL;
@@ -1357,9 +1370,16 @@ static int do_dump_namespaces(struct ns_id *ns)
 {
 	int ret;
 
-	ret = switch_ns(ns->ns_pid, ns->nd, NULL);
-	if (ret)
-		return ret;
+	if (ns->ns_fd == -1) {
+		BUG_ON(ns->ns_pid == 0);
+		ret = switch_ns(ns->ns_pid, ns->nd, NULL);
+		if (ret)
+			return ret;
+	} else {
+		ret = switch_ns_by_fd(ns->ns_fd, ns->nd, NULL);
+		if (ret)
+			return ret;
+	}
 
 	switch (ns->nd->cflag) {
 	case CLONE_NEWUTS:
