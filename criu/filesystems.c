@@ -708,7 +708,7 @@ static bool btrfs_sb_equal(struct mount_info *a, struct mount_info *b)
 	return true;
 }
 
-static int ns_proc_parse(struct mount_info *pm, bool for_dump)
+static int nsfs_after_parse(struct mount_info *pm, bool for_dump)
 {
 	struct ns_desc *ns_d;
 	unsigned int ns_kid;
@@ -726,8 +726,30 @@ static int ns_proc_parse(struct mount_info *pm, bool for_dump)
 
 	nsid = lookup_ns_by_kid(ns_kid, ns_d);
 	if (!nsid) {
-		pr_err("Ns files bind-mounts are not supported for detached ns\n");
-		return -1;
+		int fd;
+
+		if (ns_d != &net_ns_desc) {
+			pr_err("Ns files bind-mounts are not supported for detached %s ns\n",
+			       ns_d->str);
+			return -1;
+		}
+
+		fd = open_mountpoint(pm);
+		if (fd < 0)
+			return -1;
+
+		if (generate_ns_id(0, ns_kid, ns_d, &nsid, false, fd) == 0) {
+			pr_err("Can't make detached %s namespace id from kid %u\n",
+			      ns_d->str, ns_kid);
+			close(fd);
+			return -1;
+		}
+
+		if (__set_ns_hookups(nsid, fd) < 0) {
+			close(fd);
+			return -1;
+		}
+		close(fd);
 	}
 
 	pm->ns_bind_id = nsid->id;
@@ -1297,7 +1319,7 @@ static struct fstype fstypes[] = {
 	}, {
 		.name = "nsfs",
 		.code = FSTYPE__NSFS,
-		.parse = ns_proc_parse,
+		.after_parse = nsfs_after_parse,
 	},
 };
 

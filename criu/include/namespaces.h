@@ -305,4 +305,9 @@ extern struct ns_id *get_pidns_on_level(struct pstree_item *item, int level);
 extern struct ns_id *have_nested_pidns(struct pstree_item *ancestor,
 				       struct pstree_item *descendant);
 
+extern int __set_ns_hookups(struct ns_id *ns, int fd);
+extern unsigned int generate_ns_id(int pid, unsigned int kid, struct ns_desc *nd,
+				   struct ns_id **ns_ret, bool alternative,
+				   int nsfd);
+
 #endif /* __CR_NS_H__ */

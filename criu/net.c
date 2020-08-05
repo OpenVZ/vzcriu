@@ -2541,14 +2541,21 @@ struct net_id_arg {
 	int sk;
 };
 
+static int __net_get_nsid(int rtsk, int pid, int fd, int *nsid);
+
 static int collect_netns_id(struct ns_id *ns, void *oarg)
 {
 	struct net_id_arg *arg = oarg;
 	struct netns_id *netns_id;
 	int nsid = -1;
 
-	if (net_get_nsid(arg->sk, ns->ns_pid, &nsid))
-		return -1;
+	if (ns->ns_fd == -1) {
+		if (net_get_nsid(arg->sk, ns->ns_pid, &nsid))
+			return -1;
+	} else {
+		if (__net_get_nsid(arg->sk, 0, ns->ns_fd, &nsid))
+			return -1;
+	}
 
 	if (nsid == -1)
 		return 0;
@@ -3180,8 +3187,13 @@ static int prep_ns_sockets(struct ns_id *ns, bool for_dump)
 
 	if (ns->type != NS_CRIU) {
 		pr_info("Switching to %d's net for collecting sockets\n", ns->ns_pid);
-		if (switch_ns(ns->ns_pid, &net_ns_desc, &nsret))
-			return -1;
+		if (ns->ns_fd == -1) {
+			if (switch_ns(ns->ns_pid, &net_ns_desc, &nsret))
+				return -1;
+		} else {
+			if (switch_ns_by_fd(ns->ns_fd, &net_ns_desc, &nsret))
+				return -1;
+		}
 	}
 
 	if (for_dump) {
@@ -3546,7 +3558,7 @@ static int net_set_nsid(int rtsk, int fd, int nsid)
 	return 0;
 }
 
-int net_get_nsid(int rtsk, int pid, int *nsid)
+static int __net_get_nsid(int rtsk, int pid, int fd, int *nsid)
 {
 	struct {
 		struct nlmsghdr nlh;
@@ -3560,8 +3572,13 @@ int net_get_nsid(int rtsk, int pid, int *nsid)
 	req.nlh.nlmsg_type = RTM_GETNSID;
 	req.nlh.nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK;
 	req.nlh.nlmsg_seq = CR_NLMSG_SEQ;
-	if (addattr_l(&req.nlh, sizeof(req), NETNSA_PID, &pid, sizeof(pid)))
-		return -1;
+	if (fd == -1) {
+		if (addattr_l(&req.nlh, sizeof(req), NETNSA_PID, &pid, sizeof(pid)))
+			return -1;
+	} else {
+		if (addattr_l(&req.nlh, sizeof(req), NETNSA_FD, &fd, sizeof(fd)))
+			return -1;
+	}
 
 	if (do_rtnl_req(rtsk, &req, req.nlh.nlmsg_len, nsid_cb, NULL, NULL, (void *) &id) < 0)
 		return -1;
@@ -3574,6 +3591,10 @@ int net_get_nsid(int rtsk, int pid, int *nsid)
 	return 0;
 }
 
+int net_get_nsid(int rtsk, int pid, int *nsid)
+{
+	return __net_get_nsid(rtsk, pid, -1, nsid);
+}
 
 static int nsid_link_info(struct ns_id *ns, struct net_link *link, struct newlink_req *req)
 {
