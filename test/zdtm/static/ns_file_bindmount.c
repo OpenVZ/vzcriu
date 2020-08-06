@@ -10,6 +10,7 @@
 #include <linux/limits.h>
 
 #include "zdtmtst.h"
+#include "fs.h"
 
 const char *test_doc = "Check namespace file (/proc/pid/ns/name) bindmounts";
 const char *test_author = "Pavel Tikhomirov <ptikhomirov@virtuozzo.com>";
@@ -21,32 +22,6 @@ static int child(void *unused)
 {
 	while (1)
 		sleep(1);
-	return 0;
-}
-
-/**
- * Prepare dirname, so that all mounts in it will not propagate and
- * will be destroyed together with our mount namespace. All files
- * created in it will not be visible on host and will remove together
- * with our mountns too.
- */
-static int prepare_dirname(void)
-{
-	if (mkdir(dirname, 0700) && errno != EEXIST) {
-		pr_perror("Failed to create %s", dirname);
-		return -1;
-	}
-
-	if (mount("none", dirname, "tmpfs", 0, NULL)) {
-		pr_perror("Failed to mount tmpfs on %s", dirname);
-		return -1;
-	}
-
-	if (mount(NULL, dirname, NULL, MS_PRIVATE, NULL)) {
-		pr_perror("Failed to make mount %s private", dirname);
-		return -1;
-	}
-
 	return 0;
 }
 
@@ -142,7 +117,7 @@ int main(int argc, char **argv)
 
 	test_init(argc, argv);
 
-	if (prepare_dirname())
+	if (prepare_dirname(dirname))
 		return 1;
 
 	pid = clone(child,  &stack[CLONE_STACK_SIZE],
