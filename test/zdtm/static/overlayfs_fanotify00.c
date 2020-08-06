@@ -5,6 +5,7 @@
 #include <sys/mount.h>
 #include <linux/limits.h>
 #include <linux/fanotify.h>
+
 #include "fsnotify.h"
 #include "zdtmtst.h"
 #include "fs.h"
@@ -136,32 +137,6 @@ static int fanotify_check(struct test_context *ctx)
 	return 0;
 }
 
-/**
- * Prepare dirname, so that all mounts in it will not propagate and
- * will be destroyed together with our mount namespace. All files
- * created in it will not be visible on host and will remove together
- * with our mountns too.
- */
-static int prepare_dirname(void)
-{
-	if (mkdir(dirname, 0700) && errno != EEXIST) {
-		pr_perror("Failed to create %s", dirname);
-		return -1;
-	}
-
-	if (mount("none", dirname, "tmpfs", 0, NULL)) {
-		pr_perror("Failed to mount tmpfs on %s", dirname);
-		return -1;
-	}
-
-	if (mount(NULL, dirname, NULL, MS_PRIVATE, NULL)) {
-		pr_perror("Failed to make mount %s private", dirname);
-		return -1;
-	}
-
-	return 0;
-}
-
 /* overlayfs mount with upperdir (as docker uses) */
 static int prepare_overlayfs(struct test_context *ctx)
 {
@@ -192,7 +167,7 @@ int main(int argc, char **argv)
 
 	test_init(argc, argv);
 
-	if (prepare_dirname())
+	if (prepare_dirname(dirname))
 		return 1;
 
 	if (prepare_overlayfs(&ctx))

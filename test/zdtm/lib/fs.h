@@ -66,4 +66,6 @@ int mkdirp(const char *pathname, mode_t mode);
 int overlayfs_setup(const char *parentdir, const char **lower,
 		    const char *upper, const char *work, const char *mountdir);
 
+int prepare_dirname(char *dirname);
+
 #endif /* ZDTM_FS_H_ */

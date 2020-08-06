@@ -4,9 +4,9 @@
 #include <sys/stat.h>
 #include <sys/mount.h>
 #include <linux/limits.h>
-#include "fs.h"
 
 #include "zdtmtst.h"
+#include "fs.h"
 
 const char *test_doc    = "Check overlayfs mounts";
 const char *test_author = "Alexander Mikhalitsyn <alexander.mikhalitsyn@virtuozzo.com>";
@@ -17,32 +17,6 @@ TEST_OPTION(dirname, string, "directory name", 1);
 
 #define TEST_WORD	"testtest"
 #define TEST_WORD2	"TESTTEST"
-
-/**
- * Prepare dirname, so that all mounts in it will not propagate and
- * will be destroyed together with our mount namespace. All files
- * created in it will not be visible on host and will remove together
- * with our mountns too.
- */
-static int prepare_dirname(void)
-{
-	if (mkdir(dirname, 0700) && errno != EEXIST) {
-		pr_perror("Failed to create %s", dirname);
-		return -1;
-	}
-
-	if (mount("none", dirname, "tmpfs", 0, NULL)) {
-		pr_perror("Failed to mount tmpfs on %s", dirname);
-		return -1;
-	}
-
-	if (mount(NULL, dirname, NULL, MS_PRIVATE, NULL)) {
-		pr_perror("Failed to make mount %s private", dirname);
-		return -1;
-	}
-
-	return 0;
-}
 
 static int create_test_file(const char *dirpath, const char *buf, size_t size)
 {
@@ -210,7 +184,7 @@ int main(int argc, char **argv)
 
 	test_init(argc, argv);
 
-	if (prepare_dirname())
+	if (prepare_dirname(dirname))
 		return 1;
 
 	if (create_overlayfs_mount_ro("ro"))
