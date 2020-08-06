@@ -205,3 +205,29 @@ int overlayfs_setup(const char *parentdir, const char **lower,
 	}
 	return 0;
 }
+
+/**
+ * Prepare dirname, so that all mounts in it will not propagate and
+ * will be destroyed together with our mount namespace. All files
+ * created in it will not be visible on host and will remove together
+ * with our mountns too.
+ */
+int prepare_dirname(char *dirname)
+{
+	if (mkdir(dirname, 0700) && errno != EEXIST) {
+		pr_perror("Failed to create %s", dirname);
+		return -1;
+	}
+
+	if (mount("none", dirname, "tmpfs", 0, NULL)) {
+		pr_perror("Failed to mount tmpfs on %s", dirname);
+		return -1;
+	}
+
+	if (mount(NULL, dirname, NULL, MS_PRIVATE, NULL)) {
+		pr_perror("Failed to make mount %s private", dirname);
+		return -1;
+	}
+
+	return 0;
+}
