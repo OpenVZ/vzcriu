@@ -12,9 +12,9 @@
 #include <stdlib.h>
 #include <time.h>
 #include <signal.h>
-#include "fs.h"
 
 #include "zdtmtst.h"
+#include "fs.h"
 
 const char *test_doc = "Check that fanotify work on overlayfs mounts";
 const char *test_author = "Valeriy Vdovin <valeriy.vdovin@virtuozzo.com>";
@@ -150,39 +150,13 @@ static inline int sleep_ms(int msec)
 	return err;
 }
 
-/*
- * Prepare dirname, so that all mounts in it will not propagate and
- * will be destroyed together with our mount namespace. All files
- * created in it will not be visible on host and will remove together
- * with our mountns too.
- */
-static int prepare_dirname(void)
-{
-	if (mkdir(dirname, 0700) && errno != EEXIST) {
-		pr_perror("Failed to create %s", dirname);
-		return -1;
-	}
-
-	if (mount("none", dirname, "tmpfs", 0, NULL)) {
-		pr_perror("Failed to mount tmpfs on %s", dirname);
-		return -1;
-	}
-
-	if (mount(NULL, dirname, NULL, MS_PRIVATE, NULL)) {
-		pr_perror("Failed to make mount %s private", dirname);
-		return -1;
-	}
-
-	return 0;
-}
-
 static int setup_overlayfs(struct test_context *ctx)
 {
 	const char *lower_list[] = { "lower", NULL };
 	const char *mountdir = "overlayfs";
 	char mountpath[PATH_MAX];
 
-	if (prepare_dirname())
+	if (prepare_dirname(dirname))
 		return 1;
 
 	if (overlayfs_setup(dirname, lower_list, "upper", "work", mountdir)) {

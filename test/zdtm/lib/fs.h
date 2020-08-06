@@ -66,6 +66,8 @@ int mkdirp(const char *pathname, mode_t mode);
 int overlayfs_setup(const char *parentdir, const char **lower,
 		    const char *upper, const char *work, const char *mountdir);
 
+int prepare_dirname(char *dirname);
+
 /*
  * get_cwd_check_perm is called to check that cwd is actually usable for a calling
  * process.

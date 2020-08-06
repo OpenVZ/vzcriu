@@ -12,6 +12,7 @@
 #include <signal.h>
 
 #include "zdtmtst.h"
+#include "fs.h"
 
 const char *test_doc = "Check multiple bind-mounts with unix socket";
 const char *test_author = "Alexander Mikhalitsyn <alexander@mihalicyn.com>";
@@ -20,32 +21,6 @@ char *dirname;
 TEST_OPTION(dirname, string, "directory name", 1);
 
 #define BINDS_NUM 3
-
-/**
- * Prepare dirname, so that all mounts in it will not propagate and
- * will be destroyed together with our mount namespace. All files
- * created in it will not be visible on host and will remove together
- * with our mountns too.
- */
-static int prepare_dirname(void)
-{
-	if (mkdir(dirname, 0700) && errno != EEXIST) {
-		pr_perror("Failed to create %s", dirname);
-		return -1;
-	}
-
-	if (mount("none", dirname, "tmpfs", 0, NULL)) {
-		pr_perror("Failed to mount tmpfs on %s", dirname);
-		return -1;
-	}
-
-	if (mount(NULL, dirname, NULL, MS_PRIVATE, NULL)) {
-		pr_perror("Failed to make mount %s private", dirname);
-		return -1;
-	}
-
-	return 0;
-}
 
 static inline pid_t forkwrite(char path_bind[BINDS_NUM][PATH_MAX], int idx, task_waiter_t t, int sk)
 {
@@ -119,7 +94,7 @@ int main(int argc, char **argv)
 	for (k = 0; k < BINDS_NUM; k++)
 		task_waiter_init(&t[k]);
 
-	if (prepare_dirname())
+	if (prepare_dirname(dirname))
 		return 1;
 
 	for (k = 0; k < BINDS_NUM; k++)
