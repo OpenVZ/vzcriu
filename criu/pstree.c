@@ -387,8 +387,11 @@ int dump_pstree(struct pstree_item *root_item)
 {
 	struct pstree_item *item = root_item;
 	PstreeEntry e = PSTREE_ENTRY__INIT;
+	VendorPstreeEntry ve = VENDOR_PSTREE_ENTRY__INIT;
 	int ret = -1, i, level;
 	struct cr_img *img;
+
+	e.vendor = &ve;
 
 	pr_info("\n");
 	pr_info("Dumping pstree (pid: %d)\n", root_item->pid->real);
@@ -846,6 +849,14 @@ static int read_one_pstree(struct cr_img *img, PstreeEntry **ret_e)
 	if (ret <= 0)
 		return ret;
 	e = *ret_e;
+
+	if (!e->vendor) {
+		e->vendor = xmalloc(sizeof(*e->vendor));
+		if (!e->vendor)
+			goto err;
+		vendor_pstree_entry__init(e->vendor);
+	}
+
 	if ((!e->has_pid && !e->n_ns_pid) || (!e->has_pgid && !e->n_ns_pgid) ||
 	    (!e->has_sid && !e->n_ns_sid) || (!e->n_threads && !e->n_tids))
 		goto err;

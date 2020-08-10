@@ -4,6 +4,9 @@ message ns_tid {
 	repeated uint32 tid				= 1;
 }
 
+message vendor_pstree_entry {
+};
+
 message pstree_entry {
 	optional uint32			pid		= 1;
 	required uint32			ppid		= 2;	/* Pid of parent in pid_ns NS_ROOT */
@@ -15,4 +18,6 @@ message pstree_entry {
 	repeated uint32			ns_pgid		= 7;
 	repeated uint32			ns_sid		= 8;
 	repeated ns_tid			tids		= 9;
+
+	optional vendor_pstree_entry	vendor		= 1024;
 }
