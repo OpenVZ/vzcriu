@@ -962,15 +962,39 @@ static int dump_task_kobj_ids(struct pstree_item *item)
 	return 0;
 }
 
+TaskKobjIdsEntry *alloc_task_kobj_ids_entry(void)
+{
+	TaskKobjIdsEntry *ids;
+
+	ids = xmalloc(sizeof(*ids));
+	if (!ids)
+		return NULL;
+	task_kobj_ids_entry__init(ids);
+
+	ids->vendor = xmalloc(sizeof(*ids->vendor));
+	if (!ids->vendor) {
+		xfree(ids);
+		return NULL;
+	}
+	vendor_task_kobj_ids_entry__init(ids->vendor);
+
+	return ids;
+}
+
+void free_task_kobj_ids_entry(TaskKobjIdsEntry **ids)
+{
+	xfree((*ids)->vendor);
+	xfree(*ids);
+	*ids = NULL;
+}
+
 int get_task_ids(struct pstree_item *item)
 {
 	int ret;
 
-	item->ids = xmalloc(sizeof(*item->ids));
+	item->ids = alloc_task_kobj_ids_entry();
 	if (!item->ids)
 		goto err;
-
-	task_kobj_ids_entry__init(item->ids);
 
 	if (item->pid->state != TASK_DEAD) {
 		ret = dump_task_kobj_ids(item);
@@ -985,8 +1009,7 @@ int get_task_ids(struct pstree_item *item)
 	return 0;
 
 err_free:
-	xfree(item->ids);
-	item->ids = NULL;
+	free_task_kobj_ids_entry(&item->ids);
 err:
 	return -1;
 }
@@ -994,13 +1017,17 @@ err:
 static int get_thread_ids(struct pstree_item *item, int id)
 {
 	CoreEntry *core = item->core[id];
-	core->ids = xmalloc(sizeof(*core->ids));
+
+	core->ids = alloc_task_kobj_ids_entry();
 	if (!core->ids)
 		return -1;
 
-	task_kobj_ids_entry__init(core->ids);
+	if (dump_thread_ids(item->threads[id]->real, core->ids)) {
+		free_task_kobj_ids_entry(&item->ids);
+		return -1;
+	}
 
-	return dump_thread_ids(item->threads[id]->real, core->ids);
+	return 0;
 }
 
 static int do_dump_task_ids(const struct pstree_item *item, struct cr_img *img)

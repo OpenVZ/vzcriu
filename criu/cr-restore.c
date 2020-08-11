@@ -1025,12 +1025,7 @@ static TaskKobjIdsEntry *dup_thread_ids(TaskKobjIdsEntry *ids)
 {
 	TaskKobjIdsEntry *copy;
 
-	copy = xmalloc(sizeof(*copy));
-	if (!copy) {
-		pr_err("Can't allocate ids copy\n");
-		return NULL;
-	}
-	task_kobj_ids_entry__init(copy);
+	copy = alloc_task_kobj_ids_entry();
 
 #define COPY_NS_ID(copy, name)				\
 	if (ids->has_##name##_ns_id) {			\
@@ -1042,7 +1037,7 @@ static TaskKobjIdsEntry *dup_thread_ids(TaskKobjIdsEntry *ids)
 #undef COPY_NS_ID
 
 	if (fixup_pid_for_children_ns(copy)) {
-		xfree(copy);
+		free_task_kobj_ids_entry(&copy);
 		return NULL;
 	}
 
@@ -1069,6 +1064,15 @@ static int open_cores(int pid, CoreEntry *leader_core)
 		if (open_core(tpid, &cores[i]))
 			goto err;
 		if (cores[i]->ids) {
+			VendorTaskKobjIdsEntry **vendor = &cores[i]->ids->vendor;
+
+			if (!*vendor) {
+				*vendor = xmalloc(sizeof(**vendor));
+				if (!*vendor)
+					goto err;
+				vendor_task_kobj_ids_entry__init(*vendor);
+			}
+
 			/* We don't dump pid_ns_id of threads as it's same to group leader's */
 			cores[i]->ids->has_pid_ns_id = true;
 			cores[i]->ids->pid_ns_id = current->ids->pid_ns_id;

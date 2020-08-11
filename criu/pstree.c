@@ -794,8 +794,19 @@ static int read_pstree_ids(pid_t pid, TaskKobjIdsEntry **ids)
 			ret = -1;
 	}
 
-	if (!ret)
+	if (!ret) {
+		VendorTaskKobjIdsEntry **vendor = &(*ids)->vendor;
+
+		if (!*vendor) {
+			*vendor = xmalloc(sizeof(**vendor));
+			if (!*vendor)
+				ret = -1;
+			else
+				vendor_task_kobj_ids_entry__init(*vendor);
+		}
+
 		ret = fixup_pid_for_children_ns(*ids);
+	}
 
 	if (!ret && !top_pid_ns) {
 		/*
@@ -813,12 +824,7 @@ static TaskKobjIdsEntry *dup_zombie_ids(TaskKobjIdsEntry *ids)
 {
 	TaskKobjIdsEntry *copy;
 
-	copy = xmalloc(sizeof(*copy));
-	if (!copy) {
-		pr_err("Can't allocate ids copy\n");
-		return NULL;
-	}
-	task_kobj_ids_entry__init(copy);
+	copy = alloc_task_kobj_ids_entry();
 
 #define COPY_NS_ID(copy, name)				\
 	if (ids->has_##name##_ns_id) {			\
@@ -1112,12 +1118,7 @@ TaskKobjIdsEntry *dup_helper_ids(TaskKobjIdsEntry *ids)
 {
 	TaskKobjIdsEntry *copy;
 
-	copy = xmalloc(sizeof(*copy));
-	if (!copy) {
-		pr_err("Can't allocate ids copy\n");
-		return NULL;
-	}
-	task_kobj_ids_entry__init(copy);
+	copy = alloc_task_kobj_ids_entry();
 
 #define COPY_NS_ID(copy, name)				\
 	if (ids->has_##name##_ns_id) {			\
