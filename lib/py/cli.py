@@ -57,7 +57,7 @@ def info(opts):
 
 
 def get_task_id(p, val):
-    return p[val] if val in p else p['ns_' + val][0]
+    return p[val] if val in p else p['vz_ns_' + val][0]
 
 
 #

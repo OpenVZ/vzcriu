@@ -346,18 +346,18 @@ static void free_pstree_entry(PstreeEntry *e)
 {
 	int i;
 
-	xfree(e->ns_pid);
-	xfree(e->ns_pgid);
-	xfree(e->ns_sid);
+	xfree(e->vz_ns_pid);
+	xfree(e->vz_ns_pgid);
+	xfree(e->vz_ns_sid);
 
-	if (e->tids) {
-		for (i = 0; i < e->n_tids; i++) {
-			if (e->tids[i]) {
-				xfree(e->tids[i]->tid);
-				xfree(e->tids[i]);
+	if (e->vz_tids) {
+		for (i = 0; i < e->n_vz_tids; i++) {
+			if (e->vz_tids[i]) {
+				xfree(e->vz_tids[i]->tid);
+				xfree(e->vz_tids[i]);
 			}
 		}
-		xfree(e->tids);
+		xfree(e->vz_tids);
 	}
 }
 
@@ -421,21 +421,21 @@ int dump_pstree(struct pstree_item *root_item)
 
 		e.ppid		= item->parent ? vpid(item->parent) : 0;
 
-		if (plant_ns_xid(&e.ns_pid,  &e.n_ns_pid,  level, item->pid)  < 0 ||
-		    plant_ns_xid(&e.ns_pgid, &e.n_ns_pgid, level, item->pgid) < 0 ||
-		    plant_ns_xid(&e.ns_sid,  &e.n_ns_sid,  level, item->sid)  < 0)
+		if (plant_ns_xid(&e.vz_ns_pid,  &e.n_vz_ns_pid,  level, item->pid)  < 0 ||
+		    plant_ns_xid(&e.vz_ns_pgid, &e.n_vz_ns_pgid, level, item->pgid) < 0 ||
+		    plant_ns_xid(&e.vz_ns_sid,  &e.n_vz_ns_sid,  level, item->sid)  < 0)
 			goto err;
-		e.n_tids	= item->nr_threads;
-		if (e.n_tids) {
-			e.tids	= xzalloc(e.n_tids * sizeof(NsTid *));
-			if (!e.tids)
+		e.n_vz_tids	= item->nr_threads;
+		if (e.n_vz_tids) {
+			e.vz_tids = xzalloc(e.n_vz_tids * sizeof(NsTid *));
+			if (!e.vz_tids)
 				goto err;
-			for (i = 0; i < e.n_tids; i++) {
-				e.tids[i] = xzalloc(sizeof(NsTid));
-				if (!e.tids[i])
+			for (i = 0; i < e.n_vz_tids; i++) {
+				e.vz_tids[i] = xzalloc(sizeof(NsTid));
+				if (!e.vz_tids[i])
 					goto err;
-				ns_tid__init(e.tids[i]);
-				if (plant_ns_xid(&e.tids[i]->tid, &e.tids[i]->n_tid,
+				ns_tid__init(e.vz_tids[i]);
+				if (plant_ns_xid(&e.vz_tids[i]->tid, &e.vz_tids[i]->n_tid,
 						 level, item->threads[i])  < 0)
 					goto err;
 			}
@@ -847,10 +847,10 @@ static int read_one_pstree(struct cr_img *img, PstreeEntry **ret_e)
 	if (ret <= 0)
 		return ret;
 	e = *ret_e;
-	if ((!e->has_pid && !e->n_ns_pid) || (!e->has_pgid && !e->n_ns_pgid) ||
-	    (!e->has_sid && !e->n_ns_sid) || (!e->n_threads && !e->n_tids))
+	if ((!e->has_pid && !e->n_vz_ns_pid) || (!e->has_pgid && !e->n_vz_ns_pgid) ||
+	    (!e->has_sid && !e->n_vz_ns_sid) || (!e->n_threads && !e->n_vz_tids))
 		goto err;
-	/* Assign ns_pid, ns_pgid and ns_sid if here is old format image */
+	/* Assign vz_ns_pid, vz_ns_pgid and vz_ns_sid if here is old format image */
 #define ASSIGN_NSXID_IF_NEED(name, source)		\
 	if (!e->n_##name) {				\
 		e->n_##name = 1;			\
@@ -859,27 +859,27 @@ static int read_one_pstree(struct cr_img *img, PstreeEntry **ret_e)
 			goto err;			\
 		e->name[0] = e->source;			\
 	}
-	ASSIGN_NSXID_IF_NEED(ns_pid, pid);
-	ASSIGN_NSXID_IF_NEED(ns_pgid, pgid);
-	ASSIGN_NSXID_IF_NEED(ns_sid, sid);
+	ASSIGN_NSXID_IF_NEED(vz_ns_pid, pid);
+	ASSIGN_NSXID_IF_NEED(vz_ns_pgid, pgid);
+	ASSIGN_NSXID_IF_NEED(vz_ns_sid, sid);
 #undef ASSIGN_NSXID_IF_NEED
 
-	/* Assign tids if here is old format image */
-	if (!e->n_tids) {
-		e->n_tids = e->n_threads;
-		e->tids = xzalloc(e->n_tids * sizeof(NsTid *));
-		if (!e->tids)
+	/* Assign vz_tids if here is old format image */
+	if (!e->n_vz_tids) {
+		e->n_vz_tids = e->n_threads;
+		e->vz_tids = xzalloc(e->n_vz_tids * sizeof(NsTid *));
+		if (!e->vz_tids)
 			goto err;
-		for (i = 0; i < e->n_tids; i++) {
-			e->tids[i] = xzalloc(sizeof(NsTid));
-			if (!e->tids[i])
+		for (i = 0; i < e->n_vz_tids; i++) {
+			e->vz_tids[i] = xzalloc(sizeof(NsTid));
+			if (!e->vz_tids[i])
 				goto err;
-			ns_tid__init(e->tids[i]);
-			e->tids[i]->n_tid = 1;
-			e->tids[i]->tid = xmalloc(sizeof(uint32_t));
-			if (!e->tids[i]->tid)
+			ns_tid__init(e->vz_tids[i]);
+			e->vz_tids[i]->n_tid = 1;
+			e->vz_tids[i]->tid = xmalloc(sizeof(uint32_t));
+			if (!e->vz_tids[i]->tid)
 				goto err;
-			e->tids[i]->tid[0] = e->threads[i];
+			e->vz_tids[i]->tid[0] = e->threads[i];
 		}
 	}
 
@@ -904,7 +904,7 @@ static int read_one_pstree_item(struct cr_img *img, pid_t *pid_max)
 		return ret;
 
 	/* note: we don't fail if we have empty ids */
-	ret = read_pstree_ids(e->ns_pid[0], &ids);
+	ret = read_pstree_ids(e->vz_ns_pid[0], &ids);
 	if (ret < 0)
 		goto err;
 
@@ -915,7 +915,7 @@ static int read_one_pstree_item(struct cr_img *img, pid_t *pid_max)
 
 		pid = pstree_pid_by_virt(e->ppid);
 		if (!pid || pid->state == TASK_UNDEF || pid->state == TASK_THREAD) {
-			pr_err("Can't find a parent for %d\n", e->ns_pid[0]);
+			pr_err("Can't find a parent for %d\n", e->vz_ns_pid[0]);
 			task_kobj_ids_entry__free_unpacked(ids, NULL);
 			goto err;
 		}
@@ -934,7 +934,7 @@ static int read_one_pstree_item(struct cr_img *img, pid_t *pid_max)
 			goto err;
 	}
 
-	pi = lookup_create_item((pid_t *)e->ns_pid, e->n_ns_pid, ids->pid_ns_id);
+	pi = lookup_create_item((pid_t *)e->vz_ns_pid, e->n_vz_ns_pid, ids->pid_ns_id);
 	if (pi == NULL)
 		goto err;
 	BUG_ON(pi->pid->state != TASK_UNDEF);
@@ -947,33 +947,33 @@ static int read_one_pstree_item(struct cr_img *img, pid_t *pid_max)
 	 * be initialized when we meet PstreeEntry with this pid or
 	 * we will create helpers for them.
 	 */
-	if (lookup_create_item((pid_t *)e->ns_sid, e->n_ns_sid, ids->pid_ns_id) == NULL)
+	if (lookup_create_item((pid_t *)e->vz_ns_sid, e->n_vz_ns_sid, ids->pid_ns_id) == NULL)
 		goto err;
 	/*
 	 * Pgid can be cut by level of current task
 	 * when process group leader is in several
 	 * nested pidns'es so mark it as replaceable.
 	 */
-	if (lookup_replaceable_item((pid_t *)e->ns_pgid, e->n_ns_pgid, ids->pid_ns_id) == NULL)
+	if (lookup_replaceable_item((pid_t *)e->vz_ns_pgid, e->n_vz_ns_pgid, ids->pid_ns_id) == NULL)
 		goto err;
 
-	BUG_ON(vpid(pi) != e->ns_pid[0]);
-	if (e->ns_pid[0] > *pid_max)
-		*pid_max = e->ns_pid[0];
+	BUG_ON(vpid(pi) != e->vz_ns_pid[0]);
+	if (e->vz_ns_pid[0] > *pid_max)
+		*pid_max = e->vz_ns_pid[0];
 	for (i = 0; i < pi->pgid->level; i++)
-		pi->pgid->ns[i].virt = e->ns_pgid[i];
-	if (e->ns_pgid[0] > *pid_max)
-		*pid_max = e->ns_pgid[0];
+		pi->pgid->ns[i].virt = e->vz_ns_pgid[i];
+	if (e->vz_ns_pgid[0] > *pid_max)
+		*pid_max = e->vz_ns_pgid[0];
 	for (i = 0; i < pi->sid->level; i++)
-		pi->sid->ns[i].virt = e->ns_sid[i];
-	if (e->ns_sid[0] > *pid_max)
-		*pid_max = e->ns_sid[0];
+		pi->sid->ns[i].virt = e->vz_ns_sid[i];
+	if (e->vz_ns_sid[0] > *pid_max)
+		*pid_max = e->vz_ns_sid[0];
 	pi->pid->state = TASK_ALIVE;
 
 	if (!parent) {
 		if (root_item) {
 			pr_err("Parent missed on non-root task "
-			       "with pid %d, image corruption!\n", e->ns_pid[0]);
+			       "with pid %d, image corruption!\n", e->vz_ns_pid[0]);
 			goto err;
 		}
 		root_item = pi;
@@ -983,12 +983,12 @@ static int read_one_pstree_item(struct cr_img *img, pid_t *pid_max)
 		add_child_task(pi, parent);
 	}
 
-	pi->nr_threads = e->n_tids;
-	pi->threads = xzalloc(e->n_tids * sizeof(struct pid *));
+	pi->nr_threads = e->n_vz_tids;
+	pi->threads = xzalloc(e->n_vz_tids * sizeof(struct pid *));
 	if (!pi->threads)
 		goto err;
 
-	for (i = 0; i < e->n_tids; i++) {
+	for (i = 0; i < e->n_vz_tids; i++) {
 		struct pid *node;
 		pi->threads[i] = xmalloc(PID_SIZE(pi->pid->level));
 		if (!pi->threads)
@@ -996,23 +996,23 @@ static int read_one_pstree_item(struct cr_img *img, pid_t *pid_max)
 		pi->threads[i]->real = -1;
 		pi->threads[i]->level = pi->pid->level;
 		for (k = 0; k < pi->pid->level; k++) {
-			pi->threads[i]->ns[k].virt = e->tids[i]->tid[k];
+			pi->threads[i]->ns[k].virt = e->vz_tids[i]->tid[k];
 			rb_init_node(&pi->threads[i]->ns[k].node);
 		}
 		pi->threads[i]->state = TASK_THREAD;
 		pi->threads[i]->item = NULL;
 		if (i == 0)
 			continue; /* A thread leader is in a tree already */
-		node = lookup_create_pid((pid_t *)e->tids[i]->tid, e->tids[i]->n_tid, pi->threads[i], ids->pid_ns_id);
+		node = lookup_create_pid((pid_t *)e->vz_tids[i]->tid, e->vz_tids[i]->n_tid, pi->threads[i], ids->pid_ns_id);
 
 		BUG_ON(node == NULL);
 		if (node != pi->threads[i]) {
-			pr_err("Unexpected task %d in a tree %d\n", e->tids[i]->tid[0], i);
+			pr_err("Unexpected task %d in a tree %d\n", e->vz_tids[i]->tid[0], i);
 			goto err;
 		}
 	}
 
-	task_entries->nr_threads += e->n_tids;
+	task_entries->nr_threads += e->n_vz_tids;
 	task_entries->nr_tasks++;
 
 
