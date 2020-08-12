@@ -734,12 +734,13 @@ struct collect_image_info nsfile_cinfo = {
 
 static int get_pid_for_children_ns_id(pid_t pid, TaskKobjIdsEntry *ids)
 {
-	ids->has_pid_for_children_ns_id = false;
+	ids->has_vz_pid_for_children_ns_id = false;
 
 	if (kdat.has_pid_for_children_ns) {
-		ids->pid_for_children_ns_id = __get_ns_id(pid, &pid_ns_desc, true,
-							  &ids->has_pid_for_children_ns_id, NULL);
-		if (!ids->pid_for_children_ns_id) {
+		ids->vz_pid_for_children_ns_id = __get_ns_id(pid, &pid_ns_desc,
+				true, &ids->has_vz_pid_for_children_ns_id,
+				NULL);
+		if (!ids->vz_pid_for_children_ns_id) {
 			pr_err("Can't make pid_for_children id\n");
 			return -1;
 		}

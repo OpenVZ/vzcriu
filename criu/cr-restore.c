@@ -519,7 +519,7 @@ static int restore_task_pfc_before_user_ns(void)
 	 * Multi-threaded do that after -- in each thread.
 	 */
 	if (current->nr_threads == 1)
-		id = current->ids->pid_for_children_ns_id;
+		id = current->ids->vz_pid_for_children_ns_id;
 	else
 		id = current->ids->pid_ns_id;
 
@@ -4188,12 +4188,12 @@ static int sigreturn_restore(pid_t pid, struct task_restore_args *task_args, uns
 			task_args->t = thread_args + i;
 			tcore = core;
 			blkset = (void *)&tcore->tc->blk_sigset;
-			thread_args[i].pfc_ns_fd = get_thread_pid_ns_fd(current->ids->pid_for_children_ns_id);
+			thread_args[i].pfc_ns_fd = get_thread_pid_ns_fd(current->ids->vz_pid_for_children_ns_id);
 		} else {
 			tcore = current->core[i];
 			if (tcore->thread_core->has_blk_sigset)
 				blkset = (void *)&tcore->thread_core->blk_sigset;
-			thread_args[i].pfc_ns_fd = get_thread_pid_ns_fd(tcore->ids->pid_for_children_ns_id);
+			thread_args[i].pfc_ns_fd = get_thread_pid_ns_fd(tcore->ids->vz_pid_for_children_ns_id);
 		}
 
 		if (thread_args[i].pfc_ns_fd == -1)
