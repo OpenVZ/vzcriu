@@ -32,7 +32,7 @@ enum fstype {
 	/* This is reserved for CGROUP v2 support */
 	// CGROUP2		= 23;
 
-	NSFS			= 24;
+	NSFS			= 1001;
 };
 
 /* Namespaces from which mount should be mounted */
@@ -66,8 +66,9 @@ message mnt_entry {
 	optional uint32		sb_flags		= 17 [(criu).hex = true];
 	/* user defined mapping for external mount */
 	optional string		ext_key			= 18;
-	optional uint32		ns_bind_id		= 19;
-	optional uint32		ns_bind_desc		= 20;
 
-	optional mnt_nses_entry	nses			= 21;
+	optional uint32		ns_bind_id		= 1001;
+	optional uint32		ns_bind_desc		= 1002;
+
+	optional mnt_nses_entry	nses			= 1003;
 }
