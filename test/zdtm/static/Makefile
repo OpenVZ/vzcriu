@@ -399,10 +399,11 @@ TST_DIR		=				\
 		sk-unix01			\
 		sk-unix-dgram-ghost			\
 		bind-mount-unix			\
-		bind-mount-unix02			\
-		bind-mount-unix03			\
-		bind-mount-unix04			\
+		bind-mount-unix02		\
+		bind-mount-unix03		\
+		bind-mount-unix04		\
 		bind-mount-unix-multi		\
+		bind-mount-unix-multi-submntns	\
 		unsupported_children_collision  \
 		shared_slave_mount_children	\
 		non_uniform_share_propagation	\
@@ -626,6 +627,7 @@ bind-mount-unix:		CFLAGS += -DZDTM_BM_UNIX_SK_CASE1
 bind-mount-unix02:		CFLAGS += -DZDTM_BM_UNIX_SK_CASE2
 bind-mount-unix03:		CFLAGS += -DZDTM_BM_UNIX_SK_CASE3
 bind-mount-unix04:		CFLAGS += -DZDTM_BM_UNIX_SK_CASE4
+bind-mount-unix-multi-submntns:	CFLAGS += -DZDTM_BM_UNIX_MULT_SUBMNTNS
 
 pty-console:		CFLAGS += -D ZDTM_DEV_CONSOLE
 userns02:		CFLAGS += -D USERNS02
