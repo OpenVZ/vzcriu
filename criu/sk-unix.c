@@ -406,11 +406,11 @@ static int dump_one_unix_fd(int lfd, uint32_t id, const struct fd_parms *p)
 
 		ue->uflags |= UNIX_UFLAGS__BINDMOUNT;
 
-		ue->n_bind_mnt_ids = sk->mnt_usk_bind_list_size;
-		ue->bind_mnt_ids = xzalloc(ue->n_bind_mnt_ids * sizeof(uint32_t));
+		ue->n_vz_bind_mnt_ids = sk->mnt_usk_bind_list_size;
+		ue->vz_bind_mnt_ids = xzalloc(ue->n_vz_bind_mnt_ids * sizeof(uint32_t));
 
 		list_for_each_entry(mi, &sk->mnt_usk_bind_list, mnt_usk_bind)
-			ue->bind_mnt_ids[i++] = mi->mnt_id;
+			ue->vz_bind_mnt_ids[i++] = mi->mnt_id;
 	}
 
 	/*
@@ -2442,8 +2442,8 @@ static int print_sk_root(struct unix_sk_info *ui, char *buf, int bs)
 static int sk_has_bindmount(struct unix_sk_info *ui, struct mount_info *mi)
 {
 	int i;
-	for (i = 0; i < ui->ue->n_bind_mnt_ids; i++) {
-		if (ui->ue->bind_mnt_ids[i] == mi->mnt_id)
+	for (i = 0; i < ui->ue->n_vz_bind_mnt_ids; i++) {
+		if (ui->ue->vz_bind_mnt_ids[i] == mi->mnt_id)
 			return 1;
 	}
 
