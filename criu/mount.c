@@ -4791,7 +4791,7 @@ static int __check_mounts(struct ns_id *ns)
 			goto err;
 		}
 
-		if (mnt->fstype->code == FSTYPE__NSFS) {
+		if (mnt->fstype->code == FSTYPE__VZ_NSFS) {
 			char *bracket;
 
 			/* Ignore namespace id on checking ns-bind root */

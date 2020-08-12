@@ -31,7 +31,7 @@ enum fstype {
 
 	CGROUP2			= 23;
 
-	NSFS			= 1001;
+	VZ_NSFS			= 1001;
 };
 
 /* Namespaces from which mount should be mounted */
