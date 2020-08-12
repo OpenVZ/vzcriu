@@ -737,10 +737,10 @@ int pstree_pid_cmp(pid_t a, pid_t b)
 
 int fixup_pid_for_children_ns(TaskKobjIdsEntry *ids)
 {
-	if (!ids->has_pid_for_children_ns_id) {
-		ids->has_pid_for_children_ns_id = true;
-		ids->pid_for_children_ns_id = ids->pid_ns_id;
-	} else if (!lookup_ns_by_id(ids->pid_for_children_ns_id, &pid_ns_desc)) {
+	if (!ids->has_vz_pid_for_children_ns_id) {
+		ids->has_vz_pid_for_children_ns_id = true;
+		ids->vz_pid_for_children_ns_id = ids->pid_ns_id;
+	} else if (!lookup_ns_by_id(ids->vz_pid_for_children_ns_id, &pid_ns_desc)) {
 		pr_err("Can't find pid_for_children ns linked\n");
 		return -1;
 	}
