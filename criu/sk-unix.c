@@ -2712,8 +2712,8 @@ int add_fake_unix_queuers(void)
 	list_for_each_entry(ui, &unix_sockets, list) {
 		if ((ui->ue->uflags & (UNIX_UFLAGS__EXTERN | UNIX_UFLAGS__CALLBACK)) || ui->queuer)
 			continue;
-		if (!(ui->ue->state == TCP_ESTABLISHED && !ui->peer) &&
-		     ui->ue->type != SOCK_DGRAM)
+		if (!(ui->ue->type == SOCK_STREAM && ui->ue->state == TCP_ESTABLISHED && !ui->peer) &&
+		    !(ui->ue->type == SOCK_DGRAM  && !ui->peer))
 			continue;
 		if (add_fake_queuer(ui))
 			return -1;
