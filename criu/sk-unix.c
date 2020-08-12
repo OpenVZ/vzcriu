@@ -77,7 +77,6 @@ struct unix_sk_desc {
 	bool			deleted;
 
 	bool			bindmount;
-	unsigned int		mnt_id;
 	size_t			mnt_usk_bind_list_size;
 	struct list_head	mnt_usk_bind_list;	/* bindmounts of unix sk list */
 
@@ -602,15 +601,10 @@ static int unix_resolve_name(int lfd, uint32_t id, struct unix_sk_desc *d,
 	if (d->namelen == 0 || name[0] == '\0')
 		return 0;
 
-	if (!d->bindmount) {
-		if (kdat.sk_unix_file && (root_ns_mask & CLONE_NEWNS)) {
-			if (get_mnt_id(lfd, &mnt_id))
-				return -1;
-			ue->mnt_id = mnt_id;
-			ue->has_mnt_id = mnt_id;
-		}
-	} else {
-		ue->mnt_id = d->mnt_id;
+	if (kdat.sk_unix_file && (root_ns_mask & CLONE_NEWNS)) {
+		if (get_mnt_id(lfd, &mnt_id))
+			return -1;
+		ue->mnt_id = mnt_id;
 		ue->has_mnt_id = true;
 	}
 
@@ -743,7 +737,6 @@ static int unix_collect_one(const struct unix_diag_msg *m,
 	INIT_LIST_HEAD(&d->peer_list);
 	INIT_LIST_HEAD(&d->peer_node);
 	d->fd = -1;
-	d->mnt_id = -1;
 
 	INIT_LIST_HEAD(&d->mnt_usk_bind_list);
 
@@ -1363,6 +1356,8 @@ static int prep_unix_sk_cwd(struct unix_sk_info *ui, int *prev_cwd_fd,
 		if (ui->ue->mnt_id >= 0) {
 			ns = lookup_nsid_by_mnt_id(ui->ue->mnt_id);
 		} else {
+			pr_warn("Assume root mntns for socket id %#x ino %d name %s\n",
+				ui->ue->id, ui->ue->ino, ui->name);
 			if (root == NULL)
 				root = lookup_ns_by_id(root_item->ids->mnt_ns_id,
 									&mnt_ns_desc);
