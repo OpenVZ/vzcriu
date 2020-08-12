@@ -1308,7 +1308,7 @@ static struct fstype fstypes[] = {
 		.mount = spfs_mount,
 	}, {
 		.name = "nsfs",
-		.code = FSTYPE__NSFS,
+		.code = FSTYPE__VZ_NSFS,
 		.after_parse = nsfs_after_parse,
 	},
 };

@@ -32,7 +32,7 @@ enum fstype {
 	/* This is reserved for CGROUP v2 support */
 	// CGROUP2		= 23;
 
-	NSFS			= 1001;
+	VZ_NSFS			= 1001;
 };
 
 /* Namespaces from which mount should be mounted */
