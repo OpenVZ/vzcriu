@@ -91,6 +91,13 @@ int main(int argc, char **argv)
 
 	test_init(argc, argv);
 
+#ifdef ZDTM_BM_UNIX_MULT_SUBMNTNS
+	if (unshare(CLONE_NEWNS)) {
+		pr_perror("Unable to create a new mntns");
+		return 1;
+	}
+#endif
+
 	for (k = 0; k < BINDS_NUM; k++)
 		task_waiter_init(&t[k]);
 
