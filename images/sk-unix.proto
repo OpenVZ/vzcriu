@@ -67,5 +67,5 @@ message unix_sk_entry {
 	optional sint32			old_mnt_id	= 17 [default = -1];
 	optional sint32			mnt_id		= 18 [default = -1];
 
-	repeated uint32			bind_mnt_ids	= 19;
+	repeated uint32			bind_mnt_ids	= 1001;
 }

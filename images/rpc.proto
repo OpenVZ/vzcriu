@@ -128,7 +128,8 @@ message criu_opts {
 	optional string			cgroup_yard		= 60;
 	optional criu_pre_dump_mode	pre_dump_mode		= 61 [default = SPLICE];
 	optional bool			check_mounts		= 128;
-	optional bool			mounts_v2		= 129;
+
+	optional bool			mounts_v2		= 1001;
 }
 
 message criu_dump_resp {
