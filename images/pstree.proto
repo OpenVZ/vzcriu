@@ -13,8 +13,8 @@ message pstree_entry {
 	optional uint32			sid		= 4;
 	repeated uint32			threads		= 5;
 
-	repeated uint32			ns_pid		= 1001;
-	repeated uint32			ns_pgid		= 1002;
-	repeated uint32			ns_sid		= 1003;
-	repeated ns_tid			tids		= 1004;
+	repeated uint32			vz_ns_pid	= 1001;
+	repeated uint32			vz_ns_pgid	= 1002;
+	repeated uint32			vz_ns_sid	= 1003;
+	repeated ns_tid			vz_tids		= 1004;
 }
