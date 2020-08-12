@@ -1169,19 +1169,21 @@ static int wait_on_helpers_zombies(void)
 	struct pstree_item *pi;
 
 	list_for_each_entry(pi, &current->children, sibling) {
-		pid_t pid = vpid(pi);
+		pid_t pid = pi->pid->ns[current->pid->level - 1].virt;
 		int status;
 
 		switch (pi->pid->state) {
 		case TASK_DEAD:
 			if (waitid(P_PID, pid, NULL, WNOWAIT | WEXITED) < 0) {
-				pr_perror("Wait on %d zombie failed", pid);
+				pr_perror("Wait on %d[%d] zombie failed",
+					  vpid(pi), pid);
 				return -1;
 			}
 			break;
 		case TASK_HELPER:
 			if (waitpid(pid, &status, 0) != pid) {
-				pr_perror("waitpid for helper %d failed", pid);
+				pr_perror("waitpid for helper %d[%d] failed",
+					  vpid(pi), pid);
 				return -1;
 			}
 			break;
