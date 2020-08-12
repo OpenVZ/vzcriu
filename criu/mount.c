@@ -2082,22 +2082,22 @@ static int dump_one_mountpoint(struct mount_info *pm, struct cr_img *img)
 		me.ext_key = pm->external;
 	me.root = pm->root;
 	if (pm->ns_bind_id) {
-		me.has_ns_bind_id = true;
-		me.ns_bind_id = pm->ns_bind_id;
-		me.has_ns_bind_desc = true;
-		me.ns_bind_desc = pm->ns_bind_desc;
+		me.has_vz_ns_bind_id = true;
+		me.vz_ns_bind_id = pm->ns_bind_id;
+		me.has_vz_ns_bind_desc = true;
+		me.vz_ns_bind_desc = pm->ns_bind_desc;
 	}
 
 	if (pm->nses.pidns_id) {
 		mne.has_pidns_id = true;
 		mne.pidns_id = pm->nses.pidns_id;
-		me.nses = &mne;
+		me.vz_nses = &mne;
 	}
 
 	if (pm->nses.netns_id) {
 		mne.has_netns_id = true;
 		mne.netns_id = pm->nses.netns_id;
-		me.nses = &mne;
+		me.vz_nses = &mne;
 	}
 
 	if (pb_write_one(img, &me, PB_MNT))
@@ -3701,16 +3701,16 @@ static int collect_mnt_from_image(struct mount_info **head, struct mount_info **
 		if (get_mp_mountpoint(me->mountpoint, pm, root, root_len))
 			goto err;
 
-		if (me->has_ns_bind_id) {
-			pm->ns_bind_id = me->ns_bind_id;
-			pm->ns_bind_desc = me->ns_bind_desc;
+		if (me->has_vz_ns_bind_id) {
+			pm->ns_bind_id = me->vz_ns_bind_id;
+			pm->ns_bind_desc = me->vz_ns_bind_desc;
 		}
 
-		if (me->nses) {
-			if (me->nses->has_pidns_id)
-				pm->nses.pidns_id = me->nses->pidns_id;
-			if (me->nses->has_netns_id)
-				pm->nses.netns_id = me->nses->netns_id;
+		if (me->vz_nses) {
+			if (me->vz_nses->has_pidns_id)
+				pm->nses.pidns_id = me->vz_nses->pidns_id;
+			if (me->vz_nses->has_netns_id)
+				pm->nses.netns_id = me->vz_nses->netns_id;
 		}
 
 		pr_debug("\tRead %d mp @ %s\n", pm->mnt_id, pm->ns_mountpoint);

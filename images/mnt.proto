@@ -67,8 +67,8 @@ message mnt_entry {
 	/* user defined mapping for external mount */
 	optional string		ext_key			= 18;
 
-	optional uint32		ns_bind_id		= 1001;
-	optional uint32		ns_bind_desc		= 1002;
+	optional uint32		vz_ns_bind_id		= 1001;
+	optional uint32		vz_ns_bind_desc		= 1002;
 
-	optional mnt_nses_entry	nses			= 1003;
+	optional mnt_nses_entry	vz_nses			= 1003;
 }
