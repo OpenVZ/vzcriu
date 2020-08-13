@@ -6,6 +6,7 @@ import "tun.proto";
 import "sysctl.proto";
 import "sit.proto";
 import "vxlan.proto";
+import "openvswitch.proto";
 
 enum nd_type {
 	LOOPBACK	= 1;
@@ -23,6 +24,8 @@ enum nd_type {
 	MACVLAN		= 7;
 	SIT		= 8;
 	VZ_VXLAN	= 1001;
+	VZ_OVS_DATAPATH = 1002;
+	VZ_OVS_INTERNAL_VPORT = 1003;
 }
 
 message net_device_entry {
@@ -49,6 +52,8 @@ message net_device_entry {
 	optional uint32 master		= 14;
 	optional sit_entry sit		= 15;
 	optional vxlan_link_entry vz_vxlan	= 1001;
+	optional ovs_datapath_link_entry vz_ovs_dp = 1002;
+	optional ovs_vport_entry vz_ovs_vport = 1003;
 }
 
 message netns_id {

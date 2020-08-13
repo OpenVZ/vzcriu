@@ -70,6 +70,7 @@ proto-obj-y	+= img-streamer.o
 proto-obj-y	+= bpfmap-file.o
 proto-obj-y	+= bpfmap-data.o
 proto-obj-y	+= vxlan.o
+proto-obj-y	+= openvswitch.o
 
 CFLAGS		+= -iquote $(obj)/
 
