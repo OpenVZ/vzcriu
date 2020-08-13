@@ -63,6 +63,7 @@ proto-obj-y	+= autofs.o
 proto-obj-y	+= macvlan.o
 proto-obj-y	+= sit.o
 proto-obj-y	+= vxlan.o
+proto-obj-y	+= openvswitch.o
 
 CFLAGS		+= -iquote $(obj)/
 
