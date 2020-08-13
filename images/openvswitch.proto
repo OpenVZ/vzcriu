@@ -1,0 +1,19 @@
+syntax = "proto2";
+
+message ovs_datapath_link_entry {
+	required string name = 1;
+	required uint32 upcall_pid = 2;
+	required uint32 features = 3;
+}
+
+message ovs_vport_tunnel_options {
+	required uint32 port = 1;  // actually 16bit
+}
+
+message ovs_vport_entry {
+	required uint32 port_no = 1;
+	required uint32 type = 2;
+	required string name = 3;
+	required uint32 upcall_pid = 4;
+	optional ovs_vport_tunnel_options opt = 5;
+}
