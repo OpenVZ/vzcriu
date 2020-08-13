@@ -73,6 +73,7 @@ proto-obj-y	+= apparmor.o
 proto-obj-y	+= rseq.o
 proto-obj-y	+= device.o
 proto-obj-y	+= vxlan.o
+proto-obj-y	+= openvswitch.o
 
 CFLAGS		+= -iquote $(obj)/
 
