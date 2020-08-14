@@ -544,7 +544,7 @@ create:
 
 static bool is_internal_yard(struct mount_info *mi)
 {
-	return mi == mi->nsid->mnt.internal_yard;
+	return mi->nsid && mi == mi->nsid->mnt.internal_yard;
 }
 
 static int do_internal_yard_mount_v2(struct mount_info *mi)
