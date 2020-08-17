@@ -1623,8 +1623,10 @@ int cr_set_root(int fd, int *old_root)
 	}
 
 	cwd = open(".", O_PATH);
-	if (cwd < 0)
+	if (cwd < 0) {
+		pr_perror("Unable to open .");
 		goto err;
+	}
 
 	/* implement fchroot() */
 	if (fchdir(fd)) {
