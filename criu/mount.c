@@ -3046,6 +3046,37 @@ int print_ns_root(struct ns_id *ns, int remap_id, char *buf, int bs)
 	return snprintf(buf, bs, "%s/%d-%010d", mnt_roots, ns->id, remap_id);
 }
 
+/*
+ * Print path to devtmpfs (from root mntns) in service mntns
+ */
+
+#define DEVTMPFS_EXPORT_PATH "/dev"
+char *export_criu_devtmpfs(char *dst, size_t size)
+{
+	struct mount_info *mi;
+	struct ns_id *ns;
+	char *rel_path;
+
+	if (size == 0)
+		return dst;
+
+	dst[0] = '\0';
+
+	if (!(root_ns_mask & CLONE_NEWNS))
+		return dst;
+
+	ns = lookup_ns_by_id(root_item->ids->mnt_ns_id, &mnt_ns_desc);
+	mi = mount_resolve_path(ns->mnt.mntinfo_tree, DEVTMPFS_EXPORT_PATH);
+	rel_path = get_relative_path(DEVTMPFS_EXPORT_PATH, mi->ns_mountpoint);
+	BUG_ON(!rel_path);
+	if (rel_path[0])
+		snprintf(dst, size, "%s/%s", service_mountpoint(mi), rel_path);
+	else
+		snprintf(dst, size, "%s", service_mountpoint(mi));
+
+	return dst;
+}
+
 static int create_mnt_roots(void)
 {
 	int exit_code = -1;

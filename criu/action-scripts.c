@@ -16,6 +16,7 @@
 #include <sys/un.h>
 #include <sys/socket.h>
 #include "common/scm.h"
+#include "mount.h"
 
 static const char *action_names[ACT_MAX] = {
 	[ACT_PRE_DUMP] = "pre-dump",
@@ -67,6 +68,7 @@ static int run_shell_scripts(const char *action)
 	}
 
 	if (!(env_set & ENV_ROOTPID) && root_item) {
+		char export[PATH_MAX];
 		int pid;
 
 		pid = root_item->pid->real;
@@ -75,6 +77,12 @@ static int run_shell_scripts(const char *action)
 			snprintf(root_item_pid, sizeof(root_item_pid), "%d", pid);
 			if (setenv("CRTOOLS_INIT_PID", root_item_pid, 1)) {
 				pr_perror("Can't set CRTOOLS_INIT_PID=%s", root_item_pid);
+				return -1;
+			}
+
+			export_criu_devtmpfs(export, sizeof(export));
+			if (setenv("CRIU_DEVTMPFS", export, 1)) {
+				pr_perror("Can't set CRIU_DEVTMPFS=%s", export);
 				return -1;
 			}
 			env_set |= ENV_ROOTPID;
