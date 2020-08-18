@@ -249,7 +249,7 @@ static struct mount_info *lookup_mnt_sdev_on_root(unsigned int s_dev)
 	return NULL;
 }
 
-static struct mount_info *mount_resolve_path(struct mount_info *mntinfo_tree, const char *path)
+static struct mount_info *mount_resolve_path(struct mount_info *mntinfo_tree, char *path)
 {
 	size_t pathlen = strlen(path);
 	struct mount_info *m = mntinfo_tree, *c;
@@ -345,7 +345,7 @@ static dev_t __phys_stat_resolve_dev(dev_t st_dev, struct mount_info *m)
 		MKKDEV(major(st_dev), minor(st_dev)) : m->s_dev;
 }
 
-dev_t phys_stat_resolve_dev(struct ns_id *ns, dev_t st_dev, const char *path)
+dev_t phys_stat_resolve_dev(struct ns_id *ns, dev_t st_dev, char *path)
 {
 	struct mount_info *m;
 
@@ -354,7 +354,7 @@ dev_t phys_stat_resolve_dev(struct ns_id *ns, dev_t st_dev, const char *path)
 }
 
 bool __phys_stat_dev_match(dev_t st_dev, dev_t phys_dev,
-			   struct ns_id *ns, const char *path,
+			   struct ns_id *ns, char *path,
 			   struct mount_info *m)
 {
 	if (st_dev == kdev_to_odev(phys_dev))
@@ -367,7 +367,7 @@ bool __phys_stat_dev_match(dev_t st_dev, dev_t phys_dev,
 }
 
 bool phys_stat_dev_match(dev_t st_dev, dev_t phys_dev,
-			 struct ns_id *ns, const char *path)
+			 struct ns_id *ns, char *path)
 {
 	return __phys_stat_dev_match(st_dev, phys_dev, ns, path, NULL);
 }
