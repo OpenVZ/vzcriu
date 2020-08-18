@@ -78,7 +78,7 @@ static int run_shell_scripts(const char *action)
 		return -1;
 
 	if (!(env_set & ENV_ROOTPID) && root_item) {
-		char mnt_ns_roots[PATH_MAX];
+		char export[PATH_MAX];
 		int pid;
 
 		pid = root_item->pid->real;
@@ -89,9 +89,15 @@ static int run_shell_scripts(const char *action)
 				pr_perror("Can't set CRTOOLS_INIT_PID=%s", root_item_pid);
 				return -1;
 			}
-			export_mnt_ns_roots(mnt_ns_roots, sizeof(mnt_ns_roots));
-			if (setenv("CRIU_MNT_NS_ROOTS", mnt_ns_roots, 1)) {
-				pr_perror("Can't set CRIU_MNT_ROOTS=%s", mnt_ns_roots);
+			export_mnt_ns_roots(export, sizeof(export));
+			if (setenv("CRIU_MNT_NS_ROOTS", export, 1)) {
+				pr_perror("Can't set CRIU_MNT_ROOTS=%s", export);
+				return -1;
+			}
+
+			export_criu_devtmpfs(export, sizeof(export));
+			if (setenv("CRIU_DEVTMPFS", export, 1)) {
+				pr_perror("Can't set CRIU_DEVTMPFS=%s", export);
 				return -1;
 			}
 			env_set |= ENV_ROOTPID;
