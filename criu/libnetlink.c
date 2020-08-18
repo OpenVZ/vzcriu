@@ -225,3 +225,45 @@ int32_t nla_get_s32(const struct nlattr *nla)
 {
 	return *(const int32_t *)nla_data(nla);
 }
+
+/* ------------------------------------------------ */
+
+static int rc_getid(struct nlmsghdr *h, struct ns_id *ns, void *arg)
+{
+	struct nlattr *id = nlmsg_find_attr(h, sizeof(struct genlmsghdr), CTRL_ATTR_FAMILY_ID);
+	BUG_ON(!id);
+	nla_memcpy(arg, id, 16);
+	return 0;
+}
+
+struct getid_req {
+	struct nlmsghdr h;
+	struct genlmsghdr gh;
+	char buf[64];
+};
+
+int get_genl_family_id(int16_t *id, char *name, int namelen)
+{
+	int sk;
+	struct getid_req req;
+	int ret;
+
+	memset(&req, 0, sizeof(req));
+	req.h.nlmsg_len = NLMSG_LENGTH(sizeof(struct genlmsghdr));
+	req.h.nlmsg_type = GENL_ID_CTRL;
+	req.h.nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK;
+	req.h.nlmsg_pid = 0;
+	req.h.nlmsg_seq = CR_NLMSG_SEQ;
+
+	req.gh.cmd = CTRL_CMD_GETFAMILY;
+	req.gh.version = 2;
+
+	addattr_l(&req.h, sizeof(req), CTRL_ATTR_FAMILY_NAME, name, namelen);
+
+	sk = socket(AF_NETLINK, SOCK_RAW, NETLINK_GENERIC);
+
+	ret = do_rtnl_req(sk, &req, req.h.nlmsg_len, rc_getid, NULL, NULL, id);
+	close(sk);
+
+	return ret;
+}
