@@ -249,30 +249,29 @@ static struct mount_info *lookup_mnt_sdev_on_root(unsigned int s_dev)
 
 static struct mount_info *mount_resolve_path(struct mount_info *mntinfo_tree, char *path)
 {
-	size_t pathlen = strlen(path);
-	struct mount_info *m = mntinfo_tree, *c;
+	struct mount_info *m = mntinfo_tree;
+
+	BUG_ON(!get_relative_path(path, mntinfo_tree->ns_mountpoint));
 
 	while (1) {
+		struct mount_info *c, *t = NULL;
+
 		list_for_each_entry(c, &m->children, siblings) {
-			size_t n;
-
-			n = strlen(c->ns_mountpoint + 1);
-			if (n > pathlen)
+			if (!get_relative_path(path, c->ns_mountpoint))
 				continue;
 
-			if (strncmp(c->ns_mountpoint + 1, path, min(n, pathlen)))
-				continue;
-			if (n < pathlen && path[n] != '/')
-				continue;
-
-			m = c;
-			break;
+			if (!t || get_relative_path(t->ns_mountpoint,
+						   c->ns_mountpoint))
+				t = c;
 		}
-		if (&c->siblings == &m->children)
+
+		if (!t)
 			break;
+		m = t;
 	}
 
-	pr_debug("Path `%s' resolved to `%s' mountpoint\n", path, m->ns_mountpoint);
+	pr_debug("Path `%s' resolved to `%s' mountpoint\n", path,
+		 m->ns_mountpoint);
 	return m;
 }
 
