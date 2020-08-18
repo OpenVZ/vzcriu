@@ -19,4 +19,6 @@ extern int32_t nla_get_s32(const struct nlattr *nla);
 #define NETNS_RTA(r) ((struct rtattr *)(((char *)(r)) + NLMSG_ALIGN(sizeof(struct rtgenmsg))))
 #endif
 
+extern int get_genl_family_id(int16_t *id, char *name, int namelen);
+
 #endif /* __CR_LIBNETLINK_H__ */

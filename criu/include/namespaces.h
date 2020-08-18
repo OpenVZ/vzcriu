@@ -155,8 +155,9 @@ struct ns_id {
 		} mnt;
 
 		struct {
-			int nlsk;  /* for sockets collection */
-			int seqsk; /* to talk to parasite daemons */
+			int nlsk;   /* for sockets collection */
+			int seqsk;  /* to talk to parasite daemons */
+			int genlsk; /* for genlink communications */
 			struct list_head ids;
 			struct list_head links;
 			NetnsEntry *netns;
