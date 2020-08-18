@@ -16,6 +16,7 @@
 #include <libnl3/netlink/attr.h>
 #include <libnl3/netlink/msg.h>
 #include <libnl3/netlink/netlink.h>
+#include <linux/openvswitch.h>
 
 #ifdef CONFIG_HAS_SELINUX
 #include <selinux/selinux.h>
@@ -42,6 +43,7 @@
 #include "external.h"
 #include "fdstore.h"
 #include "crtools.h"
+#include "common/list.h"
 
 #include "protobuf.h"
 #include "images/netdev.pb-c.h"
@@ -455,6 +457,276 @@ static int ipv4_conf_op_old(char *tgt, int *conf, int n, int op, int *def_conf)
 	return 0;
 }
 
+struct netlink_genl_family {
+	char *name;
+	int16_t id;
+};
+
+static struct netlink_genl_family nl_genl_list[] = {
+	{.name = OVS_DATAPATH_FAMILY, .id = 0},
+	{.name = OVS_VPORT_FAMILY, .id = 0}
+};
+
+static void fill_genl_families()
+{
+	int i;
+	int ret;
+
+	for (i = 0; i < ARRAY_SIZE(nl_genl_list); i++) {
+		if (nl_genl_list[i].id)
+			continue;
+
+		ret = get_genl_family_id(&(nl_genl_list[i].id), nl_genl_list[i].name, strlen(nl_genl_list[i].name) + 1);
+		if (ret)
+			pr_warn("Unable to find genlik id for %s\n", nl_genl_list[i].name);
+
+		pr_debug("Found genl id %d for %s\n", nl_genl_list[i].id, nl_genl_list[i].name);
+	}
+}
+
+static int16_t get_cached_genl_family_id(char *name)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(nl_genl_list); i++) {
+		if (!strcmp(nl_genl_list[i].name, name) && nl_genl_list[i].id)
+			return nl_genl_list[i].id;
+	}
+
+	return -1;
+}
+
+struct ovs_vport {
+	OvsVportEntry vport_entry;
+	int ifindex;
+	char name[IFNAMSIZ];
+	struct list_head list;
+};
+
+struct ovs_datapath {
+	OvsDatapathLinkEntry dp_entry;
+	int ifindex;
+	char name[IFNAMSIZ];
+	struct list_head vports_head;
+	struct list_head list;
+};
+
+static LIST_HEAD(ovs_dp_head);
+
+/*
+ * 128 bytes should be sufficient for most OVS requests connected to datapaths\vports,
+ * because there are like 5-6 int values and one string 16< bytes long
+ */
+
+struct ovs_request {
+	struct nlmsghdr h;
+	struct genlmsghdr gh;
+	struct ovs_header ovsh;
+	char buf[128];
+};
+
+static int rc_dump_one_vport(struct nlmsghdr *h, struct ns_id *ns, void *arg)
+{
+	struct nlattr *tb[OVS_VPORT_ATTR_MAX + 1];
+	struct list_head *vport_head = arg;
+	struct ovs_vport *item = NULL;
+
+	item = xzalloc(sizeof(struct ovs_vport));
+	if (!item)
+		return -ENOMEM;
+
+	ovs_vport_entry__init(&item->vport_entry);
+	list_add(&item->list, vport_head);
+
+	nlmsg_parse(h, sizeof(struct genlmsghdr) + sizeof(struct ovs_header), tb, OVS_VPORT_ATTR_MAX, NULL);
+
+	BUG_ON(!tb[OVS_VPORT_ATTR_NAME]);
+	strncpy(item->name, nla_data(tb[OVS_VPORT_ATTR_NAME]), IFNAMSIZ - 1);
+	item->vport_entry.name = (void *)item->name;
+
+	BUG_ON(!tb[OVS_VPORT_ATTR_TYPE]);
+	item->vport_entry.type = nla_get_s32(tb[OVS_VPORT_ATTR_TYPE]);
+
+	BUG_ON(!tb[OVS_VPORT_ATTR_PORT_NO]);
+	item->vport_entry.port_no = nla_get_u32(tb[OVS_VPORT_ATTR_PORT_NO]);
+
+	if (tb[OVS_VPORT_ATTR_UPCALL_PID])
+		item->vport_entry.upcall_pid = nla_get_u32(tb[OVS_VPORT_ATTR_UPCALL_PID]);
+	else
+		item->vport_entry.upcall_pid = 0;
+
+	if (tb[OVS_VPORT_ATTR_IFINDEX])
+		item->ifindex = nla_get_s32(tb[OVS_VPORT_ATTR_IFINDEX]);
+
+	if (item->vport_entry.type > OVS_VPORT_TYPE_INTERNAL) {
+		pr_err("Unsupported openvswitch port type %d (%s)\n", item->vport_entry.type, item->name);
+		return -ENOTSUP;
+	}
+
+	return 0;
+}
+
+static int dump_ovs_vports(int master_ifindex, struct list_head *head, int sk)
+{
+	int16_t ovs_vport_genl_id;
+	int ret;
+	struct ovs_request rq;
+
+	ovs_vport_genl_id = get_cached_genl_family_id(OVS_VPORT_FAMILY);
+	if (ovs_vport_genl_id < 0) {
+		pr_err("Unable to get %s genl_family id\n", OVS_VPORT_FAMILY);
+		return -1;
+	}
+
+	memset(&rq, 0, sizeof(rq));
+	rq.h.nlmsg_len = NLMSG_LENGTH(sizeof(struct genlmsghdr) + sizeof(struct ovs_header));
+	rq.h.nlmsg_type = ovs_vport_genl_id;
+	rq.h.nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK | NLM_F_DUMP;
+	rq.h.nlmsg_pid = 0;
+	rq.h.nlmsg_seq = CR_NLMSG_SEQ;
+
+	rq.gh.cmd = OVS_VPORT_CMD_GET;
+	rq.gh.version = OVS_VPORT_VERSION;
+
+	rq.ovsh.dp_ifindex = master_ifindex;
+
+	ret = do_rtnl_req(sk, &rq, rq.h.nlmsg_len, rc_dump_one_vport, NULL, NULL, head);
+	if (ret < 0)
+		pr_err("Error %d %s while dumping vport on datapath %d\n", ret, strerror(ret), master_ifindex);
+
+	return 0;
+}
+
+
+static int rc_dump_one_dp(struct nlmsghdr *h, struct ns_id *ns, void *arg)
+{
+	struct nlattr *tb[OVS_DP_ATTR_MAX + 1];
+	struct list_head *dp_head = arg;
+	struct ovs_datapath *item = NULL;
+
+	item = xzalloc(sizeof(struct ovs_datapath));
+	if (!item)
+		return -ENOMEM;
+
+	ovs_datapath_link_entry__init(&item->dp_entry);
+	list_add(&item->list, dp_head);
+	INIT_LIST_HEAD(&item->vports_head);
+
+	nlmsg_parse(h, sizeof(struct genlmsghdr) + sizeof(struct ovs_header), tb, OVS_DP_ATTR_MAX, NULL);
+
+	BUG_ON(!tb[OVS_DP_ATTR_USER_FEATURES]);
+	item->dp_entry.features = nla_get_u32(tb[OVS_DP_ATTR_USER_FEATURES]);
+
+	BUG_ON(!tb[OVS_DP_ATTR_NAME]);
+	strncpy(item->name, nla_data(tb[OVS_DP_ATTR_NAME]), IFNAMSIZ - 1);
+	item->dp_entry.name = (void *)item->name;
+
+	if (tb[OVS_DP_ATTR_UPCALL_PID])
+		item->dp_entry.upcall_pid = nla_get_u32(tb[OVS_DP_ATTR_UPCALL_PID]);
+	else
+		item->dp_entry.upcall_pid = 0;
+
+	item->ifindex = ((struct ovs_request *)h)->ovsh.dp_ifindex;
+
+	return 0;
+}
+
+static int dump_all_dp()
+{
+	int16_t ovs_dp_genl_id;
+	int ret, sk;
+	struct ovs_request rq;
+	struct ovs_datapath *dp;
+
+	ovs_dp_genl_id = get_cached_genl_family_id(OVS_DATAPATH_FAMILY);
+	if (ovs_dp_genl_id < 0) {
+		pr_err("Unable to get %s genl_family id\n", OVS_DATAPATH_FAMILY);
+		return -1;
+	}
+
+	sk = socket(AF_NETLINK, SOCK_RAW, NETLINK_GENERIC);
+	if (sk < 0) {
+		pr_perror("Can't open netlink socket for dump");
+		return -1;
+	}
+
+	memset(&rq, 0, sizeof(rq));
+	rq.h.nlmsg_len = NLMSG_LENGTH(sizeof(struct genlmsghdr) + sizeof(struct ovs_header));
+	rq.h.nlmsg_type = ovs_dp_genl_id;
+	rq.h.nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK | NLM_F_DUMP;
+	rq.h.nlmsg_pid = 0;
+	rq.h.nlmsg_seq = CR_NLMSG_SEQ;
+
+	rq.gh.cmd = OVS_DP_CMD_GET;
+	rq.gh.version = OVS_DATAPATH_VERSION;
+
+	ret = do_rtnl_req(sk, &rq, rq.h.nlmsg_len, rc_dump_one_dp, NULL, NULL, &ovs_dp_head);
+	if (ret < 0) {
+		pr_err("Error while dumping datapaths %d %s\n", ret, strerror(ret));
+		goto out;
+	}
+
+	list_for_each_entry(dp, &ovs_dp_head, list) {
+		ret = dump_ovs_vports(dp->ifindex, &dp->vports_head, sk);
+		if (ret)
+			goto out;
+	}
+
+out:
+	close(sk);
+	return ret;
+}
+
+static int fill_ovs_layout()
+{
+	if (!list_empty(&ovs_dp_head)) {
+		pr_err("Openvswitch layout map already exists!\n");
+		return -1;
+	}
+
+	return dump_all_dp();
+}
+
+static void free_ovs_layout()
+{
+	struct ovs_datapath *dp, *dp_next;
+	struct ovs_vport *vp, *vp_next;
+
+	list_for_each_entry_safe(dp, dp_next, &ovs_dp_head, list) {
+		list_for_each_entry_safe(vp, vp_next, &dp->vports_head, list) {
+			list_del(&vp->list);
+			free(vp);
+		}
+
+		list_del(&dp->list);
+		free(dp);
+	}
+}
+
+static struct ovs_datapath *find_ovs_datapath(int ifindex)
+{
+	struct ovs_datapath *dp;
+
+	list_for_each_entry(dp, &ovs_dp_head, list)
+		if (dp->ifindex == ifindex)
+			return dp;
+
+	return NULL;
+}
+
+static struct ovs_vport *find_ovs_vport(int ifindex)
+{
+	struct ovs_datapath *dp;
+	struct ovs_vport *vp;
+
+	list_for_each_entry(dp, &ovs_dp_head, list)
+		list_for_each_entry(vp, &dp->vports_head, list)
+			if (vp->ifindex == ifindex)
+				return vp;
+
+	return NULL;
+}
+
 int write_netdev_img(NetDeviceEntry *nde, struct cr_imgset *fds, struct nlattr **info)
 {
 	return pb_write_one(img_from_set(fds, CR_FD_NETDEV), nde, PB_NETDEV);
@@ -538,8 +810,20 @@ static int dump_one_netdev(int type, struct ifinfomsg *ifi,
 	}
 
 	if (tb[IFLA_MASTER]) {
+		struct ovs_vport *vp;
+
 		netdev.has_master = true;
 		netdev.master = nla_get_u32(tb[IFLA_MASTER]);
+
+		if (find_ovs_datapath(netdev.master)) {
+			vp = find_ovs_vport(netdev.ifindex);
+			if (!vp) {
+				pr_err("Master link is ovs datapath, but no vport exists for given ifindex\n");
+				return -ENOENT;
+			}
+
+			netdev.vz_ovs_vport = &vp->vport_entry;
+		}
 	}
 
 	netdev.n_conf4 = size4;
@@ -765,6 +1049,48 @@ static int dump_vxlan(NetDeviceEntry *nde, struct cr_imgset *imgset, struct nlat
 	return write_netdev_img(nde, imgset, info);
 }
 
+static int dump_one_ovs(NetDeviceEntry *nde, struct cr_imgset *imgset, struct nlattr **info)
+{
+	struct ovs_datapath *dp;
+	struct ovs_vport *vp;
+	int ifindex = nde->ifindex;
+
+	/*
+	 * Netdev can be either datapath or internal vport
+	 */
+
+	dp = find_ovs_datapath(ifindex);
+	vp = find_ovs_vport(ifindex);
+
+	if (dp) {
+		nde->type = ND_TYPE__VZ_OVS_DATAPATH;
+		nde->vz_ovs_dp = &dp->dp_entry;
+
+		/* datapath upcall pid exposed via its vport */
+		if (!vp) {
+			pr_err("No vport for datapath %s\n", dp->name);
+			goto err;
+		}
+
+		dp->dp_entry.upcall_pid = vp->vport_entry.upcall_pid;
+
+		goto success;
+	}
+
+	if (vp) {
+		nde->type = ND_TYPE__VZ_OVS_INTERNAL_VPORT;
+		nde->vz_ovs_vport = &vp->vport_entry;
+		goto success;
+	}
+
+err:
+	pr_err("Openvswitch link %d cannot be dumped\n", ifindex);
+	return -ENOENT;
+
+success:
+	return write_netdev_img(nde, imgset, NULL);
+}
+
 static int dump_one_ethernet(struct ifinfomsg *ifi, char *kind,
 		struct nlattr **tb, struct ns_id *ns, struct cr_imgset *fds)
 {
@@ -801,6 +1127,8 @@ static int dump_one_ethernet(struct ifinfomsg *ifi, char *kind,
 		return dump_one_netdev(ND_TYPE__MACVLAN, ifi, tb, ns, fds, dump_macvlan);
 	if (!strcmp(kind, "vxlan"))
 		return dump_one_netdev(ND_TYPE__VZ_VXLAN, ifi, tb, ns, fds, dump_vxlan);
+	if (!strcmp(kind, "openvswitch"))
+		return dump_one_netdev(ND_TYPE__VZ_OVS_DATAPATH, ifi, tb, ns, fds, dump_one_ovs);
 
 	return dump_unknown_device(ifi, kind, tb, ns, fds);
 }
@@ -1659,6 +1987,88 @@ out:
 	return ret;
 }
 
+static int create_one_dp(OvsDatapathLinkEntry *dp_entry, int genlsk)
+{
+	int16_t ovs_dp_genl_id;
+	int ret;
+	struct ovs_request rq;
+
+	ovs_dp_genl_id = get_cached_genl_family_id(OVS_DATAPATH_FAMILY);
+	if (ovs_dp_genl_id < 0) {
+		pr_err("Unable to get %s genl_family id\n", OVS_DATAPATH_FAMILY);
+		return -1;
+	}
+
+	memset(&rq, 0, sizeof(rq));
+	rq.h.nlmsg_len = NLMSG_LENGTH(sizeof(struct genlmsghdr) + sizeof(struct ovs_header));
+	rq.h.nlmsg_type = ovs_dp_genl_id;
+	rq.h.nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK | NLM_F_CREATE;
+	rq.h.nlmsg_pid = 0;
+	rq.h.nlmsg_seq = CR_NLMSG_SEQ;
+
+	rq.gh.cmd = OVS_DP_CMD_NEW;
+	rq.gh.version = OVS_DATAPATH_VERSION;
+
+	addattr_l(&rq.h, sizeof(rq), OVS_DP_ATTR_NAME, dp_entry->name, strlen(dp_entry->name) + 1);
+	addattr_l(&rq.h, sizeof(rq), OVS_DP_ATTR_USER_FEATURES, &dp_entry->features, sizeof(dp_entry->features));
+	addattr_l(&rq.h, sizeof(rq), OVS_DP_ATTR_UPCALL_PID, &dp_entry->upcall_pid, sizeof(dp_entry->upcall_pid));
+
+	ret = do_rtnl_req(genlsk, &rq, rq.h.nlmsg_len, NULL, NULL, NULL, NULL);
+
+	return ret;
+}
+
+static int create_one_vport(OvsVportEntry *entry, int master_ifindex, int genlsk)
+{
+	int16_t ovs_vport_genl_id;
+	int ret;
+	struct ovs_request rq;
+
+	ovs_vport_genl_id = get_cached_genl_family_id(OVS_VPORT_FAMILY);
+	if (ovs_vport_genl_id < 0) {
+		pr_err("Unable to get %s genl_family id\n", OVS_VPORT_FAMILY);
+		return -1;
+	}
+
+	memset(&rq, 0, sizeof(rq));
+	rq.h.nlmsg_len = NLMSG_LENGTH(sizeof(struct genlmsghdr) + sizeof(struct ovs_header));
+	rq.h.nlmsg_type = ovs_vport_genl_id;
+	rq.h.nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK;
+	rq.h.nlmsg_pid = 0;
+	rq.h.nlmsg_seq = CR_NLMSG_SEQ;
+
+	rq.gh.cmd = OVS_VPORT_CMD_NEW;
+	rq.gh.version = OVS_VPORT_VERSION;
+
+	rq.ovsh.dp_ifindex = master_ifindex;
+
+	addattr_l(&rq.h, sizeof(rq), OVS_VPORT_ATTR_NAME, entry->name, strlen(entry->name) + 1);
+	addattr_l(&rq.h, sizeof(rq), OVS_VPORT_ATTR_UPCALL_PID, &entry->upcall_pid, sizeof(entry->upcall_pid));
+	addattr_l(&rq.h, sizeof(rq), OVS_VPORT_ATTR_TYPE, &entry->type, sizeof(entry->type));
+	addattr_l(&rq.h, sizeof(rq), OVS_VPORT_ATTR_PORT_NO, &entry->port_no, sizeof(entry->port_no));
+
+	ret = do_rtnl_req(genlsk, &rq, rq.h.nlmsg_len, NULL, NULL, NULL, NULL);
+
+	return ret;
+}
+
+static int restore_ovs_dp(struct ns_id *ns, struct net_link *link, int genlsk)
+{
+	BUG_ON(!link->nde->vz_ovs_dp);
+	if (create_one_dp(link->nde->vz_ovs_dp, genlsk)) {
+		pr_perror("Unable to restore datapath %s", link->nde->vz_ovs_dp->name);
+		return -1;
+	}
+
+	return restore_link_parms(link, ns->net.nlsk);
+}
+
+static int restore_ovs_internal_port(struct ns_id *ns, struct net_link *link, int genlsk)
+{
+	pr_err("Unable to restore ovs internal vport");
+	return -1;
+}
+
 static int sit_link_info(struct ns_id *ns, struct net_link *link, struct newlink_req *req)
 {
 	NetDeviceEntry *nde = link->nde;
@@ -1772,6 +2182,10 @@ static int __restore_link(struct ns_id *ns, struct net_link *link, int nlsk)
 		return restore_one_link(ns, link, nlsk, vxlan_link_info, NULL);
 	case ND_TYPE__SIT:
 		return restore_one_link(ns, link, nlsk, sit_link_info, NULL);
+	case ND_TYPE__VZ_OVS_DATAPATH:
+		return restore_ovs_dp(ns, link, ns->net.genlsk);
+	case ND_TYPE__VZ_OVS_INTERNAL_VPORT:
+		return restore_ovs_internal_port(ns, link, ns->net.genlsk);
 	default:
 		pr_err("Unsupported link type %d\n", link->nde->type);
 		break;
@@ -1846,7 +2260,14 @@ exit:
 	return ret;
 }
 
-static int restore_master_link(int nlsk, struct ns_id *ns, struct net_link *link)
+static int restore_ovs_master(struct net_link *link, struct net_link *mlink, int genlsk)
+{
+	BUG_ON(!link->nde->vz_ovs_vport);
+
+	return create_one_vport(link->nde->vz_ovs_vport, mlink->nde->ifindex, genlsk);
+}
+
+static int restore_ifla_master(int nlsk, struct ns_id *ns, struct net_link *link)
 {
 	struct newlink_req req;
 
@@ -1875,6 +2296,17 @@ struct net_link *lookup_net_link(struct ns_id *ns, uint32_t ifindex)
 			return link;
 
 	return NULL;
+}
+
+static int restore_master_link(int nlsk, struct ns_id *ns, struct net_link *link)
+{
+	struct net_link *mlink = NULL;
+	mlink = lookup_net_link(ns, link->nde->master);
+
+	if (mlink && mlink->nde->type == ND_TYPE__VZ_OVS_DATAPATH)
+		return restore_ovs_master(link, mlink, ns->net.genlsk);
+	else
+		return restore_ifla_master(nlsk, ns, link);
 }
 
 static int __restore_links(struct ns_id *nsid, int *nrlinks, int *nrcreated)
@@ -1947,6 +2379,8 @@ static int restore_links()
 {
 	int nrcreated, nrlinks;
 	struct ns_id *nsid;
+
+	fill_genl_families();
 
 	while (true) {
 		nrcreated = 0;
@@ -2646,14 +3080,17 @@ int net_set_ext(struct ns_id *ns)
 int dump_net_ns(struct ns_id *ns)
 {
 	struct cr_imgset *fds;
-	int ret;
+	int ret = -1;
+
+	if (fill_ovs_layout())
+		return -1;
 
 	if (fini_dump_sockets(ns))
-		return -1;
+		goto out_ovs;
 
 	fds = cr_imgset_open(ns->id, NETNS, O_DUMP);
 	if (fds == NULL)
-		return -1;
+		goto out_ovs;
 
 	ret = mount_ns_sysfs();
 	if (ns->ext_key) {
@@ -2716,6 +3153,10 @@ out:
 	ns_sysfs_fd = -1;
 
 	close_cr_imgset(&fds);
+
+out_ovs:
+	free_ovs_layout();
+
 	return ret;
 }
 
@@ -2923,6 +3364,11 @@ static int __prepare_net_namespaces(void *arg)
 			goto err;
 		}
 
+		nsid->net.genlsk = socket(AF_NETLINK, SOCK_RAW, NETLINK_GENERIC);
+		if (nsid->net.genlsk < 0) {
+			pr_perror("Can't open generic netlink socket");
+			goto err;
+		}
 	}
 
 	if (restore_links())
@@ -2939,6 +3385,7 @@ static int __prepare_net_namespaces(void *arg)
 			goto err;
 
 		close_safe(&nsid->net.nlsk);
+		close_safe(&nsid->net.genlsk);
 	}
 
 	close_service_fd(NS_FD_OFF);
@@ -3366,6 +3813,8 @@ static int collect_net_ns(struct ns_id *ns, void *oarg)
 
 int collect_net_namespaces(bool for_dump)
 {
+	fill_genl_families();
+
 	return walk_namespaces(&net_ns_desc, collect_net_ns,
 			(void *)(for_dump ? 1UL : 0));
 }
