@@ -1709,6 +1709,9 @@ int open_fd_of_real_pid(pid_t pid, int fd, int flags)
  * 	get_relative_path("/a/b/c", "/") would be "a/b/c"
  * 	get_relative_path("/a/b/c", "/a/b") would be "c"
  * 	get_relative_path("/", "/") would be ""
+ * 4) It can handle paths with single dots:
+ * 	get_relative_path("./a/b", "a/") would be "b"
+ * 5) Note ".." in paths are not supported and handled as normal directory name
  */
 char *get_relative_path(char *path, char *sub_path)
 {
@@ -1720,9 +1723,13 @@ char *get_relative_path(char *path, char *sub_path)
 			skip_slashes = true;
 
 		if (skip_slashes) {
-			while (*path == '/')
+			while (*path == '/' ||
+			       (path[0] == '.' && (path[1] == '/' ||
+						   path[1] == '\0')))
 				path++;
-			while (*sub_path == '/')
+			while (*sub_path == '/' ||
+			       (sub_path[0] == '.' && (sub_path[1] == '/' ||
+						       sub_path[1] == '\0')))
 				sub_path++;
 		}
 
