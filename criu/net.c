@@ -575,6 +575,7 @@ struct ovs_vport {
 	OvsVportEntry vport_entry;
 	int ifindex;
 	char name[IFNAMSIZ];
+	OvsVportTunnelOptions to;
 	struct list_head list;
 };
 
@@ -611,6 +612,7 @@ static int rc_dump_one_vport(struct nlmsghdr *h, struct ns_id *ns, void *arg)
 		return -ENOMEM;
 
 	ovs_vport_entry__init(&item->vport_entry);
+	ovs_vport_tunnel_options__init(&item->to);
 	list_add(&item->list, vport_head);
 
 	nlmsg_parse(h, sizeof(struct genlmsghdr) + sizeof(struct ovs_header), tb, OVS_VPORT_ATTR_MAX, NULL);
@@ -633,10 +635,30 @@ static int rc_dump_one_vport(struct nlmsghdr *h, struct ns_id *ns, void *arg)
 	if (tb[OVS_VPORT_ATTR_IFINDEX])
 		item->ifindex = nla_get_s32(tb[OVS_VPORT_ATTR_IFINDEX]);
 
-	if (item->vport_entry.type > OVS_VPORT_TYPE_INTERNAL) {
+	if (tb[OVS_VPORT_ATTR_OPTIONS]) {
+		struct nlattr *vp_attr[OVS_TUNNEL_ATTR_MAX + 1];
+
+		nla_parse_nested(vp_attr, OVS_TUNNEL_ATTR_MAX, tb[OVS_VPORT_ATTR_OPTIONS], NULL);
+
+		if (vp_attr[OVS_TUNNEL_ATTR_DST_PORT]) {
+			item->to.port = *(uint16_t *)nla_data(vp_attr[OVS_TUNNEL_ATTR_DST_PORT]);
+			item->vport_entry.opt = &item->to;
+		}
+
+		if (vp_attr[OVS_TUNNEL_ATTR_EXTENSION]) {
+			pr_err("Unsupported value OVS_TUNNEL_ATTR_EXTENSION at port %s\n", item->name);
+			return -ENOTSUP;
+		}
+	}
+
+	if (item->vport_entry.type > OVS_VPORT_TYPE_INTERNAL && item->vport_entry.type != OVS_VPORT_TYPE_VXLAN) {
 		pr_err("Unsupported openvswitch port type %d (%s)\n", item->vport_entry.type, item->name);
 		return -ENOTSUP;
 	}
+
+	/* Currently we create vxlan through rtnetlink and just plug it as netdev rather than ovs */
+	if (item->vport_entry.type == OVS_VPORT_TYPE_VXLAN)
+		item->vport_entry.type = OVS_VPORT_TYPE_NETDEV;
 
 	return 0;
 }
@@ -2289,6 +2311,22 @@ static int create_one_vport(OvsVportEntry *entry, int master_ifindex, int genlsk
 	addattr_l(&rq.h, sizeof(rq), OVS_VPORT_ATTR_UPCALL_PID, &entry->upcall_pid, sizeof(entry->upcall_pid));
 	addattr_l(&rq.h, sizeof(rq), OVS_VPORT_ATTR_TYPE, &entry->type, sizeof(entry->type));
 	addattr_l(&rq.h, sizeof(rq), OVS_VPORT_ATTR_PORT_NO, &entry->port_no, sizeof(entry->port_no));
+
+	/*
+	 * This code is unused for now since we make all vxlan vports into netdev vports because
+	 * there are no API to specify ifindex of vxlan netdev created through ovs.
+	 * Following code will come in handy later!
+	 */
+	if (entry->type == OVS_VPORT_TYPE_VXLAN && entry->opt) {
+		struct rtattr *opt;
+		int16_t port = entry->opt->port;
+
+		opt = NLMSG_TAIL(&rq.h);
+		addattr_l(&rq.h, sizeof(rq), OVS_VPORT_ATTR_OPTIONS, NULL, 0);
+		addattr_l(&rq.h, sizeof(rq), OVS_TUNNEL_ATTR_DST_PORT, &port, sizeof(port));
+
+		opt->rta_len = (void *)NLMSG_TAIL(&rq.h) - (void *)opt;
+	}
 
 	ret = do_rtnl_req(genlsk, &rq, rq.h.nlmsg_len, NULL, NULL, NULL, NULL);
 
