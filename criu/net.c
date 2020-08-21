@@ -627,6 +627,8 @@ static int rc_dump_one_vport(struct nlmsghdr *h, struct ns_id *ns, void *arg)
 	BUG_ON(!tb[OVS_VPORT_ATTR_PORT_NO]);
 	item->vport_entry.port_no = nla_get_u32(tb[OVS_VPORT_ATTR_PORT_NO]);
 
+	item->vport_entry.datapath_ifindex = ((struct ovs_request *)h)->ovsh.dp_ifindex;
+
 	if (tb[OVS_VPORT_ATTR_UPCALL_PID])
 		item->vport_entry.upcall_pid = nla_get_u32(tb[OVS_VPORT_ATTR_UPCALL_PID]);
 	else
@@ -2283,7 +2285,7 @@ static int create_one_dp(OvsDatapathLinkEntry *dp_entry, int genlsk)
 	return ret;
 }
 
-static int create_one_vport(OvsVportEntry *entry, int master_ifindex, int genlsk)
+static int create_one_vport(OvsVportEntry *entry, int genlsk)
 {
 	int16_t ovs_vport_genl_id;
 	int ret;
@@ -2305,7 +2307,7 @@ static int create_one_vport(OvsVportEntry *entry, int master_ifindex, int genlsk
 	rq.gh.cmd = OVS_VPORT_CMD_NEW;
 	rq.gh.version = OVS_VPORT_VERSION;
 
-	rq.ovsh.dp_ifindex = master_ifindex;
+	rq.ovsh.dp_ifindex = entry->datapath_ifindex;
 
 	addattr_l(&rq.h, sizeof(rq), OVS_VPORT_ATTR_NAME, entry->name, strlen(entry->name) + 1);
 	addattr_l(&rq.h, sizeof(rq), OVS_VPORT_ATTR_UPCALL_PID, &entry->upcall_pid, sizeof(entry->upcall_pid));
@@ -2346,8 +2348,13 @@ static int restore_ovs_dp(struct ns_id *ns, struct net_link *link, int genlsk)
 
 static int restore_ovs_internal_port(struct ns_id *ns, struct net_link *link, int genlsk)
 {
-	pr_err("Unable to restore ovs internal vport\n");
-	return -1;
+	BUG_ON(!link->nde->vz_ovs_vport);
+	if (create_one_vport(link->nde->vz_ovs_vport, genlsk)) {
+		pr_perror("Unable to restore vport %s", link->nde->vz_ovs_vport->name);
+		return -1;
+	}
+
+	return restore_link_parms(link, ns->net.nlsk);
 }
 
 static int sit_link_info(struct ns_id *ns, struct net_link *link, struct newlink_req *req)
@@ -2551,11 +2558,10 @@ exit:
 	return ret;
 }
 
-static int restore_ovs_master(struct net_link *link, struct net_link *mlink, int genlsk)
+static int restore_ovs_master(struct net_link *link, int genlsk)
 {
 	BUG_ON(!link->nde->vz_ovs_vport);
-
-	return create_one_vport(link->nde->vz_ovs_vport, mlink->nde->ifindex, genlsk);
+	return create_one_vport(link->nde->vz_ovs_vport, genlsk);
 }
 
 static int restore_ifla_master(int nlsk, struct ns_id *ns, struct net_link *link)
@@ -2594,7 +2600,7 @@ static int restore_master_link(int nlsk, struct ns_id *ns, struct net_link *link
 	mlink = lookup_net_link(ns, link->nde->master);
 
 	if (mlink && mlink->nde->type == ND_TYPE__VZ_OVS_DATAPATH)
-		return restore_ovs_master(link, mlink, ns->net.genlsk);
+		return restore_ovs_master(link, ns->net.genlsk);
 	else
 		return restore_ifla_master(nlsk, ns, link);
 }
@@ -2646,6 +2652,24 @@ static int __restore_links(struct ns_id *nsid, int *nrlinks, int *nrcreated)
 				pr_debug("The iface %d:%d:%s isn't created yet for vxlan %d:%d:%s",
 					 nsid->id, tlink->nde->ifindex, tlink->nde->name,
 					 nsid->id, link->nde->ifindex, link->nde->name);
+				continue;
+			}
+		}
+
+		if (link->nde->type == ND_TYPE__VZ_OVS_INTERNAL_VPORT) {
+			struct net_link *dplink;
+
+			BUG_ON(!link->nde->vz_ovs_vport);
+			dplink = lookup_net_link(nsid, link->nde->vz_ovs_vport->datapath_ifindex);
+
+			if (dplink == NULL) {
+				pr_err("Unable to find the %d datapath\n", link->nde->vz_ovs_vport->datapath_ifindex);
+				return -1;
+			}
+
+			if (!dplink->created) {
+				pr_debug("The datapath %d:%d:%s isn't created yet, can't restore vport",
+					 nsid->id, dplink->nde->ifindex, dplink->nde->name);
 				continue;
 			}
 		}
