@@ -16,4 +16,5 @@ message ovs_vport_entry {
 	required string name = 3;
 	required uint32 upcall_pid = 4;
 	optional ovs_vport_tunnel_options opt = 5;
+	required uint32 datapath_ifindex = 6;
 }
