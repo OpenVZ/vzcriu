@@ -427,6 +427,7 @@ TST_DIR		=				\
 		netns_sysfs			\
 		mount_complex_sharing		\
 		detached_namespace_with_bindmount	\
+		openvswitch00			\
 
 TST_DIR_FILE	=				\
 		chroot				\
