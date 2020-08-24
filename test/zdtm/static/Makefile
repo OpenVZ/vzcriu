@@ -397,6 +397,7 @@ TST_DIR		=				\
 		mount_complex_sharing		\
 		detached_namespace_with_bindmount	\
 		unbindable			\
+		openvswitch00			\
 
 TST_DIR_FILE	=				\
 		chroot				\
