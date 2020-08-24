@@ -1,0 +1,3 @@
+{   'deps': ['/bin/sh', '/sbin/ip', '/bin/mknod', '/bin/ovs-dpctl', '/bin/diff'],
+    'flags': 'suid',
+    'flavor': 'ns'}

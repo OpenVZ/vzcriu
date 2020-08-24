@@ -491,6 +491,7 @@ TST_DIR		=				\
 		pidns_proc_ro			\
 		netns_sysfs			\
 		detached_namespace_with_bindmount	\
+		openvswitch00			\
 
 TST_DIR_FILE	=				\
 		chroot				\
