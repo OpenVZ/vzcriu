@@ -4582,7 +4582,7 @@ static int ns_remount_writable(void *arg)
 	return 0;
 }
 
-int try_remount_writable(struct mount_info *mi, bool ns)
+int try_remount_writable(struct mount_info *mi, enum remount_rw_mode mode)
 {
 	int remounted = REMOUNTED_RW;
 
@@ -4590,7 +4590,7 @@ int try_remount_writable(struct mount_info *mi, bool ns)
 	if (!(root_ns_mask & CLONE_NEWNS))
 		return 0;
 
-	if (!ns)
+	if (mode == REMOUNT_IN_SERVICE_MNTNS)
 		remounted = REMOUNTED_RW_SERVICE;
 
 	/* All mounts in mntinfo list should have it on restore */
@@ -4609,13 +4609,19 @@ int try_remount_writable(struct mount_info *mi, bool ns)
 		}
 
 		pr_info("Remount %d:%s writable\n", mi->mnt_id, service_mountpoint(mi));
-		if (!ns) {
+		if (mode == REMOUNT_IN_SERVICE_MNTNS) {
 			if (mount(NULL, service_mountpoint(mi), NULL, MS_REMOUNT | MS_BIND |
 				  (mi->flags & ~(MS_PROPAGATE | MS_RDONLY)), NULL) == -1) {
 				pr_perror("Failed to remount %d:%s writable", mi->mnt_id, service_mountpoint(mi));
 				return -1;
 			}
-		} else {
+		} else if (mode == REMOUNT_IN_SERVICE_MNTNS_MOVED) {
+			if (mount(NULL, mi->mountpoint, NULL, MS_REMOUNT | MS_BIND |
+				  (mi->flags & ~(MS_PROPAGATE | MS_RDONLY)), NULL) == -1) {
+				pr_perror("Failed to remount %d:%s writable", mi->mnt_id, mi->mountpoint);
+				return -1;
+			}
+		} else if (mode == REMOUNT_IN_REAL_MNTNS) {
 			if (call_in_child_process(ns_remount_writable, mi))
 				return -1;
 		}

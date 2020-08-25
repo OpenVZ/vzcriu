@@ -828,6 +828,14 @@ static int move_mount_to_tree(struct mount_info *mi)
 		struct mount_info *c;
 		int len;
 
+		BUG_ON(!mi->parent);
+
+		if (try_remount_writable(mi->parent, REMOUNT_IN_SERVICE_MNTNS_MOVED)) {
+			pr_err("Failed to remount rw parent mount of internal yard %d\n",
+			       mi->nsid->id);
+			return -1;
+		}
+
 		if (!mkdtemp(mi->mountpoint)) {
 			pr_perror("Failed to create temporary dir for internal yard %d\n",
 				  mi->nsid->id);

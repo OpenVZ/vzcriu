@@ -486,7 +486,7 @@ static int create_ghost(struct ghost_file *gf, GhostFileEntry *gfe, struct cr_im
 	pr_debug("Trying to create ghost on plain path %s\n", path);
 
 	/* We get here while in service mntns */
-	if (try_remount_writable(mi, false))
+	if (try_remount_writable(mi, REMOUNT_IN_SERVICE_MNTNS))
 		return -1;
 
 	if (create_ghost_dentry(path, gfe, img))
@@ -1122,7 +1122,7 @@ static int clean_one_remap(struct remap_info *ri)
 		 strlen(rel_path) ? "/" : "", rel_path);
 
 	/* We get here while in service mntns */
-	if (try_remount_writable(mi, false))
+	if (try_remount_writable(mi, REMOUNT_IN_SERVICE_MNTNS))
 		return -1;
 
 nomntns:
@@ -2520,7 +2520,7 @@ out:
 	mntns_root = mntns_get_root_fd(tmi->nsid);
 
 	/* We get here while in task's mntns */
-	if (try_remount_writable(tmi, true))
+	if (try_remount_writable(tmi, REMOUNT_IN_REAL_MNTNS))
 		return -1;
 
 	pr_debug("%d: Link %s -> %s\n", tmi->mnt_id, rpath, path);
@@ -2751,7 +2751,7 @@ ext:
 		if (!rfi->remap->is_dir) {
 			struct mount_info *mi = lookup_mnt_id(rfi->rfe->mnt_id);
 
-			if (try_remount_writable(mi, true))
+			if (try_remount_writable(mi, REMOUNT_IN_REAL_MNTNS))
 				goto err;
 
 			pr_debug("%d: Unlink: %s\n", rfi->rfe->mnt_id, rfi->path);
