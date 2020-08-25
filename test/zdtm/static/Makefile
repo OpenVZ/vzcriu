@@ -487,6 +487,7 @@ TST_DIR		=				\
 		unlink_dir			\
 		ns_file_bindmount		\
 		pidns_proc			\
+		pidns_proc_ro			\
 		netns_sysfs			\
 		detached_namespace_with_bindmount	\
 
