@@ -391,6 +391,7 @@ TST_DIR		=				\
 		mnt_ext_master_manual		\
 		ns_file_bindmount		\
 		pidns_proc			\
+		pidns_proc_ro			\
 		netns_sysfs			\
 		mount_complex_sharing		\
 		detached_namespace_with_bindmount	\
