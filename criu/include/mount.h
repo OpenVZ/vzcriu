@@ -29,6 +29,33 @@ struct ns_id;
 #define MNT_UNREACHABLE INT_MIN
 
 /*
+ * enum values indicate the mode of remounting mount as read-write:
+ *
+ * REMOUNT_IN_SERVICE_MNTNS - it means that remountable mount exists in
+ * service mount namespace only and will *not* be moved into restorable
+ * mount namespaces. So, these mounts will *not* be remounted as RO back.
+ *
+ * REMOUNT_IN_SERVICE_MNTNS_MOVED - it means that remountable mount
+ * exists in one of the restorable mount namespaces and it flags *must* be
+ * restored back. But you should use this flag *only* if you can't enter
+ * to mount namespace (because it doesn't exist at the moment). MOVED
+ * suffix means that mount was already moved into the future mntns yard
+ * tree from a plain structure.
+ *
+ * REMOUNT_IN_REAL_MNTNS - it means that remountable mount exists
+ * in one of restorable mount namespaces and it flags *must* be
+ * restored back. In this case, remounting will be done from real
+ * restored mount namespace context.
+ *
+ */
+
+enum remount_rw_mode {
+	REMOUNT_IN_SERVICE_MNTNS,
+	REMOUNT_IN_SERVICE_MNTNS_MOVED,
+	REMOUNT_IN_REAL_MNTNS,
+};
+
+/*
  * We have remounted these mount writable temporary, and we
  * should return it back to readonly at the end of file restore.
  */
@@ -219,7 +246,7 @@ extern struct mount_info *parse_mountinfo(pid_t pid, struct ns_id *nsid, bool fo
 extern int check_mnt_id(void);
 
 extern int remount_readonly_mounts(void);
-extern int try_remount_writable(struct mount_info *mi, bool ns);
+extern int try_remount_writable(struct mount_info *mi, enum remount_rw_mode mode);
 extern bool mnt_is_overmounted(struct mount_info *mi);
 
 extern struct mount_info *mnt_get_external_bind(struct mount_info *mi);
