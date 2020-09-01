@@ -749,6 +749,7 @@ static int collect_cgroups(struct list_head *ctls)
 
 		snprintf(path + path_pref_len, PATH_MAX - path_pref_len, "%s", root);
 
+		pr_info("Walking %s for %s\n", path, cc->name);
 		ret = ftw(path, add_cgroup, 4);
 
 		if (ret < 0)
@@ -2368,7 +2369,8 @@ static int rewrite_cgroup_roots(CgroupEntry *cge)
 			for (j = 0; j < ctrl->n_dirs; j++) {
 				CgroupDirEntry *cgde = ctrl->dirs[j];
 
-				pr_info("rewriting %s to %s\n", cgde->dir_name, newroot);
+				BUG_ON(!ctrl->n_cnames);
+				pr_info("rewriting [%s] %s to %s\n", ctrl->cnames[0], cgde->dir_name, newroot);
 				if (rewrite_cgsets(cge, ctrl->cnames, ctrl->n_cnames, &cgde->dir_name, newroot))
 					return -1;
 			}
