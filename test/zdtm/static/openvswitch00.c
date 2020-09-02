@@ -33,6 +33,13 @@ int main(int argc, char **argv)
 
 	test_init(argc, argv);
 
+#ifdef OPENVSWITCH01
+	if (unshare(CLONE_NEWNET)) {
+		pr_perror("can't unshare");
+		return 1;
+	}
+#endif
+
 	if (mkdir(dirname, 0700) < 0) {
 		pr_perror("Can't make dir");
 		exit(1);
