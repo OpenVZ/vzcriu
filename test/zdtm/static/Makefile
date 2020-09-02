@@ -398,6 +398,7 @@ TST_DIR		=				\
 		detached_namespace_with_bindmount	\
 		unbindable			\
 		openvswitch00			\
+		openvswitch01			\
 
 TST_DIR_FILE	=				\
 		chroot				\
@@ -613,6 +614,8 @@ thread_different_uid_gid:	LDLIBS += -pthread -lcap
 
 pidns03:		CFLAGS += -pthread
 pidns03:		LDFLAGS += -pthread
+
+openvswitch01:	CFLAGS += -DOPENVSWITCH01
 
 $(LIB):	force
 	$(Q) $(MAKE) -C $(LIBDIR)
