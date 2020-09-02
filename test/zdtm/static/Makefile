@@ -492,6 +492,7 @@ TST_DIR		=				\
 		netns_sysfs			\
 		detached_namespace_with_bindmount	\
 		openvswitch00			\
+		openvswitch01			\
 
 TST_DIR_FILE	=				\
 		chroot				\
@@ -753,6 +754,8 @@ mntns_deleted01: 	CFLAGS += -DZDTM_RM_MID
 
 pidns03:		CFLAGS += -pthread
 pidns03:		LDFLAGS += -pthread
+
+openvswitch01:	CFLAGS += -DOPENVSWITCH01
 
 $(LIB):	force
 	$(Q) $(MAKE) -C $(LIBDIR)
