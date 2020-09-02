@@ -240,6 +240,27 @@ static int do_new_mount_v2(struct mount_info *mi)
 
 LIST_HEAD(deleted_mounts);
 
+/*
+ * This function allows us to check that during source recreation
+ * of some deleted mount we also recreated source for mount "m".
+ */
+static int recreated_for_deleted_mnt(struct mount_info *m)
+{
+	struct mount_info *mi;
+
+	list_for_each_entry(mi, &deleted_mounts, deleted_list) {
+		/* skip deleted mounts which source is not recreated yet */
+		if (!mi->deleted_recreated)
+			continue;
+
+		if (m->s_dev && m->s_dev == mi->s_dev &&
+		    issubpath(mi->root, m->root))
+			return 1;
+	}
+
+	return 0;
+}
+
 static int do_bind_mount_v2(struct mount_info *mi)
 {
 	char mnt_fd_path[PSFDS];
@@ -343,8 +364,23 @@ do_bind:
 
 		if (mi->is_dir) {
 			if (mkdir(root, (st.st_mode & ~S_IFMT))) {
-				pr_perror("Can't re-create deleted directory %s", root);
-				goto err;
+				if (errno != EEXIST) {
+					pr_perror("Can't re-create deleted directory %s", root);
+					goto err;
+				}
+
+				if (!recreated_for_deleted_mnt(mi)) {
+					pr_err("Can't re-create deleted directory %s because it already exists", root);
+					goto err;
+				}
+			} else {
+				/*
+				 * Mark that deleted mount source was
+				 * recreated. Only in this case we will
+				 * explicitly remove mount source in
+				 * remove_sources_of_deleted_mounts().
+				 */
+				mi->deleted_recreated = true;
 			}
 		} else {
 			int fd = open(root, O_WRONLY | O_CREAT | O_EXCL,
@@ -1085,6 +1121,16 @@ static int remove_sources_of_deleted_mounts(void)
 	int ret = 0;
 
 	list_for_each_entry(mi, &deleted_mounts, deleted_list) {
+		/*
+		 * Skip removing the source of deleted mount if
+		 * we not explicitly created this source for mount.
+		 * Implicitly created source must be removed as
+		 * side-effect of removing source of some another
+		 * deleted mount.
+		 */
+		if (!mi->deleted_recreated)
+			continue;
+
 		if (remove_source_of_deleted_mount(mi))
 			ret = -1;
 	}
@@ -1327,6 +1373,7 @@ static int handle_nested_pidns_proc(void)
 			if (!h->root)
 				return -1;
 			h->deleted = false;
+			h->deleted_recreated = false;
 			h->s_dev = c->s_dev;
 			h->fstype = c->fstype;
 			h->is_dir = true;

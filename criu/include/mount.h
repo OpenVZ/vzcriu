@@ -130,6 +130,7 @@ struct mount_info {
 	bool			need_plugin;
 	bool			is_ns_root;
 	bool			deleted;
+	bool			deleted_recreated;
 	int			deleted_level;
 	struct list_head	deleted_list;
 	struct mount_info	*next;
