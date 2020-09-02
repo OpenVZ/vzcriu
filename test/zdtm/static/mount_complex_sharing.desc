@@ -1,1 +1,1 @@
-{'flavor': 'ns uns', 'flags': 'suid', 'ropts': '--mounts-v2'}
+{'flavor': 'ns uns', 'flags': 'suid', 'ropts': '--no-mounts-compat'}

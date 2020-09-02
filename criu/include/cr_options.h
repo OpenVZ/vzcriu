@@ -175,7 +175,7 @@ struct cr_options {
 	/* This stores which method to use for file validation. */
 	int 			file_validation_method;
 	int			check_mounts;
-	int			mounts_v2;
+	int			mounts_compat;
 };
 
 extern struct cr_options opts;

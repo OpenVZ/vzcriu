@@ -1155,15 +1155,15 @@ void criu_set_check_mounts(bool val)
 	criu_local_set_check_mounts(global_opts, val);
 }
 
-void criu_local_set_mounts_v2(criu_opts *opts, bool val)
+void criu_local_set_mounts_compat(criu_opts *opts, bool val)
 {
-	opts->rpc->has_vz_mounts_v2 = true;
-	opts->rpc->vz_mounts_v2 = val;
+	opts->rpc->has_vz_mounts_compat = true;
+	opts->rpc->vz_mounts_compat = val;
 }
 
-void criu_set_mounts_v2(bool val)
+void criu_set_mounts_compat(bool val)
 {
-	criu_local_set_mounts_v2(global_opts, val);
+	criu_local_set_mounts_compat(global_opts, val);
 }
 
 static CriuResp *recv_resp(int socket_fd)

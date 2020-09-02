@@ -542,7 +542,7 @@ int parse_options(int argc, char **argv, bool *usage_error,
 		{ "pre-dump-mode",		required_argument,	0, 1097},
 		{ "file-validation",		required_argument,	0, 1098	},
 		BOOL_OPT("check-mounts", &opts.check_mounts),
-		BOOL_OPT("mounts-v2", &opts.mounts_v2),
+		BOOL_OPT("mounts-compat", &opts.mounts_compat),
 		{ },
 	};
 

@@ -2504,8 +2504,7 @@ int unix_prepare_bindmount(struct mount_info *mi)
 	 * chroot(fake_mntns_root(=path)) -> chdir(ui->name_dir)
 	 * -> bind socket
 	 */
-	if (opts.mounts_v2)
-	{
+	if (!opts.mounts_compat) {
 		/*
 		 * We need to know on which mount socket was
 		 * bounded. We could determine that by taking
@@ -2613,7 +2612,7 @@ int unix_prepare_bindmount(struct mount_info *mi)
 		goto out;
 	}
 
-	if (opts.mounts_v2) {
+	if (!opts.mounts_compat) {
 		pr_debug("bindmount: Move mount %d back from %s to %s\n", sk_mi->mnt_id,
 			plain_mount_tmp, sk_mi->plain_mountpoint);
 		if (mount(plain_mount_tmp, sk_mi->plain_mountpoint, NULL, MS_MOVE, NULL)) {
