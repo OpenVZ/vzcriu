@@ -885,8 +885,8 @@ class criu_rpc:
 			if arg == "--check-mounts":
 				criu.opts.check_mounts = True
 				continue
-			if arg == "--mounts-v2":
-				criu.opts.mounts_v2 = True
+			if arg == "--mounts-compat":
+				criu.opts.mounts_compat = True
 				continue
 
 			raise test_fail_exc('RPC for %s required' % arg)
@@ -971,7 +971,7 @@ class criu:
 		self.__dump_process = None
 		self.__criu_bin = opts['criu_bin']
 		self.__crit_bin = opts['crit_bin']
-		self.__mounts_v2 = (opts['mounts_v2'] and True or False)
+		self.__mounts_compat = (opts['mounts_compat'] and True or False)
 
 	def fini(self):
 		if self.__lazy_migrate:
@@ -1210,8 +1210,8 @@ class criu:
 			self.__lazy_pages_p = self.__criu_act("lazy-pages", opts = lp_opts, nowait = True)
 			r_opts += ["--lazy-pages"]
 
-		if self.__mounts_v2:
-			r_opts += ['--mounts-v2']
+		if self.__mounts_compat:
+			r_opts = ['--mounts-compat'] + r_opts
 
 		r_opts += ['--check-mounts']
 
@@ -1721,7 +1721,7 @@ class Launcher:
 		nd = ('nocr', 'norst', 'pre', 'iters', 'page_server', 'sibling', 'stop', 'empty_ns',
 				'fault', 'keep_img', 'report', 'snaps', 'sat', 'script', 'rpc', 'lazy_pages',
 				'join_ns', 'dedup', 'sbs', 'freezecg', 'user', 'dry_run', 'noauto_dedup',
-				'remote_lazy_pages', 'show_stats', 'lazy_migrate', 'mounts_v2',
+				'remote_lazy_pages', 'show_stats', 'lazy_migrate', 'mounts_compat',
 				'criu_bin', 'crit_bin')
 		arg = repr((name, desc, flavor, {d: self.__opts[d] for d in nd}))
 
@@ -2291,7 +2291,7 @@ rp.add_argument("--title", help = "A test suite title", default = "criu")
 rp.add_argument("--show-stats", help = "Show criu statistics", action = 'store_true')
 rp.add_argument("--criu-bin", help = "Path to criu binary", default = '../criu/criu')
 rp.add_argument("--crit-bin", help = "Path to crit binary", default = '../crit/crit')
-rp.add_argument("--mounts-v2", help = "Use new mounts-v2 restore engine", action = 'store_true')
+rp.add_argument("--mounts-compat", help = "Use old mounts restore engine", action = 'store_true')
 
 lp = sp.add_parser("list", help = "List tests")
 lp.set_defaults(action = list_tests)

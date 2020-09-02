@@ -116,7 +116,7 @@ message criu_opts {
 	optional string			lsm_profile		= 53;
 	optional bool			check_mounts		= 128;
 
-	optional bool			vz_mounts_v2		= 1001;
+	optional bool			vz_mounts_compat	= 1001;
 }
 
 message criu_dump_resp {

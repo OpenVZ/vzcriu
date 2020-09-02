@@ -175,7 +175,7 @@ struct mount_info {
 
 static inline char *service_mountpoint(const struct mount_info *mi)
 {
-	if (opts.mounts_v2 && mi->plain_mountpoint)
+	if (!opts.mounts_compat && mi->plain_mountpoint)
 		return mi->plain_mountpoint;
 	return mi->mountpoint;
 }

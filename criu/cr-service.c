@@ -656,8 +656,8 @@ static int setup_opts_from_req(int sk, CriuOpts *req)
 	if (req->check_mounts)
 		opts.check_mounts = true;
 
-	if (req->vz_mounts_v2)
-		opts.mounts_v2 = true;
+	if (req->vz_mounts_compat)
+		opts.mounts_compat = true;
 
 	log_set_loglevel(opts.log_level);
 	if (check_options())

@@ -139,7 +139,7 @@ struct cr_options {
 	int			log_level;
 	char			*imgs_dir;
 	int			check_mounts;
-	int			mounts_v2;
+	int			mounts_compat;
 };
 
 extern struct cr_options opts;
