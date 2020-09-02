@@ -2011,7 +2011,7 @@ out:
 	return ret;
 }
 
-static int create_one_dp(OvsDatapathLinkEntry *dp_entry, int genlsk)
+static int create_one_dp(OvsDatapathLinkEntry *dp_entry, int ifindex, int genlsk)
 {
 	int16_t ovs_dp_genl_id;
 	int ret;
@@ -2033,6 +2033,9 @@ static int create_one_dp(OvsDatapathLinkEntry *dp_entry, int genlsk)
 	rq.gh.cmd = OVS_DP_CMD_NEW;
 	rq.gh.version = OVS_DATAPATH_VERSION;
 
+	/* vzkernel feature, see https://lists.openvz.org/pipermail/devel/2020-August/075509.html */
+	rq.ovsh.dp_ifindex = ifindex;
+
 	addattr_l(&rq.h, sizeof(rq), OVS_DP_ATTR_NAME, dp_entry->name, strlen(dp_entry->name) + 1);
 	addattr_l(&rq.h, sizeof(rq), OVS_DP_ATTR_USER_FEATURES, &dp_entry->features, sizeof(dp_entry->features));
 	addattr_l(&rq.h, sizeof(rq), OVS_DP_ATTR_UPCALL_PID, &dp_entry->upcall_pid, sizeof(dp_entry->upcall_pid));
@@ -2042,7 +2045,7 @@ static int create_one_dp(OvsDatapathLinkEntry *dp_entry, int genlsk)
 	return ret;
 }
 
-static int create_one_vport(OvsVportEntry *entry, int genlsk)
+static int create_one_vport(OvsVportEntry *entry, int ifindex, int genlsk)
 {
 	int16_t ovs_vport_genl_id;
 	int ret;
@@ -2071,6 +2074,10 @@ static int create_one_vport(OvsVportEntry *entry, int genlsk)
 	addattr_l(&rq.h, sizeof(rq), OVS_VPORT_ATTR_TYPE, &entry->type, sizeof(entry->type));
 	addattr_l(&rq.h, sizeof(rq), OVS_VPORT_ATTR_PORT_NO, &entry->port_no, sizeof(entry->port_no));
 
+	/* vzkernel feature, see https://lists.openvz.org/pipermail/devel/2020-August/075509.html */
+	if (entry->type == OVS_VPORT_TYPE_INTERNAL)
+		addattr_l(&rq.h, sizeof(rq), OVS_VPORT_ATTR_IFINDEX, &ifindex, sizeof(ifindex));
+
 	/*
 	 * This code is unused for now since we make all vxlan vports into netdev vports because
 	 * there are no API to specify ifindex of vxlan netdev created through ovs.
@@ -2095,7 +2102,7 @@ static int create_one_vport(OvsVportEntry *entry, int genlsk)
 static int restore_ovs_dp(struct ns_id *ns, struct net_link *link, int genlsk)
 {
 	BUG_ON(!link->nde->vz_ovs_dp);
-	if (create_one_dp(link->nde->vz_ovs_dp, genlsk)) {
+	if (create_one_dp(link->nde->vz_ovs_dp, link->nde->ifindex, genlsk)) {
 		pr_perror("Unable to restore datapath %s", link->nde->vz_ovs_dp->name);
 		return -1;
 	}
@@ -2106,7 +2113,7 @@ static int restore_ovs_dp(struct ns_id *ns, struct net_link *link, int genlsk)
 static int restore_ovs_internal_port(struct ns_id *ns, struct net_link *link, int genlsk)
 {
 	BUG_ON(!link->nde->vz_ovs_vport);
-	if (create_one_vport(link->nde->vz_ovs_vport, genlsk)) {
+	if (create_one_vport(link->nde->vz_ovs_vport, link->nde->ifindex, genlsk)) {
 		pr_perror("Unable to restore vport %s", link->nde->vz_ovs_vport->name);
 		return -1;
 	}
@@ -2308,7 +2315,7 @@ exit:
 static int restore_ovs_master(struct net_link *link, int genlsk)
 {
 	BUG_ON(!link->nde->vz_ovs_vport);
-	return create_one_vport(link->nde->vz_ovs_vport, genlsk);
+	return create_one_vport(link->nde->vz_ovs_vport, 0, genlsk);
 }
 
 static int restore_ifla_master(int nlsk, struct ns_id *ns, struct net_link *link)
