@@ -484,6 +484,62 @@ static int log_unfrozen_stacks(char *root)
 	return 0;
 }
 
+static int set_freezer_state_recurse(char *root, const char *state, size_t len)
+{
+	DIR *dir;
+	struct dirent *de;
+	char path[PATH_MAX];
+	int fd;
+
+	snprintf(path, sizeof(path), "%s/freezer.state", root);
+	fd = open(path, O_RDWR);
+	if (fd < 0) {
+		pr_perror("Unable to open %s", path);
+		return -1;
+	}
+
+	if (set_freezer_state(fd, state, len)) {
+		pr_err("Unable to %s tasks in freezer cgroup %s\n",
+		       state, root);
+		close(fd);
+		return -1;
+	}
+
+	close(fd);
+
+	dir = opendir(root);
+	if (!dir) {
+		pr_perror("Unable to open %s", root);
+		return -1;
+	}
+
+	while ((de = readdir(dir))) {
+		struct stat st;
+
+		if (dir_dots(de))
+			continue;
+
+		sprintf(path, "%s/%s", root, de->d_name);
+
+		if (fstatat(dirfd(dir), de->d_name, &st, 0) < 0) {
+			pr_perror("stat of %s failed", path);
+			closedir(dir);
+			return -1;
+		}
+
+		if (!S_ISDIR(st.st_mode))
+			continue;
+
+		if (set_freezer_state_recurse(path, state, len) < 0) {
+			closedir(dir);
+			return -1;
+		}
+	}
+	closedir(dir);
+
+	return 0;
+}
+
 static int freeze_processes(void)
 {
 	int fd, exit_code = -1;
@@ -588,7 +644,26 @@ again:
 
 err:
 	if (exit_code == 0 || freezer_thawed) {
-		if (set_freezer_state(fd, thawed, sizeof(thawed))) {
+		/*
+		 * When CRIU gets tasks frozen in freezer cgroup
+		 * this freezer cgroups can be nested, so, if
+		 * one of nested freezer cgroup was frozen separately
+		 * and then we thaw parent cgroup their child will not
+		 * be thawed! See kernel/cgroup/legacy_freezer.c
+		 * and difference between CGROUP_FREEZING_SELF and
+		 * CGROUP_FREEZING_PARENT.
+		 * So, there we want to release all nested freezers
+		 * because tasks need to be seized by ptrace.
+		 * But ptrace can't caught task that under refrigerator
+		 * because in this case task sit in D-state.
+		 *
+		 * FIXME: we should think about possible problem here.
+		 * What if enduser in container frozen some processes?
+		 * We need to unfreeze this processes, but on restore
+		 * we should return all processes in their initial state.
+		 */
+		if (set_freezer_state_recurse(opts.freeze_cgroup,
+					      thawed, sizeof(thawed))) {
 			pr_err("Unable to thaw tasks\n");
 			exit_code = -1;
 		}
