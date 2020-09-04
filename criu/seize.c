@@ -219,14 +219,14 @@ static int freezer_write_state(int fd, enum freezer_state new_state)
 	return 0;
 }
 
-static int freezer_open(void)
+static int __freezer_open(char *base)
 {
 	const char freezer_v1[] = "freezer.state";
 	const char freezer_v2[] = "cgroup.freeze";
 	char path[PATH_MAX];
 	int fd;
 
-	snprintf(path, sizeof(path), "%s/%s", opts.freeze_cgroup,
+	snprintf(path, sizeof(path), "%s/%s", base,
 			cgroup_v2 ? freezer_v2 : freezer_v1);
 	fd = open(path, O_RDWR);
 	if (fd < 0) {
@@ -235,6 +235,11 @@ static int freezer_open(void)
 	}
 
 	return fd;
+}
+
+static int freezer_open(void)
+{
+	return __freezer_open(opts.freeze_cgroup);
 }
 
 static int freezer_restore_state(void)
@@ -607,6 +612,56 @@ static int log_unfrozen_stacks(char *root)
 	return 0;
 }
 
+static int freezer_write_state_recurse(char *root, enum freezer_state state)
+{
+	DIR *dir;
+	struct dirent *de;
+	char path[PATH_MAX];
+	int fd;
+
+	fd = __freezer_open(root);
+	if (fd < 0)
+		return -1;
+
+	if (freezer_write_state(fd, state)) {
+		close(fd);
+		return -1;
+	}
+	close(fd);
+
+	dir = opendir(root);
+	if (!dir) {
+		pr_perror("Unable to open %s", root);
+		return -1;
+	}
+
+	while ((de = readdir(dir))) {
+		struct stat st;
+
+		if (dir_dots(de))
+			continue;
+
+		sprintf(path, "%s/%s", root, de->d_name);
+
+		if (fstatat(dirfd(dir), de->d_name, &st, 0) < 0) {
+			pr_perror("stat of %s failed", path);
+			closedir(dir);
+			return -1;
+		}
+
+		if (!S_ISDIR(st.st_mode))
+			continue;
+
+		if (freezer_write_state_recurse(path, state) < 0) {
+			closedir(dir);
+			return -1;
+		}
+	}
+	closedir(dir);
+
+	return 0;
+}
+
 static int freeze_processes(void)
 {
 	int fd, exit_code = -1;
@@ -705,8 +760,30 @@ again:
 	}
 
 err:
-	if (exit_code == 0 || freezer_thawed)
-		exit_code = freezer_write_state(fd, THAWED);
+	if (exit_code == 0 || freezer_thawed) {
+		/*
+		 * When CRIU gets tasks frozen in freezer cgroup
+		 * this freezer cgroups can be nested, so, if
+		 * one of nested freezer cgroup was frozen separately
+		 * and then we thaw parent cgroup their child will not
+		 * be thawed! See kernel/cgroup/legacy_freezer.c
+		 * and difference between CGROUP_FREEZING_SELF and
+		 * CGROUP_FREEZING_PARENT.
+		 * So, there we want to release all nested freezers
+		 * because tasks need to be seized by ptrace.
+		 * But ptrace can't caught task that under refrigerator
+		 * because in this case task sit in D-state.
+		 *
+		 * FIXME: we should think about possible problem here.
+		 * What if enduser in container frozen some processes?
+		 * We need to unfreeze this processes, but on restore
+		 * we should return all processes in their initial state.
+		 */
+		if (freezer_write_state_recurse(opts.freeze_cgroup, THAWED)) {
+			pr_err("Unable to thaw tasks\n");
+			exit_code = -1;
+		}
+	}
 
 	if (close(fd)) {
 		pr_perror("Unable to thaw tasks");
