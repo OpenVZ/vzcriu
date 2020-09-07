@@ -587,6 +587,11 @@ static int rc_dump_one_vport(struct nlmsghdr *h, struct ns_id *ns, void *arg)
 	if (item->vport_entry.type == OVS_VPORT_TYPE_VXLAN)
 		item->vport_entry.type = OVS_VPORT_TYPE_NETDEV;
 
+	if (tb[OVS_VPORT_ATTR_NETNSID]) {
+		pr_err("Unsupported openvswitch configuration: can't dump vports that are moved to another netns (%s)", item->name);
+		return -ENOTSUP;
+	}
+
 	return 0;
 }
 
