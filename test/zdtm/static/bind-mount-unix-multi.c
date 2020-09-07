@@ -22,7 +22,7 @@ TEST_OPTION(dirname, string, "directory name", 1);
 
 #define BINDS_NUM 3
 
-inline pid_t forkwrite(char path_bind[BINDS_NUM][PATH_MAX], int idx, task_waiter_t t, int sk)
+static inline pid_t forkwrite(char path_bind[BINDS_NUM][PATH_MAX], int idx, task_waiter_t t, int sk)
 {
 	int skc, ret = 1;
 	pid_t pid;
