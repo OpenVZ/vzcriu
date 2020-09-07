@@ -2401,15 +2401,17 @@ static int __restore_links(struct ns_id *nsid, int *nrlinks, int *nrcreated)
 		 */
 		if (link->nde->type == ND_TYPE__VZ_VXLAN && link->nde->vz_vxlan->has_link) {
 			uint32_t idx = link->nde->vz_vxlan->link;
-			mlink = lookup_net_link(nsid, idx);
-			if (mlink == NULL) {
+			struct net_link *tlink;
+
+			tlink = lookup_net_link(nsid, idx);
+			if (tlink == NULL) {
 				pr_err("Unable to find the interface with ifindex %d\n", idx);
 				return -1;
 			}
 
-			if (!mlink->created) {
+			if (!tlink->created) {
 				pr_debug("The iface %d:%d:%s isn't created yet for vxlan %d:%d:%s",
-					nsid->id, mlink->nde->ifindex, mlink->nde->name,
+					nsid->id, tlink->nde->ifindex, tlink->nde->name,
 					nsid->id, link->nde->ifindex, link->nde->name);
 				continue;
 			}
