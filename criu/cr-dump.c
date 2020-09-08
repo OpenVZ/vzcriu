@@ -1823,6 +1823,7 @@ static int dump_one_task(struct pstree_item *item, InventoryEntry *parent_ie)
 			goto err;
 		}
 	}
+	item->child_subreaper = misc.child_subreaper;
 
 	pstree_insert_pid(item->pid, item->ids->pid_ns_id);
 
