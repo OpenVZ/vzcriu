@@ -854,8 +854,36 @@ static int collect_child_pids(int state, unsigned int *n)
 			if (pi->pid->state != TASK_HELPER &&
 			    pi->pid->state != TASK_DEAD)
 				continue;
+
+			if (has_subreaper(pi))
+				continue;
+
 			if (__collect_child_pids(pi, state, n))
 				return -1;
+		}
+	}
+
+	if (current->child_subreaper &&
+	    !(state == TASK_HELPER)) {
+		for_each_pssubtree_item(pi, current) {
+			if (pi == current)
+				continue;
+			/* Skip pid namespace inits */
+			while (pi && (last_level_pid(pi->pid) == INIT_PID))
+				pi = pssubtree_item_next(pi, NULL, true);
+			if (!pi)
+				break;
+
+			if (pi->pid->state != TASK_HELPER &&
+			    pi->pid->state != TASK_DEAD)
+				continue;
+
+			if (__collect_child_pids(pi, state, n))
+				return -1;
+
+			/* Skip other sub-reaper children */
+			if (pi->child_subreaper)
+				pi = pssubtree_item_next(pi, NULL, true);
 		}
 	}
 
@@ -2256,6 +2284,10 @@ static int restore_task_with_children(void *_arg)
 		if (prep_usernsd_transport())
 			goto err;
 	}
+
+	if (current->child_subreaper &&
+	    prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0))
+		goto err;
 
 	/*
 	 * Call this _before_ forking to optimize cgroups

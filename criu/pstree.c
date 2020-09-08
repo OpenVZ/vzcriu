@@ -1456,12 +1456,19 @@ static struct pstree_item *get_helper(int sid, unsigned int id, struct list_head
 	return NULL;
 }
 
-static int handle_init_reparent(struct ns_id *ns, void *oarg)
+struct pstree_item *has_subreaper(struct pstree_item *item)
+{
+	return item->my_child_subreaper;
+}
+
+static int handle_init_reparent(struct ns_id *ns)
 {
 	struct pstree_item *init, *item, *helper, *branch, *tmp;
 	LIST_HEAD(helpers);
 
 	init = __pstree_item_by_virt(ns, INIT_PID);
+
+	pr_info("Handle init reparent to %d\n", vpid(init));
 
 	for_each_pssubtree_item(item, init) {
 skip:
@@ -1495,6 +1502,12 @@ skip:
 			leader = pstree_item_by_virt(vsid(item));
 			BUG_ON(leader == NULL || leader->pid->state == TASK_UNDEF);
 			BUG_ON(!is_session_leader(leader));
+
+			if (has_subreaper(leader) || leader->child_subreaper) {
+				pr_warn("Can't reparent %d from leader %d as it has subreaper\n",
+					vpid(item), vpid(leader));
+				goto skip_descendants;
+			}
 
 			if (leader->pid->level > init->pid->level)
 				/*
@@ -1557,6 +1570,150 @@ skip_descendants:
 	return 0;
 }
 
+static int handle_subreaper_reparent(struct pstree_item *subreaper)
+{
+	struct pstree_item *item, *helper, *branch, *leader, *tmp;
+	LIST_HEAD(helpers);
+	struct ns_id *ns;
+
+	pr_info("Handle subreaper reparent to %d\n", vpid(subreaper));
+
+	for_each_pssubtree_item(item, subreaper) {
+skip:
+		if (!item)
+			break;
+
+		/* Skip sub-reaper */
+		if (item == subreaper)
+			continue;
+
+		/* Session leaders do setsid() */
+		if (is_session_leader(item)) {
+			/*
+			 * Stop on pidns init, it's descendants
+			 * will be handled from it's pidns.
+			 */
+			if (last_level_pid(item->pid) == INIT_PID)
+				goto skip_descendants;
+			continue;
+		}
+
+		if (can_inherit_sid(item))
+			goto skip_descendants;
+
+		branch = item;
+		while (branch->parent && branch->parent != subreaper)
+			branch = branch->parent;
+
+		leader = pstree_item_by_virt(vsid(item));
+		BUG_ON(leader == NULL || leader->pid->state == TASK_UNDEF);
+		BUG_ON(!is_session_leader(leader));
+
+		tmp = has_subreaper(leader);
+		if (tmp != subreaper || leader->child_subreaper) {
+			pr_warn("Can't reparent %d from leader %d subreaper mismatch\n",
+				vpid(item), vpid(leader));
+			goto skip_descendants;
+		}
+
+		ns = lookup_ns_by_id(leader->ids->pid_ns_id, &pid_ns_desc);
+		BUG_ON(!ns);
+
+		helper = get_helper(vsid(item), ns->id, &helpers);
+		if (!helper) {
+			pid_t pid[MAX_NS_NESTING], *p;
+			int level;
+
+			p = get_free_pids(ns, pid, &level);
+			if (!p)
+				return -1;
+
+			helper = lookup_create_item(p, level, ns->id);
+			if (helper == NULL)
+				return -1;
+
+			memcpy(helper->sid, item->sid, PID_SIZE(helper->sid->level));
+			memcpy(helper->pgid, item->sid, PID_SIZE(helper->pgid->level));
+			helper->ids = dup_helper_ids(leader->ids);
+			if (!helper->ids)
+				return -1;
+			helper->parent = leader;
+
+			list_add_tail(&helper->sibling, &helpers);
+			init_pstree_helper(helper);
+
+			pr_info("Add a helper %d for restoring SID %d\n", vpid(helper), vsid(helper));
+		}
+
+		pr_info("Attach %d to the temporary task %d\n", vpid(branch), vpid(helper));
+
+		item = pssubtree_item_next(branch, subreaper, true);
+
+		/* Re-re-parent branch */
+		branch->parent = helper;
+		move_child_task(branch, helper);
+		goto skip;
+skip_descendants:
+		/* Descendants of non-leader should be fine, skip them */
+		item = pssubtree_item_next(item, subreaper, true);
+		goto skip;
+	}
+
+	list_for_each_entry_safe(helper, tmp, &helpers, sibling) {
+		move_child_task(helper, helper->parent);
+		pr_info("Attach helper %d to the task %d\n", vpid(helper), vpid(helper->parent));
+	}
+
+	return 0;
+}
+
+static int handle_subreapers_reparent(struct ns_id *ns)
+{
+	struct pstree_item *init, *item, *subreaper;
+	LIST_HEAD(subreapers);
+
+	init = __pstree_item_by_virt(ns, INIT_PID);
+	if (!init) {
+		pr_err("No init for pidns %d\n", ns->id);
+		return -1;
+	}
+
+	for_each_pssubtree_item(item, init) {
+skip:
+		if (!item)
+			break;
+
+		if (item == init)
+			continue;
+
+		if (last_level_pid(item->pid) == INIT_PID) {
+			item = pssubtree_item_next(item, init, true);
+			goto skip;
+		}
+
+		if (item->child_subreaper)
+			list_add(&item->child_subreaper_list, &subreapers);
+	}
+
+	list_for_each_entry(subreaper, &subreapers, child_subreaper_list) {
+		if (handle_subreaper_reparent(subreaper))
+			return -1;
+	}
+
+	return 0;
+}
+
+static int handle_reparenting(struct ns_id *ns, void *unused)
+{
+	int ret;
+
+	ret = handle_init_reparent(ns);
+	if (ret)
+		return -1;
+
+	return handle_subreapers_reparent(ns);
+}
+
 static void prepare_pstree_my_child_subreaper(void)
 {
 	struct pstree_item *item;
@@ -1600,7 +1757,7 @@ static int prepare_pstree_ids(void)
 	 * reparented to init.
 	 */
 	if (root_ns_mask & CLONE_NEWPID &&
-	    walk_namespaces(&pid_ns_desc, handle_init_reparent, NULL))
+	    walk_namespaces(&pid_ns_desc, handle_reparenting, NULL))
 		return -1;
 
 	for_each_pstree_item(item) {
