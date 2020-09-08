@@ -15,4 +15,5 @@ message pstree_entry {
 	repeated uint32			vz_ns_pgid	= 1002;
 	repeated uint32			vz_ns_sid	= 1003;
 	repeated ns_tid			vz_tids		= 1004;
+	optional bool			vz_child_subreaper = 1005;
 }

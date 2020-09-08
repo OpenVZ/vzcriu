@@ -440,6 +440,10 @@ int dump_pstree(struct pstree_item *root_item)
 					goto err;
 			}
 		}
+
+		e.has_vz_child_subreaper = true;
+		e.vz_child_subreaper = item->child_subreaper;
+
 		ret = pb_write_one(img, &e, PB_PSTREE);
 		if (ret)
 			goto err;
@@ -1011,6 +1015,8 @@ static int read_one_pstree_item(struct cr_img *img, pid_t *pid_max)
 			goto err;
 		}
 	}
+
+	pi->child_subreaper = e->has_vz_child_subreaper ? e->vz_child_subreaper : false;
 
 	task_entries->nr_threads += e->n_vz_tids;
 	task_entries->nr_tasks++;
