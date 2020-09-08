@@ -709,6 +709,7 @@ int parse_options(int argc, char **argv, bool *usage_error, bool *has_exec_cmd, 
 		BOOL_OPT("cgroup-force-create-ns", &opts.cgroup_force_create_ns),
 		{ "ve-clock-fallback", required_argument, 0, 2002 },
 		{ "nftables-mode", required_argument, 0, 2003 },
+		BOOL_OPT("skip-freezer-state", &opts.skip_freezer_state),
 		{},
 	};
 
