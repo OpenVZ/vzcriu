@@ -728,7 +728,8 @@ static int collect_cgroups(struct list_head *ctls)
 		if (ret < 0)
 			return ret;
 
-		if (opts.freeze_cgroup && !strcmp(cc->name, "freezer") &&
+		if (opts.freeze_cgroup && !opts.skip_freezer_state &&
+				!strcmp(cc->name, "freezer") &&
 				add_freezer_state(current_controller))
 			return -1;
 	}
@@ -1502,7 +1503,8 @@ static int prepare_cgroup_dir_properties(char *path, int off, CgroupDirEntry **e
 			CgroupPropEntry *p = e->properties[j];
 
 			if (!strcmp(p->name, "freezer.state")) {
-				add_freezer_state_for_restore(p, path, off2);
+				if (!opts.skip_freezer_state)
+					add_freezer_state_for_restore(p, path, off2);
 				continue; /* skip restore now */
 			}
 
