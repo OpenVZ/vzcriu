@@ -543,6 +543,7 @@ int parse_options(int argc, char **argv, bool *usage_error,
 		{ "file-validation",		required_argument,	0, 1098	},
 		BOOL_OPT("check-mounts", &opts.check_mounts),
 		BOOL_OPT("mounts-compat", &opts.mounts_compat),
+		BOOL_OPT("skip-freezer-state",&opts.skip_freezer_state),
 		{ },
 	};
 
