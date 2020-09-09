@@ -29,7 +29,7 @@ struct process
 };
 
 struct process *processes;
-int nr_processes = 32;
+int nr_processes = 37;
 int current = 0;
 
 static void cleanup(void)
@@ -441,6 +441,20 @@ int main(int argc, char ** argv)
 	send_command(26, TEST_SETPGID,  30, 31);
 	send_command(31, TEST_DIE,	0, 0);
 	send_command(26, TEST_WAIT,	31, 0);
+
+	/*
+	 * Test subreapers (simple case)
+	 */
+	send_command(1, TEST_FORK,	32, 0);
+	send_command(32, TEST_SETSID,	0, 0);
+	send_command(32, TEST_SUBREAPER,1, 0);
+	send_command(32, TEST_FORK,	33, 0);
+	send_command(33, TEST_FORK,	34, 0);
+	send_command(34, TEST_SETSID,	0, 0);
+	send_command(34, TEST_FORK,	35, 0);
+	send_command(35, TEST_FORK,	36, 0);
+	send_command(35, TEST_DIE,	0, 0);
+	send_command(34, TEST_WAIT,	35, 0);
 
 	for (i = 0; i < nr_processes; i++) {
 		if (processes[i].dead)
