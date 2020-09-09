@@ -837,6 +837,8 @@ static int collect_child_pids(int state, unsigned int *n)
 	if (last_level_pid(current->pid) == INIT_PID &&
 	    !(state == TASK_HELPER)) {
 		for_each_pstree_item(pi) {
+			if (pi == current)
+				continue;
 			/* Skip items from unrelated pid namespaces */
 			while (pi && !have_nested_pidns(pi, current))
 				pi = pssubtree_item_next(pi, NULL, true);
