@@ -22,6 +22,7 @@ struct process {
 	pid_t pid;
 	pid_t sid;
 	pid_t pgid;
+	pid_t ppid;
 	int sks[2];
 	int dead;
 };
@@ -47,6 +48,7 @@ enum commands {
 	TEST_SETNS,
 	TEST_SETPGID,
 	TEST_GETPGID,
+	TEST_GETPPID,
 };
 
 struct command {
@@ -237,6 +239,12 @@ static void handle_command(void)
 		if (status == -1)
 			pr_perror("getpgid");
 		break;
+	case TEST_GETPPID:
+		test_msg("%3d: getppid()\n", current);
+		status = getppid();
+		if (status == -1)
+			pr_perror("getppid");
+		break;
 	case TEST_SETNS:
 		test_msg("%3d: setns(%d, %d) = %d\n",
 			 current, cmd.arg1, cmd.arg2, processes[cmd.arg1].pid);
@@ -290,7 +298,7 @@ static int send_command(int id, enum commands op, int arg1, int arg2)
 		goto err;
 	}
 
-	if (status != -1 && (op == TEST_GETSID || op == TEST_GETPGID))
+	if (status != -1 && (op == TEST_GETSID || op == TEST_GETPGID || op == TEST_GETPPID))
 		return status;
 
 	if (status) {
@@ -442,6 +450,12 @@ int main(int argc, char **argv)
 			pr_perror("getpgid(%d)", i);
 			goto err;
 		}
+
+		processes[i].ppid = send_command(i, TEST_GETPPID, 0, 0);
+		if (processes[i].ppid == -1) {
+			pr_perror("getppid(%d)", i);
+			goto err;
+		}
 	}
 
 	test_daemon();
@@ -449,7 +463,7 @@ int main(int argc, char **argv)
 	test_waitsig();
 
 	for (i = 0; i < nr_processes; i++) {
-		pid_t sid, pgid;
+		pid_t sid, pgid, ppid;
 
 		if (processes[i].dead)
 			continue;
@@ -477,6 +491,18 @@ int main(int argc, char **argv)
 		if (pgid != processes[i].pgid) {
 			fail("%d, %d: wrong pgid %d (expected %d)",
 			     i, processes[i].pid, pgid, processes[i].pgid);
+			fail_cnt++;
+		}
+
+		ppid = send_command(i, TEST_GETPPID, 0, 0);
+		if (ppid == -1) {
+			pr_perror("getppid(%d)", i);
+			goto err;
+		}
+
+		if (ppid != processes[i].ppid) {
+			fail("%d, %d: wrong ppid %d (expected %d)",
+			     i, processes[i].pid, ppid, processes[i].ppid);
 			fail_cnt++;
 		}
 	}
