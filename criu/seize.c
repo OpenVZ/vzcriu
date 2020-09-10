@@ -582,20 +582,6 @@ again:
 	if (state == thawed) {
 		freezer_thawed = true;
 
-		/*
-		 * Option skip_freezer_state provides guarantee that
-		 * parent process/caller has freezed the container before
-		 * spawning criu, in that case criu doesn't have to freeze it.
-		 * We can check it here by checking the value of a freezer
-		 * cgroup state.
-		 */
-		if (opts.skip_freezer_state) {
-			pr_err("Freezer state mismatch: expected '%s'\n",
-				frozen);
-			close(fd);
-			return -1;
-		}
-
 		if (set_freezer_state(fd, frozen, sizeof(frozen))) {
 			pr_err("Unable to freeze tasks\n");
 			close(fd);
