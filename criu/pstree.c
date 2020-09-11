@@ -1556,12 +1556,41 @@ skip_descendants:
 	return 0;
 }
 
+static void prepare_pstree_my_child_subreaper(void)
+{
+	struct pstree_item *item;
+
+	for_each_pstree_item(item) {
+		struct pstree_item *parent = item->parent;
+
+		if (!parent)
+			continue;
+
+		if (last_level_pid(item->pid) == INIT_PID)
+			continue;
+
+		if (parent->child_subreaper) {
+			pr_debug("Parent %d is my(%d) child subreaper\n",
+					vpid(parent), vpid(item));
+			item->my_child_subreaper = parent;
+		} else if (parent->my_child_subreaper) {
+			pr_debug("Ancestor %d is my(%d) child subreaper "
+					"copy from %d\n",
+					vpid(parent->my_child_subreaper), vpid(item),
+					vpid(parent));
+			item->my_child_subreaper = parent->my_child_subreaper;
+		}
+	}
+}
+
 static int prepare_pstree_ids(void)
 {
 	struct pstree_item *item;
 
 	if (prepare_pstree_leaders())
 		return -1;
+
+	prepare_pstree_my_child_subreaper();
 
 	/*
 	 * Some task can be reparented to init. A helper task should be added
