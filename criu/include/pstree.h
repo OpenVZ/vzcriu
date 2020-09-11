@@ -38,6 +38,7 @@ struct pstree_item {
 	bool shmalloced;
 	bool replaceable;
 	bool child_subreaper;
+	struct pstree_item *my_child_subreaper;
 };
 
 #define vpid(item)    (item->pid->ns[0].virt)
