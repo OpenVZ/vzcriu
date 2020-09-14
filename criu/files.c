@@ -563,10 +563,10 @@ static int dump_one_file(struct pid *pid, int fd, int lfd, struct fd_opts *opts,
 		/* TODO: Dump for hugetlb fd when memfd hugetlb is not supported */
 		if (is_memfd(p.stat.st_dev) || (kdat.has_memfd_hugetlb && is_hugetlb_dev(p.stat.st_dev, NULL)))
 			ops = &memfd_dump_ops;
+		else if (check_ns_proc(&p))
+			ops = &nsfile_dump_ops;
 		else if (link.name[1] == '/')
 			ops = &regfile_dump_ops;
-		else if (check_ns_proc(&link))
-			ops = &nsfile_dump_ops;
 		else
 			return dump_unsupp_fd(&p, lfd, "reg", link.name + 1, e);
 
