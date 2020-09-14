@@ -588,10 +588,10 @@ static int dump_one_file(struct pid *pid, int fd, int lfd, struct fd_opts *opts,
 
 		if (is_memfd(p.stat.st_dev))
 			ops = &memfd_dump_ops;
+		else if (check_ns_proc(&p))
+			ops = &nsfile_dump_ops;
 		else if (link.name[1] == '/')
 			ops = &regfile_dump_ops;
-		else if (check_ns_proc(&link))
-			ops = &nsfile_dump_ops;
 		else
 			return dump_unsupp_fd(&p, lfd, "reg", link.name + 1, e);
 
