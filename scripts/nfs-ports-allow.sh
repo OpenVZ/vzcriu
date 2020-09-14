@@ -8,24 +8,23 @@ if [ ! -n "$CRTOOLS_INIT_PID" ]; then
 fi
 
 CRTOOLS_IPTABLES_TABLE="CRIU"
-if [ ! -n "$CRTOOLS_IPTABLES_TABLE" ]; then
-	echo "CRTOOLS_IPTABLES_TABLE environment variable is not set"
-	exit 1
-fi
 
 NS_ENTER=/bin/nsenter
-[ ! -x ${NS_ENTER} ] || NS_ENTER=/usr/bin/nsenter
+[ -x ${NS_ENTER} ] || NS_ENTER=/usr/bin/nsenter
 
 if [ ! -x ${NS_ENTER} ]; then
 	echo "${NS_ENTER} binary not found"
 	exit 2
 fi
 
-JOIN_CT="${NS_ENTER} -t $CRTOOLS_INIT_PID -u -p -n"
+JOIN_CT="${NS_ENTER} -t $CRTOOLS_INIT_PID -u -n"
 
 ${JOIN_CT} test -e /proc/self/net/nfsfs || exit 0
 
-[ -z "$VEID" ] && exit 1
+if [ -z "$VEID" ]; then
+	echo "VEID is not set"
+	exit 1
+fi
 
 # note: pstree is frozen by criu at these point in collect_pstree()
 servers=''
