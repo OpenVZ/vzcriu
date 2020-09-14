@@ -575,11 +575,11 @@ static int dump_one_file(struct pid *pid, int fd, int lfd, struct fd_opts *opts,
 			return -1;
 
 		p.link = &link;
+		if (check_ns_proc(&p))
+			return do_dump_gen_file(&p, lfd, &nsfile_dump_ops, e);
+
 		if (link.name[1] == '/')
 			return do_dump_gen_file(&p, lfd, &regfile_dump_ops, e);
-
-		if (check_ns_proc(&link))
-			return do_dump_gen_file(&p, lfd, &nsfile_dump_ops, e);
 
 		return dump_unsupp_fd(&p, lfd, "reg", link.name + 1, e);
 	}

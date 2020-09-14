@@ -235,9 +235,28 @@ struct ns_desc *get_ns_kid(char *ns_str, int len, unsigned int *ns_kid)
 	return NULL;
 }
 
-bool check_ns_proc(struct fd_link *link)
+bool check_ns_proc(struct fd_parms *p)
 {
+	struct fd_link *link = p->link;
 	struct ns_desc *ns_d;
+	struct mount_info *m;
+
+	m = lookup_mnt_id(p->mnt_id);
+	if (m && m->ns_bind_id) {
+		struct ns_id *nsid;
+
+		ns_d = get_ns_desc_by_cflags(m->ns_bind_desc);
+		BUG_ON(!ns_d);
+		nsid = lookup_ns_by_id(m->ns_bind_id, ns_d);
+		BUG_ON(!nsid);
+
+		link->ns_d = ns_d;
+		link->ns_kid = nsid->kid;
+		return true;
+	}
+
+	if (link->name[1] == '/')
+		return false;
 
 	ns_d = get_ns_kid(link->name + 1, link->len - 1, &link->ns_kid);
 	if (ns_d) {
@@ -537,6 +556,13 @@ int dump_one_ns_file(int lfd, u32 id, const struct fd_parms *p)
 	NsFileEntry nfe = NS_FILE_ENTRY__INIT;
 	struct fd_link *link = p->link;
 	struct ns_id *nsid;
+	struct mount_info *m;
+
+	m = lookup_mnt_id(p->mnt_id);
+	if (m && m->ns_bind_id) {
+		nfe.has_vz_mnt_id = true;
+		nfe.vz_mnt_id = p->mnt_id;
+	}
 
 	nsid = lookup_ns_by_kid(link->ns_kid, link->ns_d);
 	if (!nsid) {
@@ -631,7 +657,21 @@ static int open_ns_fd(struct file_desc *d, int *new_fd)
 	struct ns_desc *nd = NULL;
 	struct ns_id *ns;
 	int nsfd_id, fd;
-	char path[64];
+	char path[64] = "none";
+
+	if (!opts.mounts_compat && nfi->nfe->has_vz_mnt_id) {
+		struct mount_info *mi;
+
+		mi = lookup_mnt_id(nfi->nfe->vz_mnt_id);
+		if (!mi) {
+			pr_err("The %d mount is not found for nsfs file\n",
+			       nfi->nfe->vz_mnt_id);
+			return -1;
+		}
+
+		fd = fdstore_get(mi->rmi->mnt_fd_id);
+		goto check_open;
+	}
 
 	for (ns = ns_ids; ns != NULL; ns = ns->next) {
 		if (ns->id != nfi->nfe->ns_id)
