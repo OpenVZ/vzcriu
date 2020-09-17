@@ -190,8 +190,11 @@ extern int is_empty_dir(int dirfd);
 extern int read_fd_link(int lfd, char *buf, size_t size);
 extern pid_t get_self_real_pid(void);
 
+#define MSEC_PER_SEC 1000L
 #define USEC_PER_SEC 1000000L
 #define NSEC_PER_SEC 1000000000L
+
+#define NSEC_PER_MSEC 1000000L
 
 int vaddr_to_pfn(int fd, unsigned long vaddr, u64 *pfn);
 
