@@ -119,6 +119,63 @@ const char *get_real_freezer_state(void)
 	return freezer_thawed ? thawed : frozen;
 }
 
+static int log_unfrozen_stacks(char *root);
+
+static int __wait_freezer_state_change(int fd, const char *new_state, bool alarm,
+		                       unsigned long *i,
+				       unsigned long nr_attempts,
+				       const struct timespec *req)
+{
+	const char *state = NULL;
+
+	for (; *i < nr_attempts; (*i)++) {
+		if (*i != 0)
+			nanosleep(req, NULL);
+		state = get_freezer_state(fd);
+		if (!state)
+			return -1;
+		if (state == new_state)
+			break;
+		if (alarm && alarm_timeouted())
+			return -1;
+	}
+
+	if (*i >= nr_attempts) {
+		pr_err("Timeout waiting freezer.state change from %s to %s\n",
+		       state, new_state);
+		if (new_state == frozen && !pr_quelled(LOG_DEBUG))
+			log_unfrozen_stacks(opts.freeze_cgroup);
+		return -1;
+	}
+
+	return 0;
+}
+
+static int wait_freezer_state_change(int fd, const char *new_state)
+{
+	/* 0.1 sec interval looks solid enough */
+	static const unsigned long step_ms = 100;
+	unsigned long i = 0, nr_attempts = (opts.timeout * MSEC_PER_SEC) / step_ms;
+	const struct timespec req = {
+		.tv_nsec	= step_ms * NSEC_PER_MSEC,
+		.tv_sec		= 0,
+	};
+
+	if (unlikely(!nr_attempts)) {
+		/*
+		 * If timeout is turned off, lets
+		 * wait for at least 10 seconds.
+		 */
+		nr_attempts = (DEFAULT_TIMEOUT * MSEC_PER_SEC) / step_ms;
+	}
+
+	if (__wait_freezer_state_change(fd, new_state, false, &i, nr_attempts, &req))
+		return -1;
+
+	pr_debug("Waiting for %s freeser.state in %lu attempts\n", new_state, i);
+	return 0;
+}
+
 static int freezer_restore_state(void)
 {
 	int fd;
@@ -136,11 +193,17 @@ static int freezer_restore_state(void)
 
 	if (write(fd, frozen, sizeof(frozen)) != sizeof(frozen)) {
 		pr_perror("Unable to freeze tasks");
-		close(fd);
-		return -1;
+		goto err;
 	}
+
+	if (wait_freezer_state_change(fd, frozen))
+		goto err;
+
 	close(fd);
 	return 0;
+err:
+	close(fd);
+	return -1;
 }
 
 /* A number of tasks in a freezer cgroup which are not going to be dumped */
@@ -544,14 +607,15 @@ static int freeze_processes(void)
 {
 	int fd, exit_code = -1;
 	char path[PATH_MAX];
-	const char *state = thawed;
+	const char *state;
 
+	/* 0.1 sec interval looks solid enough */
 	static const unsigned long step_ms = 100;
-	unsigned long nr_attempts = (opts.timeout * 1000000) / step_ms;
+	unsigned long nr_attempts = (opts.timeout * MSEC_PER_SEC) / step_ms;
 	unsigned long i = 0;
 
 	const struct timespec req = {
-		.tv_nsec	= step_ms * 1000000,
+		.tv_nsec	= step_ms * NSEC_PER_MSEC,
 		.tv_sec		= 0,
 	};
 
@@ -560,7 +624,7 @@ static int freeze_processes(void)
 		 * If timeout is turned off, lets
 		 * wait for at least 10 seconds.
 		 */
-		nr_attempts = (10 * 1000000) / step_ms;
+		nr_attempts = (DEFAULT_TIMEOUT * MSEC_PER_SEC) / step_ms;
 	}
 
 	pr_debug("freezing processes: %lu attempts with %lu ms steps\n",
@@ -572,6 +636,7 @@ static int freeze_processes(void)
 		pr_perror("Unable to open %s", path);
 		return -1;
 	}
+
 	state = get_freezer_state(fd);
 	if (!state) {
 		close(fd);
@@ -595,26 +660,8 @@ again:
 		 * not read @tasks pids while freezer in
 		 * transition stage.
 		 */
-		for (; i <= nr_attempts; i++) {
-			state = get_freezer_state(fd);
-			if (!state) {
-				close(fd);
-				return -1;
-			}
-
-			if (state == frozen)
-				break;
-			if (alarm_timeouted())
-				goto err;
-			nanosleep(&req, NULL);
-		}
-
-		if (i > nr_attempts) {
-			pr_err("Unable to freeze cgroup %s\n", opts.freeze_cgroup);
-			if (!pr_quelled(LOG_DEBUG))
-				log_unfrozen_stacks(opts.freeze_cgroup);
+		if (__wait_freezer_state_change(fd, frozen, true, &i, nr_attempts, &req))
 			goto err;
-		}
 
 		pr_debug("freezing processes: %lu attempts done\n", i);
 	}
@@ -622,7 +669,7 @@ again:
 	/*
 	 * Pay attention on @i variable -- it's continuation.
 	 */
-	for (; i <= nr_attempts; i++) {
+	for (; i < nr_attempts; i++) {
 		exit_code = seize_cgroup_tree(opts.freeze_cgroup, state);
 		if (exit_code == -EAGAIN) {
 			if (alarm_timeouted())
@@ -633,7 +680,6 @@ again:
 					exit_code = -1;
 					goto err;
 				}
-				state = thawed;
 				nanosleep(&req, NULL);
 				goto again;
 			}
@@ -643,7 +689,7 @@ again:
 	}
 
 err:
-	if (exit_code == 0 || freezer_thawed) {
+	if (exit_code == 0) {
 		/*
 		 * When CRIU gets tasks frozen in freezer cgroup
 		 * this freezer cgroups can be nested, so, if
@@ -667,9 +713,18 @@ err:
 			pr_err("Unable to thaw tasks\n");
 			exit_code = -1;
 		}
+	} else if (freezer_thawed) {
+		/*
+		 * Let's separately non-recursively unfreeze freeze_cgroup in
+		 * case we wan't to undo (on error path) that we've just tried
+		 * to freeze it.
+		 */
+		if (set_freezer_state(fd, thawed, sizeof(thawed)))
+			pr_err("Unable to thaw tasks\n");
 	}
+
 	if (close(fd)) {
-		pr_perror("Unable to thaw tasks");
+		pr_perror("Failed to close freezer.state");
 		return -1;
 	}
 
