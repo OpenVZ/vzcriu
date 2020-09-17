@@ -336,6 +336,7 @@ TST_FILE	=				\
 		maps_file_prot			\
 		socket_close_data01		\
 		file_fown_dead			\
+		fifo_upon_unix_socket		\
 
 TST_DIR		=				\
 		cwd00				\
