@@ -107,12 +107,50 @@ static int check_ns_bind(char *file, char *bind)
 	return 0;
 }
 
+#define PROC_SELF_FD "/proc/self/fd/%d"
+
+static int prepare_ns_bind_fd(char *path, char *fd_link, int size)
+{
+	char fd_proc[PATH_MAX];
+	int fd;
+
+	fd = open(path, O_RDONLY);
+	if (fd < 0) {
+		pr_perror("Failed to open %s", path);
+		return -1;
+	}
+	snprintf(fd_proc, sizeof(fd_proc), PROC_SELF_FD, fd);
+
+	if (readlink(fd_proc, fd_link, size) == -1) {
+		pr_perror("Failed to readlink");
+		return -1;
+	}
+
+	return fd;
+}
+
+static int check_ns_bind_fd(int fd, char *fd_link)
+{
+	char fd_proc[PATH_MAX], new_fd_link[PATH_MAX];
+
+	snprintf(fd_proc, sizeof(fd_proc), "/proc/self/fd/%d", fd);
+
+	if (readlink(fd_proc, new_fd_link, sizeof(new_fd_link)) == -1) {
+		pr_perror("Failed to readlink");
+		return -1;
+	}
+
+	return strcmp(fd_link, new_fd_link);
+}
+
 #define CLONE_STACK_SIZE 4096
 
 int main(int argc, char **argv)
 {
 	char ipc_file[PATH_MAX], uts_file[PATH_MAX], net_file[PATH_MAX],
 	     ipc_bind[PATH_MAX], uts_bind[PATH_MAX], net_bind[PATH_MAX];
+	char ipc_fd_link[PATH_MAX], uts_fd_link[PATH_MAX], net_fd_link[PATH_MAX];
+	int ipc_fd = -1, uts_fd = -1, net_fd = -1;
 	char stack[CLONE_STACK_SIZE] __stack_aligned__;
 	int pid, ret = 1;
 
@@ -136,6 +174,16 @@ int main(int argc, char **argv)
 	if (create_ns_bind("net", pid, net_file, net_bind))
 		goto err;
 
+	ipc_fd = prepare_ns_bind_fd(ipc_bind, ipc_fd_link, sizeof(ipc_fd_link));
+	if (ipc_fd < 0)
+		goto err;
+	uts_fd = prepare_ns_bind_fd(uts_bind, uts_fd_link, sizeof(uts_fd_link));
+	if (uts_fd < 0)
+		goto err;
+	net_fd = prepare_ns_bind_fd(net_bind, net_fd_link, sizeof(net_fd_link));
+	if (net_fd < 0)
+		goto err;
+
 	test_daemon();
 	test_waitsig();
 
@@ -146,9 +194,28 @@ int main(int argc, char **argv)
 	if (check_ns_bind(net_file, net_bind))
 		goto err;
 
+	if (check_ns_bind_fd(ipc_fd, ipc_fd_link)) {
+		fail("ipc link missmatch");
+		goto err;
+	}
+	if (check_ns_bind_fd(uts_fd, uts_fd_link)) {
+		fail("uts link missmatch");
+		goto err;
+	}
+	if (check_ns_bind_fd(net_fd, net_fd_link)) {
+		fail("net link missmatch");
+		goto err;
+	}
+
 	pass();
 	ret = 0;
 err:
+	if (ipc_fd != -1)
+		close(ipc_fd);
+	if (uts_fd != -1)
+		close(uts_fd);
+	if (net_fd != -1)
+		close(net_fd);
 	kill(pid, SIGKILL);
 	wait(NULL);
 	return ret;
