@@ -734,6 +734,7 @@ static int open_ns_fd(struct file_desc *d, int *new_fd)
 		else
 			break;
 		fd = fdstore_get(nsfd_id);
+		pr_debug("Open ns fd from ns %u\n", ns->id);
 		if (fd < 0) {
 			return -1;
 		}
@@ -797,6 +798,7 @@ static int open_ns_fd(struct file_desc *d, int *new_fd)
 	path[sizeof(path) - 1] = '\0';
 
 	fd = open(path, nfi->nfe->flags);
+	pr_debug("Open ns fd from pid %d\n", vpid(item));
 	if (fd < 0) {
 		pr_perror("Can't open file %s on restore", path);
 		return fd;
