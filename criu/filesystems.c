@@ -922,7 +922,7 @@ typedef struct overlayfs_info_s {
 	char *options;
 } overlayfs_info_t;
 
-static char *__get_path_ovl(char *out, int mnt_id, char *mnt_path)
+static char *__get_path_ovl(char *out, int mnt_id, char *mnt_path, bool rel)
 {
 	char *rel_path;
 	struct mount_info *mi;
@@ -948,6 +948,9 @@ static char *__get_path_ovl(char *out, int mnt_id, char *mnt_path)
 		return NULL;
 	}
 
+	if (rel)
+		return xstrcat(out, ":%s", rel_path[0] ? rel_path : ".");
+
 	return xstrcat(out, ":%s%s%s",
 		       service_mountpoint(mi), rel_path[0] ? "/" : "", rel_path);
 }
@@ -957,7 +960,7 @@ static int __check_path_ovl(int mnt_id, char *mnt_path)
 	int ret = 0;
 	char *path = NULL;
 
-	path = __get_path_ovl(NULL, mnt_id, mnt_path);
+	path = __get_path_ovl(NULL, mnt_id, mnt_path, false);
 	if (!path)
 		return 0;
 
@@ -1148,14 +1151,62 @@ static int overlayfs_mount(struct mount_info *mi, const char *src, const
 	int i, ret = -1;
 	char    *lower_opt = NULL, *upper_opt = NULL,
 		*work_opt = NULL;
+	int rel_mnt_id = -1, prev_cwd = -1;
+	struct mount_info *rel_mnt;
 
 	if (!ofsi) {
 		pr_err("Overlayfs info is uninitiallized!\n");
 		BUG();
 	}
 
+	/*
+	 * Try to find common mount for overlay source directories. We can
+	 * mount overlay relative to this path to make paths shorter.
+	 */
+	if (ofsi->upper)
+		rel_mnt_id = ofsi->upper_mnt_id;
+
 	for (i = 0; i < ofsi->nr_lower_paths; i++) {
-		lower_opt = __get_path_ovl(lower_opt, ofsi->lower_mnt_ids[i], ofsi->lower_paths[i]);
+		if (rel_mnt_id == -1) {
+			rel_mnt_id = ofsi->lower_mnt_ids[i];
+			continue;
+		}
+
+		if (rel_mnt_id != ofsi->lower_mnt_ids[i]) {
+			rel_mnt_id = -1;
+			break;
+		}
+	}
+
+	if (rel_mnt_id != -1) {
+		char *mountpoint;
+
+		rel_mnt = lookup_mnt_id(rel_mnt_id);
+		if (!rel_mnt) {
+			pr_err("The %d mount is not found\n", rel_mnt_id);
+			goto exit;
+		}
+		mountpoint = service_mountpoint(rel_mnt);
+
+		prev_cwd = open(".", O_PATH);
+		if (prev_cwd < 0) {
+			pr_perror("Unable to open cwd");
+			goto exit;
+		}
+
+		pr_debug("Chdir to %s to make overlay %d paths shorter\n",
+			 mountpoint, mi->mnt_id);
+
+		if (chdir(mountpoint)) {
+			pr_perror("Can't chdir to %s", mountpoint);
+			goto exit;
+		}
+	}
+
+	for (i = 0; i < ofsi->nr_lower_paths; i++) {
+		lower_opt = __get_path_ovl(lower_opt, ofsi->lower_mnt_ids[i],
+					   ofsi->lower_paths[i],
+					   rel_mnt_id != -1);
 		if (!lower_opt) {
 			pr_err("lowerdir option build failed\n");
 			goto exit;
@@ -1170,13 +1221,15 @@ static int overlayfs_mount(struct mount_info *mi, const char *src, const
 
 	/* upperdir option can absent */
 	if (ofsi->upper) {
-		upper_opt = __get_path_ovl(NULL, ofsi->upper_mnt_id, ofsi->upper);
+		upper_opt = __get_path_ovl(NULL, ofsi->upper_mnt_id,
+					   ofsi->upper, rel_mnt_id != -1);
 		if (!upper_opt) {
 			pr_err("upperdir path build failed\n");
 			goto exit;
 		}
 
-		work_opt = __get_path_ovl(NULL, ofsi->upper_mnt_id, ofsi->work);
+		work_opt = __get_path_ovl(NULL, ofsi->upper_mnt_id,
+					  ofsi->work, rel_mnt_id != -1);
 		if (!work_opt) {
 			pr_err("workdir path build failed\n");
 			goto exit;
@@ -1196,6 +1249,14 @@ static int overlayfs_mount(struct mount_info *mi, const char *src, const
 	ret = mount(src, service_mountpoint(mi), fstype, mountflags, ofsi->options + 1);
 
 exit:
+	if (prev_cwd != -1) {
+		if (fchdir(prev_cwd)) {
+			pr_perror("Can't fchdir back from temporary cwd");
+			ret = -1;
+		}
+		close(prev_cwd);
+	}
+
 	xfree(work_opt);
 	xfree(upper_opt);
 	xfree(lower_opt);
