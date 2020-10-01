@@ -413,12 +413,15 @@ static int restore_socket_filter(int sk, SkOptsEntry *soe)
 
 	pr_info("Restoring socket filter\n");
 	sfp.len = soe->n_so_filter;
-	sfp.filter = xmalloc(soe->n_so_filter * sfp.len);
+	sfp.filter = xmalloc(sfp.len * sizeof(struct sock_filter));
 	if (!sfp.filter)
 		return -1;
 
 	decode_filter(soe->so_filter, sfp.filter, sfp.len);
 	ret = restore_opt(sk, SOL_SOCKET, SO_ATTACH_FILTER, &sfp);
+	if (ret)
+		pr_perror("Can't restore filter");
+
 	xfree(sfp.filter);
 
 	return ret;
