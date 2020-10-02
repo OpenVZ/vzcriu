@@ -2950,20 +2950,8 @@ out:
 	return ret;
 }
 
-/*
- * iptables-restore is executed from a target userns and it may have not enough
- * rights to open /run/xtables.lock. Here we try to workaround this problem.
- */
-static int prepare_xtable_lock(void)
+static int __prepare_xtable_lock(void)
 {
-	int fd;
-
-	fd = open("/run/xtables.lock", O_RDONLY);
-	if (fd >= 0) {
-		close(fd);
-		return 0;
-	}
-
 	/*
 	 * __prepare_net_namespaces is executed in a separate process,
 	 * so a mount namespace can be changed.
@@ -2990,6 +2978,24 @@ static int prepare_xtable_lock(void)
 	}
 
 	return 0;
+}
+
+
+/*
+ * iptables-restore is executed from a target userns and it may have not enough
+ * rights to open /run/xtables.lock. Here we try to workaround this problem.
+ */
+static int prepare_xtable_lock(void)
+{
+	int fd;
+
+	fd = open("/run/xtables.lock", O_RDONLY);
+	if (fd >= 0) {
+		close(fd);
+		return 0;
+	}
+
+	return __prepare_xtable_lock();
 }
 
 static inline int restore_ipset(int pid)
@@ -3746,6 +3752,14 @@ static int do_iptables_restore(bool ipv6, char *buf, int size)
 		goto err;
 	}
 	close_safe(&pfd[1]);
+
+	/*
+	 * In nested netns we don't wan't to messup with host's xtables lock,
+	 * so we create new mntns (safe as we are in fork) with overmounted
+	 * host's xtables lock.
+	 */
+	if (__prepare_xtable_lock())
+		goto err;
 
 	/*
 	 * iptables-restore has to be executed in a network userns,
