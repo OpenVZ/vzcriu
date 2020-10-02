@@ -2420,8 +2420,12 @@ int unix_prepare_bindmount(struct mount_info *mi)
 			return -1;
 		}
 
-		snprintf(plain_mount_tmp, sizeof(plain_mount_tmp), "%s/%s",
-			 path, sk_mi->ns_mountpoint);
+		if (snprintf(plain_mount_tmp, sizeof(plain_mount_tmp), "%s/%s",
+			     path, sk_mi->ns_mountpoint) >=
+		    sizeof(plain_mount_tmp)) {
+			pr_perror("bindmount: Unable to create fake nsroot %s", path);
+			return -1;
+		}
 
 		if (mkdirpat(AT_FDCWD, plain_mount_tmp, 0755)) {
 			pr_perror("bindmount: Unable to create %s", plain_mount_tmp);
