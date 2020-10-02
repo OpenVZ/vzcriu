@@ -25,8 +25,8 @@ static char buf[512];
 #define NF_CONN_CMD	"%s %s -t filter %s %s --protocol tcp " \
 	"-m mark ! --mark " __stringify(SOCCR_MARK) " --source %s --sport %d --destination %s --dport %d -j DROP"
 
-static char iptable_cmd_ipv4[] = "iptables";
-static char iptable_cmd_ipv6[] = "ip6tables";
+static char iptable_cmd_ipv4[] = "iptables-legacy";
+static char iptable_cmd_ipv6[] = "ip6tables-legacy";
 
 void preload_netfilter_modules(void)
 {

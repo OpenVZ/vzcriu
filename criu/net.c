@@ -2710,12 +2710,12 @@ static inline int dump_iptables(struct cr_imgset *fds)
 	struct cr_img *img;
 
 	img = img_from_set(fds, CR_FD_IPTABLES);
-	if (iptables_tool_dump("iptables-save", -1, img_raw_fd(img)))
+	if (iptables_tool_dump("iptables-legacy-save", -1, img_raw_fd(img)))
 		return -1;
 
 	if (kdat.ipv6) {
 		img = img_from_set(fds, CR_FD_IP6TABLES);
-		if (iptables_tool_dump("ip6tables-save", -1, img_raw_fd(img)))
+		if (iptables_tool_dump("ip6tables-legacy-save", -1, img_raw_fd(img)))
 			return -1;
 	}
 
@@ -3023,7 +3023,7 @@ static inline int restore_iptables(int pid)
 		goto ipt6;
 	}
 
-	ret = iptables_tool_restore("iptables-restore -w", img_raw_fd(img), -1);
+	ret = iptables_tool_restore("iptables-legacy-restore -w", img_raw_fd(img), -1);
 	close_image(img);
 	if (ret)
 		return ret;
@@ -3034,7 +3034,7 @@ ipt6:
 	if (empty_image(img))
 		goto out;
 
-	ret = iptables_tool_restore("ip6tables-restore -w", img_raw_fd(img), -1);
+	ret = iptables_tool_restore("ip6tables-legacy-restore -w", img_raw_fd(img), -1);
 out:
 	close_image(img);
 
@@ -3731,8 +3731,8 @@ int netns_keep_nsfd(void)
 static int do_iptables_restore(bool ipv6, char *buf, int size)
 {
 	int pfd[2], ret = -1;
-	char *cmd4[] = {"iptables-restore", "-w", "--noflush", NULL};
-	char *cmd6[] = {"ip6tables-restore", "-w", "--noflush", NULL};
+	char *cmd4[] = {"iptables-legacy-restore", "-w", "--noflush", NULL};
+	char *cmd6[] = {"ip6tables-legacy-restore", "-w", "--noflush", NULL};
 	char **cmd = ipv6 ? cmd6 : cmd4;
 	int userns_pid = -1;
 
