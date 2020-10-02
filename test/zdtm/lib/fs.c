@@ -200,7 +200,7 @@ int overlayfs_setup(const char *parentdir, const char **lower,
 	SETUP_DIR(parentdir, mountdir);
 
 	if (mount("none", path, "overlay", 0, mntopt)) {
-		pr_err("Failed to mount overlayfs on %s with opts: %s\n", path, mntopt);
+		pr_perror("Failed to mount overlayfs on %s with opts: %s", path, mntopt);
 		return 1;
 	}
 	return 0;
