@@ -129,13 +129,8 @@ extern const char *socket_proto_name(unsigned int proto, char *nm, size_t size);
 #define ___socket_family_name(family)	__socket_info_helper(socket_family_name, family)
 #define ___socket_proto_name(proto)	__socket_info_helper(socket_proto_name, proto)
 
-/* Old kernels. Reused as NETLINK_EXT_ACK in latest vanila kernel */
 #ifndef NETLINK_REPAIR
-#define NETLINK_REPAIR                  11
-#endif
-
-#ifndef NETLINK_REPAIR2
-#define NETLINK_REPAIR2			127
+#define NETLINK_REPAIR                  127
 #endif
 
 #ifndef NETLINK_SETERR
