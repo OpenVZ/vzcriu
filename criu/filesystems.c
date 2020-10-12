@@ -54,9 +54,9 @@ static int binfmt_misc_collect(struct mount_info *pm)
 	return 0;
 }
 
-static int binfmt_misc_virtual(struct mount_info *pm)
+static int binfmt_misc_virtual(unsigned int s_dev)
 {
-	return kerndat_fs_virtualized(KERNDAT_FS_STAT_BINFMT_MISC, pm->s_dev);
+	return kerndat_fs_virtualized(KERNDAT_FS_STAT_BINFMT_MISC, s_dev);
 }
 
 static int parse_binfmt_misc_entry(struct bfd *f, BinfmtMiscEntry *bme)
@@ -141,27 +141,18 @@ err:
 	return ret;
 }
 
-static int binfmt_misc_dump(struct mount_info *pm)
+int binfmt_misc_dump_from_fd(int fd, int s_dev)
 {
-	static bool dumped = false;
+	int ret;
 	struct cr_img *img = NULL;
 	struct dirent *de;
 	DIR *fdir = NULL;
-	int fd, ret;
 
-	ret = binfmt_misc_virtual(pm);
-	if (ret <= 0)
+	ret = binfmt_misc_virtual(s_dev);
+	if (ret <= 0) {
+		close(fd);
 		return ret;
-
-	if (dumped) {
-		pr_err("Second binfmt_misc superblock\n");
-		return -1;
 	}
-	dumped = true;
-
-	fd = open_mountpoint(pm);
-	if (fd < 0)
-		return fd;
 
 	fdir = fdopendir(fd);
 	if (fdir == NULL) {
@@ -381,7 +372,6 @@ int collect_binfmt_misc(void)
 	return collect_image(&binfmt_misc_cinfo);
 }
 #else
-#define binfmt_misc_dump    NULL
 #define binfmt_misc_restore NULL
 #define binfmt_misc_parse   NULL
 #define binfmt_misc_collect NULL
@@ -702,7 +692,6 @@ static struct fstype fstypes[] = {
 		.parse = binfmt_misc_parse,
 		.collect = binfmt_misc_collect,
 		.code = FSTYPE__BINFMT_MISC,
-		.dump = binfmt_misc_dump,
 		.restore = binfmt_misc_restore,
 	},
 	{

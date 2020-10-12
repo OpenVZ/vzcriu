@@ -1748,82 +1748,113 @@ err:
 	return NULL;
 }
 
+#define BINFMT_MOUNT_FAILED  -1
+#define BINFMT_MOUNT_SKIPPED -2
+
 /*
- * Returns:
- *  0 - success
- * -1 - error
- *  1 - skip
+ * Mounts tmpfs, creates a dir, mounts binfmt_misc to this dir,
+ * opens the dir and returns fd.
+ * return values:
+ *  - ret >= 0, mount fd on successful mount and open.
+ *  - BINFMT_MOUNT_FAILED, critical mount error.
+ *  - BINFMT_MOUNT_SKIPPED, mount is skipped with no error raised.
+ *
+ * Function supposed to be called in call_in_child_process context,
+ * in private mountnamespace, so when the process exits tmpfs mountpoint
+ * along with temp dirs will get destroyed automatically. We still need
+ * to close all fds before exit.
  */
-static __maybe_unused int mount_cr_time_mount(struct ns_id *ns, unsigned int *s_dev, const char *source,
-					      const char *target, const char *type)
+static __maybe_unused int mount_and_open_binfmt_misc(unsigned int *s_dev)
 {
-	int exit_code = -1;
+	char target_dir[] = "/tmp/.criu.binfmt.XXXXXX";
 	struct stat st;
+	int mnt_fd;
 
 	if (!opts.ve) {
 		pr_debug("Skipping binfmt_misc as --ve was not specifided\n");
-		return 1;
+		return BINFMT_MOUNT_SKIPPED;
 	}
 
 	if (join_veX())
-		return -1;
+		return BINFMT_MOUNT_FAILED;
 
-	if (switch_ns(ns->ns_pid, &mnt_ns_desc, NULL)) {
-		pr_err("Can't switch mnt_ns\n");
-		return -1;
+	if (mount(NULL, "/tmp", "tmpfs", 0, NULL)) {
+		pr_perror("Failed to mount tmpfs to '/tmp'");
+		return BINFMT_MOUNT_FAILED;
 	}
 
-	if (switch_ns(ns->ns_pid, &user_ns_desc, NULL)) {
-		pr_err("Can't switch user_ns\n");
-		goto out;
+	if (mkdtemp(target_dir) == NULL) {
+		pr_perror("mkdtemp failed %s", target_dir);
+		return BINFMT_MOUNT_FAILED;
 	}
 
-	if (mount(source, target, type, 0, NULL)) {
-		switch (errno) {
-		case EPERM:
-		case ENODEV:
-		case ENOENT:
-			pr_debug("Skipping %s as was unable to mount it: %s\n", type, strerror(errno));
-			exit_code = 1;
-			break;
-		default:
-			pr_perror("Unable to mount %s %s %s", type, source, target);
+	pr_info("Mounting binfmt_misc for dump: %s\n", target_dir);
+
+	if (mount("binfmt_misc", target_dir, "binfmt_misc", 0, NULL)) {
+		/*
+		 * EPERM is returned when we're in !init_user_ns, ENODEV and ENOENT
+		 * when no binfmt_misc module is loaded.
+		 */
+		if (errno == EPERM || errno == ENODEV || errno == ENOENT) {
+			pr_debug("Skipping binfmt_misc as was unable to mount it: %s\n", strerror(errno));
+			return BINFMT_MOUNT_SKIPPED;
 		}
-		goto out;
+		pr_perror("Failed to mount binfmt_misc at %s", target_dir);
+		return BINFMT_MOUNT_FAILED;
 	}
 
-	if (stat(target, &st)) {
-		pr_perror("Can't stat %s", target);
-		goto out;
+	if (stat(target_dir, &st)) {
+		pr_perror("Can't stat %s", target_dir);
+		return BINFMT_MOUNT_FAILED;
+	}
+
+	mnt_fd = open(target_dir, O_RDONLY);
+	if (mnt_fd == -1) {
+		pr_perror("Can't open %s", target_dir);
+		return BINFMT_MOUNT_FAILED;
 	}
 
 	*s_dev = MKKDEV(major(st.st_dev), minor(st.st_dev));
-	exit_code = 0;
-out:
-	return exit_code;
+
+	return mnt_fd;
 }
 
-static __maybe_unused int mount_and_collect_binfmt_misc(void *unused)
+/*
+ * Mounts binfmt_misc in isolated location and dumps binfmt_misc
+ * registered entries to binfmt_misc.img
+ *
+ * Function is called from call_in_child_process, thus returning
+ * from mount_and_dump_binfmt_misc results in process exit, which
+ * will auto-unmount private "/" mountpoint.
+ * mnt_fd is closed in binfmt_misc_dump_from_fd
+ */
+static __maybe_unused int mount_and_dump_binfmt_misc(void *unused)
 {
 	unsigned int s_dev = 0;
-	struct ns_id *ns;
-	int ret;
+	int mnt_fd;
 
-	for (ns = ns_ids; ns != NULL; ns = ns->next) {
-		if (ns->type == NS_ROOT && ns->nd == &mnt_ns_desc)
-			break;
-	}
-	BUG_ON(!ns);
-
-	ret = mount_cr_time_mount(ns, &s_dev, "binfmt_misc", "/" BINFMT_MISC_HOME, "binfmt_misc");
-	if (ret == 1) {
-		ret = 0;
-	} else if (ret == 0 &&
-		   !add_cr_time_mount(ns->mnt.mntinfo_tree, "binfmt_misc", BINFMT_MISC_HOME, s_dev, false)) {
-		ret = -1;
+	if (unshare(CLONE_NEWNS)) {
+		pr_perror("Can't unshare mount namespace");
+		return -1;
 	}
 
-	return ret;
+	if (mount(NULL, "/", NULL, MS_PRIVATE | MS_REC, NULL)) {
+		pr_perror("Failed to set '/' mountpoint private");
+		return -1;
+	}
+
+	mnt_fd = mount_and_open_binfmt_misc(&s_dev);
+	if (mnt_fd == BINFMT_MOUNT_FAILED)
+		return -1;
+	if (mnt_fd == BINFMT_MOUNT_SKIPPED)
+		return 0;
+	if (binfmt_misc_dump_from_fd(mnt_fd, s_dev)) {
+		pr_err("Failed to dump binfmt_misc content\n");
+		return -1;
+	}
+
+	pr_debug("Dumped binfmt_misc\n");
+	return 0;
 }
 
 static int dump_one_fs(struct mount_info *mi)
@@ -4036,8 +4067,8 @@ int collect_mnt_namespaces(bool for_dump)
 	search_bindmounts();
 
 #ifdef CONFIG_BINFMT_MISC_VIRTUALIZED
-	if (for_dump && !opts.has_binfmt_misc) {
-		ret = call_in_child_process(mount_and_collect_binfmt_misc, NULL);
+	if (for_dump) {
+		ret = call_in_child_process(mount_and_dump_binfmt_misc, NULL);
 		if (ret)
 			goto err;
 	}
