@@ -30,6 +30,8 @@ extern int aufs_parse(struct mount_info *mi, bool for_dump);
 /* callback for OverlayFS support */
 extern int overlayfs_parse(struct mount_info *mi, bool for_dump);
 
+extern int binfmt_misc_dump_from_fd(int fd, int s_dev);
+
 /* FIXME -- remove */
 extern struct list_head binfmt_misc_list;
 #endif
