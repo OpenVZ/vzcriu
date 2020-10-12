@@ -389,10 +389,10 @@ static int open_netlink_sk(struct file_desc *d, int *new_fd)
 		}
 	}
 
-	if (rst_file_params(sk, nse->fown, nse->flags))
+	if (restore_netlink_queue(sk, nse->id))
 		goto err;
 
-	if (restore_netlink_queue(sk, nse->id))
+	if (rst_file_params(sk, nse->fown, nse->flags))
 		goto err;
 
 	if (nse->nl_opts && restore_nl_opts(sk, nse->nl_opts))
