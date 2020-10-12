@@ -170,6 +170,7 @@ TST_NOFILE	:=				\
 		sk-netlink			\
 		sk-netlink02			\
 		sk-netlink03			\
+		sk-netlink-flags		\
 		mem-touch			\
 		grow_map			\
 		grow_map02			\
