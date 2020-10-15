@@ -288,14 +288,10 @@ static int spfs_request_mount(int sock, struct mount_info *mi, const char *sourc
 	int len;
 	char *freezer_root;
 
-	if (opts.new_global_cg_root)
-		freezer_root = opts.new_global_cg_root;
-	else {
-		err = new_cg_root_get("freezer", &freezer_root);
-		if (err) {
-			pr_err("failed to get freezer root: %d\n", err);
-			return err;
-		}
+	err = new_cg_root_get("freezer", &freezer_root);
+	if (err) {
+		pr_err("failed to get freezer root: %d\n", err);
+		return err;
 	}
 
 	err = -ENOMEM;

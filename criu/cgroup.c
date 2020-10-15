@@ -2043,6 +2043,12 @@ int new_cg_root_get(const char *controller, char **root)
 			return 0;
 		}
 	}
+
+	if (opts.new_global_cg_root) {
+		*root = opts.new_global_cg_root;
+		return 0;
+	}
+
 	return -ENOENT;
 }
 
