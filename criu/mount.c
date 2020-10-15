@@ -4827,6 +4827,16 @@ static int __check_mounts(struct ns_id *ns)
 			bracket = strchrnul(mnt->root, '[');
 			if (strncmp(mnt->root, new_mnt->root, bracket - mnt->root + 1))
 				root_missmatch = true;
+		} else if (mnt->fstype->code == FSTYPE__CGROUP) {
+			/*
+			 * External cgroup mounts can change root due to
+			 * container rename (e.g. online vzmlocal)
+			 */
+			if (strcmp(mnt->root, new_mnt->root)) {
+				pr_warn("Cgroup mount (%d)[%s] has different root (%d)[%s]\n",
+				       mnt->mnt_id, mnt->root,
+				       new_mnt->mnt_id, new_mnt->root);
+			}
 		} else if (strcmp(mnt->root, new_mnt->root)) {
 			root_missmatch = true;
 		}
