@@ -44,6 +44,7 @@
 #include "fault-injection.h"
 #include "fs-magic.h"
 #include "criu-log.h"
+#include "crtools.h"
 
 #include "protobuf.h"
 #include "images/fdinfo.pb-c.h"
@@ -2174,20 +2175,52 @@ static int parse_fdinfo_pid_s(int pid, int fd, int type, void *arg)
 	pr_err("No records of type %d found in fdinfo file\n", type);
 parse_err:
 	exit_code = -1;
-	pr_perror("%s: error parsing [%s] for %d", __func__, str, type);
+	pr_warn("%s: error parsing [%s] for %d\n", __func__, str, type);
 out:
 	bclose(&f);
 	return exit_code;
 }
 
+struct fdinfo_parse_arg {
+	int pid;
+	int fd;
+	int type;
+	void *arg;
+};
+
+static int parse_fdinfo_from_ve(void *arg)
+{
+	struct fdinfo_parse_arg *fpa = arg;
+
+	if (join_veX(root_item->pid->real)) {
+		pr_err("Helper process was unable to enter ve\n");
+		return -1;
+	}
+
+	return parse_fdinfo_pid_s(fpa->pid, fpa->fd, fpa->type, fpa->arg);
+}
+
 int parse_fdinfo_pid(int pid, int fd, int type, void *arg)
 {
-	return parse_fdinfo_pid_s(pid, fd, type, arg);
+	int ret;
+	
+	ret = parse_fdinfo_pid_s(pid, fd, type, arg);
+	if (ret < 0) {
+		struct fdinfo_parse_arg fpa = {pid, fd, type, arg};
+		pr_debug("Retrying to parse fdinfo from ve\n");
+
+		ret = call_in_child_process(parse_fdinfo_from_ve, &fpa);
+
+		if (ret < 0)
+			pr_err("Unable to parse fdinfo\n");
+	}
+
+	return ret;
 }
 
 int parse_fdinfo(int fd, int type, void *arg)
 {
-	return parse_fdinfo_pid_s(PROC_SELF, fd, type, arg);
+	return parse_fdinfo_pid(PROC_SELF, fd, type, arg);
 }
 
 int get_fd_mntid(int fd, int *mnt_id)
