@@ -175,7 +175,7 @@ int overlayfs_setup(const char *parentdir, const char **lower,
 
 	const char **current_lower = lower;
 	if (*lower == NULL) {
-		pr_err("overlayfs_setup error: should be at least one lower dir");
+		pr_err("overlayfs_setup error: should be at least one lower dir\n");
 		return 1;
 	}
 
@@ -200,7 +200,7 @@ int overlayfs_setup(const char *parentdir, const char **lower,
 	SETUP_DIR(parentdir, mountdir);
 
 	if (mount("none", path, "overlay", 0, mntopt)) {
-		pr_err("Failed to mount overlayfs on %s with opts: %s", path, mntopt);
+		pr_err("Failed to mount overlayfs on %s with opts: %s\n", path, mntopt);
 		return 1;
 	}
 	return 0;
