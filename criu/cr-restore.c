@@ -2547,7 +2547,8 @@ skip_ns_bouncing:
 
 	__restore_switch_stage(CR_STATE_COMPLETE);
 
-	join_ve0(getpid());
+	if (join_ve0(getpid()))
+		goto out_kill_network_unlocked;
 
 	ret = compel_stop_on_syscall(task_entries->nr_threads,
 		__NR(rt_sigreturn, 0), __NR(rt_sigreturn, 1), flag);
