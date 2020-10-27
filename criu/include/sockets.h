@@ -136,6 +136,10 @@ extern const char *socket_proto_name(unsigned int proto, char *nm, size_t size);
 #define NETLINK_REPAIR2			127
 #endif
 
+#ifndef NETLINK_SETERR
+#define NETLINK_SETERR			128
+#endif
+
 #ifndef SOL_NETLINK
 #define SOL_NETLINK			270
 #endif

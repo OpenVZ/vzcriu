@@ -26,4 +26,5 @@ message netlink_sk_entry {
 	required sk_opts_entry		opts		=  12;
 	optional uint32			ns_id		=  13;
 	optional nl_sk_opts_entry	nl_opts		=  14;
+	optional bool			vz_enobufs	=  1001;
 }

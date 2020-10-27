@@ -5,7 +5,8 @@ extern struct collect_image_info sk_queues_cinfo;
 
 #define SK_QUEUE_REAL_PID	0x1 /* scm creds contains a real pid */
 #define SK_QUEUE_DUMP_ADDR	0x2 /* save a sender address for messages */
-extern int dump_sk_queue(int sock_fd, int sock_id, int flags);
+#define SK_QUEUE_TRACK_ENOBUFS	0x4 /* don't fail at ENOBUFS, fill *val if it is present */
+extern int dump_sk_queue(int sock_fd, int sock_id, int flags, int *val);
 extern int sk_queue_post_actions(void);
 extern int restore_sk_queue(int fd, unsigned int peer_id);
 
