@@ -155,7 +155,7 @@ static int dump_nl_opts(int sk, NlSkOptsEntry *e)
 	return ret;
 }
 
-static int dump_nl_queue(int sk, int id)
+static int dump_nl_queue(int sk, int id, int *enobufs_present)
 {
 	int ret, old_val, on = 1;
 
@@ -165,7 +165,7 @@ static int dump_nl_queue(int sk, int id)
 	if (!old_val && restore_opt(sk, SOL_NETLINK, NETLINK_NO_ENOBUFS, &on))
 		return -1;
 
-	ret = dump_sk_queue(sk, id, SK_QUEUE_DUMP_ADDR);
+	ret = dump_sk_queue(sk, id, SK_QUEUE_DUMP_ADDR | SK_QUEUE_TRACK_ENOBUFS, enobufs_present);
 
 	if (!old_val && restore_opt(sk, SOL_NETLINK, NETLINK_NO_ENOBUFS, &old_val))
 		return -1;
@@ -180,6 +180,7 @@ static int dump_one_netlink_fd(int lfd, u32 id, const struct fd_parms *p)
 	NetlinkSkEntry ne = NETLINK_SK_ENTRY__INIT;
 	SkOptsEntry skopts = SK_OPTS_ENTRY__INIT;
 	NlSkOptsEntry nlopts = NL_SK_OPTS_ENTRY__INIT;
+	int enobufs_present = 0;
 
 	sk = (struct netlink_sk_desc *)lookup_socket(p->stat.st_ino, PF_NETLINK, 0);
 	if (IS_ERR(sk))
@@ -270,8 +271,11 @@ static int dump_one_netlink_fd(int lfd, u32 id, const struct fd_parms *p)
 	fe.id = ne.id;
 	fe.nlsk = &ne;
 
-	if (kdat.has_nl_repair && dump_nl_queue(lfd, id))
+	if (kdat.has_nl_repair && dump_nl_queue(lfd, id, &enobufs_present))
 		goto err;
+
+	ne.has_vz_enobufs = true;
+	ne.vz_enobufs = enobufs_present;
 
 	if (pb_write_one(img_from_set(glob_imgset, CR_FD_FILES), &fe, PB_FILE))
 		goto err;
@@ -291,7 +295,7 @@ struct netlink_sock_info {
 	struct file_desc d;
 };
 
-static int restore_netlink_queue(int sk, int id)
+static int restore_netlink_queue(int sk, int id, int set_enobufs)
 {
 	int val;
 
@@ -306,6 +310,14 @@ static int restore_netlink_queue(int sk, int id)
 
 	if (restore_sk_queue(sk, id))
 		return -1;
+
+	if (set_enobufs) {
+		val = ENOBUFS;
+		if (setsockopt(sk, SOL_NETLINK, NETLINK_SETERR, &val, sizeof(val))) {
+			pr_perror("Unable to restore ENOBUFS");
+			return -1;
+		}
+	}
 
 	val = 0;
 	if (setsockopt(sk, SOL_NETLINK, kdat.netlink_repair_nr, &val, sizeof(val)))
@@ -337,7 +349,7 @@ static int open_netlink_sk(struct file_desc *d, int *new_fd)
 	struct netlink_sock_info *nsi;
 	NetlinkSkEntry *nse;
 	struct sockaddr_nl addr;
-	int sk = -1;
+	int sk = -1, set_enobufs;
 
 	nsi = container_of(d, struct netlink_sock_info, d);
 	nse = nsi->nse;
@@ -389,7 +401,8 @@ static int open_netlink_sk(struct file_desc *d, int *new_fd)
 		}
 	}
 
-	if (restore_netlink_queue(sk, nse->id))
+	set_enobufs = nse->has_vz_enobufs ? nse->vz_enobufs : 0;
+	if (restore_netlink_queue(sk, nse->id, set_enobufs))
 		goto err;
 
 	if (rst_file_params(sk, nse->fown, nse->flags))
