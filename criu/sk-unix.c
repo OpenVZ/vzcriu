@@ -446,7 +446,7 @@ static int dump_one_unix_fd(int lfd, uint32_t id, const struct fd_parms *p)
 	 */
 	if (sk->rqlen != 0 && !(sk->type == SOCK_STREAM &&
 				sk->state == TCP_LISTEN)) {
-		if (dump_sk_queue(lfd, id, SK_QUEUE_REAL_PID))
+		if (dump_sk_queue(lfd, id, SK_QUEUE_REAL_PID, NULL))
 			goto err;
 	}
 
