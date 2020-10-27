@@ -116,6 +116,7 @@ TST_NOFILE	:=				\
 		sock_opts00			\
 		sock_opts01			\
 		sk-unix-unconn			\
+		sk-netlink-enobufs		\
 		ipc_namespace			\
 		ipc_namespace_sub		\
 		selfexe00			\
