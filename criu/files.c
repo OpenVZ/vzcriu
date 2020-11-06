@@ -1297,7 +1297,6 @@ int prepare_fds(struct pstree_item *me)
 	sfds_protected = false;
 	close_service_fd(CGROUP_YARD);
 	sfds_protected = true;
-	set_proc_self_fd(-1); /* flush any proc cached fds we may have */
 
 	if (rsti(me)->fdt) {
 		struct fdt *fdt = rsti(me)->fdt;
