@@ -76,6 +76,7 @@ struct kerndat_s {
 	bool has_ns_get_userns;
 	bool has_ns_get_parent;
 	bool has_pid_for_children_ns;
+	bool has_mount_set_group;
 };
 
 extern struct kerndat_s kdat;
@@ -102,5 +103,6 @@ extern int kerndat_has_nspid(void);
 extern int kerndat_has_ns_get_userns(void);
 extern int kerndat_has_ns_get_parent(void);
 extern int kerndat_has_pid_for_children_ns(void);
+extern int kerndat_has_mount_set_group(void);
 
 #endif /* __CR_KERNDAT_H__ */

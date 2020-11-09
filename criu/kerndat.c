@@ -13,6 +13,7 @@
 #include <arpa/inet.h>  /* for sockaddr_in and inet_ntoa() */
 #include <sys/prctl.h>
 #include <sys/inotify.h>
+#include <sys/mount.h>
 
 #include <linux/netlink.h>
 
@@ -44,6 +45,7 @@
 #include "kcmp.h"
 #include "sched.h"
 #include "memfd.h"
+#include "mount-v2.h"
 
 struct kerndat_s kdat = {
 };
@@ -934,6 +936,46 @@ int kerndat_has_pid_for_children_ns(void)
 	return 0;
 }
 
+int kerndat_has_mount_set_group(void)
+{
+	char tmpdir[] = "/tmp/.criu.mount_set_group.XXXXXX";
+	int ret = -1;
+
+	if (mkdtemp(tmpdir) == NULL) {
+		pr_perror("Fail to make dir %s", tmpdir);
+		return -1;
+	}
+
+	if (mount(tmpdir, tmpdir, NULL, MS_BIND, NULL)) {
+		pr_perror("Fail to make bind-mount %s", tmpdir);
+		rmdir(tmpdir);
+		return -1;
+	}
+
+	if (mount(NULL, tmpdir, NULL, MS_PRIVATE, NULL)) {
+		pr_perror("Fail to make %s private", tmpdir);
+		goto out;
+	}
+
+	if (mount("/tmp", tmpdir, NULL, MS_SET_GROUP, NULL) < 0) {
+		if (errno == EINVAL) {
+			pr_debug("No mount(MS_SET_GROUP) kernel feature\n");
+			kdat.has_mount_set_group = false;
+			ret = 0;
+			goto out;
+		}
+		pr_perror("Fail to mount(MS_SET_GROUP)");
+		goto out;
+	}
+
+	kdat.has_mount_set_group = true;
+	ret = 0;
+out:
+	umount2(tmpdir, MNT_DETACH);
+	rmdir(tmpdir);
+	return ret;
+}
+
 #define KERNDAT_CACHE_FILE	KDAT_RUNDIR"/criu.kdat"
 #define KERNDAT_CACHE_FILE_TMP	KDAT_RUNDIR"/.criu.kdat"
 
@@ -1384,6 +1426,10 @@ int kerndat_init(void)
 	}
 	if (!ret && kerndat_has_pid_for_children_ns()) {
 		pr_err("kerndat_has_pid_for_children_ns failed when initializing kerndat.\n");
+		ret = -1;
+	}
+	if (!ret && kerndat_has_mount_set_group()) {
+		pr_err("kerndat_has_mount_set_group failed when initializing kerndat.\n");
 		ret = -1;
 	}
 
