@@ -248,7 +248,7 @@ static int get_mnt_id(int lfd, int *mnt_id)
 
 	fd = ioctl(lfd, SIOCUNIXFILE);
 	if (fd < 0) {
-		pr_perror("Unable to get a socker file descriptor");
+		pr_perror("Unable to get a socket file descriptor");
 		return -1;
 	}
 
@@ -260,88 +260,6 @@ static int get_mnt_id(int lfd, int *mnt_id)
 	*mnt_id = fdinfo.mnt_id;
 
 	return 0;
-}
-
-static int resolve_rel_name(uint32_t id, struct unix_sk_desc *sk, const struct fd_parms *p, char **pdir)
-{
-	const char *dirs[] = { "cwd", "root" };
-	struct pstree_item *task;
-	int mntns_root, i;
-	struct ns_id *ns;
-
-	task = pstree_item_by_real(p->pid);
-	if (!task) {
-		pr_err("Can't find task with pid %d\n", p->pid);
-		return -ENOENT;
-	}
-
-	ns = lookup_ns_by_id(task->ids->mnt_ns_id, &mnt_ns_desc);
-	if (!ns) {
-		pr_err("Can't resolve mount namespace for pid %d\n", p->pid);
-		return -ENOENT;
-	}
-
-	mntns_root = mntns_get_root_fd(ns);
-	if (mntns_root < 0) {
-		pr_err("Can't resolve fs root for pid %d\n", p->pid);
-		return -ENOENT;
-	}
-
-	pr_debug("Resolving relative name %s for socket %d\n",
-		 sk->name, sk->sd.ino);
-
-	for (i = 0; i < ARRAY_SIZE(dirs); i++) {
-		char dir[PATH_MAX], path[PATH_MAX];
-		int ret, root_fd;
-		struct stat st;
-		int errno_save;
-
-		snprintf(path, sizeof(path), "/proc/%d/%s", p->pid, dirs[i]);
-		ret = readlink(path, dir, sizeof(dir));
-		if (ret < 0 || (size_t)ret == sizeof(dir)) {
-			pr_err("Can't readlink for %s\n", dirs[i]);
-			return -1;
-		}
-		dir[ret] = 0;
-
-		if (cr_set_root(mntns_root, &root_fd))
-			goto err;
-
-		if (snprintf(path, sizeof(path), ".%s/%s", dir, sk->name) >= sizeof(path)) {
-			pr_err("The path .%s/%s is too long\n", dir, sk->name);
-			goto err;
-		}
-
-		ret = fstatat(mntns_root, path, &st, 0);
-		errno_save = errno;
-		if (cr_restore_root(root_fd))
-			goto err;
-
-		if (ret) {
-			if (errno_save == ENOENT)
-				continue;
-			errno = errno_save;
-			pr_perror("Unable to stat %s", path);
-			goto err;
-		}
-
-		if ((st.st_ino == sk->vfs_ino) &&
-		    phys_stat_dev_match(st.st_dev, sk->vfs_dev, ns, &path[1])) {
-			*pdir = xstrdup(dir);
-			if (!*pdir)
-				return -ENOMEM;
-
-			pr_debug("Resolved relative socket name to dir %s\n", *pdir);
-			sk->mode = st.st_mode;
-			sk->uid	= st.st_uid;
-			sk->gid	= st.st_gid;
-			return 0;
-		}
-	}
-
-err:
-	pr_err("Can't resolve name for socket %#x\n", id);
-	return -ENOENT;
 }
 
 static int dump_one_unix_fd(int lfd, uint32_t id, const struct fd_parms *p)
@@ -590,13 +508,9 @@ static int unix_resolve_name(int lfd, uint32_t id, struct unix_sk_desc *d,
 				UnixSkEntry *ue, const struct fd_parms *p)
 {
 	char *name = d->name;
-	bool deleted = false;
-	char rpath[PATH_MAX];
-	struct ns_id *ns;
+	char path[PATH_MAX], tmp[PATH_MAX];
 	struct stat st;
-	int mntns_root;
-	int root_fd;
-	int ret, mnt_id;
+	int fd, proc_fd, ret, mnt_id;
 
 	if (d->namelen == 0 || name[0] == '\0')
 		return 0;
@@ -608,81 +522,57 @@ static int unix_resolve_name(int lfd, uint32_t id, struct unix_sk_desc *d,
 		ue->has_mnt_id = true;
 	}
 
-	if (ue->mnt_id >= 0)
-		ns = lookup_nsid_by_mnt_id(ue->mnt_id);
-	else
-		ns = lookup_ns_by_id(root_item->ids->mnt_ns_id, &mnt_ns_desc);
-	if (!ns) {
-		pr_err("Failed too lookup ns by mnt id %d\n", ue->mnt_id);
-		ret = -ENOENT;
-		goto out;
+	fd = ioctl(lfd, SIOCUNIXFILE);
+	if (fd < 0) {
+		pr_perror("Unable to get a socket file descriptor");
+		return -1;
 	}
 
-	mntns_root = mntns_get_root_fd(ns);
-	if (mntns_root < 0) {
-		pr_err("Failed too lookup mntns root for ns %d\n", ns->id);
-		ret = -ENOENT;
-		goto out;
+	ret = fstat(fd, &st);
+	if (ret) {
+		pr_perror("Unable to fstat socker fd");
+		return -1;
 	}
-
-	if (name[0] != '/') {
-		/*
-		 * Relative names are be resolved later at first
-		 * dump attempt.
-		 */
-
-		ret = resolve_rel_name(id, d, p, &ue->name_dir);
-		if (ret < 0)
-			goto out;
-		goto postprone;
-	}
-
-	ret = cr_set_root(mntns_root, &root_fd);
-	if (ret)
-		goto out;
-
-	snprintf(rpath, sizeof(rpath), ".%s", name);
-	if (fstatat(mntns_root, rpath, &st, 0)) {
-		if (errno != ENOENT) {
-			pr_warn("Can't stat socket %#x(%s), skipping: %m (err %d)\n",
-				id, rpath, errno);
-			ret = cr_restore_root(root_fd);
-			if (ret)
-				goto out;
-			goto skip;
-		}
-
-		pr_info("unix: Dropping path %s for unlinked sk %#x\n",
-			name, id);
-		deleted = true;
-	} else if ((st.st_ino != d->vfs_ino) ||
-		   !phys_stat_dev_match(st.st_dev, d->vfs_dev, ns, name)) {
-		pr_info("unix: Dropping path %s for unlinked bound "
-			"sk %#x.%d real %#x.%d\n",
-			name, (int)st.st_dev, (int)st.st_ino,
-			(int)d->vfs_dev, (int)d->vfs_ino);
-		deleted = true;
-	}
-
-	ret = cr_restore_root(root_fd);
-	if (ret)
-		goto out;
-
 	d->mode = st.st_mode;
 	d->uid	= st.st_uid;
 	d->gid	= st.st_gid;
 
-	d->deleted = deleted;
+	proc_fd = get_service_fd(PROC_FD_OFF);
+	if (proc_fd < 0) {
+		pr_err("Unable to get service fd for proc\n");
+		return -1;
+	}
 
-postprone:
-	return 0;
+	snprintf(tmp, sizeof(tmp), "self/fd/%d", fd);
+	ret = readlinkat(proc_fd, tmp, path, PATH_MAX);
+	if (ret < 0 && ret >= PATH_MAX) {
+		pr_perror("Unable to readlink %s", tmp);
+		goto out;
+	}
+	path[ret] = 0;
 
+	d->deleted = strip_deleted(path, ret);
+
+	if (name[0] != '/') {
+		ret = cut_path_ending(path, name);
+		if (ret) {
+			pr_err("Unable too resolve %s from %s\n", name, path);
+			goto out;
+		}
+
+		ue->name_dir = xstrdup(path);
+		if (!ue->name_dir) {
+			ret = -ENOMEM;
+			goto out;
+		}
+
+		pr_debug("Resolved socket relative name %s to %s/%s\n", name, ue->name_dir, name);
+	}
+
+	ret = 0;
 out:
-	xfree(name);
+	close(fd);
 	return ret;
-skip:
-	ret = 1;
-	goto out;
 }
 
 /*
