@@ -1149,6 +1149,17 @@ static int check_pid_for_children_ns(void)
 	return 0;
 }
 
+static int check_mount_set_group(void)
+{
+	if (kerndat_has_mount_set_group() < 0)
+		return -1;
+
+	if (!kdat.has_mount_set_group)
+		return -1;
+
+	return 0;
+}
+
 static int (*chk_feature)(void);
 
 /*
@@ -1262,6 +1273,7 @@ int cr_check(void)
 		ret |= check_ns_get_userns();
 		ret |= check_ns_get_parent();
 		ret |= check_pid_for_children_ns();
+		ret |= check_mount_set_group();
 	}
 
 	/*
@@ -1371,6 +1383,7 @@ static struct feature_list feature_list[] = {
 	{ "ns_get_userns", check_ns_get_userns },
 	{ "ns_get_parent", check_ns_get_parent },
 	{ "pid_for_children_ns", check_pid_for_children_ns},
+	{ "mount_set_group", check_mount_set_group},
 	{ NULL, NULL },
 };
 
