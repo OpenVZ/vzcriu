@@ -6,6 +6,7 @@
 
 #include "common/list.h"
 #include "cr_options.h"
+#include "kerndat.h"
 
 struct proc_mountinfo;
 struct pstree_item;
@@ -174,9 +175,14 @@ struct mount_info {
 	void			*private;	/* associated filesystem data */
 };
 
+static bool use_mounts_v2(void)
+{
+	return !opts.mounts_compat && kdat.has_mount_set_group;
+}
+
 static inline char *service_mountpoint(const struct mount_info *mi)
 {
-	if (!opts.mounts_compat && mi->plain_mountpoint)
+	if (use_mounts_v2() && mi->plain_mountpoint)
 		return mi->plain_mountpoint;
 	return mi->mountpoint;
 }

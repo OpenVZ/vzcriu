@@ -668,7 +668,7 @@ static int open_ns_fd(struct file_desc *d, int *new_fd)
 	int nsfd_id, fd;
 	char path[64] = "none";
 
-	if (!opts.mounts_compat && nfi->nfe->has_vz_mnt_id) {
+	if (use_mounts_v2() && nfi->nfe->has_vz_mnt_id) {
 		struct mount_info *mi;
 
 		mi = lookup_mnt_id(nfi->nfe->vz_mnt_id);

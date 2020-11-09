@@ -23,6 +23,7 @@
 #include "common/bug.h"
 #include "common/compiler.h"
 #include "rst-malloc.h"
+#include "kerndat.h"
 
 #include "images/mnt.pb-c.h"
 

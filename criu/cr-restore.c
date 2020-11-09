@@ -2867,7 +2867,7 @@ skip_ns_bouncing:
 	if (ret < 0)
 		goto out_destroy_cleanup;
 
-	if (!opts.mounts_compat && fini_restore_mntns_v2())
+	if (use_mounts_v2() && fini_restore_mntns_v2())
 		goto out_destroy;
 
 	__restore_switch_stage(CR_STATE_RESTORE);
