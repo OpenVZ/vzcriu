@@ -3795,7 +3795,7 @@ int read_mnt_ns_img(void)
 
 	search_nested_netns_sysfs();
 
-	if (!opts.mounts_compat && read_mnt_ns_img_v2(mntinfo))
+	if (use_mounts_v2() && read_mnt_ns_img_v2(mntinfo))
 		return -1;
 
 	root_yard_mp = mnt_entry_alloc(true);
@@ -4176,7 +4176,7 @@ int prepare_mnt_ns(void)
 		free_mntinfo(old);
 	}
 
-	if (!opts.mounts_compat)
+	if (use_mounts_v2())
 		return prepare_mnt_ns_v2();
 
 	ret = populate_mnt_ns();
