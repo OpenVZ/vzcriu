@@ -336,7 +336,8 @@ TST_FILE	=				\
 		maps_file_prot			\
 		socket_close_data01		\
 		file_fown_dead			\
-		fifo_upon_unix_socket		\
+		fifo_upon_unix_socket00		\
+		fifo_upon_unix_socket01		\
 
 TST_DIR		=				\
 		cwd00				\
@@ -659,6 +660,8 @@ pidns03:		LDFLAGS += -pthread
 openvswitch01:	CFLAGS += -DOPENVSWITCH01
 
 mqueue_inotify:		LDFLAGS += -lrt
+
+fifo_upon_unix_socket01:	CFLAGS += -DFIFO_UPON_UNIX01
 
 $(LIB):	force
 	$(Q) $(MAKE) -C $(LIBDIR)
