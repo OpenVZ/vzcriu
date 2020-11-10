@@ -1107,21 +1107,22 @@ static int restore_one_zombie(CoreEntry *core)
 
 static int setup_newborn_fds(struct pstree_item *me)
 {
-	if (clone_service_fd(me))
+	bool cleanup_parent_sfdt = !me->parent ||
+				   (rsti(me->parent)->fdt &&
+				    !(rsti(me)->clone_flags & CLONE_FILES));
+
+	if (clone_service_fd(me, cleanup_parent_sfdt))
 		return -1;
 
-	if (!me->parent ||
-	    (rsti(me->parent)->fdt && !(rsti(me)->clone_flags & CLONE_FILES))) {
-		/*
-		 * When our parent has shared fd table, some of the table owners
-		 * may be already created. Files, they open, will be inherited
-		 * by current process, and here we close them. Also, service fds
-		 * of parent are closed here. And root_item closes the files,
-		 * that were inherited from criu process.
-		 */
-		if (close_old_fds())
-			return -1;
-	}
+	/*
+	 * When our parent has shared fd table, some of the table owners
+	 * may be already created. Files, they open, will be inherited
+	 * by current process, and here we close them. Also, service fds
+	 * of parent are closed here. And root_item closes the files,
+	 * that were inherited from criu process.
+	 */
+	if (cleanup_parent_sfdt && close_old_fds())
+		return -1;
 
 	return 0;
 }

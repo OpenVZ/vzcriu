@@ -206,11 +206,22 @@ int close_service_fd(enum sfd_type type)
 	return 0;
 }
 
-static int move_service_fd(struct pstree_item *me, int type, int new_id, int new_base)
+static int move_service_fd(struct pstree_item *me, int type, int new_id,
+			   int new_base, bool cleanup_parent_sfdt)
 {
 	int old = get_service_fd(type);
 	int new = new_base - type - SERVICE_FD_MAX * new_id;
 	int ret;
+
+	/**
+	 * When our parent has shared fd table, we've inherited service fds of
+	 * other tasks from this fd table along with parent's service fds, so
+	 * those other copies of service fds can be open within an area we move
+	 * the copy of our parent's service fds. So we need to close all fds in
+	 * new service fd area.
+	 */
+	if (cleanup_parent_sfdt)
+		close(new);
 
 	if (old < 0)
 		return 0;
@@ -281,7 +292,7 @@ static int choose_service_fd_base(struct pstree_item *me)
 	return nr;
 }
 
-int clone_service_fd(struct pstree_item *me)
+int clone_service_fd(struct pstree_item *me, bool cleanup_parent_sfdt)
 {
 	int id, new_base, i, ret = -1;
 
@@ -296,10 +307,12 @@ int clone_service_fd(struct pstree_item *me)
 	/* Dup sfds in memmove() style: they may overlap */
 	if (get_service_fd(LOG_FD_OFF) < new_base - LOG_FD_OFF - SERVICE_FD_MAX * id)
 		for (i = SERVICE_FD_MIN + 1; i < SERVICE_FD_MAX; i++)
-			move_service_fd(me, i, id, new_base);
+			move_service_fd(me, i, id, new_base,
+					cleanup_parent_sfdt);
 	else
 		for (i = SERVICE_FD_MAX - 1; i > SERVICE_FD_MIN; i--)
-			move_service_fd(me, i, id, new_base);
+			move_service_fd(me, i, id, new_base,
+					cleanup_parent_sfdt);
 
 	service_fd_base = new_base;
 	service_fd_id = id;
