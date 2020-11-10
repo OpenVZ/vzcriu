@@ -135,7 +135,7 @@ static int has_enobufs(int sk)
 int main(int argc, char **argv)
 {
 	int sk, i, drops = 0, sk_bsize;
-	socklen_t optlen;
+	socklen_t optlen = sizeof(sk_bsize);
 	struct stat st;
 
 	test_init(argc, argv);
