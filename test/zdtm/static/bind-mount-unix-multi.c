@@ -14,15 +14,27 @@
 #include "zdtmtst.h"
 #include "fs.h"
 
-const char *test_doc = "Check multiple bind-mounts with unix socket";
+const char *test_doc = "Check multiple bind-mounts of unix socket (dgram, stream, seqpacket)";
 const char *test_author = "Alexander Mikhalitsyn <alexander@mihalicyn.com>";
 
 char *dirname;
 TEST_OPTION(dirname, string, "directory name", 1);
 
+#ifdef ZDTM_BM_UNIX_MULT_STREAM
+#define SOCK_TYPE SOCK_STREAM
+#endif
+
+#ifdef ZDTM_BM_UNIX_MULT_SEQPACKET
+#define SOCK_TYPE SOCK_SEQPACKET
+#endif
+
+#ifndef SOCK_TYPE
+#define SOCK_TYPE SOCK_DGRAM
+#endif
+
 #define BINDS_NUM 3
 
-static inline pid_t forkwrite(char path_bind[BINDS_NUM][PATH_MAX], int idx, task_waiter_t t, int sk)
+static inline pid_t forkwrite(char *path_bind, task_waiter_t t, int sk)
 {
 	int skc, ret = 1;
 	pid_t pid;
@@ -34,15 +46,15 @@ static inline pid_t forkwrite(char path_bind[BINDS_NUM][PATH_MAX], int idx, task
 		pr_perror("Can't fork");
 		_exit(1);
 	} else if (pid == 0) {
-		skc = socket(AF_UNIX, SOCK_DGRAM, 0);
+		skc = socket(AF_UNIX, SOCK_TYPE, 0);
 		if (skc < 0) {
 			pr_perror("Can't create client socket");
 			goto err1;
 		}
 
 		addr.sun_family = AF_UNIX;
-		sstrncpy(addr.sun_path, path_bind[idx]);
-		addrlen = sizeof(addr.sun_family) + strlen(path_bind[idx]);
+		sstrncpy(addr.sun_path, path_bind);
+		addrlen = sizeof(addr.sun_family) + strlen(path_bind);
 
 		ret = connect(skc, (struct sockaddr *)&addr, addrlen);
 		if (ret) {
@@ -54,7 +66,7 @@ static inline pid_t forkwrite(char path_bind[BINDS_NUM][PATH_MAX], int idx, task
 		task_waiter_complete(&t, 1);
 		task_waiter_wait4(&t, 2);
 
-		ret = sendto(skc, "111", 3, 0, (struct sockaddr *)&addr, addrlen);
+		ret = send(skc, "111", 3, 0);
 		if (ret != (int)3) {
 			pr_perror("Can't send data on client");
 			goto err1;
@@ -73,47 +85,56 @@ err1:
 	return pid;
 }
 
+struct task_data {
+	char path_bind[PATH_MAX];
+	task_waiter_t waiter;
+	pid_t pid;
+	int csk; /* socket to read on check */
+};
+
 int main(int argc, char **argv)
 {
-	char path_unix[PATH_MAX], path_bind[BINDS_NUM][PATH_MAX];
+	char path_unix[PATH_MAX];
 	char unix_name[] = "criu-log";
 	char bind_name[] = "criu-bind-log";
 	int sk = -1, ret = 1, fd, k;
 	struct sockaddr_un addr;
 	unsigned int addrlen;
-	task_waiter_t t[BINDS_NUM];
 	struct stat st;
 	int status;
-	pid_t pids[BINDS_NUM];
+	struct task_data task[BINDS_NUM];
 
 	char buf[] =  "1111111111111111111111111111111111";
 	char rbuf[] = "9999999999999999999999999999999999";
 
 	test_init(argc, argv);
 
+	for (k = 0; k < BINDS_NUM; k++) {
+		task[k].csk = -1;
+		task[k].pid = -1;
+		task_waiter_init(&task[k].waiter);
+	}
+
 #ifdef ZDTM_BM_UNIX_MULT_SUBMNTNS
 	if (unshare(CLONE_NEWNS)) {
 		pr_perror("Unable to create a new mntns");
-		return 1;
+		goto err;
 	}
 #endif
 
-	for (k = 0; k < BINDS_NUM; k++)
-		task_waiter_init(&t[k]);
-
 	if (prepare_dirname(dirname))
-		return 1;
+		goto err;
 
 	for (k = 0; k < BINDS_NUM; k++)
-		ssprintf(path_bind[k], "%s/%s%d", dirname, bind_name, k);
+		ssprintf(task[k].path_bind, "%s/%s%d", dirname, bind_name, k);
 
 	ssprintf(path_unix, "%s/%s", dirname, unix_name);
 
 	for (k = 0; k < BINDS_NUM; k++) {
-		fd = open(path_bind[k], O_RDONLY | O_CREAT);
+		fd = open(task[k].path_bind, O_RDONLY | O_CREAT);
 		if (fd < 0) {
-			pr_perror("Can't open %s", path_bind[k]);
-			return 1;
+			pr_perror("Can't open %s", task[k].path_bind);
+			goto err;
 		}
 		close(fd);
 	}
@@ -122,17 +143,25 @@ int main(int argc, char **argv)
 	sstrncpy(addr.sun_path, path_unix);
 	addrlen = sizeof(addr.sun_family) + strlen(path_unix);
 
-	sk = socket(AF_UNIX, SOCK_DGRAM, 0);
+	sk = socket(AF_UNIX, SOCK_TYPE, 0);
 	if (sk < 0) {
 		pr_perror("Can't create socket %s", path_unix);
-		return 1;
+		goto err;
 	}
 
 	ret = bind(sk, (struct sockaddr *)&addr, addrlen);
 	if (ret) {
 		pr_perror("Can't bind socket %s", path_unix);
-		return 1;
+		goto err;
 	}
+
+#if defined(ZDTM_BM_UNIX_MULT_STREAM) || defined(ZDTM_BM_UNIX_MULT_SEQPACKET)
+	ret = listen(sk, BINDS_NUM);
+	if (ret) {
+		pr_perror("can't listen on a socket %s", path_unix);
+		goto err;
+	}
+#endif
 
 	if (stat(path_unix, &st) == 0) {
 		test_msg("path %s st.st_dev %#x st.st_rdev %#x st.st_ino %#lx st.st_mode 0%o (sock %d)\n",
@@ -140,38 +169,55 @@ int main(int argc, char **argv)
 			 (int)st.st_mode, !!S_ISSOCK(st.st_mode));
 	} else {
 		pr_perror("Can't stat on %s", path_unix);
-		return 1;
+		goto err;
 	}
 
 	for (k = 0; k < BINDS_NUM; k++) {
-		if (mount(path_unix, path_bind[k], NULL, MS_BIND, NULL)) {
-			pr_perror("Unable to bindmount %s -> %s", path_unix, path_bind[k]);
-			return 1;
+		if (mount(path_unix, task[k].path_bind, NULL, MS_BIND, NULL)) {
+			pr_perror("Unable to bindmount %s -> %s", path_unix, task[k].path_bind);
+			goto err;
 		}
 
-		if (stat(path_bind[k], &st) == 0) {
+		if (stat(task[k].path_bind, &st) == 0) {
 			test_msg("path %s st.st_dev %#x st.st_rdev %#x st.st_ino %#lx st.st_mode 0%o (sock %d)\n",
-				 path_bind[k], (int)st.st_dev, (int)st.st_rdev, (unsigned long)st.st_ino,
+				 task[k].path_bind, (int)st.st_dev, (int)st.st_rdev, (unsigned long)st.st_ino,
 				 (int)st.st_mode, !!S_ISSOCK(st.st_mode));
 		} else {
-			pr_perror("Can't stat on %s", path_bind[k]);
-			return 1;
+			pr_perror("Can't stat on %s", task[k].path_bind);
+			goto err;
 		}
 	}
 
 	for (k = 0; k < BINDS_NUM; k++)
-		pids[k] = forkwrite(path_bind, k, t[k], sk);
+		task[k].pid = forkwrite(task[k].path_bind, task[k].waiter, sk);
+
+#if defined(ZDTM_BM_UNIX_MULT_STREAM) || defined(ZDTM_BM_UNIX_MULT_SEQPACKET)
+	for (k = 0; k < BINDS_NUM; k++) {
+		task[k].csk = accept(sk, NULL, NULL);
+		if (task[k].csk < 0) {
+			pr_perror("accept() failed");
+			goto err;
+		}
+	}
+#else
+	/*
+	 * For DGRAM socket we will just read datagrams from
+	 * one socket. There is no term "connection socket" here.
+	 */
+	for (k = 0; k < BINDS_NUM; k++)
+		task[k].csk = sk;
+#endif
 
 	test_daemon();
 	test_waitsig();
 
 	for (k = 0; k < BINDS_NUM; k++)
-		task_waiter_complete(&t[k], 2);
+		task_waiter_complete(&task[k].waiter, 2);
 
 	for (k = 0; k < BINDS_NUM; k++) {
-		ret = read(sk, rbuf + 3 * k, 3);
+		ret = recv(task[k].csk, rbuf + 3 * k, 3, 0);
 		if (ret < 0) {
-			fail("Can't read data");
+			fail("Can't recv data");
 			goto err;
 		}
 	}
@@ -182,9 +228,9 @@ int main(int argc, char **argv)
 	}
 
 	for (k = 0; k < BINDS_NUM; k++) {
-		ret = waitpid(pids[k], &status, 0);
+		ret = waitpid(task[k].pid, &status, 0);
 		if (ret == -1 || !WIFEXITED(status) || WEXITSTATUS(status)) {
-			kill(pids[k], SIGKILL);
+			kill(task[k].pid, SIGKILL);
 			fail("Unable to wait child");
 			goto err;
 		}
@@ -196,6 +242,16 @@ int main(int argc, char **argv)
 err:
 	umount2(dirname, MNT_DETACH);
 	close(sk);
+
+#if defined(ZDTM_BM_UNIX_MULT_STREAM) || defined(ZDTM_BM_UNIX_MULT_SEQPACKET)
+	for (k = 0; k < BINDS_NUM; k++) {
+		if (task[k].csk > 0)
+			close(task[k].csk);
+	}
+#endif
+
+	if (ret)
+		fail();
 
 	return ret ? 1 : 0;
 }
