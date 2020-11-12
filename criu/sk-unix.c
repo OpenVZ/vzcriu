@@ -826,6 +826,18 @@ err:
 	return -1;
 }
 
+int sk_bindmount_supported(unsigned int type, unsigned int state)
+{
+	if (type == SOCK_DGRAM && state == TCP_CLOSE)
+		return 1;
+
+	if ((type == SOCK_STREAM || type == SOCK_SEQPACKET) &&
+	    (state == TCP_CLOSE || state == TCP_LISTEN))
+		return 1;
+
+	return 0;
+}
+
 int collect_unix_bindmounts(void)
 {
 	struct mount_info *mi;
@@ -871,7 +883,7 @@ int collect_unix_bindmounts(void)
 				sk->mnt_usk_bind_list_size++;
 				list_add_tail(&mi->mnt_usk_bind, &sk->mnt_usk_bind_list);
 
-				if (sk->type != SOCK_DGRAM && sk->state != TCP_CLOSE) {
+				if (!sk_bindmount_supported(sk->type, sk->state)) {
 					pr_err("Unsupported bindmounted socket ino %d at %s\n",
 					       (int)st.st_ino, mi->ns_mountpoint);
 					return -1;
@@ -891,10 +903,7 @@ struct unix_sk_info {
 	char			*name;
 	char			*name_dir;
 	unsigned		flags;
-	union {
-		int		fdstore_id;
-		int		fdstore_mnt_id[2];
-	};
+	int			fdstore_id;
 	struct unix_sk_info	*peer;
 	struct pprep_head	peer_resolve; /* XXX : union with the above? */
 	struct file_desc	d;
@@ -1596,7 +1605,8 @@ static int bind_unix_sk(int sk, struct unix_sk_info *ui, bool notify)
 	if (ui->ue->name.len == 0)
 		return 0;
 
-	if ((ui->ue->type == SOCK_STREAM) && (ui->ue->state == TCP_ESTABLISHED)) {
+	if ((ui->ue->type == SOCK_STREAM || ui->ue->type == SOCK_SEQPACKET) &&
+	    (ui->ue->state == TCP_ESTABLISHED)) {
 		/*
 		 * FIXME this can be done, but for doing this properly we
 		 * need to bind socket to its name, then rename one to
@@ -1812,11 +1822,11 @@ static int break_connected(struct unix_sk_info *ui, int sk)
 static int make_socket(struct unix_sk_info *ui, int sks[2], bool pair, bool disjoin_master)
 {
 	if (unlikely(ui->flags & USK_BINDMOUNT)) {
-		sks[0] = fdstore_get(ui->fdstore_mnt_id[0]);
-		sks[1] = fdstore_get(ui->fdstore_mnt_id[1]);
+		sks[0] = fdstore_get(ui->fdstore_id);
+		sks[1] = -1;
 		pr_debug("bindmount: Fetch socket pair id %#x ino %d\n",
 			 ui->ue->id, ui->ue->ino);
-		if (sks[0] < 0 || sks[1] < 0) {
+		if (sks[0] < 0) {
 			pr_err("bindmount: Can't fetch id %#x socketpair from the store\n",
 			       ui->ue->id);
 			return -1;
@@ -2064,6 +2074,64 @@ static struct file_desc_ops unix_desc_ops = {
 	.on_stage_change = on_stage_change,
 };
 
+static void print_sk_full_path(char *buf, size_t bufsize, struct unix_sk_info *ui)
+{
+	int len;
+
+	len = snprintf(buf, bufsize, "%s%s%s",
+		       ui->name_dir ? ui->name_dir : "",
+		       ui->name_dir ? "/" : "",
+		       ui->name);
+	if (len >= bufsize) {
+		pr_err("overflow path for socket id %#x ino %u (name %s dir %s)",
+		       ui->ue->id, ui->ue->ino,
+		       ui->name ? (ui->name[0] ? ui->name : &ui->name[1]) : "-",
+		       ui->name_dir ? ui->name_dir : "-");
+		BUG_ON(1);
+	}
+}
+
+/*
+ * We need to skip unlinking socket when it's bindmounted
+ * socket (because we create them in unix_prepare_bindmount).
+ * The problem here is that connection sockets has the same
+ * addr as listening socket, so, checking USK_BINDMOUNT flag
+ * is not sufficient, we should also check that name is not
+ * used in *any* bindmounted socket.
+ *
+ * Analogical problem exists for ghost sockets. Imagine
+ * we have ghost socket with some addr and bindmounted
+ * socket with the same addr -> unix_prepare_root_shared()
+ * function is called *after* unix_prepare_bindmount()
+ * and also calls unlink_sk().
+ */
+static bool addr_prepared_for_bindmount(struct unix_sk_info *ui)
+{
+	char path[PATH_MAX], tmp_path[PATH_MAX];
+	struct unix_sk_info *tmp;
+
+	if (ui->flags & USK_BINDMOUNT)
+		return true;
+
+	print_sk_full_path(path, sizeof(path), ui);
+
+	list_for_each_entry(tmp, &unix_mnt_sockets, mnt_list) {
+		char *rel;
+
+		print_sk_full_path(tmp_path, sizeof(tmp_path), tmp);
+		/*
+		 * compare tmp_path and path using get_relative_path()
+		 * we just need to check that return value is empty
+		 * string
+		 */
+		rel = get_relative_path(tmp_path, path);
+		if (rel && !rel[0])
+			return true;
+	}
+
+	return false;
+}
+
 /*
  * Make FS clean from sockets we're about to
  * restore. See for how we bind them for details
@@ -2074,7 +2142,7 @@ static int unlink_sk(struct unix_sk_info *ui)
 	struct stat statbuf;
 
 	if (!ui->name || ui->name[0] == '\0' ||
-	    (ui->flags & USK_BINDMOUNT) ||
+	    addr_prepared_for_bindmount(ui) ||
 	    (ui->ue->uflags & UNIX_UFLAGS__EXTERN))
 		return 0;
 
@@ -2172,8 +2240,7 @@ static int init_unix_sk_info(struct unix_sk_info *ui, UnixSkEntry *ue)
 	ui->name_dir = (void *)ue->name_dir;
 
 	ui->flags		= 0;
-	ui->fdstore_mnt_id[0]	= -1; /* fdstore_id in union */
-	ui->fdstore_mnt_id[1]	= -1;
+	ui->fdstore_id		= -1;
 	ui->ghost_dir_pos	= 0;
 	ui->peer		= NULL;
 	ui->queuer		= NULL;
@@ -2294,16 +2361,14 @@ static int collect_one_unixsk(void *o, ProtobufCMessage *base, struct cr_img *i)
 	if (ui->ue->uflags & UNIX_UFLAGS__BINDMOUNT) {
 		/*
 		 * Make sure it is supported socket!
+		 * DGRAM, STREAM, SEQPACKET sockets supported now
 		 */
 		if ((ui->ue->uflags & ~UNIX_UFLAGS__BINDMOUNT) ||
-		    (ui->ue->type != SOCK_DGRAM) ||
-		    (ui->ue->state != TCP_CLOSE)) {
+		    !sk_bindmount_supported(ui->ue->type, ui->ue->state)) {
 			pr_err("bindmount: Unsupported socket id %#x "
-			       "(expect %x:%s:%s got %x:%s:%s)\n",
-			       ui->ue->id, UNIX_UFLAGS__BINDMOUNT,
-			       ___socket_type_name(SOCK_DGRAM),
-			       ___tcp_state_name(TCP_CLOSE),
-			       ui->ue->uflags, ___socket_type_name(ui->ue->type),
+			       "(got %x:%s:%s)\n",
+			       ui->ue->id, ui->ue->uflags,
+			       ___socket_type_name(ui->ue->type),
 			       ___tcp_state_name(ui->ue->state));
 			return -1;
 		}
@@ -2349,7 +2414,7 @@ static int sk_has_bindmount(struct unix_sk_info *ui, struct mount_info *mi)
 int unix_prepare_bindmount(struct mount_info *mi)
 {
 	int prev_cwd_fd = -1, prev_root_fd = -1;
-	int ret = -1, sks[2] = { -1, -1 };
+	int ret = -1, sk = -1;
 	struct unix_sk_info *ui;
 	char path[PATH_MAX], plain_mount_tmp[PATH_MAX];
 	struct mount_info *sk_mi = NULL;
@@ -2372,7 +2437,7 @@ int unix_prepare_bindmount(struct mount_info *mi)
 	if (&ui->mnt_list == &unix_mnt_sockets)
 		return 0;
 
-	if (ui->fdstore_mnt_id[0] > 0 || ui->fdstore_mnt_id[1] > 0) {
+	if (ui->fdstore_id > 0) {
 		pr_debug("bindmount: sk id %#x already in fdstore. skipping\n",
 			 ui->ue->id);
 		return 0;
@@ -2471,28 +2536,48 @@ int unix_prepare_bindmount(struct mount_info *mi)
 		goto out;
 	}
 
-	if (set_netns(ui->ue->ns_id))
-		return -1;
+	if (set_netns(ui->ue->ns_id)) {
+		pr_err("Can't set_netns(%u)\n", ui->ue->ns_id);
+		goto out;
+	}
 
 	/*
-	 * We support only DGRAM sockets for now so it is safe
-	 * to preallocate socket pair here and later the
-	 * open_unixsk_standalone helper will simply fetch the
-	 * peers, closing the ends it doesn't need.
+	 * Preallocate and bind socket here and later the
+	 * open_unixsk_standalone helper will simply fetch
+	 * him from fdstore
 	 */
-	if (socketpair(PF_UNIX, ui->ue->type, 0, sks)) {
-		pr_perror("bindmount: Can't create socketpair id %#x",
+	sk = socket(PF_UNIX, ui->ue->type, 0);
+	if (sk < 0) {
+		pr_perror("bindmount: Can't create socket id %#x",
 			  ui->ue->id);
 		goto out;
 	}
 
-	if (bind_unix_sk(sks[0], ui, false))
+	/*
+	 * We should cleanup FS from leftover socket files.
+	 * See also unlink_sk() function.
+	 */
+	ret = unlinkat(AT_FDCWD, ui->name, 0) ? -1 : 0;
+	if (ret < 0 && errno != ENOENT) {
+		pr_perror("Can't unlink socket %u peer %u (name %s dir %s)\n",
+			ui->ue->ino, ui->ue->peer,
+			ui->name ? (ui->name[0] ? ui->name : &ui->name[1]) : "-",
+			ui->name_dir ? ui->name_dir : "-");
+		ret = -1;
+		goto out;
+	} else if (ret == 0) {
+		pr_debug("Unlinked socket %u peer %u (name %s dir %s)\n",
+			 ui->ue->ino, ui->ue->peer,
+			 ui->name ? (ui->name[0] ? ui->name : &ui->name[1]) : "-",
+			 ui->name_dir ? ui->name_dir : "-");
+	}
+
+	if (bind_unix_sk(sk, ui, false))
 		goto out;
 
-	ui->fdstore_mnt_id[0] = fdstore_add(sks[0]);
-	ui->fdstore_mnt_id[1] = fdstore_add(sks[1]);
-	if (ui->fdstore_mnt_id[0] < 0 || ui->fdstore_mnt_id[1] < 0) {
-		pr_err("bindmount: Can't add socketpair id %#x into fdstore\n",
+	ui->fdstore_id = fdstore_add(sk);
+	if (ui->fdstore_id < 0) {
+		pr_err("bindmount: Can't add socket id %#x into fdstore\n",
 		        ui->ue->id);
 		goto out;
 	}
@@ -2528,8 +2613,7 @@ int unix_prepare_bindmount(struct mount_info *mi)
 out:
 	close_safe(&prev_cwd_fd);
 	close_safe(&prev_root_fd);
-	close_safe(&sks[0]);
-	close_safe(&sks[1]);
+	close_safe(&sk);
 
 	if (ret == 0)
 		pr_debug("bindmount: Standalone socket moved into fdstore (id %#x ino %d peer %d)\n",
