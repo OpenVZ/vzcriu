@@ -16,6 +16,7 @@ struct fstype {
 	int (*check_bindmount)(struct mount_info *pm);
 	int (*can_mount)(struct mount_info *pm);
 	int (*parse)(struct mount_info *pm, bool for_dump);
+	int (*after_parse)(struct mount_info *pm, bool for_dump);
 	int (*collect)(struct mount_info *pm);
 	bool (*sb_equal)(struct mount_info *a, struct mount_info *b);
 	mount_fn_t mount;
