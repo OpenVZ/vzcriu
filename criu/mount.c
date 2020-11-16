@@ -4248,6 +4248,27 @@ static int collect_mntns(struct ns_id *ns, void *__arg)
 	return 0;
 }
 
+/*
+ * In ->after_parse() callbacks we can use open_mountpoint because all mounts are
+ * in mountinfo trees already unlike regular ->parse() callbacks.
+ */
+int after_parse(bool for_dump)
+{
+	struct mount_info *mi;
+
+	for (mi = mntinfo; mi; mi = mi->next) {
+		if (!mi->fstype->after_parse)
+			continue;
+
+		if (mi->fstype->after_parse(mi, for_dump) < 0) {
+			pr_err("Failed to after_parse on %d\n", mi->mnt_id);
+			return -1;
+		}
+	}
+
+	return 0;
+}
+
 int collect_mnt_namespaces(bool for_dump)
 {
 	struct collect_mntns_arg arg;
@@ -4257,6 +4278,10 @@ int collect_mnt_namespaces(bool for_dump)
 	arg.need_to_validate = false;
 
 	ret = walk_namespaces(&mnt_ns_desc, collect_mntns, &arg);
+	if (ret)
+		goto err;
+
+	ret = after_parse(for_dump);
 	if (ret)
 		goto err;
 
