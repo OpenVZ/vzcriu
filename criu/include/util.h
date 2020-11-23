@@ -258,6 +258,7 @@ static inline bool issubpath(const char *path, const char *sub_path)
 }
 
 extern char *get_relative_path(char *path, char *sub_path);
+extern int strip_deleted(char *path, int len);
 
 /*
  * mkdir -p

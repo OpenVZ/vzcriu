@@ -1742,3 +1742,37 @@ char *get_relative_path(char *path, char *sub_path)
 		sub_path++;
 	}
 }
+
+int strip_deleted(char *name, int len)
+{
+	struct dcache_prepends {
+		const char	*str;
+		size_t		len;
+	} static const prepends[] = {
+		{
+			.str	= " (deleted)",
+			.len	= 10,
+		}, {
+			.str	= "//deleted",
+			.len	= 9,
+		}
+	};
+	size_t i;
+
+	for (i = 0; i < ARRAY_SIZE(prepends); i++) {
+		size_t at;
+
+		if (len <= prepends[i].len)
+			continue;
+
+		at = len - prepends[i].len;
+		if (!strcmp(&name[at], prepends[i].str)) {
+			pr_debug("Strip '%s' tag from '%s'\n",
+				 prepends[i].str, name);
+			name[at] = '\0';
+			len -= prepends[i].len;
+			return 1;
+		}
+	}
+	return 0;
+}
