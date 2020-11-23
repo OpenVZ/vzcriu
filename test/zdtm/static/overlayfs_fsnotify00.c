@@ -697,24 +697,27 @@ int inotify_process_events(struct test_context *ctx,
 
 static int fsnotify_events_skip(int notify_fd)
 {
-	int n;
+	int n = -1, sum = 0;
 	char buf[256];
 
-	n = read(notify_fd, buf, sizeof(buf));
-	if (n == -1) {
-		if (errno == EAGAIN) {
-			n = 0;
-		} else {
-			pr_perror("read error on notify_fd=%d", notify_fd);
-			return 1;
+	while (n) {
+		n = read(notify_fd, buf, sizeof(buf));
+		if (n == -1) {
+			if (errno == EAGAIN) {
+				n = 0;
+			} else {
+				pr_perror("read error on notify_fd=%d", notify_fd);
+				return 1;
+			}
 		}
+		sum += n;
 	}
 
 	/*
 	 * For now do not differentiate between inotify/fanotify events,
 	 * just skip raw reports.
 	 */
-	test_msg("skipped events with total report size: %d\n", n);
+	test_msg("skipped events with total report size: %d\n", sum);
 	return 0;
 }
 
