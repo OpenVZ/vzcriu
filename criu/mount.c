@@ -1960,7 +1960,7 @@ static __maybe_unused int mount_and_open_binfmt_misc(unsigned int *s_dev)
 		 * EPERM is returned when we're in !init_user_ns, ENODEV and ENOENT
 		 * when no binfmt_misc module is loaded.
 		 */
-		if (errno == -EPERM || errno == -ENODEV || errno == -ENOENT) {
+		if (errno == EPERM || errno == ENODEV || errno == ENOENT) {
 			pr_info("Can't mount binfmt_misc: %s\n",
 				strerror(errno));
 			return BINFMT_MOUNT_SKIPPED;
