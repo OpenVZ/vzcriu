@@ -117,7 +117,7 @@ int main(int argc, char **argv)
 		return 1;
 	}
 
-	pid = clone(pidns_child, &stack[CLONE_STACK_SIZE - 1],
+	pid = clone(pidns_child, &stack[CLONE_STACK_SIZE],
 		    CLONE_NEWPID | SIGCHLD,
 		    proc);
 	if (pid == -1) {
