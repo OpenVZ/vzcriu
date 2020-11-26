@@ -15,7 +15,7 @@ char *dirname;
 TEST_OPTION(dirname, string, "test directory name", 1);
 
 #define EXEC_CMD(cmdfmt, arg...)	do {			\
-		snprintf(cmd, sizeof(cmd), cmdfmt, ## arg); \
+		ssprintf(cmd, cmdfmt, ## arg); \
 		if (system(cmd)) { \
 			pr_err("FAILED: %s\n", cmd); \
 			goto err; \
@@ -56,16 +56,16 @@ int main(int argc, char **argv)
 	EXEC_CMD("ovs-dpctl add-if dp0 vx,type=vxlan,remote_ip=10.0.0.0");
 	EXEC_CMD("ovs-dpctl add-if dp0 int0,type=internal");
 
-	snprintf(before, sizeof(before), "%s/before", dirname);
+	ssprintf(before, "%s/before", dirname);
 	EXEC_CMD("ip a > %s", before);
 
 	test_daemon();
 	test_waitsig();
 
-	snprintf(after, sizeof(after), "%s/after", dirname);
+	ssprintf(after, "%s/after", dirname);
 	EXEC_CMD("ip a > %s", after);
 
-	snprintf(cmd, sizeof(cmd), "diff %s %s", before, after);
+	ssprintf(cmd, "diff %s %s", before, after);
 	if (system(cmd)) {
 		pr_err("links before/after c/r differ!\n");
 		goto err;
