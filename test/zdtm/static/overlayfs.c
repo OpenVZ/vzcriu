@@ -23,7 +23,7 @@ static int create_test_file(const char *dirpath, const char *buf, size_t size)
 	int fdo;
 	char fname[PATH_MAX];
 
-	snprintf(fname, PATH_MAX, "%s/test.file", dirpath);
+	ssprintf(fname, "%s/test.file", dirpath);
 	fdo = open(fname, O_RDWR | O_CREAT, 0644);
 	if (fdo < 0) {
 		pr_perror("open failed");
@@ -77,9 +77,9 @@ static int create_overlayfs_mount_ro(const char *prefixdir)
 	     lowerdir1[PATH_MAX],
 	     lowerdir2[PATH_MAX];
 
-	snprintf(dir, PATH_MAX, "%s/%s", dirname, prefixdir);
-	snprintf(lowerdir1, PATH_MAX, "%s/%s", dir, lower_list[0]);
-	snprintf(lowerdir2, PATH_MAX, "%s/%s", dir, lower_list[1]);
+	ssprintf(dir, "%s/%s", dirname, prefixdir);
+	ssprintf(lowerdir1, "%s/%s", dir, lower_list[0]);
+	ssprintf(lowerdir2, "%s/%s", dir, lower_list[1]);
 
 	mkdir(dir, 0700);
 
@@ -110,9 +110,9 @@ static int create_overlayfs_mount_rw(const char *prefixdir)
 	     upperdir[PATH_MAX],
 	     lowerdir2[PATH_MAX];
 
-	snprintf(dir, PATH_MAX, "%s/%s", dirname, prefixdir);
-	snprintf(upperdir, PATH_MAX, "%s/%s", dir, upper);
-	snprintf(lowerdir2, PATH_MAX, "%s/%s", dir, lower_list[1]);
+	ssprintf(dir, "%s/%s", dirname, prefixdir);
+	ssprintf(upperdir, "%s/%s", dir, upper);
+	ssprintf(lowerdir2, "%s/%s", dir, lower_list[1]);
 	mkdir(dir, 0700);
 
 	if (overlayfs_setup(dir, lower_list, upper, "work", "overlayfs")) {
@@ -140,8 +140,8 @@ static int create_overlayfs_mount_overmount(const char *prefixdir)
 	char dir[PATH_MAX],
 	     lowerdir1[PATH_MAX];
 
-	snprintf(dir, PATH_MAX, "%s/%s", dirname, prefixdir);
-	snprintf(lowerdir1, PATH_MAX, "%s/%s", dir, lower_list[0]);
+	ssprintf(dir, "%s/%s", dirname, prefixdir);
+	ssprintf(lowerdir1, "%s/%s", dir, lower_list[0]);
 
 	mkdir(dir, 0700);
 
