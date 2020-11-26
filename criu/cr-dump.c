@@ -255,9 +255,6 @@ static void __maybe_unused ve_bc_read(pid_t pid, bc_set_t *bc_set)
 	char path[PATH_MAX];
 	int i;
 
-	if (is_zdtm_run())
-		return;
-
 	if (IS_ERR_OR_NULL(veid)) {
 		pr_err("ubc: Can't fetch VEID of a dumpee %d\n", pid);
 		return;
