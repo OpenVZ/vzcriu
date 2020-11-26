@@ -83,7 +83,7 @@ static int mount_current_proc(void)
 		return -1;
 	}
 
-	if (umount("/proc")) {
+	if (umount2("/proc", MNT_DETACH)) {
 		pr_perror("Can't umount proc");
 		return -1;
 	}
