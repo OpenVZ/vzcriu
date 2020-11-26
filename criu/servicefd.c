@@ -221,7 +221,7 @@ static int move_service_fd(struct pstree_item *me, int type, int new_id,
 	 * the copy of our parent's service fds. So we need to close all fds in
 	 * new service fd area.
 	 */
-	if (cleanup_parent_sfdt)
+	if (cleanup_parent_sfdt && new != old)
 		close(new);
 
 	if (old < 0)
@@ -302,7 +302,8 @@ int clone_service_fd(struct pstree_item *me, bool cleanup_parent_sfdt)
 
 	if (new_base == -1)
 		return -1;
-	if (service_fd_base == new_base && service_fd_id == id)
+
+	if (get_service_fd(LOG_FD_OFF) == new_base - LOG_FD_OFF - SERVICE_FD_MAX * id)
 		return 0;
 
 	/* Dup sfds in memmove() style: they may overlap */
