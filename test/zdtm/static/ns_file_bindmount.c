@@ -159,7 +159,7 @@ int main(int argc, char **argv)
 	if (prepare_dirname(dirname))
 		return 1;
 
-	pid = clone(child,  &stack[CLONE_STACK_SIZE - 1],
+	pid = clone(child,  &stack[CLONE_STACK_SIZE],
 		    CLONE_NEWNET | CLONE_NEWIPC | CLONE_NEWUTS | SIGCHLD,
 		    NULL);
 	if (pid == -1) {

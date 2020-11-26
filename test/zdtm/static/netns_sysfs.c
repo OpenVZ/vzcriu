@@ -80,7 +80,7 @@ int main(int argc, char **argv)
 		return 1;
 	}
 
-	pid = clone(netns_child, &stack[CLONE_STACK_SIZE - 1],
+	pid = clone(netns_child, &stack[CLONE_STACK_SIZE],
 		    CLONE_NEWNET | SIGCHLD, sysfs);
 	if (pid == -1) {
 		pr_perror("Failed to clone child with nested net namespace");

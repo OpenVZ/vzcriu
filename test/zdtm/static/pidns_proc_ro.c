@@ -185,7 +185,7 @@ int main(int argc, char **argv)
 	 * We want to remount / as ro, but we have opened files for writing on it. 
 	 * Let's go into new MNTNS here.
 	 */
-	pid = clone(pidns_child, &stack[CLONE_STACK_SIZE - 1],
+	pid = clone(pidns_child, &stack[CLONE_STACK_SIZE],
 		    CLONE_NEWNS | CLONE_NEWPID | SIGCHLD,
 		    NULL);
 	if (pid == -1) {

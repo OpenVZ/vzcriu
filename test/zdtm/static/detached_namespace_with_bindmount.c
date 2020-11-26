@@ -169,7 +169,7 @@ int main(int argc, char **argv)
 
 	snprintf(net_bind, sizeof(net_bind), "%s/net_bind", dirname);
 
-	pid = clone(child,  &stack[CLONE_STACK_SIZE - 1],
+	pid = clone(child,  &stack[CLONE_STACK_SIZE],
 		    CLONE_NEWNET | SIGCHLD, net_bind);
 	if (pid == -1) {
 		pr_perror("Failed to clone child with nested namespaces");

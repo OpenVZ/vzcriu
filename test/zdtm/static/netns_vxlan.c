@@ -88,7 +88,7 @@ int main(int argc, char **argv)
 	}
 	futex_init(futex);
 
-	pid = clone(netns_child, &stack[CLONE_STACK_SIZE - 1],
+	pid = clone(netns_child, &stack[CLONE_STACK_SIZE],
 		    CLONE_NEWNET | SIGCHLD, NULL);
 	if (pid == -1) {
 		pr_perror("Failed to clone child with nested net namespace");
