@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <fcntl.h>
 #include <linux/seccomp.h>
+#include <time.h>
 
 #include "log.h"
 #include "common/bug.h"
@@ -52,6 +53,69 @@ static inline void close_safe(int *pfd)
 		close(*pfd);
 		*pfd = -1;
 	}
+}
+
+#define PROC_PRINT_BUF 256
+static int proc_print_stack_info(int pid)
+{
+	char aux[PROC_PRINT_BUF];
+	FILE *f;
+
+	sprintf(aux, "/proc/%d/stack", pid);
+	f = fopen(aux, "r");
+	if (!f) {
+		pr_perror("Unable to open %s", aux);
+		return -1;
+	}
+
+	pr_debug("Printing %d stack:\n", pid);
+	while (fgets(aux, sizeof(aux), f))
+		pr_debug("\t%s", aux);
+
+	fclose(f);
+	return 0;
+}
+
+#define SCHED_BLOCK_START "se.statistics->block_start"
+static int proc_print_lock_info(int pid)
+{
+	char aux[PROC_PRINT_BUF];
+	struct timespec ts = {0};
+	int ret;
+	FILE *f;
+
+	sprintf(aux, "/proc/%d/sched", pid);
+	f = fopen(aux, "r");
+	if (!f) {
+		pr_perror("Unable to open %s", aux);
+		return -1;
+	}
+
+	ret = clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
+	if (ret < 0)
+		pr_warn("Unable to gettime\n");
+
+	pr_debug("Printing %d lock info:\n", pid);
+	while (fgets(aux, sizeof(aux), f)) {
+		if (!strncmp(aux, SCHED_BLOCK_START, sizeof(SCHED_BLOCK_START) - 1)) {
+			aux[strlen(aux) - 1] = 0;
+			pr_debug("\t%s\t(%ld.%09ld)\n", aux, ts.tv_sec, ts.tv_nsec);
+			break;
+		}
+	}
+
+	fclose(f);
+	return 0;
+}
+
+static int proc_print_info(int pid)
+{
+	int ret;
+
+	ret = proc_print_stack_info(pid);
+	ret |= proc_print_lock_info(pid);
+
+	return ret;
 }
 
 static int parse_pid_status(int pid, struct seize_task_status *ss, void *data)
@@ -229,11 +293,14 @@ try_again:
 
 	if (ret < 0 || WIFEXITED(status) || WIFSIGNALED(status)) {
 		if (ss->state != 'Z') {
-			if (pid == getpid())
+			if (pid == getpid()) {
 				pr_err("The criu itself is within dumped tree.\n");
-			else
+			} else {
 				pr_err("Unseizable non-zombie %d found, state %c, err %d/%d\n",
 						pid, ss->state, ret, wait_errno);
+				if (ss->state == 'D')
+					proc_print_info(pid);
+			}
 			return -1;
 		}
 
