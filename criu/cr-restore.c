@@ -2220,6 +2220,8 @@ static int create_children_and_session(void)
 	return 0;
 }
 
+static int start_ve(void);
+
 static int restore_task_with_children(void *_arg)
 {
 	struct cr_clone_arg *ca = _arg;
@@ -2274,6 +2276,18 @@ static int restore_task_with_children(void *_arg)
 
 		/* Wait prepare_userns */
 		if (restore_finish_ns_stage(CR_STATE_ROOT_TASK, CR_STATE_PREPARE_NAMESPACES) < 0)
+			goto err;
+
+		/**
+		 * Note: previousely we were starting VE from action
+		 * scripts ACT_SETUP_NS (setup-namespaces), it happened just
+		 * before CR_STATE_PREPARE_NAMESPACES stage from criu task, now
+		 * we do it from init task (as there is no more "START pid"
+		 * interface to start ve) and we do it from the beginning of
+		 * CR_STATE_PREPARE_NAMESPACES stage. So there should be no
+		 * difference in behaviour.
+		 */
+		if (start_ve())
 			goto err;
 	}
 
@@ -2701,6 +2715,39 @@ int join_ve(pid_t pid, bool veX)
 	ret = 0;
 out:
 	return ret;
+}
+
+#define VE_START_STR "START"
+
+static int start_ve(void)
+{
+	char buf[PATH_MAX];
+	int fd, ret;
+
+	if (!opts.ve)
+		return 0;
+
+	snprintf(buf, sizeof(buf), "/sys/fs/cgroup/ve/%s/ve.state", opts.ve);
+	fd = open(buf, O_WRONLY);
+	if (fd < 0) {
+		pr_perror("Failed to open %s", buf);
+		return -1;
+	}
+
+	ret = write(fd, VE_START_STR, sizeof(VE_START_STR));
+	if (ret < 0) {
+		pr_perror("Failed to write %s to %s", VE_START_STR, buf);
+		close(fd);
+		return -1;
+	}
+	close(fd);
+	if (ret != sizeof(VE_START_STR)) {
+		pr_err("Failed to write %s to %s (truncated)", VE_START_STR, buf);
+		return -1;
+	}
+
+	pr_info("VE %s is started\n", opts.ve);
+	return 0;
 }
 
 static int restore_root_task(struct pstree_item *init)
