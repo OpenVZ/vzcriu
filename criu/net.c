@@ -1145,10 +1145,6 @@ static int dump_vxlan(NetDeviceEntry *nde, struct cr_imgset *imgset, struct nlat
 	ENCODE_ENTRY(u8,  IFLA_VXLAN_REMCSUM_TX,        remcsum_tx);
 	ENCODE_ENTRY(u8,  IFLA_VXLAN_REMCSUM_RX,        remcsum_rx);
 
-	ENCODE_ENTRY(u8, IFLA_VXLAN_GBP,               gbp);
-	ENCODE_ENTRY(u8, IFLA_VXLAN_GPE,               gpe);
-	ENCODE_ENTRY(u8, IFLA_VXLAN_REMCSUM_NOPARTIAL, remcsum_nopartial);
-	ENCODE_ENTRY(u8, IFLA_VXLAN_TTL_INHERIT,       ttl_inherit);
 	ENCODE_ENTRY(u8, IFLA_VXLAN_DF,                df);
 
 #undef ENCODE_ENTRY
@@ -1949,10 +1945,6 @@ static int vxlan_link_info(struct ns_id *ns, struct net_link *link, struct newli
 	DECODE_ENTRY(u8,  IFLA_VXLAN_REMCSUM_TX,        remcsum_tx);
 	DECODE_ENTRY(u8,  IFLA_VXLAN_REMCSUM_RX,        remcsum_rx);
 
-	DECODE_ENTRY(u8, IFLA_VXLAN_GBP,               gbp);
-	DECODE_ENTRY(u8, IFLA_VXLAN_GPE,               gpe);
-	DECODE_ENTRY(u8, IFLA_VXLAN_REMCSUM_NOPARTIAL, remcsum_nopartial);
-	DECODE_ENTRY(u8, IFLA_VXLAN_TTL_INHERIT,       ttl_inherit);
 	DECODE_ENTRY(u8, IFLA_VXLAN_DF,                df);
 
 #undef DECODE_ENTRY
