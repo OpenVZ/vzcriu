@@ -125,6 +125,9 @@ static int child(void *arg)
 	char ns_path[PATH_MAX], *net_bind = (char *)arg;
 	int ppid = getppid(), ret = 1, sk = -1;
 
+	if (system("ip link set up dev lo"))
+		goto err;
+
 	if (create_self_netns_bind(net_bind))
 		goto err;
 

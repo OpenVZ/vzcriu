@@ -20,6 +20,8 @@ TEST_OPTION(dirname, string, "directory name", 1);
 
 static int child(void *unused)
 {
+	system("ip link set up dev lo");
+
 	while (1)
 		sleep(1);
 	return 0;
