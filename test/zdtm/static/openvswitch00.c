@@ -36,6 +36,9 @@ int main(int argc, char **argv)
 		pr_perror("can't unshare");
 		return 1;
 	}
+
+	if (system("ip link set up dev lo"))
+		goto err;
 #endif
 
 	if (mkdir(dirname, 0700) < 0) {

@@ -31,6 +31,11 @@ futex_t *futex;
 
 static int child(void *unused)
 {
+	if (system("ip link set up dev lo")) {
+		futex_set_and_wake(futex, EMERGENCY_ABORT);
+		return 1;
+	}
+
 	futex_set_and_wake(futex, CHILD_READY);
 	futex_wait_while_lt(futex, TEST_FINISH);
 	return 0;
