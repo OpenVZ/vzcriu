@@ -1,1 +1,6 @@
-{'flavor': 'ns uns', 'flags': 'suid', 'ropts': '--no-mntns-compat-mode'}
+{
+	'deps': ['/sbin/ip|bin/ip', '/bin/sh'],
+	'flavor': 'ns uns',
+	'flags': 'suid',
+	'ropts': '--no-mntns-compat-mode'
+}

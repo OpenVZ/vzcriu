@@ -34,6 +34,11 @@ static int netns_child(void *arg)
 	char ip_cmd[64];
 	char *path = (char *)arg;
 
+	if (system("ip link set up dev lo")) {
+		futex_set_and_wake(futex, EMERGENCY_ABORT);
+		return 1;
+	}
+
 	snprintf(ip_cmd, sizeof(ip_cmd), "ip link add name %s type bridge",
 		 NETNS_SYSFS_ZDTMBR);
 
