@@ -206,6 +206,9 @@ int __handle_elf(void *mem, size_t size)
 	 */
 	for (i = 0, k = 0; i < hdr->e_shnum; i++) {
 		Elf_Shdr *sh = sec_hdrs[i];
+		pr_err("DEBUG: name %s sh_flags 0x%lx:%s sh_addr 0x%lx sh_addralign 0x%lx sh_size 0x%lx k 0x%lx\n",
+		       &secstrings[sh->sh_name], sh->sh_flags, (sh->sh_flags & SHF_ALLOC) ? "+" : "-",
+		       sh->sh_addr, sh->sh_addralign, sh->sh_size, k);
 		if (!(sh->sh_flags & SHF_ALLOC))
 			continue;
 		if (sh->sh_addralign > 0 && k % sh->sh_addralign != 0) {
