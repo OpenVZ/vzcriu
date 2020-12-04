@@ -1166,6 +1166,19 @@ void criu_set_mounts_compat(bool val)
 	criu_local_set_mounts_compat(global_opts, val);
 }
 
+int criu_local_set_ve(criu_opts *opts, const char *ve)
+{
+	opts->rpc->vz_ve = strdup(ve);
+	if (opts->rpc->vz_ve == NULL)
+		return -ENOMEM;
+	return 0;
+}
+
+int criu_set_ve(const char *ve)
+{
+	return criu_local_set_ve(global_opts, ve);
+}
+
 static CriuResp *recv_resp(int socket_fd)
 {
 	struct msghdr msg_hdr = {0};
