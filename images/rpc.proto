@@ -141,6 +141,7 @@ message criu_opts {
 	optional bool			skip_file_rwx_check	= 66;
 	optional bool			unprivileged		= 67;
 /*	optional bool			check_mounts		= 128;	*/
+	optional string			vz_ve			= 1002;
 }
 
 message criu_dump_resp {

@@ -418,6 +418,7 @@ usage:
 	       "                        can be 'nftables' or 'iptables' (default).\n"
 	       "  --unprivileged        accept limitations when running as non-root\n"
 	       "                        consult documentation for further details\n"
+	       "  --ve VEID             VEID of Virtuozzo container\n"
 	       "\n"
 	       "* External resources support:\n"
 	       "  --external RES        dump objects from this list as external resources:\n"

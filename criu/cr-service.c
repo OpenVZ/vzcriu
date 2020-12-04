@@ -732,6 +732,9 @@ static int setup_opts_from_req(int sk, CriuOpts *req)
 	if (req->mntns_compat_mode)
 		opts.mntns_compat_mode = true;
 
+	if (req->vz_ve)
+		SET_CHAR_OPTS(ve, req->vz_ve);
+
 	log_set_loglevel(opts.log_level);
 	if (check_options())
 		goto err;
