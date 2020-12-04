@@ -10,6 +10,7 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <sys/utsname.h>
+#include <sys/prctl.h>
 
 #ifndef CLONE_NEWTIME
 #define CLONE_NEWTIME 0x00000080 /* New time namespace */
@@ -91,11 +92,15 @@ static int create_timens(void)
 	return 0;
 }
 
+#ifndef PR_SET_CHILD_SUBREAPER
+#define PR_SET_CHILD_SUBREAPER 36
+#endif
+
 int main(int argc, char **argv)
 {
 	uid_t uid;
 	pid_t pid;
-	int status;
+	int status, flags = CLONE_NEWNS | CLONE_NEWNET | CLONE_NEWIPC;
 
 	uid = getuid();
 
@@ -104,12 +109,22 @@ int main(int argc, char **argv)
 	 * mntns is used to mount /proc
 	 * net is used to avoid conflicts of parasite sockets
 	 */
+
+	if (!getenv("ZDTM_NO_PIDNS")) {
+		flags |= CLONE_NEWPID;
+	}
+
 	if (!uid)
-		if (unshare(CLONE_NEWNS | CLONE_NEWPID | CLONE_NEWNET | CLONE_NEWIPC))
+		if (unshare(flags))
 			return 1;
 	pid = fork();
 	if (pid == 0) {
 		if (!uid) {
+			if (getenv("ZDTM_NO_PIDNS") && prctl(PR_SET_CHILD_SUBREAPER, 1)) {
+				fprintf(stderr, "PR_SET_CHILD_SUBREAPER");
+				exit(1);
+			}
+
 			if (create_timens())
 				exit(1);
 			if (mount(NULL, "/", NULL, MS_REC | MS_SLAVE, NULL)) {
