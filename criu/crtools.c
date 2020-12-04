@@ -413,6 +413,7 @@ usage:
 	       "                        based on MOVE_MOUNT_SET_GROUP kernel feature\n"
 	       "  --network-lock METHOD network locking/unlocking method; argument\n"
 	       "                        can be 'nftables' or 'iptables' (default).\n"
+	       "  --ve VEID             VEID of Virtuozzo container\n"
 	       "\n"
 	       "* External resources support:\n"
 	       "  --external RES        dump objects from this list as external resources:\n"

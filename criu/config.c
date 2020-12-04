@@ -699,6 +699,7 @@ int parse_options(int argc, char **argv, bool *usage_error, bool *has_exec_cmd, 
 		{ "lsm-mount-context", required_argument, 0, 1099 },
 		{ "network-lock", required_argument, 0, 1100 },
 		BOOL_OPT("mntns-compat-mode", &opts.mntns_compat_mode),
+		{ "ve", required_argument, 0, 2001 },
 		{},
 	};
 
@@ -1033,6 +1034,9 @@ int parse_options(int argc, char **argv, bool *usage_error, bool *has_exec_cmd, 
 				pr_err("Invalid value for --network-lock: %s\n", optarg);
 				return 1;
 			}
+			break;
+		case 2001:
+			SET_CHAR_OPTS(ve, optarg);
 			break;
 		case 'V':
 			pr_msg("Version: %s\n", CRIU_VERSION);

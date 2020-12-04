@@ -209,6 +209,7 @@ struct cr_options {
 	enum criu_mode mode;
 
 	int mntns_compat_mode;
+	char *ve;
 };
 
 extern struct cr_options opts;
