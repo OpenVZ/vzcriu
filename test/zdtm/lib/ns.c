@@ -23,6 +23,78 @@
 
 int criu_status_in = -1, criu_status_in_peer = -1, criu_status_out = -1;
 
+static char *cg_list[] = {
+	"blkio",
+	"cpu,cpuacct",
+	"devices",
+	"freezer",
+	"hugetlb",
+	"memory",
+	"net_cls,net_prio",
+	"perf_event",
+	"pids",
+	"systemd",
+	"cpuset"
+};
+
+static int cgroup_write_val(char *cgroup, char *cgroup_name, char *val_name, char *val, char slice)
+{
+	int fd, ret;
+	char path[PATH_MAX];
+
+	if (slice)
+		snprintf(path, PATH_MAX, "/sys/fs/cgroup/%s/machine.slice/%s/%s", cgroup, cgroup_name, val_name);
+	else
+		snprintf(path, PATH_MAX, "/sys/fs/cgroup/%s/%s/%s", cgroup, cgroup_name, val_name);
+
+	fd = open(path, O_WRONLY);
+	if (fd < 0) {
+		fprintf(stderr, "Can't open %s: %m\n", path);
+		return -1;
+	}
+
+	ret = write(fd, val, strlen(val));
+	if (ret < 0) {
+		fprintf(stderr, "Can't write %s to %s: %m\n", val, path);
+		close(fd);
+		return -1;
+	}
+
+	close(fd);
+
+	return 0;
+}
+
+static int enter_cgroup_set(char *ve_name)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(cg_list); i++) {
+		if (cgroup_write_val(cg_list[i], ve_name, "tasks", "0", 1))
+			return -1;
+	}
+
+	if (!access("/sys/fs/cgroup/beancounter", F_OK) && cgroup_write_val("beancounter", ve_name, "tasks", "0", 0))
+		return -1;
+
+	return 0;
+}
+
+static int prepare_ve(char *ve_str)
+{
+	if (enter_cgroup_set(ve_str))
+		return -1;
+
+	if (cgroup_write_val("ve", ve_str, "tasks", "0", 0))
+		return -1;
+
+	if (cgroup_write_val("ve", ve_str, "ve.state", "START", 0))
+		return -1;
+
+	return 0;
+}
+
+
 extern int pivot_root(const char *new_root, const char *put_old);
 static int prepare_mntns(void)
 {
@@ -146,12 +218,20 @@ static int prepare_mntns(void)
 
 static int prepare_namespaces(void)
 {
+	char *ve_str;
+
 	if (setuid(0) || setgid(0) || setgroups(0, NULL)) {
 		fprintf(stderr, "set*id failed: %m\n");
 		return -1;
 	}
 
 	system("ip link set up dev lo");
+
+	ve_str = getenv("ZDTM_VE");
+	if (ve_str) {
+		if (prepare_ve(ve_str))
+			return -1;
+	}
 
 	if (prepare_mntns())
 		return -1;

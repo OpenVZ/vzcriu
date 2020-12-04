@@ -31,6 +31,8 @@ os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # File to store content of streamed images
 STREAMED_IMG_FILE_NAME = "img.criu"
+# veid for criu tests
+ZDTM_VEID = "99874"
 
 prev_line = None
 
@@ -158,6 +160,7 @@ class host_flavor:
     def __init__(self, opts):
         self.name = "host"
         self.ns = False
+        self.ve = False
         self.root = None
 
     def init(self, l_bins, x_bins):
@@ -181,6 +184,7 @@ class ns_flavor:
         self.name = "ns"
         self.ns = True
         self.uns = False
+        self.ve = False
         self.root = make_tests_root()
         self.root_mounted = False
 
@@ -315,7 +319,81 @@ class userns_flavor(ns_flavor):
         pass
 
 
-flavors = {'h': host_flavor, 'ns': ns_flavor, 'uns': userns_flavor}
+class ve_flavor(ns_flavor):
+    def __init__(self, opts):
+        ns_flavor.__init__(self, opts)
+        self.name = "ve"
+        self.ve = True
+
+    cgroups = {
+        "blkio",
+        "cpu,cpuacct",
+        "devices",
+        "freezer",
+        "hugetlb",
+        "memory",
+        "net_cls,net_prio",
+        "perf_event",
+        "pids",
+        "systemd",
+        "cpuset"
+    }
+
+    @staticmethod
+    def clean():
+        for i in ve_flavor.cgroups:
+            path = "/sys/fs/cgroup/{}/machine.slice/{}".format(i, ZDTM_VEID)
+            if os.access(path, os.F_OK):
+                os.rmdir(path)
+        if os.access("/sys/fs/cgroup/ve/{}".format(ZDTM_VEID), os.F_OK):
+                os.rmdir("/sys/fs/cgroup/ve/{}".format(ZDTM_VEID))
+        if os.access("/sys/fs/cgroup/beancounter/{}".format(ZDTM_VEID), os.F_OK):
+                os.rmdir("/sys/fs/cgroup/beancounter/{}".format(ZDTM_VEID))
+
+    @staticmethod
+    def create_cgroups():
+        for i in ve_flavor.cgroups:
+            os.mkdir("/sys/fs/cgroup/{}/machine.slice/{}".format(i, ZDTM_VEID), 0o755)
+
+        if os.access("/sys/fs/cgroup/beancounter/", os.F_OK):
+            os.mkdir("/sys/fs/cgroup/beancounter/{}".format(ZDTM_VEID), 0o755)
+
+        os.mkdir("/sys/fs/cgroup/ve/{}".format(ZDTM_VEID), 0o755)
+
+        path1 = "/sys/fs/cgroup/cpuset/cpuset.mems"
+        path2 = "/sys/fs/cgroup/cpuset/machine.slice/{}/cpuset.mems".format(ZDTM_VEID)
+        with open(path1, "r") as f1:
+            with open(path2, "w") as f2:
+                f2.write(f1.read())
+
+        path1 = "/sys/fs/cgroup/cpuset/cpuset.cpus"
+        path2 = "/sys/fs/cgroup/cpuset/machine.slice/{}/cpuset.cpus".format(ZDTM_VEID)
+        with open(path1, "r") as f1:
+            with open(path2, "w") as f2:
+                f2.write(f1.read())
+
+    @staticmethod
+    def prepare_ve(need_pseudosuper=True):
+        config = [ ('veid', ZDTM_VEID), ('features', '5'), ('iptables_mask', '18446744073709551615')]
+        if need_pseudosuper:
+            config.append(('pseudosuper', "1"))
+
+        for i in config:
+            with open("/sys/fs/cgroup/ve/{}/ve.{}".format(ZDTM_VEID, i[0]), "w") as f:
+                f.write(i[1])
+
+    @staticmethod
+    def enter_cgroups_except_ve():
+        for i in ve_flavor.cgroups:
+            with open("/sys/fs/cgroup/{}/machine.slice/{}/tasks".format(i, ZDTM_VEID), "w") as f:
+                f.write("0")
+
+        if os.access("/sys/fs/cgroup/beancounter/", os.F_OK):
+            with open("/sys/fs/cgroup/beancounter/{}/tasks".format(ZDTM_VEID), "w") as f:
+                f.write("0")
+
+
+flavors = {'h': host_flavor, 'ns': ns_flavor, 'uns': userns_flavor, 've': ve_flavor}
 flavors_codes = dict(zip(range(len(flavors)), sorted(flavors.keys())))
 
 #
@@ -474,6 +552,13 @@ class zdtm_test:
             if self.__flavor.uns:
                 env['ZDTM_USERNS'] = "1"
                 self.__add_wperms()
+
+            if self.__flavor.ve:
+                ve_flavor.clean()
+                ve_flavor.create_cgroups()
+                ve_flavor.prepare_ve(False)
+                env['ZDTM_VE'] = ZDTM_VEID
+
             if os.getenv("GCOV"):
                 criu_dir = os.path.dirname(os.getcwd())
                 criu_dir_r = "%s%s" % (self.__flavor.root, criu_dir)
@@ -1013,7 +1098,7 @@ class criu_rpc:
 
 
 class criu:
-    def __init__(self, opts):
+    def __init__(self, opts, flav):
         self.__test = None
         self.__dump_path = None
         self.__iter = 0
@@ -1044,6 +1129,7 @@ class criu:
         self.__crit_bin = opts['crit_bin']
         self.__pre_dump_mode = opts['pre_dump_mode']
         self.__mounts_compat = (opts['mounts_compat'] and True or False)
+        self.__ve = flav.ve
 
     def fini(self):
         if self.__lazy_migrate:
@@ -1303,6 +1389,9 @@ class criu:
             ]
         self.__prev_dump_iter = self.__iter
 
+        if self.__ve:
+            a_opts += ["--ve", ZDTM_VEID]
+
         if self.__page_server:
             print("Adding page server")
 
@@ -1394,6 +1483,17 @@ class criu:
         if os.getenv("GCOV"):
             r_opts.append('--external')
             r_opts.append('mnt[zdtm]:%s' % criu_dir)
+
+        if self.__ve:
+            r_opts += ["--ve", ZDTM_VEID]
+
+            ve_flavor.clean()
+            ve_flavor.create_cgroups()
+            # for now criu can't properly enter all cgroups when restoring ve, so we should enter entire set except ve cgroup
+            ve_flavor.enter_cgroups_except_ve()
+            ve_flavor.prepare_ve()
+
+            r_opts += ["--action-script", os.getcwd() + '/ve-restore-act.sh']
 
         if self.__lazy_pages or self.__lazy_migrate:
             lp_opts = []
@@ -1569,6 +1669,12 @@ def get_visible_state(test):
     pids = filter(lambda p: r.match(p),
                   os.listdir("/proc/%s/root/proc/" % test.getpid()))
     for pid in pids:
+
+        # skip any kernel threads inside our test - ve flavor will generate some
+        with open("/proc/%s/root/proc/%s/maps" % (test.getpid(), pid), "r") as f:
+            if len(f.read()) == 0:
+                continue
+
         files[pid] = set(
             os.listdir("/proc/%s/root/proc/%s/fd" % (test.getpid(), pid)))
 
@@ -1863,7 +1969,7 @@ def do_run_test(tname, tdesc, flavs, opts):
             continue
         flav = flavors[f](opts)
         t = tclass(tname, tdesc, flav, fcg)
-        cr_api = criu(opts)
+        cr_api = criu(opts, flav)
 
         try:
             t.start()
@@ -1987,7 +2093,7 @@ class Launcher:
             raise Exception("The kernel is tainted: %r (%r)" %
                             (taint, self.__taint))
 
-        if test_flag(desc, 'excl'):
+        if test_flag(desc, 'excl') or 've' in flavor:
             self.wait_all()
 
         self.__nr += 1
@@ -2008,6 +2114,9 @@ class Launcher:
             logf = None
             log = None
 
+        if 've' in flavor:
+            os.environ["ZDTM_NO_PIDNS"] = "1";
+
         sub = subprocess.Popen(["./zdtm_ct", "zdtm.py"],
                                env=dict(os.environ, CR_CT_TEST_INFO=arg),
                                stdout=log,
@@ -2020,7 +2129,7 @@ class Launcher:
             "start": time.time()
         }
 
-        if test_flag(desc, 'excl'):
+        if test_flag(desc, 'excl') or 've' in flavor:
             self.wait()
 
     def __wait_one(self, flags):
@@ -2356,7 +2465,7 @@ def run_tests(opts):
                     continue
 
             test_flavs = tdesc.get('flavor', 'h ns uns').split()
-            opts_flavs = (opts['flavor'] or 'h,ns,uns').split(',')
+            opts_flavs = (opts['flavor'] or 'h,ns,uns,ve').split(',')
             if opts_flavs != ['best']:
                 run_flavs = set(test_flavs) & set(opts_flavs)
             else:
