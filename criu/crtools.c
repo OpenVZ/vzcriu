@@ -393,6 +393,7 @@ usage:
 "  --mounts-compat       switch from version 2 mount engine to the old one\n"
 "                        new mount engine uses more reliable algorithm but it\n"
 "                        requires Virtuozzo specific kernel hack - MS_SET_GROUP.\n"
+"  --ve VEID             VEID of Virtuozzo container\n"
 "\n"
 "* External resources support:\n"
 "  --external RES        dump objects from this list as external resources:\n"

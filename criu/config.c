@@ -544,6 +544,7 @@ int parse_options(int argc, char **argv, bool *usage_error,
 		BOOL_OPT("check-mounts", &opts.check_mounts),
 		BOOL_OPT("mounts-compat", &opts.mounts_compat),
 		BOOL_OPT("skip-freezer-state",&opts.skip_freezer_state),
+		{ "ve",				required_argument,	0, 2001},
 		{ },
 	};
 
@@ -872,6 +873,9 @@ int parse_options(int argc, char **argv, bool *usage_error,
 		case 1098:
 			if (parse_file_validation_method(&opts, optarg))
 				return 2;
+			break;
+		case 2001:
+			SET_CHAR_OPTS(ve, optarg);
 			break;
 		case 'V':
 			pr_msg("Version: %s\n", CRIU_VERSION);
