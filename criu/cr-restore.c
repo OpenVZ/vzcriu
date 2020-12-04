@@ -2721,20 +2721,13 @@ out:
 
 static int start_ve(void)
 {
-	char *veid, buf[PATH_MAX];
+	char buf[PATH_MAX];
 	int fd, ret;
 
-	if (is_zdtm_run())
+	if (!opts.ve)
 		return 0;
 
-	veid = getenv("VEID");
-	if (!veid) {
-		pr_perror("VEID environment variable should be set to be able"
-			  "to setup ve cgroup");
-		return -1;
-	}
-
-	snprintf(buf, sizeof(buf), "/sys/fs/cgroup/ve/%s/ve.state", veid);
+	snprintf(buf, sizeof(buf), "/sys/fs/cgroup/ve/%s/ve.state", opts.ve);
 	fd = open(buf, O_WRONLY);
 	if (fd < 0) {
 		pr_perror("Failed to open %s", buf);
@@ -2753,7 +2746,7 @@ static int start_ve(void)
 		return -1;
 	}
 
-	pr_info("VE %s is started\n", veid);
+	pr_info("VE %s is started\n", opts.ve);
 	return 0;
 }
 
