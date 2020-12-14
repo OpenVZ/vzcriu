@@ -475,7 +475,6 @@ static int cgp_parse_builtins(void)
 			" - \"strategy\": \"replace\"\n"
 			" - \"properties\": "
 			"[ "
-				"\"net_prio.ifpriomap\" "
 			"]\n"
 		"\"pids\":\n"
 			" - \"strategy\": \"replace\"\n"
