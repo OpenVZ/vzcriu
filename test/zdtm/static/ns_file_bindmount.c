@@ -7,9 +7,11 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/mount.h>
+#include <sys/mman.h>
 #include <linux/limits.h>
 
 #include "zdtmtst.h"
+#include "lock.h"
 #include "fs.h"
 
 const char *test_doc = "Check namespace file (/proc/pid/ns/name) bindmounts";
@@ -18,10 +20,19 @@ const char *test_author = "Pavel Tikhomirov <ptikhomirov@virtuozzo.com>";
 char *dirname = "ns_file_bindmount";
 TEST_OPTION(dirname, string, "directory name", 1);
 
+enum {
+	FUTEX_INITIALIZED = 0,
+	CHILD_READY,
+	TEST_FINISH,
+	EMERGENCY_ABORT,
+};
+
+futex_t *futex;
+
 static int child(void *unused)
 {
-	while (1)
-		sleep(1);
+	futex_set_and_wake(futex, CHILD_READY);
+	futex_wait_while_lt(futex, TEST_FINISH);
 	return 0;
 }
 
@@ -155,15 +166,29 @@ int main(int argc, char **argv)
 
 	test_init(argc, argv);
 
+	futex = mmap(NULL, sizeof(*futex), PROT_WRITE | PROT_READ,
+		     MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+	if (futex == MAP_FAILED) {
+		pr_perror("Failed to mmap futex");
+		return 1;
+	}
+	futex_init(futex);
+
 	if (prepare_dirname(dirname))
 		return 1;
 
-	pid = clone(child,  &stack[CLONE_STACK_SIZE],
+	pid = clone(child, &stack[CLONE_STACK_SIZE],
 		    CLONE_NEWNET | CLONE_NEWIPC | CLONE_NEWUTS | SIGCHLD,
 		    NULL);
 	if (pid == -1) {
 		pr_perror("Failed to clone child with nested namespaces");
 		return 1;
+	}
+
+	futex_wait_while_lt(futex, CHILD_READY);
+	if (futex_get(futex) == EMERGENCY_ABORT) {
+		pr_err("Fail in child\n");
+		goto err;
 	}
 
 	if (create_ns_bind("ipc", pid, ipc_file, ipc_bind))
@@ -209,13 +234,14 @@ int main(int argc, char **argv)
 	pass();
 	ret = 0;
 err:
+	futex_set_and_wake(futex, TEST_FINISH);
 	if (ipc_fd != -1)
 		close(ipc_fd);
 	if (uts_fd != -1)
 		close(uts_fd);
 	if (net_fd != -1)
 		close(net_fd);
-	kill(pid, SIGKILL);
 	wait(NULL);
+	munmap(futex, sizeof(*futex));
 	return ret;
 }
