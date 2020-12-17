@@ -77,6 +77,7 @@ struct kerndat_s {
 	bool has_ns_get_parent;
 	bool has_pid_for_children_ns;
 	bool has_mount_set_group;
+	bool has_beancounters;
 };
 
 extern struct kerndat_s kdat;
@@ -104,5 +105,6 @@ extern int kerndat_has_ns_get_userns(void);
 extern int kerndat_has_ns_get_parent(void);
 extern int kerndat_has_pid_for_children_ns(void);
 extern int kerndat_has_mount_set_group(void);
+extern int kerndat_has_beancounters(void);
 
 #endif /* __CR_KERNDAT_H__ */
