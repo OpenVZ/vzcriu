@@ -1393,6 +1393,14 @@ static int check_ipv6_freebind(void)
 	return 0;
 }
 
+static int check_beancounters(void)
+{
+	if (!kdat.has_beancounters)
+		return -1;
+
+	return 0;
+}
+
 static int (*chk_feature)(void);
 
 /*
@@ -1513,6 +1521,7 @@ int cr_check(void)
 		ret |= check_openat2();
 		ret |= check_ptrace_get_rseq_conf();
 		ret |= check_ipv6_freebind();
+		ret |= check_beancounters();
 
 		if (kdat.lsm == LSMTYPE__APPARMOR)
 			ret |= check_apparmor_stacking();
@@ -1636,6 +1645,7 @@ static struct feature_list feature_list[] = {
 	{ "get_rseq_conf", check_ptrace_get_rseq_conf },
 	{ "ipv6_freebind", check_ipv6_freebind },
 	{ "nl_repair", check_nl_repair },
+	{ "beancounters", check_beancounters },
 	{ NULL, NULL },
 };
 
