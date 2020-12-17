@@ -1081,6 +1081,21 @@ static int kerndat_has_openat2(void)
 	return 0;
 }
 
+int kerndat_has_beancounters(void)
+{
+	if (access("/proc/user_beancounters", F_OK) < 0) {
+		if (errno == ENOENT) {
+			pr_debug("No /proc/user_beancounters\n");
+			kdat.has_beancounters = false;
+			return 0;
+		}
+		pr_perror("Unable to access /proc/user_beancounters");
+		return -1;
+	}
+	kdat.has_beancounters = true;
+	return 0;
+}
+
 #define KERNDAT_CACHE_FILE     KDAT_RUNDIR "/criu.kdat"
 #define KERNDAT_CACHE_FILE_TMP KDAT_RUNDIR "/.criu.kdat"
 
@@ -1721,6 +1736,11 @@ int kerndat_init(void)
 	}
 	if (!ret && kerndat_nl_repair()) {
 		pr_err("kerndat_nl_repair failed when initializing kerndat.\n");
+		ret = -1;
+	}
+
+	if (!ret && kerndat_has_beancounters()) {
+		pr_err("kerndat_has_beancounters failed when initializing kerndat.\n");
 		ret = -1;
 	}
 

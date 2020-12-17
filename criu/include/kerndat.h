@@ -85,6 +85,7 @@ struct kerndat_s {
 	bool has_rseq;
 	bool has_ptrace_get_rseq_conf;
 	bool has_ve_ctty;
+	bool has_beancounters;
 };
 
 extern struct kerndat_s kdat;
@@ -108,5 +109,6 @@ extern int kerndat_fs_virtualized(unsigned int which, u32 kdev);
 extern int kerndat_has_nspid(void);
 
 extern int kerndat_nl_repair(void);
+extern int kerndat_has_beancounters(void);
 
 #endif /* __CR_KERNDAT_H__ */

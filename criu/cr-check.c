@@ -1375,6 +1375,17 @@ static int check_openat2(void)
 	return 0;
 }
 
+static int check_beancounters(void)
+{
+	if (kerndat_has_beancounters() < 0)
+		return -1;
+
+	if (!kdat.has_beancounters)
+		return -1;
+
+	return 0;
+}
+
 static int (*chk_feature)(void);
 
 /*
@@ -1489,15 +1500,8 @@ int cr_check(void)
 		ret |= check_clone3_set_tid();
 		ret |= check_time_namespace();
 		ret |= check_newifindex();
-		ret |= check_pidfd_store();
 		ret |= check_ns_pid();
-		ret |= check_apparmor_stacking();
-		ret |= check_network_lock_nftables();
-		ret |= check_sockopt_buf_lock();
-		ret |= check_memfd_hugetlb();
-		ret |= check_move_mount_set_group();
-		ret |= check_openat2();
-		ret |= check_ptrace_get_rseq_conf();
+		ret |= check_beancounters();
 	}
 
 	/*
@@ -1617,6 +1621,7 @@ static struct feature_list feature_list[] = {
 	{ "openat2", check_openat2 },
 	{ "get_rseq_conf", check_ptrace_get_rseq_conf },
 	{ "nl_repair", check_nl_repair },
+	{ "beancounters", check_beancounters},
 	{ NULL, NULL },
 };
 
