@@ -255,6 +255,9 @@ static void __maybe_unused ve_bc_read(pid_t pid, bc_set_t *bc_set)
 	char path[PATH_MAX];
 	int i;
 
+	if (!kdat.has_beancounters)
+		return;
+
 	if (is_zdtm_run())
 		return;
 
@@ -315,6 +318,9 @@ static void __maybe_unused ve_bc_unlimit(bc_set_t *bc_set)
 {
 	int i, j;
 
+	if (!kdat.has_beancounters)
+		return;
+
 	if (!(bc_set->status & VE_BC_STATUS_READ))
 		return;
 
@@ -366,6 +372,9 @@ static void __maybe_unused ve_bc_unlimit(bc_set_t *bc_set)
 static void __maybe_unused ve_bc_finish(bc_set_t *bc_set)
 {
 	int i;
+
+	if (!kdat.has_beancounters)
+		return;
 
 	pr_debug("ubc: restore limits %s\n", bc_set->veid);
 
