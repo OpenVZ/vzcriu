@@ -18,6 +18,45 @@ const char *test_author	= "Cyrill Gorcunov <gorcunov@virtuozzo.com>";
 char *dirname;
 TEST_OPTION(dirname, string, "directory name", 1);
 
+#ifdef ZDTM_BM_UNIX_SK_AND_GHOST
+int create_ghost_sk(char *cwd, char *unix_name)
+{
+	int sk;
+	int ret;
+	struct sockaddr_un addr;
+	char path_unix[PATH_MAX];
+
+	/*
+	 * Let's bind our ghost socket to the same
+	 * path as we will bind bindmounted socket.
+	 */
+	ssprintf(path_unix, "%s/%s/aaa/bbb/%s",
+		 cwd, dirname, unix_name);
+
+	addr.sun_family = AF_UNIX;
+	sstrncpy(addr.sun_path, path_unix);
+
+	sk = socket(AF_UNIX, SOCK_DGRAM, 0);
+	if (sk < 0) {
+		pr_perror("open ghost sk");
+		ret = 1;
+		goto exit;
+	}
+
+	if (bind(sk, (struct sockaddr *) &addr, sizeof(struct sockaddr_un))) {
+		pr_perror("bind ghost sk");
+		ret = 1;
+		goto exit;
+	}
+
+	unlink(addr.sun_path);
+	ret = 0;
+
+exit:
+	return ret;
+}
+#endif
+
 int main(int argc, char **argv)
 {
 	char path_unix[PATH_MAX], path_bind[PATH_MAX], path[PATH_MAX];
@@ -56,6 +95,12 @@ int main(int argc, char **argv)
 	}
 	ssprintf(path_bind, "%s/%s/%s", cwd, dirname, bind_name);
 
+#ifdef ZDTM_BM_UNIX_SK_AND_GHOST
+	if (create_ghost_sk(cwd, unix_name)) {
+		pr_err("create_ghost_sk\n");
+		exit(1);
+	}
+#endif
 
 	/*
 	 * Mounts-v2 engine uses "plain" structure of mounts,
