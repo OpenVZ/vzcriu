@@ -404,11 +404,15 @@ TST_DIR		=				\
 		del_standalone_un		\
 		sk-unix-mntns			\
 		sk-unix01			\
-		sk-unix-dgram-ghost			\
+		sk-unix-dgram-ghost		\
 		bind-mount-unix			\
 		bind-mount-unix02		\
 		bind-mount-unix03		\
 		bind-mount-unix04		\
+		bind-mount-unix05		\
+		bind-mount-unix06		\
+		bind-mount-unix07		\
+		bind-mount-unix08		\
 		bind-mount-unix-multi		\
 		bind-mount-unix-multi-submntns	\
 		bind-mount-unix-multi-stream	\
@@ -640,6 +644,10 @@ bind-mount-unix:		CFLAGS += -DZDTM_BM_UNIX_SK_CASE1
 bind-mount-unix02:		CFLAGS += -DZDTM_BM_UNIX_SK_CASE2
 bind-mount-unix03:		CFLAGS += -DZDTM_BM_UNIX_SK_CASE3
 bind-mount-unix04:		CFLAGS += -DZDTM_BM_UNIX_SK_CASE4
+bind-mount-unix05:		CFLAGS += -DZDTM_BM_UNIX_SK_CASE1 -DZDTM_BM_UNIX_SK_AND_GHOST
+bind-mount-unix06:		CFLAGS += -DZDTM_BM_UNIX_SK_CASE2 -DZDTM_BM_UNIX_SK_AND_GHOST
+bind-mount-unix07:		CFLAGS += -DZDTM_BM_UNIX_SK_CASE3 -DZDTM_BM_UNIX_SK_AND_GHOST
+bind-mount-unix08:		CFLAGS += -DZDTM_BM_UNIX_SK_CASE4 -DZDTM_BM_UNIX_SK_AND_GHOST
 bind-mount-unix-multi-submntns:	CFLAGS += -DZDTM_BM_UNIX_MULT_SUBMNTNS
 bind-mount-unix-multi-stream:	CFLAGS += -DZDTM_BM_UNIX_MULT_STREAM
 bind-mount-unix-multi-seqpacket:	CFLAGS += -DZDTM_BM_UNIX_MULT_SEQPACKET
