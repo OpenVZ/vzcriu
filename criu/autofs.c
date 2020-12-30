@@ -27,6 +27,7 @@
 #define AUTOFS_CATATONIC_FD	-1
 
 static int autofs_mnt_open(const char *mnt_path, dev_t devid);
+static int autofs_mnt_make_catatonic(const char *mnt_path, int mnt_fd);
 
 struct autofs_pipe_s {
 	struct list_head list;
@@ -388,10 +389,8 @@ free_str:
 static int access_autofs_mount(struct mount_info *pm)
 {
 	const char *mnt_path = service_mountpoint(pm) + 1;
-	dev_t dev_id = pm->s_dev;
 	int new_pid_ns = -1, old_pid_ns = -1;
 	int old_mnt_ns;
-	int autofs_mnt;
 	int err = -1;
 	int pid, status;
 
@@ -420,19 +419,15 @@ static int access_autofs_mount(struct mount_info *pm)
 		goto restore_mnt_ns;
 	}
 
-	autofs_mnt = autofs_mnt_open(mnt_path, dev_id);
-	if (autofs_mnt < 0)
-		goto restore_pid_ns;
-
 	pid = fork();
 	switch (pid) {
 		case -1:
 			pr_err("failed to fork\n");
-			goto close_autofs_mnt;
+			goto restore_pid_ns;
 		case 0:
 			/* We don't care about results.
 			 * All we need is to "touch" */
-			openat(autofs_mnt, mnt_path, O_RDONLY|O_NONBLOCK|O_DIRECTORY);
+			open(mnt_path, O_RDONLY|O_NONBLOCK|O_DIRECTORY);
 			_exit(0);
 
 	}
@@ -441,8 +436,6 @@ static int access_autofs_mount(struct mount_info *pm)
 
 	err = autofs_revisit_options(pm);
 
-close_autofs_mnt:
-	close(autofs_mnt);
 restore_pid_ns:
 	if (restore_ns(old_pid_ns, &pid_ns_desc)) {
 		pr_err("failed to restore pid namespace\n");
@@ -460,6 +453,41 @@ close_old_pid_ns:
 close_new_pid_ns:
 	if (new_pid_ns >= 0)
 		close(new_pid_ns);
+	return err;
+}
+
+static int autofs_mount_set_catatonic(struct mount_info *pm)
+{
+	const char *mnt_path = service_mountpoint(pm) + 1;
+	dev_t dev_id = pm->s_dev;
+	int old_mnt_ns;
+	int autofs_mnt;
+	int err = -1;
+
+	if (switch_ns(pm->nsid->ns_pid, &mnt_ns_desc, &old_mnt_ns)) {
+		pr_err("failed to switch to mount namespace\n");
+		return -1;
+	}
+
+	autofs_mnt = autofs_mnt_open(mnt_path, dev_id);
+	if (autofs_mnt < 0)
+		goto restore_mnt_ns;
+
+	if (autofs_mnt_make_catatonic(mnt_path, autofs_mnt)) {
+		pr_err("Failed to set %s catatonic\n", mnt_path);
+		goto close_autofs_mnt;
+	}
+
+	err = autofs_revisit_options(pm);
+
+close_autofs_mnt:
+	close(autofs_mnt);
+restore_mnt_ns:
+	if (restore_ns(old_mnt_ns, &mnt_ns_desc)) {
+		pr_err("failed to restore mount namespace\n");
+		err = -1;
+	}
+
 	return err;
 }
 
@@ -495,11 +523,65 @@ static int autofs_create_entry(struct mount_info *pm, AutofsEntry *entry)
 			 * We can try handle these cases by accessing the mount
 			 * point. If it's catatonic, it will update it's
 			 * options, then we can read them again and dump it.
+			 *
+			 * Unfortunately, we can trigger kernel to check pipe
+			 * and mark mount as catatonic only when autofs mount
+			 * accessed by vfs lookup. But what if we have overmounted
+			 * autofs mount. That's not rare case (!):
+			 * systemd-1 on /proc/sys/fs/binfmt_misc type autofs (rw,..)
+			 * binfmt_misc on /proc/sys/fs/binfmt_misc type binfmt_misc (rw,..)
+			 *
+			 * In such case accessing /proc/sys/fs/binfmt_misc *not* triggers
+			 * needed kernel stack:
+			 * autofs4_catatonic_mode <-autofs4_notify_daemon
+			 *	=> autofs4_mount_wait
+			 *	=> autofs4_d_automount
+			 *	=> follow_managed
+			 *	=> lookup_fast
+			 *	=> do_last
+			 *	=> path_openat
+			 *	=> do_filp_open
+			 *	=> do_sys_open
+			 * Kernel marks mount as catatonic because of failed
+			 * write into packetized pipe in autofs4_notify_daemon()
+			 *
+			 * Idea here is to open autofs mount directly by
+			 * ioctl(AUTOFS_DEV_IOCTL_OPENMOUNT) and use
+			 * openat(autofsmnt, "some_path", ...)
+			 * but such way also doesn't work as needed.
+			 * Stack here will looks like:
+			 * autofs4_mount_wait <-autofs4_d_manage
+			 *	=> lookup_fast
+			 *	=> do_last
+			 *	=> path_openat
+			 *	=> do_filp_open
+			 *	=> do_sys_open
+			 *	=> SyS_openat
+			 *	=> system_call_fastpath
+			 * When using openat with autofs mount
+			 * fd we go around needed stack with autofs4_d_automount
+			 * callback and go directly to the autofs dentry ops.
+			 *
+			 * So, let's use access_autofs_mount() as we know
+			 * that it's work for non-overmounted case (when autofs
+			 * automounting wasn't triggered yet).
 			 */
-			if (access_autofs_mount(pm)) {
-				pr_err("failed to access autofs %s\n",
-				       service_mountpoint(pm) + 1);
-				return -1;
+			if (!mnt_is_overmounted(pm)) {
+				if (access_autofs_mount(pm)) {
+					pr_err("failed to access autofs %s\n",
+					       service_mountpoint(pm) + 1);
+					return -1;
+				}
+			} else {
+				pr_warn("autofs: mount %d is overmounted"
+					"without pipe read end. Make it catatonic\n",
+					pm->mnt_id);
+
+				if (autofs_mount_set_catatonic(pm)) {
+					pr_err("failed to set catatonic autofs %s\n",
+					       service_mountpoint(pm) + 1);
+					return -1;
+				}
 			}
 			if (parse_autofs_options(pm->options, entry, &pipe_ino))
 				return -1;
