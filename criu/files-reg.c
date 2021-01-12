@@ -2243,7 +2243,15 @@ int dump_one_reg_file(int lfd, u32 id, const struct fd_parms *p)
 		if (opts.shell_job && is_tty(p->stat.st_rdev, p->stat.st_dev)) {
 			skip_for_shell_job = true;
 		} else {
-			pr_err("Can't lookup mount=%d for fd=%d path=%s\n", p->mnt_id, p->fd, link->name + 1);
+			struct mount_info *m;
+
+			pr_err("Can't lookup mount=%d sdev=%ld for fd=%d path=%s\n",
+				p->mnt_id, p->stat.st_dev, p->fd, link->name + 1);
+
+			m = lookup_mnt_sdev_on_root(p->stat.st_dev);
+			if (m)
+				pr_err("Hint: Other mount %d with same sdev\n",
+				       m->mnt_id);
 			return -1;
 		}
 	}
