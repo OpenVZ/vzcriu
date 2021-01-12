@@ -226,6 +226,7 @@ extern struct mount_info *lookup_overlayfs(char *rpath, unsigned int s_dev,
 					   unsigned int st_ino, unsigned int mnt_id);
 extern struct mount_info *lookup_mnt_id(unsigned int id);
 extern struct mount_info *lookup_mnt_sdev(unsigned int s_dev);
+extern struct mount_info *lookup_mnt_sdev_on_root(unsigned int s_dev);
 
 extern dev_t phys_stat_resolve_dev(struct ns_id *, dev_t st_dev, char *path);
 extern bool __phys_stat_dev_match(dev_t st_dev, dev_t phys_dev,

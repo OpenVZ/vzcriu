@@ -234,7 +234,7 @@ struct mount_info *lookup_mnt_sdev(unsigned int s_dev)
 	return NULL;
 }
 
-static struct mount_info *lookup_mnt_sdev_on_root(unsigned int s_dev)
+struct mount_info *lookup_mnt_sdev_on_root(unsigned int s_dev)
 {
 	struct mount_info *m;
 
