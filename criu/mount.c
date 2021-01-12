@@ -863,8 +863,8 @@ int validate_mounts(struct mount_info *info, bool for_dump)
 
 		if (fsroot_mounted(m)) {
 			if (m->fstype->code == FSTYPE__UNSUPPORTED) {
-				pr_err("FS mnt %s dev %#x root %s unsupported id %d\n",
-				       m->ns_mountpoint, m->s_dev, m->root, m->mnt_id);
+				pr_err("FS mnt %s dev %#x root %s fsname %s unsupported id %d\n",
+				       m->ns_mountpoint, m->s_dev, m->root, m->fsname, m->mnt_id);
 				return -1;
 			}
 		} else {
