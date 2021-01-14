@@ -98,6 +98,16 @@ int criu_get_image_dir(void)
 	return get_service_fd(IMG_FD_OFF);
 }
 
+int criu_get_work_dir_path(char *buf, int size)
+{
+	if (snprintf(buf, size, "%s", opts.work_dir) >= size) {
+		pr_err("snprintf output was truncated\n");
+		return -1;
+	}
+
+	return 0;
+}
+
 static int cr_lib_load(int stage, char *path)
 {
 	cr_plugin_desc_t *d;
