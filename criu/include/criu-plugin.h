@@ -129,6 +129,7 @@ static inline void cr_plugin_dummy_exit(int stage, int ret)
 
 /* Public API */
 extern int criu_get_image_dir(void);
+extern int criu_get_work_dir_path(char *buf, int size);
 
 /*
  * Deprecated, will be removed in next version.

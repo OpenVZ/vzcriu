@@ -249,6 +249,7 @@ static int setup_opts_from_req(int sk, CriuOpts *req)
 	socklen_t ids_len = sizeof(struct ucred);
 	char images_dir_path[PATH_MAX];
 	char work_dir_path[PATH_MAX];
+	char work_dir[PATH_MAX];
 	char status_fd[PATH_MAX];
 	bool output_changed_by_rpc_conf = false;
 	bool work_changed_by_rpc_conf = false;
@@ -364,18 +365,37 @@ static int setup_opts_from_req(int sk, CriuOpts *req)
 	}
 
 	/* chdir to work dir */
-	if (work_changed_by_rpc_conf)
+	if (work_changed_by_rpc_conf) {
 		/* Use the value from the RPC configuration file first. */
 		strncpy(work_dir_path, opts.work_dir, PATH_MAX - 1);
-	else if (req->has_work_dir_fd)
+	} else if (req->has_work_dir_fd) {
+		int ret;
+
 		/* Use the value set via RPC. */
 		sprintf(work_dir_path, "/proc/%d/fd/%d", ids.pid, req->work_dir_fd);
-	else if (opts.work_dir)
+
+		ret = readlink(work_dir_path, work_dir, PATH_MAX - 1);
+		if (ret == -1) {
+			pr_perror("Can't readlink %s", work_dir_path);
+			goto err;
+		}
+		work_dir[ret] = '\0';
+
+		if (opts.work_dir)
+			xfree(opts.work_dir);
+
+		opts.work_dir = xstrdup(work_dir);
+		if (!opts.work_dir)
+			goto err;
+
+		pr_info("Work dir path set from request %s\n", work_dir);
+	} else if (opts.work_dir) {
 		/* Use the value from one of the other configuration files. */
 		strncpy(work_dir_path, opts.work_dir, PATH_MAX - 1);
-	else
+	} else {
 		/* Use the images directory a work directory. */
 		strcpy(work_dir_path, images_dir_path);
+	}
 
 	if (chdir(work_dir_path)) {
 		pr_perror("Can't chdir to work_dir");
