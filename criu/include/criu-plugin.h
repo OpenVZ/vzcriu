@@ -115,6 +115,7 @@ static void __attribute__((constructor)) cr_plugin_register_hook_##__func (void)
 
 /* Public API */
 extern int criu_get_image_dir(void);
+extern int criu_get_work_dir_path(char *buf, int size);
 
 /*
  * Deprecated, will be removed in next version.
