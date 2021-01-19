@@ -43,7 +43,7 @@
 		: "r"(clone_flags),		/* %1 */		\
 		  "m"(new_sp),			/* %2 */		\
 		  "r"(&parent_tid),		/* %3 */		\
-		  "r"(&thread_args[i].pid),	/* %4 */		\
+		  "r"(&thread_args[i].child_tid),	/* %4 */	\
 		  "r"(clone_restore_fn),	/* %5 */		\
 		  "r"(&thread_args[i])		/* %6 */		\
 		: "memory","0","3","4","5","6","7","14","15")

@@ -57,7 +57,7 @@ static inline int set_compat_robust_list(uint32_t head_ptr, uint32_t len)
 		     : "r"(clone_flags),				\
 		       "m"(new_sp),					\
 		       "r"(&parent_tid),				\
-		       "r"(&thread_args[i].pid),			\
+		       "r"(&thread_args[i].child_tid),			\
 		       "r"(clone_restore_fn),				\
 		       "r"(&thread_args[i])				\
 		 :"$2","$4","$5","$6","$7","$8","$25","$29","memory")

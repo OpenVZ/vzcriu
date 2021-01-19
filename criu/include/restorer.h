@@ -88,6 +88,7 @@ struct thread_restore_args {
 	struct restore_mem_zone		*mz;
 
 	pid_t				pid[MAX_NS_NESTING];
+	pid_t				child_tid;
 	int				level;
 	UserRegsEntry			gpregs;
 	u64				clear_tid_addr;
