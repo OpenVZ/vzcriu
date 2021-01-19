@@ -35,7 +35,7 @@
 	: "d"(clone_flags),						\
 	  "a"(new_sp),							\
 	  "d"(&parent_tid),						\
-	  "d"(&thread_args[i].pid),					\
+	  "d"(&thread_args[i].child_tid),				\
 	  "d"(clone_restore_fn),					\
 	  "d"(&thread_args[i])						\
 	: "0", "1", "2", "3", "4", "5", "6", "cc", "memory")

@@ -76,7 +76,7 @@ static inline int set_compat_robust_list(uint32_t head_ptr, uint32_t len)
 		     : "g"(clone_flags),				\
 		       "g"(new_sp),					\
 		       "g"(&parent_tid),				\
-		       "g"(&thread_args[i].pid),			\
+		       "g"(&thread_args[i].child_tid),			\
 		       "g"(clone_restore_fn),				\
 		       "g"(&thread_args[i])				\
 		     : "rax", "rcx", "rdi", "rsi", "rdx", "r10", "r11", "memory")
