@@ -39,7 +39,7 @@
 		     : "r"(clone_flags),				\
 		       "m"(new_sp),					\
 		       "r"(&parent_tid),				\
-		       "r"(&thread_args[i].pid),			\
+		       "r"(&thread_args[i].child_tid),			\
 		       "r"(clone_restore_fn),				\
 		       "r"(&thread_args[i])				\
 		     : "r0", "r1", "r2", "r3", "r7", "memory")
