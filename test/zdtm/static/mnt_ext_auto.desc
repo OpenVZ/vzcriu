@@ -1,1 +1,1 @@
-{'flavor': 'ns uns', 'feature': 'mnt_id', 'opts': '--external mnt[]:s', 'flags': 'noauto'}
+{'flavor': 'ns uns', 'feature': 'mnt_id', 'opts': '--external mnt[]:s'}
