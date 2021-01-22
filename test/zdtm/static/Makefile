@@ -336,6 +336,7 @@ TST_FILE	=				\
 		maps_file_prot			\
 		socket_close_data01		\
 		file_fown_dead			\
+		file_fown_reuse			\
 		fifo_upon_unix_socket00		\
 		fifo_upon_unix_socket01		\
 
@@ -674,6 +675,8 @@ openvswitch01:	CFLAGS += -DOPENVSWITCH01
 mqueue_inotify:		LDFLAGS += -lrt
 
 fifo_upon_unix_socket01:	CFLAGS += -DFIFO_UPON_UNIX01
+
+file_fown_reuse:	CFLAGS += -DZDTM_FILE_FOWN_REUSE
 
 $(LIB):	force
 	$(Q) $(MAKE) -C $(LIBDIR)

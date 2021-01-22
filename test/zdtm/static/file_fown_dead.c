@@ -77,6 +77,44 @@ static int cmp_pipe_params(struct params *p1, struct params *p2)
 	return 0;
 }
 
+#ifdef ZDTM_FILE_FOWN_REUSE
+static int reuse_pid(pid_t pid)
+{
+	int fd, len, cpid;
+	char buf[32];
+
+	fd = open("/proc/sys/kernel/ns_last_pid", O_WRONLY);
+	if (fd < 0) {
+		pr_perror("open ns_last_pid");
+		return -1;
+	}
+	len = snprintf(buf, sizeof(buf), "%d", pid - 1);
+	if (write(fd, buf, len) != len) {
+		pr_perror("write ns_last_pid");
+		close(fd);
+		return -1;
+	}
+	close(fd);
+
+	cpid = fork();
+	if (cpid < 0) {
+		pr_perror("can't fork");
+		return -1;
+	} else if (cpid == 0) {
+		while (1)
+			sleep(1);
+		exit(0);
+	} else if (cpid != pid) {
+		pr_err("pid reuse failed %d != %d\n", cpid, pid);
+		kill(cpid, SIGKILL);
+		wait(NULL);
+		return -1;
+	}
+
+	return cpid;
+}
+#endif
+
 int main(int argc, char *argv[])
 {
 	struct sigaction saio = { };
@@ -85,6 +123,9 @@ int main(int argc, char *argv[])
 	int status, pipes[2];
 	pid_t pid;
 	int fd;
+#ifdef ZDTM_FILE_FOWN_REUSE
+	pid_t cpid;
+#endif
 
 	test_init(argc, argv);
 
@@ -169,24 +210,30 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 
+#ifdef ZDTM_FILE_FOWN_REUSE
+	cpid = reuse_pid(pid);
+	if (cpid < 0)
+		exit(1);
+#endif
+
 	test_daemon();
 	test_waitsig();
 
 	if (read(pipes[0], &obtained, sizeof(obtained)) != sizeof(obtained)) {
 		fail("read failed\n");
-		exit(1);
+		goto err;
 	}
 
 	if (shared->sigio < 1) {
 		fail("shared->sigio = %d (> 0 expected)\n", shared->sigio);
-		exit(1);
+		goto err;
 	}
 
 	shared->pipe_pid[1] = pid;
 
 	if (cmp_pipe_params(shared, &obtained)) {
 		fail("params comparison failed\n");
-		exit(1);
+		goto err;
 	}
 
 	/*
@@ -201,11 +248,22 @@ int main(int argc, char *argv[])
 
 	if (cmp_pipe_params(shared, &obtained)) {
 		fail("params comparison failed\n");
-		exit(1);
+		goto err;
 	}
 
 	close(fd);
 
+#ifdef ZDTM_FILE_FOWN_REUSE
+	kill(cpid, SIGKILL);
+	wait(NULL);
+#endif
+
 	pass();
 	return 0;
+err:
+#ifdef ZDTM_FILE_FOWN_REUSE
+	kill(cpid, SIGKILL);
+	wait(NULL);
+#endif
+	exit(1);
 }
