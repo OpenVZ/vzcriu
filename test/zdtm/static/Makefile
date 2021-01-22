@@ -386,6 +386,7 @@ TST_FILE	=				\
 		sk-unix-listen03		\
 		sk-unix-listen04		\
 		file_fown_dead			\
+		file_fown_reuse			\
 
 TST_DIR		=				\
 		cwd00				\
@@ -771,6 +772,8 @@ pidns03:		LDFLAGS += -pthread
 openvswitch01:	CFLAGS += -DOPENVSWITCH01
 
 mqueue_inotify:		LDFLAGS += -lrt
+
+file_fown_reuse:	CFLAGS += -DZDTM_FILE_FOWN_REUSE
 
 $(LIB):	force
 	$(Q) $(MAKE) -C $(LIBDIR)
