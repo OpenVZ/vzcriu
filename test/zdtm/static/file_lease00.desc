@@ -1,1 +1,1 @@
-{'feature': 'fdinfo_lock', 'opts': '--file-locks', 'flags': 'noauto'}
+{'feature': 'fdinfo_lock', 'opts': '--file-locks'}
