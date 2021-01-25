@@ -1827,24 +1827,15 @@ static int parse_file_lock_buf(char *buf, struct file_lock *fl, bool is_blocked)
 static bool unsupported_nfs_lock(pid_t pid, int remote_fd, int mnt_id, int fl_kind)
 {
 	struct statfs buf;
-	int fd;
 	char path[PATH_MAX];
 	struct mount_info *mi;
 	char local_lock[32], *ptr;
 
 	sprintf(path, "/proc/%d/fd/%d", pid, remote_fd);
-	fd = open(path, O_RDONLY);
-	if (fd < 0) {
-		pr_perror("failed to open %s", path);
+	if (statfs(path, &buf)) {
+		pr_perror("failed to statfs %s", path);
 		return false;
 	}
-
-	if (fstatfs(fd, &buf)) {
-		pr_perror("failed to statfs /proc/self/fd/%d", fd);
-		close(fd);
-		return false;
-	}
-	close(fd);
 
 	if (buf.f_type != NFS_SUPER_MAGIC)
 		return false;
