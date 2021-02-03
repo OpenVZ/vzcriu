@@ -258,7 +258,7 @@ static void __maybe_unused ve_bc_read(pid_t pid, bc_set_t *bc_set)
 	if (!kdat.has_beancounters)
 		return;
 
-	if (is_zdtm_run())
+	if (!opts.ve)
 		return;
 
 	if (IS_ERR_OR_NULL(veid)) {

@@ -2671,7 +2671,7 @@ int join_ve(pid_t pid, bool veX)
 	char buf[PATH_MAX];
 	char *veid;
 
-	if (is_zdtm_run())
+	if (!opts.ve)
 		return 0;
 
 	if (!may_join_ve) {

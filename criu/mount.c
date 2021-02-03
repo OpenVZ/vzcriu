@@ -1838,61 +1838,10 @@ err:
 
 char *get_dumpee_veid(pid_t pid_real)
 {
-	char *veid = getenv("VEID");
-	static char vebuf[256];
-	static pid_t pid = 0;
-	bool found = false;
-
-	if (is_zdtm_run())
+	if (!opts.ve)
 		return ERR_PTR(-ENOENT);
 
-	if (veid) {
-		pr_debug("VEID from env %s\n", veid);
-		return veid;
-	} else if (pid == 0 || pid_real != pid) {
-		FILE *f = fopen_proc(pid_real, "cgroup");
-		char *name, *path = NULL, *e;
-		char buf[4096];
-
-		if (!f)
-			return ERR_PTR(-ENOENT);
-		pr_debug("Determinating VEID for pid %d\n", pid_real);
-		found = false;
-
-		/*
-		 * 16:name=zdtmtst:/
-		 * 14:freezer:/machine.slice/150
-		 * 13:cpuset:/machine.slice/150
-		 * 12:perf_event:/machine.slice/150
-		 * 11:hugetlb:/machine.slice/150
-		 * 10:ve:/150
-		 */
-		while (fgets(buf, sizeof(buf), f)) {
-			name = strchr(buf, ':');
-			if (name)
-				path = strchr(++name, ':');
-			if (!name || !path) {
-				pr_err("Failed parsing cgroup %s\n", buf);
-				return ERR_PTR(-EINVAL);
-			}
-			e = strchr(name, '\n');
-			*path++ = '\0';
-			if (e)
-				*e = '\0';
-			if (!strcmp(name, "ve")) {
-				pid = pid_real;
-				strncpy(vebuf, path[0] == '/' ? &path[1] : path,
-					sizeof(vebuf) - 1);
-				pr_debug("VEID %s\n", vebuf);
-				found = true;
-				break;
-			}
-		}
-		fclose(f);
-	} else
-		found = true;
-
-	return found ? vebuf : ERR_PTR(-ENOENT);
+	return opts.ve;
 }
 
 #define BINFMT_MOUNT_FAILED -1
@@ -1919,7 +1868,7 @@ static __maybe_unused int mount_and_open_binfmt_misc(unsigned int *s_dev)
 	char *veid;
 	char target_dir[] = "/tmp/.criu.binfmt.XXXXXX";
 
-	if (is_zdtm_run())
+	if (!opts.ve)
 		return BINFMT_MOUNT_SKIPPED;
 
 	veid = get_dumpee_veid(root_item->pid->real);
