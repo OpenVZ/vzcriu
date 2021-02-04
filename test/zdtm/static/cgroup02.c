@@ -17,6 +17,8 @@ static const char *cgname = "zdtmtst";
 static const char *subname = "oldroot";
 static const char *cgname2 = "zdtmtst.defaultroot";
 
+#define BUFSZ 255
+
 int mount_and_add(const char *controller, const char *prefix, const char *path)
 {
 	char aux[1024], paux[1024], subdir[1024];
@@ -90,6 +92,44 @@ bool test_exists(char *mountinfo_line, char *path)
 	return true;
 }
 
+static int write_positive_int(char *path, int val)
+{
+	char buf[BUFSZ];
+	int fd, ret, old, exit_code = -1;
+
+	fd = open(path, O_RDWR);
+	if (fd < 0) {
+		pr_perror("Unable to open %s", path);
+		goto err;
+	}
+
+	ret = read(fd, buf, BUFSZ);
+	if (ret < 0 && ret == BUFSZ) {
+		pr_perror("Unable to read %s", path);
+		goto err;
+	}
+
+	if (lseek(fd, SEEK_SET, 0)) {
+		pr_perror("Unable to lseek to file start");
+		goto err;
+	}
+
+	if (dprintf(fd, "%d", val) < 0) {
+		pr_perror("Unkwon error within dprintf");
+		goto err;
+	}
+
+	if (sscanf(buf, "%d", &old) != 1) {
+		pr_err("Unable to get number from %s\n", buf);
+		goto err;
+	}
+
+	exit_code = old;
+err:
+	close(fd);
+	return exit_code;
+}
+
 int main(int argc, char **argv)
 {
 	FILE *cgf;
@@ -97,8 +137,17 @@ int main(int argc, char **argv)
 	char paux[1024];
 	int ret = -1;
 	int fd;
+	int cpu_old, mem_old;
 
 	test_init(argc, argv);
+
+	cpu_old = write_positive_int("/sys/fs/cgroup/cpuset/cpuset.cpu_exclusive", 0);
+	if (cpu_old < 0)
+		return -1;
+
+	mem_old = write_positive_int("/sys/fs/cgroup/cpuset/cpuset.mem_exclusive", 0);
+	if (mem_old < 0)
+		goto out_cgroup_cpu;
 
 	if (mount_and_add(cgname, "prefix", subname))
 		goto out;
@@ -171,5 +220,9 @@ out_umount:
 	umount(paux);
 	rmdir(paux);
 out:
+	write_positive_int("/sys/fs/cgroup/cpuset/cpuset.mem_exclusive", mem_old);
+out_cgroup_cpu:
+	write_positive_int("/sys/fs/cgroup/cpuset/cpuset.cpu_exclusive", cpu_old);
+
 	return ret;
 }
