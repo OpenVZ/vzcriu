@@ -546,7 +546,7 @@ static struct netlink_genl_family nl_genl_list[] = {
 	{.name = OVS_VPORT_FAMILY, .id = 0}
 };
 
-static void fill_genl_families(void)
+static int fill_genl_families(void)
 {
 	int i;
 	int ret;
@@ -556,16 +556,27 @@ static void fill_genl_families(void)
 			continue;
 
 		ret = get_genl_family_id(&(nl_genl_list[i].id), nl_genl_list[i].name, strlen(nl_genl_list[i].name) + 1);
-		if (ret)
-			pr_warn("Unable to find genlik id for %s\n", nl_genl_list[i].name);
+		if (ret) {
+			pr_err("Unable to find genlik id for %s\n", nl_genl_list[i].name);
+			return -1;
+		}
 
 		pr_debug("Found genl id %d for %s\n", nl_genl_list[i].id, nl_genl_list[i].name);
 	}
+
+	return 0;
 }
 
 static int16_t get_cached_genl_family_id(char *name)
 {
 	int i;
+	static int filled = 0;
+
+	if (!filled) {
+		if (fill_genl_families())
+			return -1;
+		filled = 1;
+	}
 
 	for (i = 0; i < ARRAY_SIZE(nl_genl_list); i++) {
 		if (!strcmp(nl_genl_list[i].name, name) && nl_genl_list[i].id)
@@ -785,14 +796,27 @@ out:
 	return ret;
 }
 
+/*
+ * Ovs layout must be filled in each netns, so we should not forget to
+ * clean it by calling free_ovs_layout in dump_net_ns
+ */
+static int filled_layout = 0;
+
 static int fill_ovs_layout(void)
 {
+	int ret;
+
+	if (filled_layout)
+		return 0;
+
 	if (!list_empty(&ovs_dp_head)) {
 		pr_err("Openvswitch layout map already exists!\n");
 		return -1;
 	}
 
-	return dump_all_dp();
+	ret = dump_all_dp();
+	filled_layout = 1;
+	return ret;
 }
 
 static void free_ovs_layout(void)
@@ -809,6 +833,8 @@ static void free_ovs_layout(void)
 		list_del(&dp->list);
 		free(dp);
 	}
+
+	filled_layout = 0;
 }
 
 static struct ovs_datapath *find_ovs_datapath(int ifindex)
@@ -1158,6 +1184,9 @@ static int dump_one_ovs(NetDeviceEntry *nde, struct cr_imgset *imgset, struct nl
 	struct ovs_datapath *dp;
 	struct ovs_vport *vp;
 	int ifindex = nde->ifindex;
+
+	if (fill_ovs_layout())
+		return -1;
 
 	/*
 	 * Netdev can be either datapath or internal vport
@@ -2527,8 +2556,6 @@ static int restore_links(void)
 	int nrcreated, nrlinks;
 	struct ns_id *nsid;
 
-	fill_genl_families();
-
 	while (true) {
 		nrcreated = 0;
 		nrlinks = 0;
@@ -3308,17 +3335,14 @@ int net_set_ext(struct ns_id *ns)
 int dump_net_ns(struct ns_id *ns)
 {
 	struct cr_imgset *fds;
-	int ret = -1;
-
-	if (fill_ovs_layout())
-		return -1;
+	int ret;
 
 	if (fini_dump_sockets(ns))
-		goto out_ovs;
+		return -1;
 
 	fds = cr_imgset_open(ns->id, NETNS, O_DUMP);
 	if (fds == NULL)
-		goto out_ovs;
+		return -1;
 
 	ret = mount_ns_sysfs();
 	if (ns->ext_key) {
@@ -3381,8 +3405,6 @@ out:
 	ns_sysfs_fd = -1;
 
 	close_cr_imgset(&fds);
-
-out_ovs:
 	free_ovs_layout();
 
 	return ret;
@@ -4051,8 +4073,6 @@ static int collect_net_ns(struct ns_id *ns, void *oarg)
 
 int collect_net_namespaces(bool for_dump)
 {
-	fill_genl_families();
-
 	return walk_namespaces(&net_ns_desc, collect_net_ns,
 			(void *)(for_dump ? 1UL : 0));
 }
