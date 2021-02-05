@@ -543,6 +543,7 @@ handlers = {
     'BPFMAP_DATA': entry_handler(pb.bpfmap_data_entry,
                                 bpfmap_data_extra_handler()),
     'NS' : entry_handler(pb.ns_entry),
+    'DEVICE' : entry_handler(pb.device_entry),
 }
 
 def __rhandler(f):

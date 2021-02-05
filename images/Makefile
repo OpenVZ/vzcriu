@@ -71,6 +71,7 @@ proto-obj-y	+= bpfmap-file.o
 proto-obj-y	+= bpfmap-data.o
 proto-obj-y	+= vxlan.o
 proto-obj-y	+= openvswitch.o
+proto-obj-y	+= device.o
 
 CFLAGS		+= -iquote $(obj)/
 
