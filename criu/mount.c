@@ -2656,7 +2656,7 @@ static int do_bind_mount(struct mount_info *mi)
 		goto out;
 	}
 
-	if (mi->external) {
+	if (mi->external && !mi->bind) {
 		if (!mi->external_slavery && mi->master_id) {
 			pr_warn("%d: Internal slavery for external mounts "
 			       "is not supported\n", mi->mnt_id);

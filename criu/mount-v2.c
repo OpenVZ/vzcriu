@@ -256,7 +256,7 @@ static int do_bind_mount_v2(struct mount_info *mi)
 		goto out;
 	}
 
-	if (mi->external) {
+	if (mi->external && !mi->bind) {
 		root = mi->external;
 		goto do_bind;
 	}
