@@ -2021,7 +2021,7 @@ static int dump_one_mountpoint(struct mount_info *pm, struct cr_img *img)
 	if (me.fstype == FSTYPE__AUTO)
 		me.fsname = pm->fsname;
 
-	if (!pm->external) {
+	if (!mnt_is_external(pm)) {
 		if (!pm->dumped && dump_one_fs(pm))
 			return -1;
 

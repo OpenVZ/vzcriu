@@ -1480,7 +1480,7 @@ static inline bool spfs_file(const struct fd_parms *parms, struct ns_id *nsid)
 	if (is_root_mount(mi))
 		return false;
 
-	if (mi->external)
+	if (mnt_is_external(mi))
 		return false;
 
 	return true;

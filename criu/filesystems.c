@@ -608,7 +608,7 @@ static int fusectl_dump(struct mount_info *pm)
 
 		for (it = mntinfo; it; it = it->next) {
 			if (it->fstype->code == FSTYPE__FUSE &&
-					id == kdev_minor(it->s_dev) && !it->external) {
+			    id == kdev_minor(it->s_dev) && !mnt_is_external(it)) {
 				pr_err("%s is a fuse mount but not external\n", it->ns_mountpoint);
 				goto out;
 			}
