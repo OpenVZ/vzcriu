@@ -86,6 +86,7 @@
 #include "pidfd-store.h"
 #include "apparmor.h"
 #include "asm/dump.h"
+#include "devices.h"
 
 /*
  * Architectures can overwrite this function to restore register sets that
@@ -2176,6 +2177,9 @@ int cr_dump_tasks(pid_t pid)
 	 * all this.
 	 */
 	if (dead_pid_conflict())
+		goto err;
+
+	if (dump_devices())
 		goto err;
 
 	/* MNT namespaces are dumped after files to save remapped links */
