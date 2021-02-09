@@ -1,5 +1,10 @@
 #ifndef __CR_EXTERNAL_H__
 #define __CR_EXTERNAL_H__
+
+#include <stdbool.h>
+
+#include "common/list.h"
+
 struct external {
 	struct list_head node;
 	char *id;
