@@ -80,6 +80,7 @@
 #include "timens.h"
 #include "bpfmap.h"
 #include "apparmor.h"
+#include "devices.h"
 
 #include "parasite-syscall.h"
 #include "files-reg.h"
@@ -253,6 +254,9 @@ static int crtools_prepare_shared(void)
 		return -1;
 
 	if (prepare_apparmor_namespaces())
+		return -1;
+
+	if (prepare_devices())
 		return -1;
 
 	return 0;

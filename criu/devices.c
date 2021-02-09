@@ -32,3 +32,50 @@ int dump_devices(void)
 {
 	return external_for_each_type("dev", dump_one_device, NULL);
 }
+
+struct list_head devices_list = LIST_HEAD_INIT(devices_list);
+
+static void free_devices(void)
+{
+	struct device *dev, *tmp;
+
+	list_for_each_entry_safe(dev, tmp, &devices_list, list) {
+		list_del(&dev->list);
+		device_entry__free_unpacked(dev->de, NULL);
+		xfree(dev);
+	}
+}
+
+int prepare_devices(void)
+{
+	struct cr_img *img;
+	DeviceEntry *de;
+	struct device *dev;
+	int ret, exit_code = -1;
+
+	img = open_image(CR_FD_DEVICE, O_RSTR);
+	if (!img)
+		return -1;
+
+	while (1) {
+		ret = pb_read_one_eof(img, &de, PB_DEVICE);
+		if (ret < 0)
+			goto err;
+		else if (ret == 0)
+			break;
+
+		dev = xmalloc(sizeof(struct device));
+		if (!dev)
+			goto err;
+
+		dev->de = de;
+		list_add_tail(&dev->list, &devices_list);
+	}
+
+	exit_code = 0;
+err:
+	if (exit_code == -1)
+		free_devices();
+	close_image(img);
+	return exit_code;
+}
