@@ -84,6 +84,7 @@
 #include "bpfmap.h"
 #include "spfs.h"
 #include "prctl.h"
+#include "devices.h"
 
 #include "parasite-syscall.h"
 #include "files-reg.h"
@@ -259,6 +260,9 @@ static int crtools_prepare_shared(void)
 		return -1;
 
 	if (tty_prep_fds())
+		return -1;
+
+	if (prepare_devices())
 		return -1;
 
 	if (prepare_cgroup())
