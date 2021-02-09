@@ -88,6 +88,7 @@
 #include "timens.h"
 #include "img-streamer.h"
 #include "pipes.h"
+#include "devices.h"
 
 struct rlim_ctl {
 	struct rlimit		old_rlimit;
@@ -2452,6 +2453,9 @@ int cr_dump_tasks(pid_t pid)
 	 * all this.
 	 */
 	if (dead_pid_conflict())
+		goto err;
+
+	if (dump_devices())
 		goto err;
 
 	/* MNT namespaces are dumped after files to save remapped links */
