@@ -1172,24 +1172,22 @@ static int prepare_cgns(CgSetEntry *se)
 
 	}
 
-	if (do_unshare && unshare(CLONE_NEWCGROUP) < 0) {
-		pr_perror("couldn't unshare cgns");
-		return -1;
+	if (do_unshare) {
+		if (unshare(CLONE_NEWCGROUP) < 0) {
+			pr_perror("couldn't unshare cgns");
+			return -1;
+		}
+		pr_info("Creating new cgroup namespace for a root task\n");
 	}
 
 	return 0;
 }
 
-static int move_in_cgroup(CgSetEntry *se, bool setup_cgns)
+static int move_in_cgroup(CgSetEntry *se)
 {
 	int i;
 
-	pr_info("Move into %d\n", se->id);
-
-	if (setup_cgns && prepare_cgns(se) < 0) {
-		pr_err("failed preparing cgns\n");
-		return -1;
-	}
+	pr_info("Moving into %d\n", se->id);
 
 	for (i = 0; i < se->n_ctls; i++) {
 		char aux[PATH_MAX];
@@ -1230,7 +1228,35 @@ static int move_in_cgroup(CgSetEntry *se, bool setup_cgns)
 	return 0;
 }
 
-int prepare_task_cgroup(struct pstree_item *me)
+int prepare_cgroup_namespace(struct pstree_item *root_task)
+{
+	CgSetEntry *se;
+
+	if (!rsti(root_task)->cg_set) {
+		pr_err("No cg_set found for root task\n");
+		return -1;
+	}
+
+	if (root_task->parent) {
+		pr_err("Expecting root_task to restore cgroup namespace\n");
+		return -1;
+	}
+
+	se = find_rst_set_by_id(rsti(root_task)->cg_set);
+	if (!se) {
+		pr_err("No set %d found\n", rsti(root_task)->cg_set);
+		return -1;
+	}
+
+	if (prepare_cgns(se) < 0) {
+		pr_err("failed preparing cgns\n");
+		return -1;
+	}
+
+	return 0;
+}
+
+int restore_task_cgroup(struct pstree_item *me)
 {
 	struct pstree_item *parent = me->parent;
 	CgSetEntry *se;
@@ -1259,13 +1285,7 @@ int prepare_task_cgroup(struct pstree_item *me)
 		return -1;
 	}
 
-	/* Since don't support nesting of cgroup namespaces, let's only set up
-	 * the cgns (if it exists) in the init task. In the future, we should
-	 * just check that the cgns prefix string matches for all the entries
-	 * in the cgset, and only unshare if that's true.
-	 */
-
-	return move_in_cgroup(se, !me->parent);
+	return move_in_cgroup(se);
 }
 
 void fini_cgroup(void)

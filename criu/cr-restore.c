@@ -2282,6 +2282,18 @@ static int restore_task_with_children(void *_arg)
 		if (restore_finish_ns_stage(CR_STATE_ROOT_TASK, CR_STATE_PREPARE_NAMESPACES) < 0)
 			goto err;
 
+		/*
+		 * VZ8 containers use nsproxy of a starting task to read about
+		 * virtual cgroup roots. task's nsproxy should already have a
+		 * valid cgroup namespace, so we have to enter to this ns before
+		 * start_ve.
+		 *
+		 * Since we don't support nesting of cgroup namespaces, let's
+		 * only set up the cgns in the init task (if it exists).
+		 */
+		if (prepare_cgroup_namespace(current) < 0)
+			goto err;
+
 		/**
 		 * Note: previousely we were starting VE from action
 		 * scripts ACT_SETUP_NS (setup-namespaces), it happened just
@@ -2313,7 +2325,7 @@ static int restore_task_with_children(void *_arg)
 	 * we will only move the root one there, others will
 	 * just have it inherited.
 	 */
-	if (prepare_task_cgroup(current) < 0)
+	if (restore_task_cgroup(current) < 0)
 		goto err;
 
 	/* Restore root task */
