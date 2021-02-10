@@ -481,28 +481,13 @@ static int cgp_parse_builtins(void)
 			" - \"properties\": "
 			"[ "
 				"\"pids.max\" "
-			"]\n";
-/*
- * FIXME Due to https://jira.sw.ru/browse/PSBM-50551
- * we need to rework restore devices list with _nested_
- * directories. An easy way to test is to simply do
- *
- * vzctl exec 100 mkdir -p /sys/fs/cgroup/devices/one/two
- *
- * and restore will fail.
- *
- * Note: In vzctl we setup permissions on container startup,
- * so if !ve_capable(CAP_SYS_ADMIN) we're exiting with -EPERM
- * on kernel level.
- */
-#if 0
+			"]\n"
 		"\"devices\":\n"
 			" - \"strategy\": \"replace\"\n"
 			" - \"properties\": "
 			"[ "
 				"\"devices.list\" "
 			"]\n";
-#endif
 
 	return cgp_parse_stream((void *)predefined_stream,
 				strlen(predefined_stream));
