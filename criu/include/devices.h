@@ -12,5 +12,6 @@ extern struct list_head devices_list;
 
 extern int dump_devices(void);
 extern int prepare_devices(void);
+extern struct device *lookup_device(unsigned int major, unsigned int minor);
 
 #endif /* __CR_DEVICES_H__ */

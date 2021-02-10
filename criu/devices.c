@@ -79,3 +79,16 @@ err:
 	close_image(img);
 	return exit_code;
 }
+
+struct device *lookup_device(unsigned int major, unsigned int minor)
+{
+	struct device *dev;
+
+	list_for_each_entry(dev, &devices_list, list) {
+		if (dev->de->major == major &&
+		    dev->de->minor == minor)
+			return dev;
+	}
+
+	return NULL;
+}
