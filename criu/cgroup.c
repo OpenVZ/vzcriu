@@ -29,6 +29,8 @@
 #include "kerndat.h"
 #include "linux/mount.h"
 #include "syscall.h"
+#include "external.h"
+#include "devices.h"
 
 /*
  * This structure describes set of controller groups
@@ -1708,6 +1710,103 @@ int prepare_cgroup_properties(void)
 	return 0;
 }
 
+static int update_devices_list_numbers(char *value, char *result, int size)
+{
+	char *type = NULL, *smajor = NULL, *sminor = NULL, *mode = NULL;
+	char *end_line, *line = value;
+	int ret;
+
+	do {
+		unsigned int major, minor;
+		struct device *dev;
+		int len;
+
+		end_line = strchr(line, '\n');
+		if (end_line)
+			end_line[0] = '\0';
+
+		ret = sscanf(line, "%ms %m[*0-9]:%m[*0-9] %ms",
+			     &type, &smajor, &sminor, &mode);
+		if (ret != 4) {
+			pr_perror("Fail to parse device line %s", line);
+			goto err;
+		}
+
+		/* We don't support updating device groups */
+		if (!strcmp(smajor, "*") || !strcmp(sminor, "*")) {
+			len = snprintf(result, size, "%s%s", line, end_line ? "\n" : "");
+			if (len >= size) {
+				pr_perror("Buffer overflow");
+				goto err;
+			}
+			size -= len;
+			result += len;
+			goto next;
+		}
+
+		if (sscanf(smajor, "%u", &major) != 1) {
+			pr_perror("Fail to parse device major %s", smajor);
+			goto err;
+		}
+
+		if (sscanf(sminor, "%u", &minor) != 1) {
+			pr_perror("Fail to parse device minor %s", sminor);
+			goto err;
+		}
+
+		dev = lookup_device(major, minor);
+		if (!dev) {
+			len = snprintf(result, size, "%s%s", line, end_line ? "\n" : "");
+			if (len >= size) {
+				pr_perror("Buffer overflow");
+				goto err;
+			}
+			size -= len;
+			result += len;
+			goto next;
+		}
+
+		len = snprintf(result, size, "%s %u:%u %s%s",
+			       type, dev->new_major, dev->new_minor, mode,
+			       end_line ? "\n" : "");
+		if (len >= size) {
+			pr_perror("Buffer overflow");
+			goto err;
+		}
+		size -= len;
+		result += len;
+
+		pr_info("Replacing device numbers: %u:%u -> %u:%u\n",
+			dev->de->major, dev->de->minor,
+			dev->new_major, dev->new_minor);
+next:
+		if (end_line) {
+			end_line[0] = '\n';
+			line = end_line + 1;
+		}
+
+		xfree(type);
+		xfree(smajor);
+		xfree(sminor);
+		xfree(mode);
+		type = NULL;
+		smajor = NULL;
+		sminor = NULL;
+		mode = NULL;
+	} while (end_line);
+
+	return 0;
+err:
+	if (end_line)
+		end_line[0] = '\n';
+
+	xfree(type);
+	xfree(smajor);
+	xfree(sminor);
+	xfree(mode);
+	return -1;
+}
+
 /*
  * The devices cgroup must be restored in a special way:
  * only the contents of devices.list can be read, and it is a whitelist
@@ -1722,6 +1821,7 @@ static int restore_devices_list(char *paux, size_t off, CgroupPropEntry *pr)
 {
 	CgroupPropEntry dev_allow = *pr;
 	CgroupPropEntry dev_deny = *pr;
+	char buf[CGROUP_PROP_MAX_SIZE * 2];
 	int ret;
 
 	dev_allow.name = "devices.allow";
@@ -1740,6 +1840,11 @@ static int restore_devices_list(char *paux, size_t off, CgroupPropEntry *pr)
 
 	if (ret < 0)
 		return -1;
+
+	ret = update_devices_list_numbers(dev_allow.value, buf, sizeof(buf));
+	if (ret < 0)
+		return -1;
+	dev_allow.value = buf;
 
 	return restore_cgroup_prop(&dev_allow, paux, off, true, false);
 }
