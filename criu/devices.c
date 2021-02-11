@@ -1,4 +1,8 @@
 #include <stdio.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
 #include "log.h"
 #include "external.h"
 #include "protobuf.h"
@@ -46,6 +50,44 @@ static void free_devices(void)
 	}
 }
 
+static int resolve_new_device_numbers(struct device *dev)
+{
+	struct stat st;
+	char *source, *devname;
+	int len;
+
+	len = strlen(dev->de->key) + sizeof("dev[]");
+	source = xmalloc(len);
+	if (!source)
+		return -1;
+
+	snprintf(source, len, "dev[%s]", dev->de->key);
+	devname = external_lookup_by_key(source);
+	if (IS_ERR_OR_NULL(devname)) {
+		pr_err("Failed to lookup external device by %s\n", source);
+		xfree(source);
+		return -1;
+	}
+	xfree(source);
+
+	if (stat(devname, &st)) {
+		pr_perror("Failed to stat device %s", devname);
+		return -1;
+	}
+
+	if (!S_ISCHR(st.st_mode) && !S_ISBLK(st.st_mode)) {
+		pr_err("File %s is not a device\n", devname);
+		return -1;
+	}
+
+	dev->new_major = major(st.st_rdev);
+	dev->new_minor = minor(st.st_rdev);
+	pr_info("Found new device numbers: %u:%u -> %u:%u\n",
+		dev->de->major, dev->de->minor,
+		dev->new_major, dev->new_minor);
+	return 0;
+}
+
 int prepare_devices(void)
 {
 	struct cr_img *img;
@@ -70,6 +112,9 @@ int prepare_devices(void)
 
 		dev->de = de;
 		list_add_tail(&dev->list, &devices_list);
+
+		if (resolve_new_device_numbers(dev))
+			goto err;
 	}
 
 	exit_code = 0;
