@@ -1943,13 +1943,6 @@ static int prepare_cgroup_dirs(char **controllers, int n_controllers, char *paux
 
 			if (prepare_dir_perms(cg, paux, e->dir_perms) < 0)
 				return -1;
-
-			for (j = 0; j < n_controllers; j++) {
-				if (restore_special_props(paux, off2, e) < 0) {
-					pr_err("Restoring special cpuset props failed!\n");
-					return -1;
-				}
-			}
 		} else {
 			pr_info("Determined cgroup dir %s already exist\n", paux);
 
@@ -1969,6 +1962,13 @@ static int prepare_cgroup_dirs(char **controllers, int n_controllers, char *paux
 
 			if (!(opts.manage_cgroups & CG_MODE_NONE) && prepare_dir_perms(cg, paux, e->dir_perms) < 0)
 				return -1;
+		}
+
+		for (j = 0; j < n_controllers; j++) {
+			if (restore_special_props(paux, off2, e) < 0) {
+				pr_err("Restoring special cpuset props failed!\n");
+				return -1;
+			}
 		}
 
 		if (prepare_cgroup_dirs(controllers, n_controllers, paux, off2, e->children, e->n_children) < 0)
