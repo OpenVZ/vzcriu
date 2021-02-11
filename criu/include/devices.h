@@ -6,6 +6,8 @@
 struct device {
 	struct list_head list;
 	DeviceEntry *de;
+	unsigned int new_major;
+	unsigned int new_minor;
 };
 
 extern struct list_head devices_list;
