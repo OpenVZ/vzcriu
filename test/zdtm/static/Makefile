@@ -256,6 +256,7 @@ TST_NOFILE	:=				\
 		pidns02				\
 		pidns03				\
 		somaxconn			\
+		ve				\
 #		jobctl00			\
 
 pkg-config-check = $(shell sh -c 'pkg-config $(1) && echo y')
