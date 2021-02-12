@@ -265,6 +265,7 @@ TST_NOFILE	:=				\
 		sigtrap				\
 		sigtrap01			\
 		change_mnt_context		\
+		ve				\
 #		jobctl00			\
 
 PKG_CONFIG ?= pkg-config
