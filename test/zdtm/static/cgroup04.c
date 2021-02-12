@@ -39,7 +39,8 @@ int write_value(const char *path, const char *value)
 	return 0;
 }
 
-int mount_and_add(const char *controller, const char *path, const char *prop, const char *value)
+int __mount_and_add(const char *controller, const char *path, const char *prop,
+		    const char *value, const char *prop2, const char *value2)
 {
 	char aux[1024], paux[1024], subdir[1024];
 
@@ -66,6 +67,12 @@ int mount_and_add(const char *controller, const char *path, const char *prop, co
 	if (write_value(paux, value) < 0)
 		goto err_rs;
 
+	if (prop2 && value2) {
+		ssprintf(paux, "%s/%s/%s", subdir, path, prop2);
+		if (write_value(paux, value2) < 0)
+			goto err_rs;
+	}
+
 	sprintf(aux, "%d", getpid());
 	ssprintf(paux, "%s/%s/tasks", subdir, path);
 	if (write_value(paux, aux) < 0)
@@ -80,6 +87,12 @@ err_rs:
 err_rd:
 	rmdir(dirname);
 	return -1;
+}
+
+int mount_and_add(const char *controller, const char *path, const char *prop,
+		  const char *value)
+{
+	return __mount_and_add(controller, path, prop, value, NULL, NULL);
 }
 
 bool checkval(char *path, char *val)
@@ -144,6 +157,9 @@ int main(int argc, char **argv)
 	if (mount_and_add("memory", cgname, "memory.limit_in_bytes", "268435456") < 0)
 		goto out;
 
+	if (__mount_and_add("cpuset", cgname, "cpuset.cpus", "0", "cpuset.mems", "0") < 0)
+		goto out;
+
 	test_daemon();
 	test_waitsig();
 
@@ -165,6 +181,18 @@ int main(int argc, char **argv)
 		goto out;
 	}
 
+	sprintf(path, "%s/cpuset/%s/cpuset.cpus", dirname, cgname);
+	if (!checkval(path, "0\n")) {
+		fail();
+		goto out;
+	}
+
+	sprintf(path, "%s/cpuset/%s/cpuset.mems", dirname, cgname);
+	if (!checkval(path, "0\n")) {
+		fail();
+		goto out;
+	}
+
 	sprintf(path, "%s/devices/%s/special_prop_check", dirname, cgname);
 	if (stat(path, &sb) < 0) {
 		fail("special_prop_check doesn't exist?");
@@ -181,15 +209,23 @@ int main(int argc, char **argv)
 out:
 	sprintf(path, "%s/devices/%s/special_prop_check", dirname, cgname);
 	rmdir(path);
-
 	sprintf(path, "%s/devices/%s", dirname, cgname);
 	rmdir(path);
 	sprintf(path, "%s/devices", dirname);
 	umount(path);
 
+	sprintf(path, "%s/memory/%s/special_prop_check", dirname, cgname);
+	rmdir(path);
 	sprintf(path, "%s/memory/%s", dirname, cgname);
 	rmdir(path);
 	sprintf(path, "%s/memory", dirname);
+	umount(path);
+
+	sprintf(path, "%s/cpuset/%s/special_prop_check", dirname, cgname);
+	rmdir(path);
+	sprintf(path, "%s/cpuset/%s", dirname, cgname);
+	rmdir(path);
+	sprintf(path, "%s/cpuset", dirname);
 	umount(path);
 
 	return ret;
