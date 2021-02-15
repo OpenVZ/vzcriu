@@ -272,13 +272,14 @@ static inline char *strip(char *str)
 	return str;
 }
 
+#define CGROUP_PROP_MAX_SIZE 1024
 /*
  * Currently this function only supports properties that have a string value
  * under 1024 chars.
  */
 static int read_cgroup_prop(struct cgroup_prop *property, const char *fullpath)
 {
-	char buf[1024];
+	char buf[CGROUP_PROP_MAX_SIZE];
 	int fd, ret;
 	struct stat sb;
 
@@ -313,13 +314,18 @@ static int read_cgroup_prop(struct cgroup_prop *property, const char *fullpath)
 		return ret;
 	}
 
-	ret = read(fd, buf, sizeof(buf) - 1);
+	ret = read(fd, buf, sizeof(buf));
 	if (ret == -1) {
 		pr_perror("Failed scanning %s", fullpath);
 		close(fd);
 		return -1;
 	}
 	close(fd);
+
+	if (ret == sizeof(buf)) {
+		pr_err("Cgroup property too long %s\n", fullpath);
+		return -1;
+	}
 
 	buf[ret] = 0;
 
