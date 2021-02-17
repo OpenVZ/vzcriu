@@ -373,18 +373,18 @@ static int fill_fd_params(struct pid *owner_pid, int fd, int lfd, struct fd_opts
 	struct statfs fsbuf;
 	struct fdinfo_common fdinfo = { .mnt_id = -1, .owner = owner_pid->ns[0].virt };
 
+	if (parse_fdinfo_pid(owner_pid->real, fd, FD_TYPES__UND, &fdinfo))
+		return -1;
+
 	if (fstat(lfd, &p->stat) < 0) {
-		pr_perror("Can't stat fd %d", lfd);
+		pr_perror("Can't stat fd %d (mnt_id %d)", lfd, fdinfo.mnt_id);
 		return -1;
 	}
 
 	if (fstatfs(lfd, &fsbuf) < 0) {
-		pr_perror("Can't statfs fd %d", lfd);
+		pr_perror("Can't statfs fd %d (mnt_id %d)", lfd, fdinfo.mnt_id);
 		return -1;
 	}
-
-	if (parse_fdinfo_pid(owner_pid->real, fd, FD_TYPES__UND, &fdinfo))
-		return -1;
 
 	p->fs_type = fsbuf.f_type;
 	p->fd = fd;
