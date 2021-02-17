@@ -46,6 +46,7 @@
 #include "external.h"
 #include "fdstore.h"
 #include "netfilter.h"
+#include "mount.h"
 
 #include "protobuf.h"
 #include "images/netdev.pb-c.h"
@@ -2501,7 +2502,7 @@ image_close_out:
 	return exit_code;
 }
 
-static int run_nftables_tool(char *def_cmd, int fdin, int fdout)
+static int __run_nftables_tool(char *def_cmd, int fdin, int fdout)
 {
 	int ret;
 	char *cmd;
@@ -2515,6 +2516,64 @@ static int run_nftables_tool(char *def_cmd, int fdin, int fdout)
 		pr_err("%s failed\n", def_cmd);
 
 	return ret;
+}
+
+struct nftables_arg {
+	char *def_cmd;
+	int fdin;
+	int fdout;
+};
+
+#define NFT_CHROOT_PATH "/vz/pkgenv/rpm414x64"
+
+static int ns_run_nftables_tool(void *args)
+{
+	struct nftables_arg *nfta = (struct nftables_arg *)args;
+
+	pr_info("Using newer nft from chroot %s\n", NFT_CHROOT_PATH);
+
+	if (unshare(CLONE_NEWNS)) {
+		pr_perror("Unable to create a new mntns");
+		return -1;
+	}
+
+	if (mount(NULL, "/", NULL, MS_PRIVATE | MS_REC, NULL)) {
+		pr_perror("Can't remount \"/\" with MS_PRIVATE");
+		return -1;
+	}
+
+	if (mount(NFT_CHROOT_PATH, NFT_CHROOT_PATH, NULL, MS_BIND, NULL)) {
+		pr_perror("Unable to self bindmount %s", NFT_CHROOT_PATH);
+		return -1;
+	}
+
+	if (mkdir(NFT_CHROOT_PATH "/proc", 0600) && (errno != EEXIST)) {
+		pr_perror("Failed to create %s/proc", NFT_CHROOT_PATH);
+		return -1;
+	}
+
+	if (mount("/proc", NFT_CHROOT_PATH "/proc", NULL, MS_BIND | MS_REC, NULL)) {
+		pr_perror("Unable to bindmount proc to %s/proc", NFT_CHROOT_PATH);
+		return -1;
+	}
+
+	if (cr_pivot_root(NFT_CHROOT_PATH)) {
+		pr_err("Failed to pivot_root to %s\n", NFT_CHROOT_PATH);
+		return -1;
+	}
+
+	return __run_nftables_tool(nfta->def_cmd, nfta->fdin, nfta->fdout);
+}
+
+static int run_nftables_tool(char *def_cmd, int fdin, int fdout)
+{
+	struct nftables_arg nfta = {
+		.def_cmd = def_cmd,
+		.fdin = fdin,
+		.fdout = fdout,
+	};
+
+	return call_in_child_process(ns_run_nftables_tool, (void *)&nfta);
 }
 
 static inline int dump_nftables_vz(struct cr_imgset *fds)
