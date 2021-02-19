@@ -239,6 +239,7 @@ struct cr_options {
 
 	char *ve;
 	char *ve_clock_fallback;
+	int cgroup_force_create_ns;
 };
 
 extern struct cr_options opts;
