@@ -1232,14 +1232,19 @@ int prepare_cgroup_namespace(struct pstree_item *root_task)
 {
 	CgSetEntry *se;
 
+	if (root_task->parent) {
+		pr_err("Expecting root_task to restore cgroup namespace\n");
+		return -1;
+	}
+
 	if (!rsti(root_task)->cg_set) {
 		pr_err("No cg_set found for root task\n");
 		return -1;
 	}
 
-	if (root_task->parent) {
-		pr_err("Expecting root_task to restore cgroup namespace\n");
-		return -1;
+	if (rsti(root_task)->cg_set == root_cg_set) {
+		pr_info("Cgroup namespace inherited from parent\n");
+		return 0;
 	}
 
 	se = find_rst_set_by_id(rsti(root_task)->cg_set);
