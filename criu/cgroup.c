@@ -1172,12 +1172,12 @@ static int prepare_cgns(CgSetEntry *se)
 
 	}
 
-	if (do_unshare) {
+	if (do_unshare || opts.cgroup_force_create_ns) {
+		pr_info("Creating new cgroup namespace for a root task\n");
 		if (unshare(CLONE_NEWCGROUP) < 0) {
 			pr_perror("couldn't unshare cgns");
 			return -1;
 		}
-		pr_info("Creating new cgroup namespace for a root task\n");
 	}
 
 	return 0;

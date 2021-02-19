@@ -178,6 +178,7 @@ struct cr_options {
 	int			check_mounts;
 	int			mounts_compat;
 	char			*ve;
+	int			cgroup_force_create_ns;
 };
 
 extern struct cr_options opts;
