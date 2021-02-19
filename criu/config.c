@@ -701,6 +701,7 @@ int parse_options(int argc, char **argv, bool *usage_error, bool *has_exec_cmd, 
 		BOOL_OPT("mntns-compat-mode", &opts.mntns_compat_mode),
 		{ "ve", required_argument, 0, 2001 },
 		{ "ve-clock-fallback", required_argument, 0, 2002 },
+		BOOL_OPT("cgroup-force-create-ns", &opts.cgroup_force_create_ns),
 		{},
 	};
 

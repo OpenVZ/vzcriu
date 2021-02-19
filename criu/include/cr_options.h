@@ -211,6 +211,7 @@ struct cr_options {
 	int mntns_compat_mode;
 	char *ve;
 	char *ve_clock_fallback;
+	int cgroup_force_create_ns;
 };
 
 extern struct cr_options opts;
