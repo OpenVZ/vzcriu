@@ -443,6 +443,8 @@ TST_DIR		=				\
 		openvswitch00			\
 		openvswitch01			\
 		mqueue_inotify			\
+		bridge_port_settings		\
+		bridge_fdb			\
 
 TST_DIR_FILE	=				\
 		chroot				\
@@ -678,6 +680,8 @@ mqueue_inotify:		LDFLAGS += -lrt
 fifo_upon_unix_socket01:	CFLAGS += -DFIFO_UPON_UNIX01
 
 file_fown_reuse:	CFLAGS += -DZDTM_FILE_FOWN_REUSE
+
+bridge_fdb:		CFLAGS += -DBRIDGE_FDB
 
 $(LIB):	force
 	$(Q) $(MAKE) -C $(LIBDIR)
