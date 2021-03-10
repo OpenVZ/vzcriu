@@ -1516,6 +1516,9 @@ static int __umount_children_overmounts(struct mount_info *mi)
 {
 	struct mount_info *c, *m = mi;
 
+	pr_debug("Umounting children-overmounts for %s(%d)\n",
+		 mi->ns_mountpoint, mi->mnt_id);
+
 	/*
 	 * Our children-overmount can itself have children-overmount
 	 * which covers it, so find deepest children-overmount which
@@ -1531,6 +1534,7 @@ again:
 
 	/* Unmout children-overmounts in the order of visibility */
 	while (m != mi) {
+		pr_debug("\tumount(lazy) %s(%d)\n", m->ns_mountpoint, m->mnt_id);
 		if (umount2(m->ns_mountpoint, MNT_DETACH)) {
 			pr_perror("Unable to umount child-overmount %s", m->ns_mountpoint);
 			return -1;
@@ -1559,6 +1563,9 @@ static int __umount_overmounts(struct mount_info *m)
 	if (__umount_overmounts(m->parent))
 		return -1;
 
+	pr_debug("Umounting sibling-overmounts for %s(%d)\n",
+		 m->ns_mountpoint, m->mnt_id);
+
 	/* Unmount sibling-overmounts in visibility order */
 next:
 	ovm = NULL;
@@ -1583,6 +1590,8 @@ next:
 		if (__umount_children_overmounts(ovm))
 			return -1;
 
+		pr_debug("umount(lazy) %s(%d)\n",
+			 ovm->ns_mountpoint, ovm->mnt_id);
 		if (umount2(ovm->ns_mountpoint, MNT_DETACH)) {
 			pr_perror("Unable to umount %s", ovm->ns_mountpoint + 1);
 			return -1;
@@ -1597,6 +1606,9 @@ next:
 /* Make our mountpoint fully visible */
 static int umount_overmounts(struct mount_info *m)
 {
+	pr_debug("Trying to umount overmounts on %s(%d)\n",
+		 m->ns_mountpoint, m->mnt_id);
+
 	if (__umount_overmounts(m))
 		return -1;
 
