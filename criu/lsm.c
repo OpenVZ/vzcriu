@@ -212,7 +212,7 @@ void kerndat_lsm(void)
 	 * enabled, although we may (?) want to check /selinux for posterity as
 	 * well.
 	 */
-	if (access("/sys/fs/selinux", F_OK) == 0) {
+	if (access("/sys/fs/selinux/enforce", F_OK) == 0) {
 		kdat.lsm = LSMTYPE__SELINUX;
 		return;
 	}

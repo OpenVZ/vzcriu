@@ -353,6 +353,8 @@ class ve_flavor(ns_flavor):
     @staticmethod
     def create_cgroups():
         for i in ve_flavor.cgroups:
+            if not os.access("/sys/fs/cgroup/{}/machine.slice".format(i), os.F_OK):
+                os.mkdir("/sys/fs/cgroup/{}/machine.slice".format(i), 0o755)
             os.mkdir("/sys/fs/cgroup/{}/machine.slice/{}".format(i, ZDTM_VEID), 0o755)
 
         if os.access("/sys/fs/cgroup/beancounter/", os.F_OK):
@@ -2114,11 +2116,12 @@ class Launcher:
             logf = None
             log = None
 
+        zdtm_ct_env = dict(os.environ, CR_CT_TEST_INFO=arg);
         if 've' in flavor:
-            os.environ["ZDTM_NO_PIDNS"] = "1";
+            zdtm_ct_env['ZDTM_NO_PIDNS'] = "1"
 
         sub = subprocess.Popen(["./zdtm_ct", "zdtm.py"],
-                               env=dict(os.environ, CR_CT_TEST_INFO=arg),
+                               env=zdtm_ct_env,
                                stdout=log,
                                stderr=subprocess.STDOUT,
                                close_fds=True)
