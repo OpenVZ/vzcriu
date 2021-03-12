@@ -48,6 +48,7 @@
 #include "memfd.h"
 #include "spfs.h"
 #include "filesystems.h"
+#include "fdstore.h"
 
 #include "protobuf.h"
 #include "util.h"
@@ -1605,11 +1606,11 @@ static inline bool nfs_silly_rename(char *rpath, const struct fd_parms *parms)
 }
 
 static int check_path_remap(struct fd_link *link, const struct fd_parms *parms,
-				int lfd, u32 id, struct ns_id *nsid)
+				int lfd, u32 id, struct mount_info *mi, int is_overmounted)
 {
 	char *rpath = link->name;
 	int plen = link->len;
-	int ret, mntns_root;
+	int ret, rf_mnt_root;
 	struct stat pst;
 	const struct stat *ost = &parms->stat;
 	int flags = 0;
@@ -1622,6 +1623,11 @@ static int check_path_remap(struct fd_link *link, const struct fd_parms *parms,
 		 */
 		pid_t pid;
 		char *start, *end;
+
+		if (is_overmounted) {
+			pr_err("overmounted procfs files are not supported\n");
+			return -1;
+		}
 
 		/* skip "./proc/" */
 		start = strstr(rpath, "/");
@@ -1640,8 +1646,8 @@ static int check_path_remap(struct fd_link *link, const struct fd_parms *parms,
 		 */
 		if (pid != 0) {
 			bool is_dead = link_strip_deleted(link);
-			mntns_root = mntns_get_root_fd(nsid);
-			if (mntns_root < 0)
+			rf_mnt_root = mntns_get_root_fd(mi->nsid);
+			if (rf_mnt_root < 0)
 				return -1;
 
 			/* /proc/<pid> will be "/proc/1 (deleted)" when it is
@@ -1654,7 +1660,7 @@ static int check_path_remap(struct fd_link *link, const struct fd_parms *parms,
 			 */
 			if (!is_dead) {
 				*end = 0;
-				is_dead = faccessat(mntns_root, rpath, F_OK, 0);
+				is_dead = faccessat(rf_mnt_root, rpath, F_OK, 0);
 				*end = '/';
 			}
 
@@ -1683,7 +1689,7 @@ static int check_path_remap(struct fd_link *link, const struct fd_parms *parms,
 	}
 
 	if (ost->st_nlink == 0) {
-		if (spfs_file(parms, nsid)) {
+		if (spfs_file(parms, mi->nsid)) {
 			pr_err("Ghost files on NFS are not supported\n");
 			return -1;
 		}
@@ -1694,12 +1700,22 @@ static int check_path_remap(struct fd_link *link, const struct fd_parms *parms,
 		 * be careful whether anybody still has any of its hardlinks
 		 * also open.
 		 */
+		if (is_overmounted) {
+			pr_err("overmounted ghost files are not supported\n");
+			return -1;
+		}
+
 		link_strip_deleted(link);
-		return dump_ghost_remap(rpath + 1, ost, lfd, id, nsid);
+		return dump_ghost_remap(rpath + 1, ost, lfd, id, mi->nsid);
 	}
 
-	if (spfs_file(parms, nsid)) {
-		if (dump_spfs_remap(rpath + 1, ost, lfd, id, nsid))
+	if (spfs_file(parms, mi->nsid)) {
+		if (is_overmounted) {
+			pr_err("overmounted nfs files are not supported\n");
+			return -1;
+		}
+
+		if (dump_spfs_remap(rpath + 1, ost, lfd, id, mi->nsid))
 			return -1;
 	}
 
@@ -1711,18 +1727,38 @@ static int check_path_remap(struct fd_link *link, const struct fd_parms *parms,
 		 * linked-remap file (NFS will allow us to create more hard
 		 * links on it) to have some persistent name at hands.
 		 */
+		if (is_overmounted) {
+			pr_err("overmounted silly-renamed files on NFS are not supported\n\n");
+			return -1;
+		}
+
 		pr_debug("Dump silly-rename linked remap for %x [%s]\n", id, rpath + 1);
-		return dump_linked_remap(rpath + 1, plen - 1, ost, lfd, id, nsid, parms);
+		return dump_linked_remap(rpath + 1, plen - 1, ost, lfd, id, mi->nsid, parms);
 	}
 
-	mntns_root = mntns_get_root_fd(nsid);
-	if (mntns_root < 0)
+	if (is_overmounted) {
+		pr_info("Resolving relative path. Mountpoint %d path '%s', original file path '%s'\n", mi->mnt_id, mi->ns_mountpoint, link->name);
+		rpath = get_relative_path_noempty(link->name, mi->ns_mountpoint);
+		if (!rpath) {
+			pr_err("Unable to resolve relative path to mount path\n");
+			return -1;
+		}
+		pr_info("Resolved path to %s\n", rpath);
+
+		rf_mnt_root = open_mountpoint(mi);
+	} else {
+		rf_mnt_root = mntns_get_root_fd(mi->nsid);
+	}
+
+	if (rf_mnt_root < 0) {
+		pr_err("Unable to open mount to dump file\n");
 		return -1;
+	}
 
 	if (S_ISLNK(parms->stat.st_mode))
 		flags = AT_SYMLINK_NOFOLLOW;
 
-	ret = fstatat(mntns_root, rpath, &pst, flags);
+	ret = fstatat(rf_mnt_root, rpath, &pst, flags);
 	if (ret < 0) {
 		/*
 		 * Linked file, but path is not accessible (unless any
@@ -1732,9 +1768,14 @@ static int check_path_remap(struct fd_link *link, const struct fd_parms *parms,
 		 */
 
 		if (errno == ENOENT) {
+			if (is_overmounted) {
+				pr_perror("overmounted unlinked files (%d/%s/%s) are not supported\n", mi->mnt_id, mi->ns_mountpoint, rpath);
+				return -1;
+			}
+
 			link_strip_deleted(link);
 			return dump_linked_remap(rpath + 1, plen - 1,
-							ost, lfd, id, nsid, parms);
+							ost, lfd, id, mi->nsid, parms);
 		}
 
 		pr_perror("Can't stat path");
@@ -2137,8 +2178,6 @@ int dump_one_reg_file(int lfd, u32 id, const struct fd_parms *p)
 	} else
 		link = p->link;
 
-
-
 	snprintf(ext_id, sizeof(ext_id), "file[%x:%"PRIx64"]", p->mnt_id, p->stat.st_ino);
 	if (external_lookup_id(ext_id)) {
 		/* the first symbol will be cut on restore to get an relative path*/
@@ -2163,9 +2202,12 @@ int dump_one_reg_file(int lfd, u32 id, const struct fd_parms *p)
 	}
 
 	if (path_is_overmounted(link->name, mi)) {
-		pr_err("Opened overmounted files (%s) are not supported yet\n",
-		       link->name);
-		return -1;
+		rfe.has_vz_use_relative_path = true;
+		rfe.vz_use_relative_path = true;
+
+		pr_info("Dumping file %s on overmounted mount %d: will use relative path on restore\n", link->name, mi->mnt_id);
+		if (!kdat.has_mount_set_group)
+			pr_warn("Mounts-v2 is required to restore such image, but current kernel does not support this\n");
 	}
 
 	if (p->mnt_id >= 0 && (root_ns_mask & CLONE_NEWNS)) {
@@ -2189,7 +2231,7 @@ int dump_one_reg_file(int lfd, u32 id, const struct fd_parms *p)
 		return -1;
 	}
 
-	if (check_path_remap(link, p, lfd, id, mi->nsid))
+	if (check_path_remap(link, p, lfd, id, mi, rfe.vz_use_relative_path))
 		return -1;
 	rfe.name	= &link->name[1];
 ext:
@@ -2592,10 +2634,12 @@ static bool validate_file(const int fd, const struct stat *fd_status,
 	return true;
 }
 
+#define IS_RFI_RELATIVE_PATH(rfi) (rfi->rfe->has_vz_use_relative_path && rfi->rfe->vz_use_relative_path)
+
 int open_path(struct file_desc *d,
 		int(*open_cb)(int mntns_root, struct reg_file_info *, void *), void *arg)
 {
-	int tmp = -1, mntns_root, level = 0;
+	int tmp = -1, rf_path_root = -1, level = 0;
 	struct reg_file_info *rfi;
 	char *orig_path = NULL;
 	char path[PATH_MAX];
@@ -2607,7 +2651,7 @@ int open_path(struct file_desc *d,
 
 	rfi = container_of(d, struct reg_file_info, d);
 
-	if (rfi->rfe->ext) {
+	if (rfi->rfe->ext && !IS_RFI_RELATIVE_PATH(rfi)) {
 		tmp = inherit_fd_lookup_id(rfi->rfe->name);
 		if (tmp >= 0) {
 			inh_fd = tmp;
@@ -2615,7 +2659,7 @@ int open_path(struct file_desc *d,
 			 * PROC_SELF isn't used, because only service
 			 * descriptors can be used here.
 			 */
-			mntns_root = open_pid_proc(getpid());
+			rf_path_root = open_pid_proc(getpid());
 			snprintf(path, sizeof(path), "fd/%d", tmp);
 			orig_path = rfi->path;
 			rfi->path = path;
@@ -2623,7 +2667,7 @@ int open_path(struct file_desc *d,
 		}
 	}
 
-	if (rfi->remap) {
+	if (rfi->remap && !IS_RFI_RELATIVE_PATH(rfi)) {
 		if (fault_injected(FI_RESTORE_OPEN_LINK_REMAP)) {
 			pr_info("fault: Open link-remap failure!\n");
 			kill(getpid(), SIGKILL);
@@ -2666,10 +2710,69 @@ int open_path(struct file_desc *d,
 		}
 	}
 
-	mntns_root = mntns_get_root_by_mnt_id(rfi->rfe->mnt_id);
+	if (IS_RFI_RELATIVE_PATH(rfi)) {
+		struct mount_info *mi, *path_overmount;
+		char *rpath;
+
+		if (!use_mounts_v2()) {
+			pr_err("Unable to restore file %s. Mounts-v2 is needed to restore files with relative path\n", rfi->path);
+			goto err;
+		}
+
+		if (rfi->remap) {
+			pr_err("Restoring remapped files with relative path is not supported\n");
+			goto err;
+		}
+
+		if (rfi->rfe->ext) {
+			pr_err("Restoring files with relative path on external mount is not supported\n");
+			goto err;
+		}
+
+		pr_info("Restoring file with relative path\n");
+		mi = lookup_mnt_id(rfi->rfe->mnt_id);
+		if (!mi) {
+			pr_err("Unable to find mountpoint for file %s\n", rfi->path);
+			goto err;
+		}
+
+		rpath = get_relative_path_noempty(rfi->path, mi->ns_mountpoint);
+		if (!rpath) {
+			pr_err("Unable to resolve relative path to mount path\n");
+			return -1;
+		}
+		pr_info("Mountpoint %d path: %s, relative path: %s\n", mi->mnt_id, mi->ns_mountpoint, rpath);
+
+		orig_path = rfi->path;
+		rfi->path = rpath;
+
+		path_overmount = get_path_overmount(orig_path, mi);
+		if (path_overmount) {
+			pr_info("path %s is overmounted by #%d %s\n", orig_path, path_overmount->mnt_id, path_overmount->ns_mountpoint);
+
+			rpath = get_relative_path_noempty(orig_path, path_overmount->ns_mountpoint);
+			if (!rpath) {
+				pr_err("Unable to resolve new relative path regarding overmount\n");
+				goto err;
+			}
+			pr_info("Resolved new relative path '%s' at overmount mountpoint\n", rpath);
+			rfi->path = rpath;
+
+			rf_path_root = fdstore_get(path_overmount->rmi->mp_fd_id);
+		} else {
+			rf_path_root = fdstore_get(mi->rmi->mnt_fd_id);
+		}
+	} else {
+		rf_path_root = mntns_get_root_by_mnt_id(rfi->rfe->mnt_id);
+	}
+
+	if (rf_path_root < 0) {
+		pr_err("Unable to get mount fd\n");
+		goto err;
+	}
 
 ext:
-	tmp = open_cb(mntns_root, rfi, arg);
+	tmp = open_cb(rf_path_root, rfi, arg);
 	if (tmp < 0) {
 		pr_perror("Can't open file %s", rfi->path);
 		close_safe(&inh_fd);
@@ -2728,11 +2831,11 @@ ext:
 				goto err;
 
 			pr_debug("%d: Unlink: %s\n", rfi->rfe->mnt_id, rfi->path);
-			if (unlinkat(mntns_root, rfi->path, 0)) {
+			if (unlinkat(rf_path_root, rfi->path, 0)) {
 				pr_perror("Failed to unlink the remap file");
 				goto err;
 			}
-			if (rm_parent_dirs(mntns_root, rfi->path, level))
+			if (rm_parent_dirs(rf_path_root, rfi->path, level))
 				goto err;
 		}
 
@@ -2746,8 +2849,13 @@ ext:
 		return -1;
 	}
 
+	if (IS_RFI_RELATIVE_PATH(rfi))
+		close_safe(&rf_path_root);
+
 	return tmp;
 err:
+	if (IS_RFI_RELATIVE_PATH(rfi) && rf_path_root > -1)
+		close_safe(&rf_path_root);
 	if (rfi->remap)
 		mutex_unlock(remap_open_lock);
 	if (tmp >= 0)
