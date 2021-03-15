@@ -351,28 +351,41 @@ class ve_flavor(ns_flavor):
                 os.rmdir("/sys/fs/cgroup/beancounter/{}".format(ZDTM_VEID))
 
     @staticmethod
+    def cpuset_init(path):
+            src = "/sys/fs/cgroup/cpuset/cpuset.mems"
+            dst = "{}/cpuset.mems".format(path)
+            with open(src, "r") as fsrc:
+                with open(dst, "w") as fdst:
+                    fdst.write(fsrc.read())
+
+            src = "/sys/fs/cgroup/cpuset/cpuset.cpus"
+            dst = "{}/cpuset.cpus".format(path)
+            with open(src, "r") as fsrc:
+                with open(dst, "w") as fdst:
+                    fdst.write(fsrc.read())
+
+    @staticmethod
+    def mkcgroup(name, subpath, strict=True):
+        path = "/sys/fs/cgroup/{}/{}".format(name, subpath)
+
+        if not strict and os.access(path, os.F_OK):
+            return
+
+        os.mkdir(path, 0o755)
+
+        if name == "cpuset":
+            ve_flavor.cpuset_init(path)
+
+    @staticmethod
     def create_cgroups():
         for i in ve_flavor.cgroups:
-            if not os.access("/sys/fs/cgroup/{}/machine.slice".format(i), os.F_OK):
-                os.mkdir("/sys/fs/cgroup/{}/machine.slice".format(i), 0o755)
-            os.mkdir("/sys/fs/cgroup/{}/machine.slice/{}".format(i, ZDTM_VEID), 0o755)
+            ve_flavor.mkcgroup(i, "machine.slice", False)
+            ve_flavor.mkcgroup(i, "machine.slice/{}".format(ZDTM_VEID))
 
         if os.access("/sys/fs/cgroup/beancounter/", os.F_OK):
-            os.mkdir("/sys/fs/cgroup/beancounter/{}".format(ZDTM_VEID), 0o755)
+            ve_flavor.mkcgroup("beancounter", ZDTM_VEID)
 
-        os.mkdir("/sys/fs/cgroup/ve/{}".format(ZDTM_VEID), 0o755)
-
-        path1 = "/sys/fs/cgroup/cpuset/cpuset.mems"
-        path2 = "/sys/fs/cgroup/cpuset/machine.slice/{}/cpuset.mems".format(ZDTM_VEID)
-        with open(path1, "r") as f1:
-            with open(path2, "w") as f2:
-                f2.write(f1.read())
-
-        path1 = "/sys/fs/cgroup/cpuset/cpuset.cpus"
-        path2 = "/sys/fs/cgroup/cpuset/machine.slice/{}/cpuset.cpus".format(ZDTM_VEID)
-        with open(path1, "r") as f1:
-            with open(path2, "w") as f2:
-                f2.write(f1.read())
+        ve_flavor.mkcgroup("ve", ZDTM_VEID)
 
     @staticmethod
     def prepare_ve(need_pseudosuper=True):
