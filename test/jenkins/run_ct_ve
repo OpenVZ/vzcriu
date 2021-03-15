@@ -1,0 +1,3 @@
+#!/bin/sh
+
+unshare --mount -- $(readlink -f `dirname $0`/_run_ct_ve) "$@"

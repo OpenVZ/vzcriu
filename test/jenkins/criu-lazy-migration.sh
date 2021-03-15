@@ -11,12 +11,12 @@ source `dirname $0`/criu-lazy-common.sh
 LAZY_MIGRATE_EXCLUDE="-x fifo_loop -x file_locks -x ptrace_sig -x overmount_file  -x file_lease -x cr_veth -x fifo -x overmount_sock -x unlink_largefile -x socket_udp-corked -x netns_sub_veth"
 
 # lazy restore from images
-./test/zdtm.py run --all --keep-going --report report --parallel 4 -f uns \
+./test/zdtm.py run --all --flavor h,ns,uns --keep-going --report report --parallel 4 -f uns \
 	       --lazy-migrate $LAZY_EXCLUDE $LAZY_MIGRATE_EXCLUDE || fail
 
 # During pre-dump + lazy-pages we leave VM_NOHUGEPAGE set
 LAZY_EXCLUDE="$LAZY_EXCLUDE -x maps02 -x thp_disable"
 
 # lazy restore from images with pre-dumps
-./test/zdtm.py run --all --keep-going --report report --parallel 4 -f uns \
+./test/zdtm.py run --all --flavor h,ns,uns --keep-going --report report --parallel 4 -f uns \
 	       --lazy-migrate --pre 2 $LAZY_EXCLUDE $LAZY_MIGRATE_EXCLUDE || fail
