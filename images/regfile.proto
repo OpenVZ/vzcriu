@@ -33,4 +33,10 @@ message reg_file_entry {
 	 * of the checksum, if it could be obtained.
 	 */
 	optional uint32 	checksum_parameter 	= 14;
+
+	/*
+	 * This field forces criu to use mount fd and relative path to restore file.
+	 * It is mandatory for overmounted files.
+	 */
+	optional bool		vz_use_relative_path	= 1001;
 }
