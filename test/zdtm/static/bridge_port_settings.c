@@ -10,7 +10,7 @@ const char *test_author	= "Andrey Zhadchenko <andrey.zhadchenko@virtuozzo.com>";
 
 #define EXEC_CMD(cmdfmt, arg...) \
 	do { \
-		snprintf(cmd, sizeof(cmd), cmdfmt, ## arg); \
+		ssprintf(cmd, cmdfmt, ## arg); \
 		if (system(cmd)) { \
 			pr_err("FAILED: %s\n", cmd); \
 			goto out; \
@@ -27,8 +27,8 @@ int main(int argc, char **argv) {
 
 	test_init(argc, argv);
 
-	snprintf(file1, sizeof(file1), "%s/settings_before", dirname);
-	snprintf(file2, sizeof(file2), "%s/settings_after", dirname);
+	ssprintf(file1, "%s/settings_before", dirname);
+	ssprintf(file2, "%s/settings_after", dirname);
 
 	if (mkdir(dirname, 0700)) {
 		pr_perror("can't make directory %s", dirname);
