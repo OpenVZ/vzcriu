@@ -2162,9 +2162,9 @@ int dump_one_reg_file(int lfd, u32 id, const struct fd_parms *p)
 		return -1;
 	}
 
-	if (mnt_is_overmounted(mi)) {
-		pr_err("Open files on overmounted mounts(%d) are not supported yet\n",
-		       mi->mnt_id);
+	if (path_is_overmounted(link->name, mi)) {
+		pr_err("Opened overmounted files (%s) are not supported yet\n",
+		       link->name);
 		return -1;
 	}
 

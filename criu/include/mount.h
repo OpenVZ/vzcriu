@@ -259,6 +259,8 @@ extern int remount_readonly_mounts(void);
 extern int check_mounts(void);
 extern int try_remount_writable(struct mount_info *mi, enum remount_rw_mode mode);
 extern bool mnt_is_overmounted(struct mount_info *mi);
+extern bool path_is_overmounted(char* path, struct mount_info *mi);
+extern struct mount_info *get_path_overmount(char *path, struct mount_info *mi);
 
 /* Exported for mount-v2.c */
 extern struct mount_info *mnt_is_external(struct mount_info *m);
