@@ -1513,6 +1513,39 @@ static void prepare_is_overmounted(void)
 	}
 }
 
+struct mount_info *get_path_overmount(char *path, struct mount_info *mi)
+{
+	struct mount_info *c, *ovm = NULL;
+	int ovm_len = -1;
+	char *tmp;
+
+	list_for_each_entry(c, &mi->children, siblings) {
+		if ((tmp = get_relative_path(path, c->ns_mountpoint))) {
+			int t_len = strlen(tmp);
+
+			if (ovm_len == -1 || t_len < ovm_len) {
+				ovm = c;
+				ovm_len = t_len;
+			}
+		}
+	}
+
+	return ovm;
+}
+
+bool path_is_overmounted(char *path, struct mount_info *mi)
+{
+	if (!get_relative_path(path, mi->ns_mountpoint)) {
+		pr_warn("Unable to resolve relative path %s to %s\n", path, mi->ns_mountpoint);
+		return false;
+	}
+
+	if (mnt_is_overmounted(mi))
+		return true;
+
+	return !!get_path_overmount(path, mi);
+}
+
 /*
  * __umount_children_overmounts() assumes that the mountpoint and
  * it's ancestors have no sibling-overmounts, so we can see children
