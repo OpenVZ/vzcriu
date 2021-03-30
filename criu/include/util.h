@@ -251,6 +251,7 @@ extern const char *__get_relative_path(const char *path, const char *sub_path);
 extern char *get_relative_path(char *path, char *sub_path);
 extern bool is_sub_path(char *path, char *sub_path);
 extern bool is_same_path(char *path1, char *path2);
+extern char *get_relative_path_noempty(char *path, char *sub_path);
 
 int strip_deleted(char *path, int len);
 int cut_path_ending(char *path, char *sub_path);

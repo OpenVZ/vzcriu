@@ -2098,6 +2098,24 @@ bool is_same_path(char *path1, char *path2)
 	return true;
 }
 
+static char *dot = ".";
+/*
+ * Same as get_relative_path except in case path and subpath is the same e.g.
+ *  ("/",".") or ("a/b", "a/b") function will return static str "."
+ */
+char *get_relative_path_noempty(char *path, char *sub_path)
+{
+	char *rpath;
+
+	rpath = get_relative_path(path, sub_path);
+	if (!rpath)
+		return NULL;
+	else if (*rpath == '\0')
+		return dot;
+	else
+		return rpath;
+}
+
 /*
  * Checks if path is a mountpoint
  * (path should be visible - no overmounts)
