@@ -1338,9 +1338,12 @@ static int restore_perms(int fd, const char *path, CgroupPerms *perms)
 	return 0;
 }
 
-static int restore_cgroup_prop(const CgroupPropEntry *cg_prop_entry_p,
-		char *path, int off, bool split_lines, bool skip_fails)
+static int restore_cgroup_prop(const char *controller,
+			       const CgroupPropEntry *cg_prop_entry_p,
+			       char *path, int off, bool split_lines,
+			       bool skip_fails)
 {
+	bool weak;
 	int cg, fd, ret = -1;
 	CgroupPerms *perms = cg_prop_entry_p->perms;
 
@@ -1380,20 +1383,25 @@ static int restore_cgroup_prop(const CgroupPropEntry *cg_prop_entry_p,
 		do {
 			next_line = strchrnul(line, '\n');
 			len = next_line - line;
-
 			if (write(fd, line, len) != len) {
-				pr_perror("Failed writing %s to %s", line, path);
-				if (!skip_fails)
+				weak = cgp_is_weak_prop(controller, cg_prop_entry_p->name);
+				pr_perror("Failed writing %s to %s, weak=%d", line, path, weak);
+				if (!skip_fails && !weak)
 					goto out;
 			}
+
 			line = next_line + 1;
 		} while(*next_line != '\0');
 	} else {
 		size_t len = strlen(cg_prop_entry_p->value);
 
 		if (write(fd, cg_prop_entry_p->value, len) != len) {
-			pr_perror("Failed writing %s to %s", cg_prop_entry_p->value, path);
-			if (!skip_fails)
+			weak = cgp_is_weak_prop(controller, cg_prop_entry_p->name);
+
+			pr_perror("Failed writing %s to %s, weak=%d",
+				cg_prop_entry_p->value, path, weak);
+
+			if (!skip_fails && !weak)
 				goto out;
 		}
 	}
@@ -1418,7 +1426,7 @@ int restore_freezer_state(void)
 		return 0;
 
 	freezer_path_len = strlen(freezer_path);
-	return restore_cgroup_prop(freezer_state_entry, freezer_path,
+	return restore_cgroup_prop("freezer", freezer_state_entry, freezer_path,
 			freezer_path_len, false, false);
 }
 
@@ -1494,7 +1502,8 @@ next:
 	return 0;
 }
 
-static int restore_cgroup_ifpriomap(CgroupPropEntry *cpe, char *path, int off)
+static int restore_cgroup_ifpriomap(const char *controller,
+				    CgroupPropEntry *cpe, char *path, int off)
 {
 	CgroupPropEntry priomap = *cpe;
 	int ret = -1;
@@ -1506,7 +1515,7 @@ static int restore_cgroup_ifpriomap(CgroupPropEntry *cpe, char *path, int off)
 		goto out;
 
 	if (strlen(priomap.value))
-		ret = restore_cgroup_prop(&priomap, path, off, true, true);
+		ret = restore_cgroup_prop(controller, &priomap, path, off, true, true);
 	else
 		ret = 0;
 
@@ -1515,7 +1524,7 @@ out:
 	return ret;
 }
 
-static int prepare_cgroup_dir_properties(char *path, int off, CgroupDirEntry **ents,
+static int __attribute__((optimize("O0"))) prepare_cgroup_dir_properties(char *path, int off, CgroupDirEntry **ents,
 					 unsigned int n_ents)
 {
 	unsigned int i, j;
@@ -1550,12 +1559,12 @@ static int prepare_cgroup_dir_properties(char *path, int off, CgroupDirEntry **e
 			 * Number of network interfaces on host may differ.
 			 */
 			if (strcmp(p->name, "net_prio.ifpriomap") == 0) {
-				if (restore_cgroup_ifpriomap(p, path, off2))
+				if (restore_cgroup_ifpriomap(e->dir_name, p, path, off2))
 					return -1;
 				continue;
 			}
 
-			if (restore_cgroup_prop(p, path, off2, false, false) < 0)
+			if (restore_cgroup_prop(e->dir_name, p, path, off2, false, false) < 0)
 				return -1;
 		}
 skip:
@@ -1694,7 +1703,8 @@ err:
  * Further, we must have a write() call for each line, because the kernel
  * only parses the first line of any write().
  */
-static int restore_devices_list(char *paux, size_t off, CgroupPropEntry *pr)
+static int restore_devices_list(const char *controller, char *paux, size_t off,
+				CgroupPropEntry *pr)
 {
 	CgroupPropEntry dev_allow = *pr;
 	CgroupPropEntry dev_deny = *pr;
@@ -1705,7 +1715,7 @@ static int restore_devices_list(char *paux, size_t off, CgroupPropEntry *pr)
 	dev_deny.name = "devices.deny";
 	dev_deny.value = "a";
 
-	ret = restore_cgroup_prop(&dev_deny, paux, off, false, false);
+	ret = restore_cgroup_prop(controller, &dev_deny, paux, off, false, false);
 
 	/*
 	 * An empty string here means nothing is allowed,
@@ -1723,16 +1733,18 @@ static int restore_devices_list(char *paux, size_t off, CgroupPropEntry *pr)
 		return -1;
 	dev_allow.value = buf;
 
-	return restore_cgroup_prop(&dev_allow, paux, off, true, false);
+	return restore_cgroup_prop(controller, &dev_allow, paux, off, true, false);
 }
 
-static int restore_special_property(char *paux, size_t off, CgroupPropEntry *pr)
+static int restore_special_property(const char *controller, char *paux,
+				    size_t off, CgroupPropEntry *pr)
 {
 	/*
 	 * XXX: we can drop this hack and make memory.swappiness and
 	 * memory.oom_control regular properties when we drop support for
 	 * kernels < 3.16. See 3dae7fec5.
 	 */
+	pr_info("restoring special property: %s\n", pr->name);
 	if (!strcmp(pr->name, "memory.swappiness") && !strcmp(pr->value, "60"))
 		return 0;
 	if (!strcmp(pr->name, "memory.oom_control") && !strcmp(pr->value, "0"))
@@ -1746,13 +1758,14 @@ static int restore_special_property(char *paux, size_t off, CgroupPropEntry *pr)
 		 * restore all of this stuff.
 		 */
 		pr->perms->mode = 0200;
-		return restore_devices_list(paux, off, pr);
+		return restore_devices_list(controller, paux, off, pr);
 	}
 
-	return restore_cgroup_prop(pr, paux, off, false, false);
+	return restore_cgroup_prop(controller, pr, paux, off, false, false);
 }
 
-static int restore_special_props(char *paux, size_t off, CgroupDirEntry *e)
+static int restore_special_props(const char *controller, char *paux,
+			         size_t off, CgroupDirEntry *e)
 {
 	unsigned int j;
 
@@ -1764,7 +1777,7 @@ static int restore_special_props(char *paux, size_t off, CgroupDirEntry *e)
 		if (!is_special_property(prop->name))
 			continue;
 
-		if (restore_special_property(paux, off, prop) < 0) {
+		if (restore_special_property(controller, paux, off, prop) < 0) {
 			pr_err("Restoring %s special property failed\n", prop->name);
 			return -1;
 		}
@@ -1846,7 +1859,7 @@ static int prepare_cgroup_dirs(char **controllers, int n_controllers, char *paux
 			if (!strcmp(controllers[j], "cpuset") ||
 			    !strcmp(controllers[j], "memory") ||
 			    !strcmp(controllers[j], "devices")) {
-				if (restore_special_props(paux, off2, e) < 0) {
+				if (restore_special_props(controllers[i], paux, off2, e) < 0) {
 					pr_err("Restoring special cpuset props failed!\n");
 					return -1;
 				}
@@ -2116,6 +2129,12 @@ int prepare_cgroup(void)
 	int ret;
 	struct cr_img *img;
 	CgroupEntry *ce;
+
+	if (cgp_init(opts.cgroup_props,
+		     opts.cgroup_props ?
+		     strlen(opts.cgroup_props) : 0,
+		     opts.cgroup_props_file))
+		return -1;
 
 	img = open_image(CR_FD_CGROUP, O_RSTR);
 	if (!img)

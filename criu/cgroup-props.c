@@ -39,6 +39,8 @@ cgp_t cgp_global = {
 	.name		= "____criu_global_props____",
 	.nr_props	= ARRAY_SIZE(____criu_global_props____),
 	.props		= ____criu_global_props____,
+	.nr_weak_props  = 0,
+	.weak_props     = NULL
 };
 
 typedef struct {
@@ -63,10 +65,14 @@ static void cgp_free(cgp_list_entry_t *p)
 
 static int cgp_merge_props(cgp_list_entry_t *d, cgp_list_entry_t *s)
 {
-	size_t nr_props, i, j;
+	size_t nr_props, nr_weak_props, i, j;
 
 	nr_props = d->cgp.nr_props + s->cgp.nr_props;
 	if (xrealloc_safe(&d->cgp.props, nr_props * sizeof(char *)))
+		return -ENOMEM;
+
+	nr_weak_props = d->cgp.nr_weak_props + s->cgp.nr_weak_props;
+	if (xrealloc_safe(&d->cgp.weak_props, nr_weak_props * sizeof(char *)))
 		return -ENOMEM;
 
 	/*
@@ -77,6 +83,13 @@ static int cgp_merge_props(cgp_list_entry_t *d, cgp_list_entry_t *s)
 		if (!d->cgp.props[i])
 			return -ENOMEM;
 		d->cgp.nr_props++;
+	}
+
+	for (i = d->cgp.nr_weak_props, j = 0; i < nr_weak_props; i++, j++) {
+		d->cgp.weak_props[i] = xstrdup(s->cgp.weak_props[j]);
+		if (!d->cgp.weak_props[i])
+			return -ENOMEM;
+		d->cgp.nr_weak_props++;
 	}
 
 	return 0;
@@ -214,10 +227,98 @@ static char *get_quoted(char **stream, size_t *len, bool skip_ws)
 	return NULL;
 }
 
-static int cgp_parse_stream(char *stream, size_t len)
+static char **cgp_parse_list(char **stream, size_t *len, size_t *out_nr)
+{
+	char **elements = NULL;
+	char *p;
+	size_t nr = 0;
+
+	if (!eat_symbol(stream, len, '[', true)) {
+		pr_err("Expected \'[\' in stream\n");
+		goto err_parse;
+	}
+
+	while ((p = get_quoted(stream, len, true))) {
+		if (!p) {
+			pr_err("Expected element name");
+			goto err_parse;
+		}
+
+		if (xrealloc_safe(&elements,
+				  (nr + 1) * sizeof(char *))) {
+			pr_err("Can't allocate list item\n");
+			xfree(p);
+			goto err_parse;
+		}
+
+		elements[nr++] = p;
+		pr_info("\tParsed list element \"%s\"\n", p);
+
+		if (!eat_symbol(stream, len, ',', true))
+			break;
+	}
+
+	if (!eat_symbol(stream, len, ']', true)) {
+		pr_err("Expected ']' list stream\n");
+		goto err_parse;
+	}
+
+	*out_nr = nr;
+	return elements;
+
+err_parse:
+	if (elements) {
+		for (;nr; nr--)
+			xfree(elements[nr]);
+		xfree(elements);
+	}
+	*out_nr = -1;
+	return NULL;
+}
+
+static char **cgp_parse_stream_list(char **stream, size_t *len,
+				    const char *name, bool optional,
+				    size_t *out_nr)
+{
+	int key_len;
+	char key_name[256];
+
+	key_len = snprintf(key_name, sizeof(key_name), "\"%s\":", name);
+	*out_nr = 0;
+
+	if (optional) {
+		char *tmp_stream = *stream;
+		size_t tmp_len = *len;
+
+		if (!eat_symbols(&tmp_stream, &tmp_len, "\n - ", 4, true))
+			return 0;
+
+		if (!eat_word(&tmp_stream, &tmp_len, key_name, key_len, true))
+			return 0;
+	}
+
+	if (!eat_symbols(stream, len, "\n - ", 4, true)) {
+		pr_err("Expected \':\\n - \' sequence in stream\n");
+		goto err_parse;
+	}
+
+	if (!eat_word(stream, len, key_name, key_len, true)) {
+		pr_err("Expected %s keyword in stream\n", key_name);
+		goto err_parse;
+	}
+
+	return cgp_parse_list(stream, len, out_nr);
+
+err_parse:
+	*out_nr = -1;
+	return NULL;
+}
+
+static int __attribute__((optimize("O0"))) cgp_parse_stream(char *stream, size_t len)
 {
 	cgp_list_entry_t *cgp_entry = NULL;
 	int strategy;
+	size_t nr;
 	int ret = 0;
 	char *p;
 
@@ -228,11 +329,16 @@ static int cgp_parse_stream(char *stream, size_t len)
 	 *  "cpu":
 	 *   - "strategy": "replace"
 	 *   - "properties": ["cpu.shares", "cpu.cfs_period_us"]
+	 *  "cpu":
+	 *   - "strategy": "merge"
+	 *   - "properties": ["cpuset.subgroups_limit", ...]
+	 *   - "weak-properties": ["cpuset.cpus"]
 	 *  "memory":
 	 *   - "strategy": "merge"
 	 *   - "properties": ["memory.limit_in_bytes", "memory.memsw.limit_in_bytes"]
 	 *
 	 *  and etc.
+	 *  Note: "weak-properties"' is an optional item and may be absent
 	 */
 
 	while (len) {
@@ -290,61 +396,28 @@ static int cgp_parse_stream(char *stream, size_t len)
 		pr_info("\tStrategy \"%s\"\n", p);
 		xfree(p);
 
-		if (!eat_symbols(&stream, &len, "\n - ", 4, true)) {
-			pr_err("Expected \':\\n - \' sequence controller's %s stream\n",
-			       cgp_entry->cgp.name);
+		cgp_entry->cgp.props = (const char **)cgp_parse_stream_list(&stream, &len,
+			"properties", false, &nr);
+
+		if (cgp_entry->cgp.nr_props == -1) {
+			pr_err("Failed to parse \"properties\" stream for controller %s",
+				cgp_entry->cgp.name);
 			goto err_parse;
 		}
+		cgp_entry->cgp.nr_props = nr;
 
-		if (!eat_word(&stream, &len, "\"properties\":", 13, true)) {
-			pr_err("Expected \"properties:\" keyword in controller's %s stream\n",
-			       cgp_entry->cgp.name);
+		cgp_entry->cgp.weak_props = (const char **)cgp_parse_stream_list(&stream, &len,
+			"weak-properties", true, &nr);
+
+		if (cgp_entry->cgp.nr_weak_props == -1) {
+			pr_err("Failed to parse \"weak-properties\" stream for controller %s",
+				cgp_entry->cgp.name);
 			goto err_parse;
 		}
-
-		if (!eat_symbol(&stream, &len, '[', true)) {
-			pr_err("Expected \'[\' sequence controller's %s properties stream\n",
-			       cgp_entry->cgp.name);
-			goto err_parse;
-		}
-
-		while ((p = get_quoted(&stream, &len, true))) {
-			if (!p) {
-				pr_err("Expected property name for controller %s\n",
-				       cgp_entry->cgp.name);
-				goto err_parse;
-			}
-
-			if (xrealloc_safe(&cgp_entry->cgp.props,
-					  (cgp_entry->cgp.nr_props + 1) * sizeof(char *))) {
-				pr_err("Can't allocate property for controller %s\n",
-				       cgp_entry->cgp.name);
-				xfree(p);
-				goto err_parse;
-			}
-
-			cgp_entry->cgp.props[cgp_entry->cgp.nr_props++] = p;
-			pr_info("\tProperty \"%s\"\n", p);
-
-			if (!eat_symbol(&stream, &len, ',', true)) {
-				if (stream[0] == ']') {
-					stream++, len--;
-					break;
-				}
-				pr_err("Expected ']' in controller's %s stream\n",
-				       cgp_entry->cgp.name);
-				goto err_parse;
-			}
-		}
-
-		if (cgp_entry->cgp.nr_props == 0 && !eat_symbol(&stream, &len, ']', true)) {
-			pr_err("Expected ']' in empty property list for %s\n", cgp_entry->cgp.name);
-			goto err_parse;
-		}
+		cgp_entry->cgp.nr_weak_props = nr;
 
 		if (!eat_symbol(&stream, &len, '\n', true) && len) {
-			pr_err("Expected \'\\n\' symbol in controller's %s stream\n",
-			       cgp_entry->cgp.name);
+			pr_err("Expected \'\\n\' symbol in stream\n");
 			goto err_parse;
 		}
 
@@ -560,6 +633,28 @@ const cgp_t *cgp_get_props(const char *name)
 	}
 
 	return NULL;
+}
+
+/*
+ * check to know if /cgroup_path/controller/controller_prop is weak or not.
+ * Example: for property in "/sys/fs/cgroup/cpuset/cpuset.cpus" the call would
+ * be cgp_is_weak_prop("cpuset", "cpuset.cpus")
+ */
+bool cgp_is_weak_prop(const char *controller, const char *name)
+{
+	int i;
+	cgp_list_entry_t *p;
+
+	list_for_each_entry(p, &cgp_list, list) {
+		if (strcmp(p->cgp.name, controller))
+			continue;
+		for (i = 0; i < p->cgp.nr_weak_props; ++i) {
+			if (!strcmp(p->cgp.weak_props[i], name))
+				return true;
+		}
+	}
+
+	return false;
 }
 
 void cgp_fini(void)

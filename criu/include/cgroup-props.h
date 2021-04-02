@@ -7,10 +7,17 @@ typedef struct {
 	const char	*name;
 	size_t		nr_props;
 	const char	**props;
+
+	/*
+	 * for weak properties we ignore failures during restore
+	 */
+	size_t		nr_weak_props;
+	const char	**weak_props;
 } cgp_t;
 
 extern cgp_t cgp_global;
 extern const cgp_t *cgp_get_props(const char *name);
+extern bool cgp_is_weak_prop(const char *controller, const char *name);
 extern bool cgp_should_skip_controller(const char *name);
 extern bool cgp_add_dump_controller(const char *name);
 
