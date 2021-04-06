@@ -60,6 +60,9 @@ static LIST_HEAD(cgroups);
 static unsigned int n_cgroups;
 static pid_t cgroupd_pid;
 
+static char *fallback_cpuset_cpus = NULL;
+static char *fallback_cpuset_mems = NULL;
+
 static CgSetEntry *find_rst_set_by_id(u32 id)
 {
 	int i;
@@ -279,6 +282,48 @@ static inline char *strip(char *str)
 }
 
 #define CGROUP_PROP_MAX_SIZE 1024
+
+/*
+ * given the path to a cgroup property file, return a newly allocated string
+ * with a read value into value argument and error state as a function return
+ * value.
+ */
+static int read_cgroup_string_prop(const char *path, char **value)
+{
+	int fd, ret;
+	char buf[CGROUP_PROP_MAX_SIZE];
+
+	*value = NULL;
+
+	fd = open(path, O_RDONLY);
+	if (fd == -1) {
+		pr_perror("Failed opening %s", path);
+		return -1;
+	}
+
+	ret = read(fd, buf, sizeof(buf));
+	if (ret == -1) {
+		pr_err("Failed scanning %s\n", path);
+		close(fd);
+		return -1;
+	}
+	close(fd);
+
+	if (ret == sizeof(buf)) {
+		pr_err("Cgroup property too long %s\n", path);
+		return -1;
+	}
+
+	buf[ret] = 0;
+
+	*value = xstrdup(strip(buf));
+	if (!*value) {
+		pr_err("Failed to allocate cgroup property string %s\n", path);
+		return -1;
+	}
+	return 0;
+}
+
 /*
  * Currently this function only supports properties that have a string value
  * under 1024 chars.
@@ -1370,6 +1415,52 @@ void fini_cgroup(void)
 	cg_yard = NULL;
 }
 
+/*
+ * A cleanup routine for fallback properties
+ */
+static void fallback_properties_destroy(void)
+{
+	if (fallback_cpuset_cpus) {
+		xfree(fallback_cpuset_cpus);
+		fallback_cpuset_cpus = NULL;
+	}
+	if (fallback_cpuset_mems) {
+		xfree(fallback_cpuset_mems);
+		fallback_cpuset_mems = NULL;
+	}
+}
+
+static int fallback_property_restore(const CgroupPropEntry *p, int fd)
+{
+	int n;
+	const char *fallback_value = NULL;
+
+	if (!strcmp(p->name, "cpuset.cpus"))
+		fallback_value = fallback_cpuset_cpus;
+	else if (!strcmp(p->name, "cpuset.mems"))
+		fallback_value = fallback_cpuset_mems;
+
+	/*
+	 * no fallback value is defined for this property, so we skip
+	 * silently
+	 */
+	if (!fallback_value)
+		return -1;
+
+	pr_info("Writing fallback value '%s' to property '%s'\n",
+	        fallback_value, p->name);
+
+	n = strlen(fallback_value);
+
+	if (write(fd, fallback_value, n) != n) {
+		pr_perror("Failed writing fallback value '%s' to property '%s'",
+			  fallback_value, p->name);
+		return -1;
+	}
+
+	return 0;
+}
+
 static int restore_perms(int fd, const char *path, CgroupPerms *perms)
 {
 	struct stat sb;
@@ -1465,6 +1556,7 @@ static int restore_cgroup_prop(const CgroupPropEntry *cg_prop_entry_p, char *pat
 			       bool skip_fails)
 {
 	int cg, fd, exit_code = -1, flag;
+	bool need_fallback = true;
 	CgroupPerms *perms = cg_prop_entry_p->perms;
 	int is_subtree_control = !strcmp(cg_prop_entry_p->name, "cgroup.subtree_control");
 
@@ -1527,7 +1619,9 @@ static int restore_cgroup_prop(const CgroupPropEntry *cg_prop_entry_p, char *pat
 			if (write(fd, line, len) != len) {
 				pr_perror("Failed writing %s to %s", line, path);
 				if (!skip_fails)
-					goto out;
+					goto fallback;
+			} else {
+				need_fallback = false;
 			}
 			line = next_line + 1;
 		} while (*next_line != '\0');
@@ -1545,11 +1639,18 @@ static int restore_cgroup_prop(const CgroupPropEntry *cg_prop_entry_p, char *pat
 		if (ret != len) {
 			pr_perror("Failed writing %s to %s", cg_prop_entry_p->value, path);
 			if (!skip_fails)
-				goto out;
+				goto fallback;
+		} else {
+			need_fallback = false;
 		}
 	}
 
 	exit_code = 0;
+
+fallback:
+	if (need_fallback && fallback_property_restore(cg_prop_entry_p, fd))
+		exit_code = -1;
+
 out:
 	if (close(fd) != 0)
 		pr_perror("Failed closing %s", path);
@@ -1676,6 +1777,9 @@ static int prepare_cgroup_dir_properties(char *path, int off, CgroupDirEntry **e
 			goto skip; /* skip root cgroups */
 
 		off2 += sprintf(path + off, "/%s", e->dir_name);
+
+		pr_info("Preparing cg properties in: %s\n", path);
+
 		for (j = 0; j < e->n_properties; ++j) {
 			CgroupPropEntry *p = e->properties[j];
 
@@ -1707,6 +1811,40 @@ static int prepare_cgroup_dir_properties(char *path, int off, CgroupDirEntry **e
 	skip:
 		if (prepare_cgroup_dir_properties(path, off2, e->children, e->n_children) < 0)
 			return -1;
+	}
+
+	return 0;
+}
+
+/*
+ * The function is run after each new root cgroup mount in the yard. For each
+ * of the controller mounted it checks if there are any fallback values defined
+ * for this controller and if yes reads them out from the root cgroup and saves
+ * them into a newly allocated global variables.
+ *
+ */
+static int fallback_properties_create(const char *paux, int ctl_off)
+{
+	char prop_path[PATH_MAX];
+
+	if (!strcmp(paux + ctl_off, "cpuset")) {
+		if (snprintf(prop_path, sizeof(prop_path), "%s/cpuset.cpus", paux) >= PATH_MAX) {
+			pr_err("snprintf output was truncated for cpuset.cpus\n");
+			return -1;
+		}
+		if (read_cgroup_string_prop(prop_path, &fallback_cpuset_cpus))
+			return -1;
+
+		pr_info("Fallback for '%s' is '%s'\n", prop_path, fallback_cpuset_cpus);
+
+		if (snprintf(prop_path, sizeof(prop_path), "%s/cpuset.mems", paux) >= PATH_MAX) {
+			pr_err("snprintf output was truncated for cpuset.mems\n");
+			return -1;
+		}
+		if (read_cgroup_string_prop(prop_path, &fallback_cpuset_mems))
+			return -1;
+
+		pr_info("Fallback for '%s' is '%s'\n", prop_path, fallback_cpuset_mems);
 	}
 
 	return 0;
@@ -2077,7 +2215,7 @@ static int prepare_cgroup_sfd(CgroupEntry *ce)
 
 		if (ctrl->n_cnames < 1) {
 			pr_err("Each cg_controller_entry must have at least 1 controller\n");
-			return -1;
+			goto err;
 		}
 
 		if (!strcmp(ctrl->cnames[0], "beancounter") && !kdat.has_beancounters) {
@@ -2097,11 +2235,11 @@ static int prepare_cgroup_sfd(CgroupEntry *ce)
 			pr_debug("\tMaking controller dir %s (%s)\n", paux, opt);
 			if (mkdir(paux, 0700)) {
 				pr_perror("\tCan't make controller dir %s", paux);
-				return -1;
+				goto err;
 			}
 			if (mount("none", paux, fstype, 0, opt) < 0) {
 				pr_perror("\tCan't mount controller dir %s", paux);
-				return -1;
+				goto err;
 			}
 		}
 
@@ -2110,12 +2248,31 @@ static int prepare_cgroup_sfd(CgroupEntry *ce)
 		 */
 		yard = paux + strlen(cg_yard) + 1;
 		yard_off = ctl_off - (strlen(cg_yard) + 1);
-		if (opts.manage_cgroups &&
-		    prepare_cgroup_dirs(ctrl->cnames, ctrl->n_cnames, yard, yard_off, ctrl->dirs, ctrl->n_dirs))
-			return -1;
+
+		if (opts.manage_cgroups) {
+			/*
+			 * fallback_properties_create will cache fallback values that
+			 * can be used only for 'restore_special_property'. But
+			 * 'restore_freezer_state' and 'prepare_cgroup_properties' will
+			 * not have fallback values, for them the same call should be done
+			 * in their respective call stacks.
+			 */
+			if (fallback_properties_create(paux, off)) {
+				pr_perror("\tFailed to get fallback values for %s", paux);
+				goto err;
+			}
+			if (prepare_cgroup_dirs(ctrl->cnames, ctrl->n_cnames, yard, yard_off,
+			    ctrl->dirs, ctrl->n_dirs))
+				goto err;
+		}
 	}
 
+	fallback_properties_destroy();
+
 	return 0;
+err:
+	fallback_properties_destroy();
+	return -1;
 }
 
 /*
