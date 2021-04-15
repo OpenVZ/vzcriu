@@ -136,7 +136,8 @@ static int restore_start_time(struct thread_restore_args *args)
 
 	ret = sys_prctl_safe(PR_SET_TASK_CT_FIELDS, (unsigned long)&ct_fields, flags, 0);
 	if (ret) {
-		pr_info("Failed to restore start_time\n");
+		pr_err("Failed to restore start_time: %llu\n",
+		       args->start_time);
 		return ret;
 	}
 
