@@ -119,7 +119,7 @@ exit_close:
 static int has_enobufs(int sk)
 {
 	int err;
-	socklen_t optlen;
+	socklen_t optlen = sizeof(err);
 
 	if (getsockopt(sk, SOL_SOCKET, SO_ERROR, &err, &optlen) == -1) {
 		pr_perror("Can't get so_error");
