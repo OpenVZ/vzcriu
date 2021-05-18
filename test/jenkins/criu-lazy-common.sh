@@ -8,4 +8,4 @@ else
 		      -x socket_close_data01 -x file_read"
 fi
 
-LAZY_EXCLUDE="$LAZY_EXCLUDE -x maps04"
+LAZY_EXCLUDE="$LAZY_EXCLUDE -x maps04 -x packet_sock_mmap"
