@@ -529,8 +529,13 @@ static int create_plain_mountpoint(struct mount_info *mi) {
 		 mi->parent->plain_mountpoint, rel_path[0] ? "/" : "",
 		 rel_path);
 
-	if (stat(mountpoint, &st)) {
-		pr_perror("Can't stat mountpoint %s", mountpoint);
+	if (lstat(mountpoint, &st)) {
+		pr_perror("Can't lstat mountpoint %s", mountpoint);
+		return -1;
+	}
+
+	if (S_ISLNK(st.st_mode)) {
+		pr_perror("Unsupported mount with symlink mountpoint detected\n");
 		return -1;
 	}
 
