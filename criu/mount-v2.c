@@ -698,6 +698,11 @@ static int detect_is_dir(struct mount_info *mi)
 		return -1;
 	}
 
+	if (S_ISLNK(st.st_mode)) {
+		pr_perror("Unsupported mount with symlink mountpoint detected");
+		return -1;
+	}
+
 	if (S_ISDIR(st.st_mode))
 		mi->is_dir = true;
 	else
