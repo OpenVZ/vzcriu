@@ -536,6 +536,10 @@ static int setup_opts_from_req(int sk, CriuOpts *req)
 					goto err;
 
 				opts.ps_socket = req->ps->fd;
+				if (!valid_socket_fd(opts.ps_socket)) {
+					pr_err("Bad FD given for req.ps.fd option: %d\n", opts.ps_socket);
+					goto err;
+				}
 			}
 		}
 	}

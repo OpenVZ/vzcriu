@@ -500,6 +500,23 @@ int read_fd_link(int lfd, char *buf, size_t size)
 	return ret;
 }
 
+bool valid_socket_fd(int fd)
+{
+	struct stat st;
+
+	if (fstat(fd, &st)) {
+		pr_perror("Can't fstat FD %d", fd);
+		return false;
+	}
+
+	if (!S_ISSOCK(st.st_mode)) {
+		pr_err("FD %d is not a socket\n", fd);
+		return false;
+	}
+
+	return true;
+}
+
 int is_anon_link_type(char *link, char *type)
 {
 	char aux[32];

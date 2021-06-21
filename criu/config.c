@@ -847,6 +847,10 @@ int parse_options(int argc, char **argv, bool *usage_error,
 			break;
 		case 1091:
 			opts.ps_socket = atoi(optarg);
+			if (!valid_socket_fd(opts.ps_socket)) {
+				pr_err("Bad FD given for --ps-socket option: %d\n", opts.ps_socket);
+				return 1;
+			}
 			break;
 		case 1092:
 			SET_CHAR_OPTS(tls_cacert, optarg);
