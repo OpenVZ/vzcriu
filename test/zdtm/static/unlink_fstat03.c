@@ -1,6 +1,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <stdlib.h>
+#include <sys/sysmacros.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -15,6 +16,42 @@ const char *test_doc	= "Open, link, unlink former, change size, migrate, check s
 char *filename;
 TEST_OPTION(filename, string, "file name", 1);
 static char link_name[1024];
+
+static int is_devicemapper(dev_t st_dev)
+{
+	int ret;
+	unsigned int maj, min;
+	char path[1024];
+	FILE *fp;
+
+	ret = snprintf(path, sizeof(path), "/sys/block/dm-%u/dev",
+		       minor(st_dev));
+	if (ret < 0) {
+		pr_perror("snprintf");
+		return 0;
+	}
+
+	ret = access(path, R_OK);
+	if (ret < 0)
+		return 0;
+
+	fp = fopen(path, "r");
+	if (fp == NULL) {
+		pr_perror("fopen");
+		return 0;
+	}
+
+	ret = fscanf(fp, "%u:%u", &maj, &min);
+	if (ret != 2) {
+		pr_perror("fscanf");
+		fclose(fp);
+		return 0;
+	}
+
+	fclose(fp);
+
+	return maj == major(st_dev) && min == minor(st_dev);
+}
 
 int main(int argc, char ** argv)
 {
@@ -72,9 +109,14 @@ int main(int argc, char ** argv)
 		pr_perror("can't get %s file info after", filename);
 		goto failed;
 	}
-
-	/* An NFS mount is restored with another st_dev */
-	if (fsst.f_type != NFS_SUPER_MAGIC && fst.st_dev != fst2.st_dev) {
+	/* An NFS mount is restored with another st_dev
+	 * device mapper devices (ploop) will be restored with
+	 * different minor (and even major). So we want to check
+	 * that restored device is really device mapper device
+	 * and skip check in such case.
+	 */
+	if (fsst.f_type != NFS_SUPER_MAGIC && fst.st_dev != fst2.st_dev &&
+	    !is_devicemapper(fst2.st_dev)) {
 		fail("files differ after restore\n");
 		goto failed;
 	}
