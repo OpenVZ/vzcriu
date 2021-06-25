@@ -426,6 +426,17 @@ static int dump_cg_props_array(const char *fpath, struct cgroup_dir *ncd, const 
 	struct cgroup_prop *prop;
 
 	for (j = 0; cgp && j < cgp->nr_props; j++) {
+		if (!strcmp("devices.list", cgp->props[j])) {
+			/* Try devices.extra_list first */
+			if (snprintf(buf, PATH_MAX, "%s/devices.extra_list", fpath) >= PATH_MAX) {
+				pr_err("snprintf output was truncated\n");
+				return -1;
+			}
+
+			if (!access(buf, F_OK))
+				goto extra_list;
+		}
+
 		if (snprintf(buf, PATH_MAX, "%s/%s", fpath, cgp->props[j]) >= PATH_MAX) {
 			pr_err("snprintf output was truncated\n");
 			return -1;
@@ -436,6 +447,7 @@ static int dump_cg_props_array(const char *fpath, struct cgroup_dir *ncd, const 
 			continue;
 		}
 
+extra_list:
 		prop = create_cgroup_prop(cgp->props[j]);
 		if (!prop) {
 			free_all_cgroup_props(ncd);
