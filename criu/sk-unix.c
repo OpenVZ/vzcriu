@@ -1053,8 +1053,8 @@ int collect_unix_bindmounts(void)
 		list_for_each_entry(sk, &unix_sockets, list) {
 			if (sk->vfs_ino == (int)st.st_ino &&
 			    __phys_stat_dev_match(st.st_dev, sk->vfs_dev, NULL, NULL, mi)) {
-				pr_debug("Found sock s_dev %#x ino %d bindmounted mnt_id %d %s\n",
-					 (int)st.st_dev, (int)st.st_ino, mi->mnt_id, mi->ns_mountpoint);
+				pr_debug("Found sock s_dev %#x ino %d (%u) bindmounted mnt_id %d %s\n",
+					 (int)st.st_dev, (int)st.st_ino, sk->sd.ino, mi->mnt_id, mi->ns_mountpoint);
 
 				sk->bindmount = true;
 				sk->mnt_usk_bind_list_size++;
