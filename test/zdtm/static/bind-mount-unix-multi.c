@@ -156,6 +156,13 @@ int main(int argc, char **argv)
 	}
 
 #if defined(ZDTM_BM_UNIX_MULT_STREAM) || defined(ZDTM_BM_UNIX_MULT_SEQPACKET)
+#if defined(ZDTM_BM_UNIX_MULT_STREAM_NS)
+	if (unshare(CLONE_NEWNET)) {
+		pr_perror("Unable to create a new netns");
+		goto err;
+	}
+#endif
+
 	ret = listen(sk, BINDS_NUM);
 	if (ret) {
 		pr_perror("can't listen on a socket %s", path_unix);
