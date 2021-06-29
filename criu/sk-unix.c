@@ -1024,7 +1024,7 @@ int collect_unix_bindmounts(void)
 	pr_debug("Collecting unix bindmounts\n");
 
 	for (mi = mntinfo; mi; mi = mi->next) {
-		struct unix_sk_desc *sk;
+		struct unix_sk_desc *sk, *unsupported = NULL;
 		int mntns_root;
 
 		if (list_empty(&mi->mnt_bind))
@@ -1053,6 +1053,11 @@ int collect_unix_bindmounts(void)
 		list_for_each_entry(sk, &unix_sockets, list) {
 			if (sk->vfs_ino == (int)st.st_ino &&
 			    __phys_stat_dev_match(st.st_dev, sk->vfs_dev, NULL, NULL, mi)) {
+				if (!sk_bindmount_supported(sk->type, sk->state)) {
+					unsupported = sk;
+					continue;
+				}
+
 				pr_debug("Found sock s_dev %#x ino %d (%u) bindmounted mnt_id %d %s\n",
 					 (int)st.st_dev, (int)st.st_ino, sk->sd.ino, mi->mnt_id, mi->ns_mountpoint);
 
@@ -1060,13 +1065,15 @@ int collect_unix_bindmounts(void)
 				sk->mnt_usk_bind_list_size++;
 				list_add_tail(&mi->mnt_usk_bind, &sk->mnt_usk_bind_list);
 
-				if (!sk_bindmount_supported(sk->type, sk->state)) {
-					pr_err("Unsupported bindmounted socket ino %d at %s\n",
-					       (int)st.st_ino, mi->ns_mountpoint);
-					return -1;
-				}
+				unsupported = NULL;
 				break;
 			}
+		}
+
+		if (unsupported) {
+			pr_err("Unsupported bindmounted socket ino %d (%u) at %s\n",
+			       (int)st.st_ino, unsupported->sd.ino, mi->ns_mountpoint);
+			return -1;
 		}
 	}
 
