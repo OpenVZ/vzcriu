@@ -22,6 +22,7 @@
 #include <stdbool.h>
 
 #include "version.h"
+#include "rpc.pb-c.h"
 
 #ifdef __GNUG__
 	extern "C" {
@@ -115,7 +116,7 @@ int criu_set_ve(const char *ve);
  * some non-existing one is reported.
  */
 
-typedef struct _CriuNotify *criu_notify_arg_t;
+typedef CriuNotify *criu_notify_arg_t;
 void criu_set_notify_cb(int (*cb)(char *action, criu_notify_arg_t na));
 
 /* Get pid of root task. 0 if not available */
