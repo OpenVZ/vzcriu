@@ -78,6 +78,7 @@ struct kerndat_s {
 	bool has_pid_for_children_ns;
 	bool has_mount_set_group;
 	bool has_beancounters;
+	bool has_sockopt_buf_lock;
 };
 
 extern struct kerndat_s kdat;

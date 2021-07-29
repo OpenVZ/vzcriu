@@ -1362,6 +1362,14 @@ static int check_beancounters(void)
 	return 0;
 }
 
+static int check_sockopt_buf_lock(void)
+{
+	if (!kdat.has_sockopt_buf_lock)
+		return -1;
+
+	return 0;
+}
+
 static int (*chk_feature)(void);
 
 /*
@@ -1479,6 +1487,7 @@ int cr_check(void)
 		ret |= check_pid_for_children_ns();
 		ret |= check_mount_set_group();
 		ret |= check_beancounters();
+		ret |= check_sockopt_buf_lock();
 	}
 
 	/*
@@ -1592,6 +1601,7 @@ static struct feature_list feature_list[] = {
 	{ "pid_for_children_ns", check_pid_for_children_ns},
 	{ "mount_set_group", check_mount_set_group},
 	{ "beancounters", check_beancounters},
+	{ "sockopt_buf_lock", check_sockopt_buf_lock },
 	{ NULL, NULL },
 };
 

@@ -146,4 +146,8 @@ extern const char *socket_proto_name(unsigned int proto, char *nm, size_t size);
 #define SOL_NETLINK			270
 #endif
 
+#ifndef SO_BUF_LOCK
+#define SO_BUF_LOCK			72
+#endif
+
 #endif /* __CR_SOCKETS_H__ */
