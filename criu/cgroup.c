@@ -1181,6 +1181,11 @@ static int prepare_cgns(CgSetEntry *se)
 			return -1;
 		}
 
+		if (!strcmp(ctrl->cnames[0], "beancounter") && !kdat.has_beancounters) {
+			pr_warn("Skip moving to beancounter cgroup\n");
+			continue;
+		}
+
 		aux_off = ctrl_dir_and_opt(ctrl, aux, sizeof(aux), NULL, 0);
 
 		/* We need to do an unshare() here as unshare() pins the root
@@ -1248,6 +1253,11 @@ static int move_in_cgroup(CgSetEntry *se)
 		if (!ctrl) {
 			pr_err("No cg_controller_entry found for %s/%s\n", ce->name, ce->path);
 			return -1;
+		}
+
+		if (!strcmp(ctrl->cnames[0], "beancounter") && !kdat.has_beancounters) {
+			pr_warn("Skip moving to beancounter cgroup\n");
+			continue;
 		}
 
 		aux_off = ctrl_dir_and_opt(ctrl, aux, sizeof(aux), NULL, 0);
@@ -1714,6 +1724,11 @@ int prepare_cgroup_properties(void)
 			return -1;
 		}
 
+		if (!strcmp(c->cnames[0], "beancounter") && !kdat.has_beancounters) {
+			pr_warn("Skip restoring beancounter cgroup properties\n");
+			continue;
+		}
+
 		off = ctrl_dir_and_opt(c, cname_path, sizeof(cname_path), NULL, 0);
 		if (prepare_cgroup_dir_properties(cname_path, off, c->dirs, c->n_dirs) < 0)
 			return -1;
@@ -2062,6 +2077,11 @@ static int prepare_cgroup_sfd(CgroupEntry *ce)
 		if (ctrl->n_cnames < 1) {
 			pr_err("Each cg_controller_entry must have at least 1 controller\n");
 			return -1;
+		}
+
+		if (!strcmp(ctrl->cnames[0], "beancounter") && !kdat.has_beancounters) {
+			pr_warn("Skip restoring beancounter cgroup directories\n");
+			continue;
 		}
 
 		ctl_off += ctrl_dir_and_opt(ctrl, paux + ctl_off, sizeof(paux) - ctl_off, opt, sizeof(opt));
