@@ -1643,7 +1643,7 @@ static int filter_ifpriomap(char *out, char *line)
 	return 0;
 }
 
-static int restore_cgroup_ifpriomap(CgroupPropEntry *cpe, char *path, int off)
+static __maybe_unused int restore_cgroup_ifpriomap(CgroupPropEntry *cpe, char *path, int off)
 {
 	CgroupPropEntry priomap = *cpe;
 	int ret = -1;
@@ -1697,11 +1697,9 @@ static int prepare_cgroup_dir_properties(char *path, int off, CgroupDirEntry **e
 			 * The kernel can't handle it in one write()
 			 * Number of network interfaces on host may differ.
 			 */
-			if (strcmp(p->name, "net_prio.ifpriomap") == 0) {
-				if (restore_cgroup_ifpriomap(p, path, off2))
-					return -1;
+			/* Skip ifpriomap as we never supported it right */
+			if (strcmp(p->name, "net_prio.ifpriomap") == 0)
 				continue;
-			}
 
 			if (restore_cgroup_prop(p, path, off2, false, false) < 0)
 				return -1;
