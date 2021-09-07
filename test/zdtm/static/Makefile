@@ -257,7 +257,7 @@ TST_NOFILE	:=				\
 		netns_sub_sysctl		\
 		netns_vxlan			\
 		unlink_multiple_largefiles	\
-		thp_disable			\
+		thp_disable00			\
 		pid_file			\
 		selinux00			\
 		selinux01			\
@@ -387,6 +387,7 @@ TST_FILE	=				\
 		sk-unix-listen04		\
 		file_fown_dead			\
 		file_fown_reuse			\
+		thp_disable01			\
 
 TST_DIR		=				\
 		cwd00				\
@@ -679,7 +680,7 @@ mntns_shared_bind02:	CFLAGS += -DSHARED_BIND02
 mntns_root_bind02:	CFLAGS += -DROOT_BIND02
 maps02: get_smaps_bits.o
 mlock_setuid: get_smaps_bits.o
-thp_disable: get_smaps_bits.o
+thp_disable00: get_smaps_bits.o
 inotify01:		CFLAGS += -DINOTIFY01
 unlink_fstat01+:	CFLAGS += -DUNLINK_OVER
 unlink_fstat04:		CFLAGS += -DUNLINK_FSTAT04
@@ -780,6 +781,8 @@ mqueue_inotify:		LDFLAGS += -lrt
 file_fown_reuse:	CFLAGS += -DZDTM_FILE_FOWN_REUSE
 
 bridge_fdb:		CFLAGS += -DBRIDGE_FDB
+
+thp_disable01:		CFLAGS += -DZDTM_FMAP_THP_DISABLE
 
 $(LIB):	force
 	$(Q) $(MAKE) -C $(LIBDIR)
