@@ -7,6 +7,10 @@
 #include <linux/limits.h>
 #include "zdtmtst.h"
 
+#ifdef ZDTM_FMAP_THP_DISABLE
+#include <sys/prctl.h>
+#endif
+
 const char *test_doc	= "Test mappings of same file with different prot";
 const char *test_author	= "Jamie Liu <jamieliu@google.com>";
 
@@ -21,6 +25,13 @@ int main(int argc, char ** argv)
 	int fd;
 
 	test_init(argc, argv);
+
+#ifdef ZDTM_FMAP_THP_DISABLE
+	if (prctl(PR_SET_THP_DISABLE, 1, 0, 0, 0)) {
+		pr_perror("Disabling THP failed");
+		return -1;
+	}
+#endif
 
 	fd = open(filename, O_RDWR | O_CREAT, 0644);
 	if (fd < 0)
