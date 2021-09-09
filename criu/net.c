@@ -1176,6 +1176,20 @@ static int dump_vxlan(NetDeviceEntry *nde, struct cr_imgset *imgset, struct nlat
 
 #undef ENCODE_ENTRY
 
+#define ENCODE_ENTRY_FLAG(__ifla, __proto) \
+	do {									\
+		if (data[__ifla]) {						\
+			vxlan.__proto = true;					\
+			vxlan.has_##__proto = true;				\
+		}								\
+	} while (0)
+
+	ENCODE_ENTRY_FLAG(IFLA_VXLAN_GBP,               gbp);
+	ENCODE_ENTRY_FLAG(IFLA_VXLAN_GPE,               gpe);
+	ENCODE_ENTRY_FLAG(IFLA_VXLAN_REMCSUM_NOPARTIAL, remcsum_nopartial);
+	ENCODE_ENTRY_FLAG(IFLA_VXLAN_TTL_INHERIT,       ttl_inherit);
+#undef ENCODE_ENTRY_FLAG
+
 	nde->vz_vxlan = &vxlan;
 	return write_netdev_img(nde, imgset, info);
 }
@@ -1978,6 +1992,18 @@ static int vxlan_link_info(struct ns_id *ns, struct net_link *link, struct newli
 	DECODE_ENTRY(u8, IFLA_VXLAN_DF,                df);
 
 #undef DECODE_ENTRY
+
+#define DECODE_ENTRY_FLAG(__ifla, __proto) \
+		do {								\
+			if (vxlan->has_##__proto)				\
+				addattr(&req->h, sizeof(*req), __ifla);		\
+		} while (0)
+
+	DECODE_ENTRY_FLAG(IFLA_VXLAN_GBP,               gbp);
+	DECODE_ENTRY_FLAG(IFLA_VXLAN_GPE,               gpe);
+	DECODE_ENTRY_FLAG(IFLA_VXLAN_REMCSUM_NOPARTIAL, remcsum_nopartial);
+	DECODE_ENTRY_FLAG(IFLA_VXLAN_TTL_INHERIT,       ttl_inherit);
+#undef DECODE_ENTRY_FLAG
 
 	vxlan_data->rta_len = (void *)NLMSG_TAIL(&req->h) - (void *)vxlan_data;
 
