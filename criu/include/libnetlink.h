@@ -8,6 +8,7 @@ extern int do_rtnl_req(int nl, void *req, int size,
 		       int (*receive_callback)(struct nlmsghdr *h, struct ns_id *ns, void *),
 		       int (*error_callback)(int err, struct ns_id *ns, void *), struct ns_id *ns, void *);
 
+extern int addattr(struct nlmsghdr *n, int maxlen, int type);
 extern int addattr_l(struct nlmsghdr *n, int maxlen, int type, const void *data, int alen);
 
 extern int32_t nla_get_s32(const struct nlattr *nla);
