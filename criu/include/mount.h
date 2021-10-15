@@ -292,7 +292,7 @@ extern int do_restore_task_mnt_ns(struct ns_id *nsid);
 extern struct mount_info *mnt_subtree_next(struct mount_info *mi,
 					   struct mount_info *root);
 
-struct mount_info *root_yard_mp;
-char *mnt_roots;
+extern struct mount_info *root_yard_mp;
+extern char *mnt_roots;
 
 #endif /* __CR_MOUNT_H__ */
