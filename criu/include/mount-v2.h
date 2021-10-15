@@ -38,7 +38,7 @@ struct sharing_group {
 	char			*source;
 };
 
-struct list_head nested_pidns_procs;
+extern struct list_head nested_pidns_procs;
 
 extern int prepare_mnt_ns_v2(void);
 extern int read_mnt_ns_img_v2(struct mount_info *info);
