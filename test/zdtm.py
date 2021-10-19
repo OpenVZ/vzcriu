@@ -397,6 +397,12 @@ class ve_flavor(ns_flavor):
             with open("/sys/fs/cgroup/ve/{}/ve.{}".format(ZDTM_VEID, i[0]), "w") as f:
                 f.write(i[1])
 
+        if os.access("/sys/fs/cgroup/beancounter/", os.F_OK):
+            bc_cgroups = ('memory', 'pids', 'blkio')
+            for i in bc_cgroups:
+                with open("/sys/fs/cgroup/beancounter/{}/beancounter.{}".format(ZDTM_VEID, i), "w") as f:
+                   f.write("/machine.slice/{}".format(ZDTM_VEID))
+
     @staticmethod
     def enter_cgroups_except_ve():
         for i in ve_flavor.cgroups:
