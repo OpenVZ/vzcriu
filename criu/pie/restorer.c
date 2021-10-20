@@ -126,13 +126,13 @@ static int restore_start_time(struct thread_restore_args *args)
 {
 	int ret;
 	unsigned long flags;
-	struct prctl_task_ct_fields ct_fields;
+	struct _prctl_task_ct_fields ct_fields;
 
 	if (!args->restore_start_time)
 		return 0;
 
-	ct_fields.real_start_time = args->start_time;
-	flags = PR_TASK_CT_FIELDS_START_TIME;
+	ct_fields.start_boottime = args->start_time;
+	flags = PR_TASK_CT_FIELDS_START_BOOTTIME;
 
 	ret = sys_prctl_safe(PR_SET_TASK_CT_FIELDS, (unsigned long)&ct_fields, flags, 0);
 	if (ret) {

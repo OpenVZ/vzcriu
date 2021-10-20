@@ -85,11 +85,16 @@ struct prctl_mm_map {
 #ifndef PR_SET_TASK_CT_FIELDS
 /* Set task container related fields */
 #define PR_SET_TASK_CT_FIELDS	1000
-#define PR_TASK_CT_FIELDS_START_TIME	(1ULL << 0)
+#endif
 
-struct prctl_task_ct_fields {
-	s64 real_start_time;
+#ifndef PR_TASK_CT_FIELDS_START_BOOTTIME
+#define PR_TASK_CT_FIELDS_START_BOOTTIME	(1ULL << 0)
+
+struct _prctl_task_ct_fields {
+	s64 start_boottime;
 };
+#else
+#define _prctl_task_ct_fields prctl_task_ct_fields
 #endif
 
 #endif /* __CR_PRCTL_H__ */

@@ -845,7 +845,7 @@ static int kerndat_x86_has_ptrace_fpu_xsave_bug(void)
 static int kerndat_task_ct_fields_supported(void)
 {
 	long ret;
-	struct prctl_task_ct_fields ct_fields = { 0 };
+	struct _prctl_task_ct_fields ct_fields = { 0 };
 	/*
 	 * arg2 to this prctl is flags. If flags are not set, nothing would
 	 * be done inside prctl, but it will still succeed.

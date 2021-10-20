@@ -1303,7 +1303,7 @@ static int restore_zombie_start_time(CoreEntry *core, pid_t pid)
 	int ret;
 	unsigned long flags;
 	long ticks_per_sec;
-	struct prctl_task_ct_fields ct_fields;
+	struct _prctl_task_ct_fields ct_fields;
 
 	if (!kdat.task_ct_fields_supported)
 		return 0;
@@ -1337,9 +1337,9 @@ static int restore_zombie_start_time(CoreEntry *core, pid_t pid)
 		return -1;
 	}
 
-	ct_fields.real_start_time = core->thread_core->vz_start_time *
-				    (NSEC_PER_SEC / ticks_per_sec);
-	flags = PR_TASK_CT_FIELDS_START_TIME;
+	ct_fields.start_boottime = core->thread_core->vz_start_time *
+				   (NSEC_PER_SEC / ticks_per_sec);
+	flags = PR_TASK_CT_FIELDS_START_BOOTTIME;
 
 	ret = prctl(PR_SET_TASK_CT_FIELDS, (unsigned long)&ct_fields, flags, 0, 0);
 	if (ret) {
