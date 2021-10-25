@@ -210,6 +210,7 @@ struct cr_options {
 
 	int mntns_compat_mode;
 	char *ve;
+	char *ve_clock_fallback;
 };
 
 extern struct cr_options opts;

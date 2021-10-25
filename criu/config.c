@@ -700,6 +700,7 @@ int parse_options(int argc, char **argv, bool *usage_error, bool *has_exec_cmd, 
 		{ "network-lock", required_argument, 0, 1100 },
 		BOOL_OPT("mntns-compat-mode", &opts.mntns_compat_mode),
 		{ "ve", required_argument, 0, 2001 },
+		{ "ve-clock-fallback", required_argument, 0, 2002 },
 		{},
 	};
 
@@ -1037,6 +1038,9 @@ int parse_options(int argc, char **argv, bool *usage_error, bool *has_exec_cmd, 
 			break;
 		case 2001:
 			SET_CHAR_OPTS(ve, optarg);
+			break;
+		case 2002:
+			SET_CHAR_OPTS(ve_clock_fallback, optarg);
 			break;
 		case 'V':
 			pr_msg("Version: %s\n", CRIU_VERSION);
