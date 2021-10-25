@@ -179,6 +179,8 @@ struct cr_options {
 	int			mounts_compat;
 	char			*ve;
 	int			cgroup_force_create_ns;
+
+	char			*ve_clock_fallback;
 };
 
 extern struct cr_options opts;

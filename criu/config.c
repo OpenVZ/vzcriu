@@ -546,6 +546,7 @@ int parse_options(int argc, char **argv, bool *usage_error,
 		BOOL_OPT("skip-freezer-state", &opts.skip_freezer_state),
 		{ "ve",				required_argument,	0, 2001},
 		BOOL_OPT("cgroup-force-create-ns", &opts.cgroup_force_create_ns),
+		{ "ve-clock-fallback",		required_argument,	0, 2002},
 		{ },
 	};
 
@@ -881,6 +882,9 @@ int parse_options(int argc, char **argv, bool *usage_error,
 			break;
 		case 2001:
 			SET_CHAR_OPTS(ve, optarg);
+			break;
+		case 2002:
+			SET_CHAR_OPTS(ve_clock_fallback, optarg);
 			break;
 		case 'V':
 			pr_msg("Version: %s\n", CRIU_VERSION);
