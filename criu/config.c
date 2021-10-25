@@ -704,6 +704,7 @@ int parse_options(int argc, char **argv, bool *usage_error, bool *has_exec_cmd, 
 		BOOL_OPT("unprivileged", &opts.unprivileged),
 		BOOL_OPT("ghost-fiemap", &opts.ghost_fiemap),
 		{ "ve", required_argument, 0, 2001 },
+		{ "ve-clock-fallback", required_argument, 0, 2002 },
 		{},
 	};
 
@@ -1044,6 +1045,9 @@ int parse_options(int argc, char **argv, bool *usage_error, bool *has_exec_cmd, 
 			break;
 		case 2001:
 			SET_CHAR_OPTS(ve, optarg);
+			break;
+		case 2002:
+			SET_CHAR_OPTS(ve_clock_fallback, optarg);
 			break;
 		case 'V':
 			pr_msg("Version: %s\n", CRIU_VERSION);
