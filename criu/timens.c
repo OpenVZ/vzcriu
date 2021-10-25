@@ -49,6 +49,45 @@ static void normalize_timespec(struct timespec *ts)
 	}
 }
 
+TimensEntry *timens_ve_clock_fallback(void)
+{
+	TimensEntry *te;
+
+	if (!opts.ve_clock_fallback) {
+		pr_err("Restoring ve without timens is not allowed\n"
+		       "Consider using --ve-clock-fallback option.\n");
+		return NULL;
+	}
+
+	te = xmalloc(sizeof(TimensEntry));
+	if (!te)
+		return NULL;
+
+	timens_entry__init(te);
+
+	te->monotonic = xmalloc(sizeof(Timespec));
+	if (!te->monotonic)
+		goto err;
+	timespec__init(te->monotonic);
+
+	te->boottime = xmalloc(sizeof(Timespec));
+	if (!te->boottime)
+		goto err;
+	timespec__init(te->boottime);
+
+	if (sscanf(opts.ve_clock_fallback, "monotonic:%" PRId64 ".%" PRId64 ",boottime:%" PRId64 ".%" PRId64,
+		   &te->monotonic->tv_sec, &te->monotonic->tv_nsec, &te->boottime->tv_sec,
+		   &te->boottime->tv_nsec) != 4) {
+		pr_err("Failed to parse --ve-clock-fallback\n");
+		goto err;
+	}
+
+	return te;
+err:
+	timens_entry__free_unpacked(te, NULL);
+	return NULL;
+}
+
 int prepare_timens(int id)
 {
 	int exit_code = -1;
@@ -60,6 +99,14 @@ int prepare_timens(int id)
 
 	if (opts.unprivileged)
 		return 0;
+
+	if (id == 0 && opts.ve) {
+		te = timens_ve_clock_fallback();
+		if (!te)
+			return -1;
+
+		goto fallback;
+	}
 
 	img = open_image(CR_FD_TIMENS, O_RSTR, id);
 	if (!img)
@@ -76,6 +123,7 @@ int prepare_timens(int id)
 	if (ret < 0)
 		goto err;
 
+fallback:
 	if (unshare(CLONE_NEWTIME)) {
 		pr_perror("Unable to create a new time namespace");
 		return -1;

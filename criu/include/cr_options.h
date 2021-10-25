@@ -238,6 +238,7 @@ struct cr_options {
 	int unprivileged;
 
 	char *ve;
+	char *ve_clock_fallback;
 };
 
 extern struct cr_options opts;
