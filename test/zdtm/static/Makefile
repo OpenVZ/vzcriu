@@ -478,6 +478,7 @@ TST_DIR		=				\
 		bind-mount-unix06		\
 		bind-mount-unix07		\
 		bind-mount-unix08		\
+		bind-mount-unix09		\
 		bind-mount-unix-multi		\
 		bind-mount-unix-multi-submntns	\
 		bind-mount-unix-multi-stream	\
