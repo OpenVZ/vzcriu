@@ -1087,7 +1087,10 @@ struct unix_sk_info {
 	char *name;
 	char *name_dir;
 	unsigned flags;
-	int fdstore_id;
+	union {
+		int fdstore_id;
+		int fdstore_mnt_id[2];
+	};
 	struct unix_sk_info *peer;
 	struct pprep_head peer_resolve; /* XXX : union with the above? */
 	struct file_desc d;
@@ -1978,11 +1981,11 @@ static int break_connected(struct unix_sk_info *ui, int sk)
 static int make_socket(struct unix_sk_info *ui, int sks[2], bool pair, bool disjoin_master)
 {
 	if (unlikely(ui->flags & USK_BINDMOUNT)) {
-		sks[0] = fdstore_get(ui->fdstore_id);
-		sks[1] = -1;
+		sks[0] = fdstore_get(ui->fdstore_mnt_id[0]);
+		sks[1] = fdstore_get(ui->fdstore_mnt_id[1]);
 		pr_debug("bindmount: Fetch socket pair id %#x ino %d\n",
 			 ui->ue->id, ui->ue->ino);
-		if (sks[0] < 0) {
+		if (sks[0] < 0 || sks[1] < 0) {
 			pr_err("bindmount: Can't fetch id %#x socketpair from the store\n",
 			       ui->ue->id);
 			return -1;
@@ -2314,7 +2317,8 @@ static int init_unix_sk_info(struct unix_sk_info *ui, UnixSkEntry *ue)
 	ui->name_dir = (void *)ue->name_dir;
 
 	ui->flags = 0;
-	ui->fdstore_id = -1;
+	ui->fdstore_mnt_id[0] = -1; /* fdstore_id in union */
+	ui->fdstore_mnt_id[1] = -1;
 	ui->ghost_dir_pos = 0;
 	ui->peer = NULL;
 	ui->queuer = NULL;
@@ -2483,7 +2487,7 @@ static int sk_has_bindmount(struct unix_sk_info *ui, struct mount_info *mi)
 int unix_prepare_bindmount(struct mount_info *mi)
 {
 	int prev_cwd_fd = -1, prev_root_fd = -1;
-	int ret = -1, sk = -1;
+	int ret = -1, sks[2] = { -1, -1 };
 	struct unix_sk_info *ui;
 	char path[PATH_MAX], plain_mount_tmp[PATH_MAX];
 	struct mount_info *sk_mi = NULL;
@@ -2506,7 +2510,7 @@ int unix_prepare_bindmount(struct mount_info *mi)
 	if (&ui->mnt_list == &unix_mnt_sockets)
 		return 0;
 
-	if (ui->fdstore_id > 0) {
+	if (ui->fdstore_mnt_id[0] > 0 || ui->fdstore_mnt_id[1] > 0) {
 		pr_debug("bindmount: sk id %#x already in fdstore. skipping\n",
 			 ui->ue->id);
 		return 0;
@@ -2610,15 +2614,27 @@ int unix_prepare_bindmount(struct mount_info *mi)
 	}
 
 	/*
-	 * Preallocate and bind socket here and later the
+	 * Preallocate and bind sockets here and later the
 	 * open_unixsk_standalone helper will simply fetch
 	 * him from fdstore
+	 * Note: TCP_LISTEN socket does not need a peer because
+	 * it will never have one - new sockets with pairs are
+	 * generated via accept() while this stays alone
 	 */
-	sk = socket(PF_UNIX, ui->ue->type, 0);
-	if (sk < 0) {
-		pr_perror("bindmount: Can't create socket id %#x",
-			  ui->ue->id);
-		goto out;
+
+	if (ui->ue->state == TCP_LISTEN) {
+		sks[0] = socket(PF_UNIX, ui->ue->type, 0);
+		if (sks[0] < 0) {
+			pr_perror("bindmount: Can't create socket id %#x",
+				  ui->ue->id);
+			goto out;
+		}
+	} else {
+		if (socketpair(PF_UNIX, ui->ue->type, 0, sks)) {
+			pr_perror("bindmount: Can't create socketpair id %#x",
+				  ui->ue->id);
+			goto out;
+		}
 	}
 
 	/*
@@ -2640,13 +2656,18 @@ int unix_prepare_bindmount(struct mount_info *mi)
 			 ui->name_dir ? ui->name_dir : "-");
 	}
 
-	if (bind_unix_sk(sk, ui, false))
+	if (bind_unix_sk(sks[0], ui, false))
 		goto out;
 
-	ui->fdstore_id = fdstore_add(sk);
-	if (ui->fdstore_id < 0) {
-		pr_err("bindmount: Can't add socket id %#x into fdstore\n",
-		        ui->ue->id);
+	ui->fdstore_mnt_id[0] = fdstore_add(sks[0]);
+	if (ui->ue->state == TCP_LISTEN)
+		ui->fdstore_mnt_id[1] = -1;
+	else
+		ui->fdstore_mnt_id[1] = fdstore_add(sks[1]);
+
+	if (ui->fdstore_mnt_id[0] < 0 || (ui->ue->state != TCP_LISTEN && ui->fdstore_mnt_id[1] < 0)) {
+		pr_err("bindmount: Can't add socketpair id %#x into fdstore\n",
+		       ui->ue->id);
 		goto out;
 	}
 
@@ -2680,7 +2701,8 @@ int unix_prepare_bindmount(struct mount_info *mi)
 out:
 	close_safe(&prev_cwd_fd);
 	close_safe(&prev_root_fd);
-	close_safe(&sk);
+	close_safe(&sks[0]);
+	close_safe(&sks[1]);
 
 	if (ret == 0)
 		pr_debug("bindmount: Standalone socket moved into fdstore (id %#x ino %d peer %d)\n",
