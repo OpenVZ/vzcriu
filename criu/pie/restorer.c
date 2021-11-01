@@ -1256,8 +1256,8 @@ static int wait_helpers(struct task_restore_args *task_args)
 static int wait_zombies(struct task_restore_args *task_args)
 {
 	static const uint32_t step_ms = 100;
-	static const struct timespec req = {
-		.tv_nsec        = step_ms * 1000000,
+	const struct timespec req = {
+		.tv_nsec        = step_ms * NSEC_PER_MSEC,
 		.tv_sec         = 0,
 	};
 	struct timespec rem;
