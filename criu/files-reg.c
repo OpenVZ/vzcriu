@@ -1450,15 +1450,28 @@ static int dump_ghost_remap(char *path, const struct stat *st, int lfd, u32 id, 
 static void __rollback_link_remaps(bool do_unlink)
 {
 	struct link_remap_rlb *rlb, *tmp;
-	int mntns_root;
+	int path_root = -1;
+	char *path;
+	bool ovm;
 
 	list_for_each_entry_safe(rlb, tmp, &dmp_remaps, list) {
 		if (do_unlink) {
-			mntns_root = mntns_get_root_fd(rlb->mi->nsid);
-			if (mntns_root >= 0)
-				unlinkat(mntns_root, rlb->path, 0);
-			else
-				pr_err("Failed to clenaup %s link remap\n", rlb->path);
+			ovm = path_is_overmounted(rlb->path, rlb->mi);
+			if (ovm) {
+				resolve_mntfd_and_rpath(rlb->mi->mnt_id, rlb->path, false, &path_root, &path);
+			} else {
+				path_root = mntns_get_root_fd(rlb->mi->nsid);
+				path = rlb->path;
+			}
+
+			if (path_root >= 0) {
+				if (unlinkat(path_root, path, 0))
+					pr_err("Failed to cleanup %s link remap\n", rlb->path);
+				if (ovm)
+					close(path_root);
+			} else {
+				pr_err("Failed to cleanup %s link remap\n", rlb->path);
+			}
 		}
 
 		list_del(&rlb->list);
@@ -1540,8 +1553,38 @@ static int create_link_remap(char *path, int len, int lfd, u32 *idp, struct moun
 	snprintf(tmp + 1, sizeof(link_name) - (size_t)(tmp - link_name - 1), "link_remap.%d", rfe.id);
 
 	mntns_root = mntns_get_root_fd(mi->nsid);
+	while (true) {
+		int path_root = -1, fd = -1;
+		bool overmounted;
+		char *rpath;
+		int ret;
 
-	while (linkat_hard(lfd, "", mntns_root, link_name, ost->st_uid, ost->st_gid, AT_EMPTY_PATH) < 0) {
+		overmounted = path_is_overmounted(link_name, mi);
+		if (overmounted) {
+			if (resolve_mntfd_and_rpath(mi->mnt_id, link_name, false, &path_root, &rpath)) {
+				pr_err("Unable to resolve mntfd and rpath\n");
+				return -1;
+			}
+
+			fd = open_opath_at_mount(lfd, path_root);
+			if (fd < 0) {
+				pr_perror("failed to reopen lfd %d at mount %d", lfd, mi->mnt_id);
+				close(path_root);
+				return -1;
+			}
+		} else {
+			path_root = mntns_root;
+			rpath = link_name;
+			fd = lfd;
+		}
+
+		ret = linkat_hard(fd, "", path_root, rpath, ost->st_uid, ost->st_gid, AT_EMPTY_PATH);
+		if (overmounted) {
+			close(path_root);
+			close(fd);
+		}
+		if (!ret)
+			break;
 		if (errno != ENOENT) {
 			pr_perror("Can't link remap to %s", path);
 			return -1;
@@ -1884,14 +1927,8 @@ static int check_path_remap(struct fd_link *link, const struct fd_parms *parms,
 		 */
 
 		if (errno == ENOENT) {
-			if (is_overmounted) {
-				pr_perror("overmounted unlinked files (%d/%s/%s) are not supported",
-					  mi->mnt_id, mi->ns_mountpoint, rpath);
-				return -1;
-			}
-
 			link_strip_deleted(link);
-			ret = dump_linked_remap(rpath + 1, plen - 1, parms, lfd, id, mi, &fallback);
+			ret = dump_linked_remap(link->name + 1, plen - 1, parms, lfd, id, mi, &fallback);
 			if (ret < 0 && fallback) {
 				/* fallback is true only if following conditions are true:
 				 * 1. linkat() inside dump_linked_remap() failed with ENOENT
