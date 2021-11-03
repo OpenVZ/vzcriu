@@ -1,0 +1,31 @@
+#!/bin/bash
+
+[ "$1" == "--clean" -o "$1" == "--pre-restore" ] || exit 0
+
+tname=$(mktemp -d cgclean.XXXXXX)
+for controller in "freezer"; do
+	mount -t cgroup none $tname -o "$controller"
+
+	echo "Cleaning $controller"
+	set +e
+	echo "THAWED" > "$tname/zdtm/cgfz1_test/cgfz1_nested_test/freezer.state"
+	echo "THAWED" > "$tname/zdtm/cgfz1_test/cgfz2_nested_test/freezer.state"
+	echo "THAWED" > "$tname/zdtm/cgfz1_test/freezer.state"
+	rmdir "$tname/zdtm/cgfz1_test/cgfz1_nested_test"
+	rmdir "$tname/zdtm/cgfz1_test/cgfz2_nested_test"
+	rmdir "$tname/zdtm/cgfz1_test"
+
+	echo "THAWED" > "$tname/zdtm/cgfz2_test/cgfz1_nested_test/freezer.state"
+	echo "THAWED" > "$tname/zdtm/cgfz2_test/cgfz2_nested_test/freezer.state"
+	echo "THAWED" > "$tname/zdtm/cgfz2_test/freezer.state"
+	rmdir "$tname/zdtm/cgfz2_test/cgfz1_nested_test"
+	rmdir "$tname/zdtm/cgfz2_test/cgfz2_nested_test"
+	rmdir "$tname/zdtm/cgfz2_test"
+
+	rmdir "$tname/zdtm/"
+	set -e
+
+	umount "$tname"
+done
+
+rmdir "$tname"

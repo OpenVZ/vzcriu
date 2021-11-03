@@ -524,6 +524,7 @@ TST		=				\
 		cmdlinenv00			\
 		shm-unaligned			\
 		shm-hugetlb			\
+		cgroup_freezer			\
 
 TST_STATE	=				\
 		conntracks			\
@@ -573,6 +574,9 @@ umask00.pid:	umask00
 
 fifo-rowo-pair.pid: fifo-rowo-pair
 	$(<D)/$(<F) --pidfile=$@ --outfile=$<.out --name_master=$<.master.test --name_slave=$<.slave.test
+
+cgroup_freezer.pid:	cgroup_freezer
+	$(<D)/$(<F) --pidfile=$@ --outfile=$<.out --dirname=$<.test --freezecg=zdtm
 
 %.out:	%.pid %
 	-kill -TERM `cat $<`
