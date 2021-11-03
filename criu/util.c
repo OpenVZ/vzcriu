@@ -38,6 +38,7 @@
 #include "mem.h"
 #include "namespaces.h"
 #include "criu-log.h"
+#include "fdstore.h"
 
 #include "clone-noasan.h"
 #include "cr_options.h"
@@ -1849,5 +1850,66 @@ int cut_path_ending(char *path, char *ending)
 	}
 
 	path[ending_pos - 1] = 0;
+	return 0;
+}
+
+
+/*
+ * This helper takes abspath and mount_id and fills mntfd_out and rpath_out
+ * so openat(*mntfd_out, *rpath_out, ...) will result in opening file ignoring all overmounts
+ */
+int resolve_mntfd_and_rpath(unsigned int mnt_id, char *abspath, bool is_restore, int *mntfd_out, char **rpath_out)
+{
+	struct mount_info *mi;
+	char *rpath;
+	int mntfd;
+
+	mi = lookup_mnt_id(mnt_id);
+	if (mi == NULL) {
+		pr_err("Unable to find mount %d\n", mnt_id);
+		return -1;
+	}
+
+	rpath = get_relative_path_noempty(abspath, mi->ns_mountpoint);
+	if (!rpath) {
+		pr_err("Unable to resolve relative path (%s, %s)\n", mi->ns_mountpoint, abspath);
+		return -1;
+	}
+
+	pr_info("Mountpoint %d path: %s, relative path: %s\n", mi->mnt_id, mi->ns_mountpoint, rpath);
+
+	if (is_restore) {
+		struct mount_info *path_overmount;
+
+		path_overmount = get_path_overmount(abspath, mi);
+		if (IS_ERR(path_overmount)) {
+			pr_err("Error while checking for rpath %s overmounts\n", abspath);
+			return -1;
+		} else if (path_overmount) {
+			pr_info("rpath %s is overmounted by #%d %s\n", rpath, path_overmount->mnt_id, path_overmount->ns_mountpoint);
+
+			rpath = get_relative_path_noempty(abspath, path_overmount->ns_mountpoint);
+			if (!rpath) {
+				pr_err("Unable to resolve new relative path regarding overmount\n");
+				return -1;
+			}
+			pr_info("Resolved new relative path '%s' at overmount mountpoint\n", rpath);
+
+			mntfd = fdstore_get(path_overmount->rmi->mp_fd_id);
+		} else {
+			mntfd = fdstore_get(mi->rmi->mnt_fd_id);
+		}
+	} else {
+		mntfd = open_mountpoint(mi);
+	}
+
+	if (mntfd < 0) {
+		pr_err("Unable to open mntfd\n");
+		return -1;
+	}
+
+	*mntfd_out = mntfd;
+	*rpath_out = rpath;
+
 	return 0;
 }

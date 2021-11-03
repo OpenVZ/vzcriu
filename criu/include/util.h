@@ -21,6 +21,7 @@
 #include "common/bug.h"
 #include "log.h"
 #include "common/err.h"
+#include "mount.h"
 
 #define PREF_SHIFT_OP(pref, op, size)	((size) op (pref ##BYTES_SHIFT))
 #define KBYTES_SHIFT	10
@@ -418,5 +419,7 @@ static inline void vz_ensure_ve0(void)
 	if (access("/proc/vz/devperms", F_OK))
 		pr_warn_once("Running in veX environment\n");
 }
+
+extern int resolve_mntfd_and_rpath(unsigned int mnt_id, char *abspath, bool is_restore, int *mntfd_out, char **rpath_out);
 
 #endif /* __CR_UTIL_H__ */
