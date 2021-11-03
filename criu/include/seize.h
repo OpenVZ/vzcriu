@@ -3,7 +3,7 @@
 
 extern int collect_pstree(void);
 extern void pstree_switch_state(struct pstree_item *root_item, int st);
-extern const char *get_real_freezer_state(void);
+extern const char *get_real_freezer_state(char *path);
 extern void free_freezer_real_states(void);
 extern bool alarm_timeouted(void);
 
