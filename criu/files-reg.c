@@ -2796,7 +2796,6 @@ int open_path(struct file_desc *d, int (*open_cb)(int mntns_root, struct reg_fil
 	}
 
 	if (IS_RFI_RELATIVE_PATH(rfi)) {
-		struct mount_info *mi, *path_overmount;
 		char *rpath;
 
 		if (opts.mntns_compat_mode) {
@@ -2816,40 +2815,14 @@ int open_path(struct file_desc *d, int (*open_cb)(int mntns_root, struct reg_fil
 		}
 
 		pr_info("Restoring file with relative path\n");
-		mi = lookup_mnt_id(rfi->rfe->mnt_id);
-		if (!mi) {
-			pr_err("Unable to find mountpoint for file %s\n", rfi->path);
+
+		if (resolve_mntfd_and_rpath(rfi->rfe->mnt_id, rfi->path, true, &rf_path_root, &rpath)) {
+			pr_err("Unable to get rpath or open mount\n");
 			goto err;
 		}
 
-		rpath = get_relative_path_noempty(rfi->path, mi->ns_mountpoint);
-		if (!rpath) {
-			pr_err("Unable to resolve relative path to mount path\n");
-			return -1;
-		}
-		pr_info("Mountpoint %d path: %s, relative path: %s\n", mi->mnt_id, mi->ns_mountpoint, rpath);
-
 		orig_path = rfi->path;
 		rfi->path = rpath;
-
-		path_overmount = get_path_overmount(orig_path, mi);
-		if (path_overmount) {
-			pr_info("path %s is overmounted by #%d %s\n",
-				orig_path, path_overmount->mnt_id,
-				path_overmount->ns_mountpoint);
-
-			rpath = get_relative_path_noempty(orig_path, path_overmount->ns_mountpoint);
-			if (!rpath) {
-				pr_err("Unable to resolve new relative path regarding overmount\n");
-				goto err;
-			}
-			pr_info("Resolved new relative path '%s' at overmount mountpoint\n", rpath);
-			rfi->path = rpath;
-
-			rf_path_root = fdstore_get(path_overmount->rmi->mp_fd_id);
-		} else {
-			rf_path_root = fdstore_get(mi->rmi->mnt_fd_id);
-		}
 	} else {
 		rf_path_root = mntns_get_root_by_mnt_id(rfi->rfe->mnt_id);
 	}
