@@ -642,12 +642,26 @@ static int collect_remap_linked(struct reg_file_info *rfi,
 static int open_remap_linked(struct reg_file_info *rfi)
 {
 	if (root_ns_mask & CLONE_NEWUSER) {
-		int rfd;
+		char *rpath, path[PATH_MAX];
+		struct mount_info *mi;
 		struct stat st;
 
-		rfd = mntns_get_root_by_mnt_id(rfi->rfe->mnt_id);
-		if (fstatat(rfd, rfi->remap->rpath, &st, AT_SYMLINK_NOFOLLOW)) {
-			pr_perror("Can't get owner of link remap %s", rfi->remap->rpath);
+		mi = lookup_mnt_id(rfi->remap->rmnt_id);
+		if (!mi) {
+			pr_err("The %d mount is not found for remap\n", rfi->remap->rmnt_id);
+			return -1;
+		}
+
+		rpath = get_relative_path(rfi->remap->rpath, mi->ns_mountpoint);
+		if (!rpath) {
+			pr_err("Can't get path %s relative to %s\n", rfi->remap->rpath, mi->ns_mountpoint);
+			return -1;
+		}
+
+		snprintf(path, sizeof(path), "%s%s%s", service_mountpoint(mi), rpath[0] ? "/" : "", rpath);
+
+		if (lstat(path, &st)) {
+			pr_perror("Can't get owner of link remap %s (-> %s)", rfi->remap->rpath, rpath);
 			return -1;
 		}
 
@@ -2496,11 +2510,12 @@ static int rfi_remap(struct reg_file_info *rfi, int *level)
 	struct mount_info *mi, *rmi, *tmi;
 	char _path[PATH_MAX], *path = _path;
 	char _rpath[PATH_MAX], *rpath = _rpath;
-	int mntns_root;
+	int path_root, remap_root, ret = -1;
+	bool close_pr = false, close_rr = false;
 
 	if (rfi->rfe->mnt_id == -1) {
 		/* Know nothing about mountpoints */
-		mntns_root = mntns_get_root_by_mnt_id(-1);
+		path_root = remap_root = mntns_get_root_by_mnt_id(-1);
 		path = rfi->path;
 		rpath = rfi->remap->rpath;
 		goto out_root;
@@ -2533,36 +2548,61 @@ static int rfi_remap(struct reg_file_info *rfi, int *level)
 	BUG_ON(tmi->s_dev != rmi->s_dev);
 	BUG_ON(tmi->s_dev != mi->s_dev);
 
-	/* Calcalate paths on the device (root mount) */
+	/* Calculate paths on the device (root mount) */
 	convert_path_from_another_mp(rfi->path, path, sizeof(_path), mi, tmi);
 	convert_path_from_another_mp(rfi->remap->rpath, rpath, sizeof(_rpath), rmi, tmi);
 
 out:
-	mntns_root = mntns_get_root_fd(tmi->nsid);
+	if (path_is_overmounted(path, tmi)) {
+		if (resolve_mntfd_and_rpath(tmi->mnt_id, path, true, &path_root, &path)) {
+			pr_err("Unable to resolve mntfd and rpath for overmounted file\n");
+			return -1;
+		}
+		close_pr = true;
+	} else {
+		path_root = mntns_get_root_fd(tmi->nsid);
+	}
+
+	if (path_is_overmounted(rpath, tmi)) {
+		if (resolve_mntfd_and_rpath(tmi->mnt_id, rpath, true, &remap_root, &rpath)) {
+			pr_err("Unable to resolve mntfd and rpath for overmounted remap\n");
+			goto err;
+		}
+		close_rr = true;
+	} else {
+		remap_root = mntns_get_root_fd(tmi->nsid);
+	}
 
 	/* We get here while in task's mntns */
 	if (try_remount_writable(tmi, REMOUNT_IN_REAL_MNTNS))
-		return -1;
+		goto err;
 
 	pr_debug("%d: Link %s -> %s\n", tmi->mnt_id, rpath, path);
 out_root:
-	*level = make_parent_dirs_if_need(mntns_root, path);
+	*level = make_parent_dirs_if_need(path_root, path);
 	if (*level < 0)
-		return -1;
+		goto err;
 
-	if (linkat_hard(mntns_root, rpath, mntns_root, path,
+	if (linkat_hard(remap_root, rpath, path_root, path,
 			rfi->remap->uid, rfi->remap->gid, 0) < 0) {
 		int errno_saved = errno;
 
-		if (!rm_parent_dirs(mntns_root, path, *level) &&
+		if (!rm_parent_dirs(path_root, path, *level) &&
 		    errno_saved == EEXIST) {
 			errno = errno_saved;
-			return 1;
+			ret = 1;
+			goto err;
 		}
-		return -1;
+		goto err;
 	}
 
-	return 0;
+	ret = 0;
+err:
+	if (close_pr)
+		close(path_root);
+	if (close_rr)
+		close(remap_root);
+	return ret;
 }
 
 /*
