@@ -23,6 +23,7 @@
 #include "string.h"
 #include "xmalloc.h"
 #include "util.h"
+#include "ftw.h"
 
 char *task_comm_info(pid_t pid, char *comm, size_t size)
 {
@@ -74,6 +75,17 @@ enum freezer_state {
 	FROZEN,
 	FREEZING
 };
+
+/*
+ * The @path is the full path to the freezer
+ */
+struct freezer_struct {
+	char *path;
+	enum freezer_state state;
+	struct list_head l;
+};
+
+static LIST_HEAD(freezer_real_states);
 
 /* Track if we are running on cgroup v2 system. */
 static bool cgroup_v2 = false;
@@ -173,6 +185,42 @@ static enum freezer_state get_freezer_state(int fd)
 	if (cgroup_v2)
 		return get_freezer_v2_state(fd);
 	return get_freezer_v1_state(fd);
+}
+
+static enum freezer_state get_self_freezer_state(const char *dir)
+{
+	char path[PATH_MAX];
+	char self_freezing;
+	int ret;
+	int fd;
+
+	ret = snprintf(path, sizeof(path), "%s/%s", dir, "freezer.self_freezing");
+	if (ret >= sizeof(path)) {
+		pr_perror("Directory path [%s] is too long", dir);
+		goto err;
+	}
+
+	fd = open(path, O_RDONLY);
+	if (fd < 0) {
+		pr_perror("Unable to open %s", path);
+		goto err;
+	}
+
+	if (read(fd, &self_freezing, 1) <= 0) {
+		pr_perror("Unable to get a current self_freezing state from %s", path);
+		close(fd);
+		goto err;
+	}
+	close(fd);
+
+	pr_debug("%s/freezer.self_freezing=%c\n", dir, self_freezing);
+	if (self_freezing == '1')
+		return FROZEN;
+	else
+		return THAWED;
+
+err:
+	return FREEZER_ERROR;
 }
 
 static bool freezer_thawed;
@@ -303,26 +351,31 @@ static int wait_freezer_state_change(int fd, enum freezer_state new_state)
 
 static int freezer_restore_state(void)
 {
-	int fd;
-	int ret = -1;
+	struct freezer_struct *it;
 
-	if (!opts.freeze_cgroup || freezer_thawed)
+	if (!opts.freeze_cgroup)
 		return 0;
 
-	fd = freezer_open();
-	if (fd < 0)
-		return -1;
+	list_for_each_entry(it, &freezer_real_states, l) {
+		int fd;
 
-	if (freezer_write_state(fd, FROZEN))
-		goto err;
+		pr_info("Restoring freezer state [%s] to [%s]\n",
+				it->state == FROZEN ? frozen : thawed, it->path);
 
-	if (wait_freezer_state_change(fd, FROZEN))
-		goto err;
+		fd = __freezer_open(it->path);
+		if (fd < 0)
+			return -1;
 
-	ret = 0;
-err:
-	close(fd);
-	return ret;
+		if (freezer_write_state(fd, it->state) &&
+			wait_freezer_state_change(fd, it->state)) {
+			close(fd);
+			return -1;
+		}
+
+		close(fd);
+	}
+
+	return 0;
 }
 
 static FILE *freezer_open_thread_list(char *root_path)
@@ -678,6 +731,50 @@ static int log_unfrozen_stacks(char *root)
 	return 0;
 }
 
+static int freezer_save_state(const char *fpath, const struct stat *sb,
+			   int tflag, struct FTW *ftwbuf)
+{
+	struct freezer_struct *real_state;
+	enum freezer_state state;
+
+	/* Skip root freezer state (ftwbuf->level == 0) */
+	if (tflag == FTW_D && ftwbuf->level != 0) {
+		state = get_self_freezer_state(fpath);
+		if (state == FREEZER_ERROR)
+			return -1;
+
+		real_state = xmalloc(sizeof(*real_state));
+		if (!real_state)
+			return -1;
+
+		real_state->path = xstrdup(fpath);
+		real_state->state = state;
+		list_add(&real_state->l, &freezer_real_states);
+
+		pr_info("Saving freezer [%s] state [%s]\n",
+			real_state->path, real_state->state == THAWED ? thawed : frozen);
+	}
+
+	return 0;
+}
+
+#define NFTW_FD_MAX 64
+static int save_freezer_states(char *root)
+{
+	return nftw(root, freezer_save_state, NFTW_FD_MAX, FTW_PHYS);
+}
+
+void free_freezer_real_states(void)
+{
+	struct freezer_struct *it, *temp;
+
+	list_for_each_entry_safe(it, temp, &freezer_real_states, l) {
+		list_del(&it->l);
+		xfree(it->path);
+		xfree(it);
+	}
+}
+
 static int freezer_write_state_recurse(char *root, enum freezer_state state)
 {
 	DIR *dir;
@@ -805,6 +902,11 @@ again:
 			nanosleep(&req, NULL);
 		} else
 			break;
+	}
+
+	if (!opts.skip_freezer_state && save_freezer_states(opts.freeze_cgroup) < 0) {
+		pr_err("Unable to save freezer states\n");
+		exit_code = -1;
 	}
 
 err:
