@@ -225,9 +225,24 @@ err:
 
 static bool freezer_thawed;
 
-const char *get_real_freezer_state(void)
+const char *get_real_freezer_state(char *path)
 {
-	return freezer_thawed ? thawed : frozen;
+	struct freezer_struct *it;
+
+	list_for_each_entry(it, &freezer_real_states, l) {
+		/*
+		 * compare path and it->path using get_relative_path()
+		 * we just need to check that return value is empty
+		 * string
+		 */
+		char *rel = get_relative_path(path, it->path);
+		if (rel && !rel[0])
+			return it->state == THAWED ? thawed : frozen;
+	}
+
+	pr_perror("Failed to find freezer state by path [%s]", path);
+
+	return NULL;
 }
 
 static int freezer_write_state(int fd, enum freezer_state new_state)
@@ -923,11 +938,6 @@ err:
 		 * because tasks need to be seized by ptrace.
 		 * But ptrace can't caught task that under refrigerator
 		 * because in this case task sit in D-state.
-		 *
-		 * FIXME: we should think about possible problem here.
-		 * What if enduser in container frozen some processes?
-		 * We need to unfreeze this processes, but on restore
-		 * we should return all processes in their initial state.
 		 */
 		if (freezer_write_state_recurse(opts.freeze_cgroup, THAWED)) {
 			pr_err("Unable to thaw tasks\n");
