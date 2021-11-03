@@ -115,13 +115,13 @@ static struct list_head *rst_remaps;
  */
 struct link_remap_rlb {
 	struct list_head	list;
-	struct ns_id		*mnt_ns;
+	struct mount_info	*mi;
 	char			*path;
 	char			*orig;
 	u32			id;
 };
 
-static int note_link_remap(char *path, char *orig, struct ns_id *nsid, u32 id)
+static int note_link_remap(char *path, char *orig, struct mount_info *mi, u32 id)
 {
 	struct link_remap_rlb *rlb;
 
@@ -137,7 +137,7 @@ static int note_link_remap(char *path, char *orig, struct ns_id *nsid, u32 id)
 	if (!rlb->orig)
 		goto err3;
 
-	rlb->mnt_ns = nsid;
+	rlb->mi = mi;
 	rlb->id = id;
 	list_add(&rlb->list, &dmp_remaps);
 
@@ -152,12 +152,12 @@ err:
 	return -1;
 }
 
-static int find_link_remap(char *path, struct ns_id *nsid, u32 *id)
+static int find_link_remap(char *path, struct mount_info *mi, u32 *id)
 {
 	struct link_remap_rlb *rlb;
 
 	list_for_each_entry(rlb, &dmp_remaps, list) {
-		if (rlb->mnt_ns != nsid)
+		if (rlb->mi != mi)
 			continue;
 		if (strcmp(rlb->orig, path))
 			continue;
@@ -1363,7 +1363,7 @@ static void __rollback_link_remaps(bool do_unlink)
 
 	list_for_each_entry_safe(rlb, tmp, &dmp_remaps, list) {
 		if (do_unlink) {
-			mntns_root = mntns_get_root_fd(rlb->mnt_ns);
+			mntns_root = mntns_get_root_fd(rlb->mi->nsid);
 			if (mntns_root >= 0)
 				unlinkat(mntns_root, rlb->path, 0);
 			else
@@ -1382,7 +1382,7 @@ void free_link_remaps(void) { __rollback_link_remaps(false); }
 static int linkat_hard(int odir, char *opath, int ndir, char *npath, uid_t uid, gid_t gid, int flags);
 
 static int create_link_remap(char *path, int len, int lfd,
-				u32 *idp, struct ns_id *nsid,
+				u32 *idp, struct mount_info *mi,
 				const struct stat *st)
 {
 	char link_name[PATH_MAX], *tmp;
@@ -1425,7 +1425,7 @@ static int create_link_remap(char *path, int len, int lfd,
 	/* Any 'unique' name works here actually. Remap works by reg-file ids. */
 	snprintf(tmp + 1, sizeof(link_name) - (size_t)(tmp - link_name - 1), "link_remap.%d", rfe.id);
 
-	mntns_root = mntns_get_root_fd(nsid);
+	mntns_root = mntns_get_root_fd(mi->nsid);
 
 again:
 	ret = linkat_hard(lfd, "", mntns_root, link_name,
@@ -1442,7 +1442,7 @@ again:
 		return -1;
 	}
 
-	if (note_link_remap(link_name, path, nsid, *idp))
+	if (note_link_remap(link_name, path, mi, *idp))
 		return -1;
 
 	fe.type = FD_TYPES__REG;
@@ -1453,20 +1453,20 @@ again:
 }
 
 static int dump_linked_remap_type(char *path, int len, const struct stat *ost,
-				  int lfd, u32 id, struct ns_id *nsid,
+				  int lfd, u32 id, struct mount_info *mi,
 				  RemapType remap_type)
 {
 	u32 lid;
 	RemapFilePathEntry rpe = REMAP_FILE_PATH_ENTRY__INIT;
 
-	if (!find_link_remap(path, nsid, &lid)) {
+	if (!find_link_remap(path, mi, &lid)) {
 		pr_debug("Link remap for %s already exists with id %x\n",
 				path, lid);
 		/* Link-remap files in case of SPFS are created by criu on
 		 * restore. Dump it only once to avoid collision */
 		if (remap_type == REMAP_TYPE__SPFS_LINKED)
 			return 0;
-	} else if (create_link_remap(path, len, lfd, &lid, nsid, ost))
+	} else if (create_link_remap(path, len, lfd, &lid, mi, ost))
 			return -1;
 
 	rpe.orig_id = id;
@@ -1502,15 +1502,15 @@ static inline bool spfs_file(const struct fd_parms *parms, struct ns_id *nsid)
 }
 
 static int dump_linked_remap(char *path, int len, const struct stat *ost,
-				int lfd, u32 id, struct ns_id *nsid,
+				int lfd, u32 id, struct mount_info *mi,
 				const struct fd_parms *parms)
 {
 	RemapType remap_type = REMAP_TYPE__LINKED;
 
-	if (spfs_file(parms, nsid))
+	if (spfs_file(parms, mi->nsid))
 		remap_type = REMAP_TYPE__SPFS_LINKED;
 
-	return dump_linked_remap_type(path, len, ost, lfd, id, nsid, remap_type);
+	return dump_linked_remap_type(path, len, ost, lfd, id, mi, remap_type);
 }
 
 static int dump_spfs_remap(char *path, const struct stat *st,
@@ -1747,7 +1747,7 @@ static int check_path_remap(struct fd_link *link, const struct fd_parms *parms,
 		}
 
 		pr_debug("Dump silly-rename linked remap for %x [%s]\n", id, rpath + 1);
-		return dump_linked_remap(rpath + 1, plen - 1, ost, lfd, id, mi->nsid, parms);
+		return dump_linked_remap(rpath + 1, plen - 1, ost, lfd, id, mi, parms);
 	}
 
 	if (is_overmounted) {
@@ -1789,7 +1789,7 @@ static int check_path_remap(struct fd_link *link, const struct fd_parms *parms,
 
 			link_strip_deleted(link);
 			return dump_linked_remap(rpath + 1, plen - 1,
-							ost, lfd, id, mi->nsid, parms);
+							ost, lfd, id, mi, parms);
 		}
 
 		pr_perror("Can't stat path");
