@@ -267,6 +267,20 @@ static int find_dir(const char *path, struct list_head *dirs, struct cgroup_dir 
 	return NO_MATCH;
 }
 
+static int find_prop(const char *name, struct list_head *props, struct cgroup_prop **rprop)
+{
+	struct cgroup_prop *p;
+
+	list_for_each_entry(p, props, list) {
+		if (strcmp(p->name, name) == 0) {
+			*rprop = p;
+			return EXACT_MATCH;
+		}
+	}
+
+	return NO_MATCH;
+}
+
 /*
  * Strips trailing '\n' from the string
  */
@@ -605,7 +619,76 @@ out:
 	return exit_code;
 }
 
-static int add_freezer_state(struct cg_controller *controller)
+static int add_freezer_state(struct cgroup_dir *cg_head, char *cg_root_path)
+{
+	struct cgroup_prop *prop, *match;
+	static char path[PATH_MAX];
+	char *fz_relative_path;
+	char *value;
+	int mtype;
+	int ret;
+
+	/* cg_head->path contains a part of cgroup path , e.g. the '/machine.slice/1/fz' part of
+	 * '/sys/fs/cgroup/freezer/machine.slice/1/fz'. Function get_real_freezer_state expects
+	 * the full freezer path in the arg.
+	 *
+	 * So, make full path:
+	 * 1. get the relative freezer path (fz);
+	 * 2. concatenate opts.freeze_cgroup dir (/sys/fs/cgroup/freezer/machine.slice/1/) and
+	 *    freezers relative path (fz).
+	 */
+	fz_relative_path = get_relative_path(cg_head->path, cg_root_path);
+	ret = snprintf(path, sizeof(path), "%s/%s", opts.freeze_cgroup, fz_relative_path);
+	if (ret >= sizeof(path)) {
+		pr_err("Directory path [%s] is too long\n", cg_head->path);
+		return -1;
+	}
+
+	value = (char *)get_real_freezer_state(path);
+	if (!value)
+		return -1;
+
+	mtype = find_prop("freezer.state", &cg_head->properties, &match);
+	/* If freezer.state prop already added, nothing to do here.
+	 *  match.value should be the same as the read value
+	 */
+	if (mtype == EXACT_MATCH) {
+		if (strcmp(value, match->value)) {
+			pr_err("This cg_head's freezer.state contains an unexpected value\n");
+			return -1;
+		} else {
+			return 0;
+		}
+	}
+
+	prop = create_cgroup_prop("freezer.state");
+	if (!prop)
+		return -1;
+
+	value = xstrdup(value);
+	if (!value)
+		return -1;
+
+	prop->value = value;
+
+	pr_info("Dumping freezer.state [%s] of [%s]\n", value, cg_head->path);
+
+	list_add_tail(&prop->list, &cg_head->properties);
+	cg_head->n_properties++;
+
+	if (cg_head->n_children > 0) {
+		struct cgroup_dir *it;
+
+		list_for_each_entry(it, &cg_head->children, siblings) {
+			if (add_freezer_state(it, cg_root_path) < 0)
+				return -1;
+		};
+	}
+
+	return 0;
+}
+
+static int add_freezer_states(struct cg_controller *controller)
 {
 	struct cgroup_dir *it;
 
@@ -617,22 +700,21 @@ static int add_freezer_state(struct cg_controller *controller)
 	  * In this case
 	  */
 	list_for_each_entry(it, &controller->heads, siblings) {
-		struct cgroup_dir *cg_head;
-		struct cgroup_prop *prop;
+		struct cgroup_dir *children;
 
-		cg_head = list_first_entry(&controller->heads, struct cgroup_dir, siblings);
-
-		prop = create_cgroup_prop("freezer.state");
-		if (!prop)
-			return -1;
-		prop->value = xstrdup(get_real_freezer_state());
-		if (!prop->value) {
-			free_cgroup_prop(prop);
-			return -1;
+		/*
+		 * We intentionally do not dump/restore root cgroup state and only call
+		 * add_freezer_state() for all it's ancestors. Because the user in Virtuozzo
+		 * container just can't change it:
+		 *   echo FROZEN > /sys/fs/cgroup/freezer/freezer.state
+		 *   -bash: echo: write error: Operation not permitted
+		 * Also root freezer state logically belongs to external resources, the process
+		 * can't unfreeze itself.
+		 */
+		list_for_each_entry(children, &it->children, siblings) {
+			if (add_freezer_state(children, it->path) < 0)
+				return -1;
 		}
-
-		list_add_tail(&prop->list, &cg_head->properties);
-		cg_head->n_properties++;
 	}
 
 	return 0;
@@ -806,7 +888,7 @@ static int collect_cgroups(struct list_head *ctls)
 			return ret;
 
 		if (opts.freeze_cgroup && !opts.skip_freezer_state && !strcmp(cc->name, "freezer") &&
-		    add_freezer_state(current_controller))
+		    add_freezer_states(current_controller))
 			return -1;
 	}
 
@@ -1658,47 +1740,41 @@ out:
 	return exit_code;
 }
 
-static CgroupPropEntry *freezer_state_entry;
-static char freezer_path[PATH_MAX];
+struct freezer_state_entry {
+	CgroupPropEntry *entry;
+	char *path;
+	struct list_head l;
+};
+static LIST_HEAD(freezer_state_entries);
 
 int restore_freezer_state(void)
 {
-	size_t freezer_path_len;
+	struct freezer_state_entry *it;
+	int ret = 0;
 
-	if (!freezer_state_entry)
-		return 0;
+	list_for_each_entry(it, &freezer_state_entries, l) {
+		if (restore_cgroup_prop(it->entry, it->path, strlen(it->path), false, false) < 0) {
+			ret = -1;
+			goto out;
+		}
+	}
 
-	freezer_path_len = strlen(freezer_path);
-	return restore_cgroup_prop(freezer_state_entry, freezer_path, freezer_path_len, false, false);
+out:
+	return ret;
 }
 
 static void add_freezer_state_for_restore(CgroupPropEntry *entry, char *path, size_t path_len)
 {
-	BUG_ON(path_len >= sizeof(freezer_path));
+	struct freezer_state_entry *freezer_entry;
 
-	if (freezer_state_entry) {
-		int max_len, i;
+	freezer_entry = xmalloc(sizeof(*freezer_entry));
+	if (!freezer_entry)
+		return;
 
-		max_len = strlen(freezer_path);
-		if (max_len > path_len)
-			max_len = path_len;
+	freezer_entry->path = strndup(path, path_len);
+	freezer_entry->entry = entry;
 
-		/* If there are multiple freezer.state properties, that means they had
-		 * one common path prefix with no tasks in it. Let's find that common
-		 * prefix.
-		 */
-		for (i = 0; i < max_len; i++) {
-			if (freezer_path[i] != path[i]) {
-				freezer_path[i] = 0;
-				return;
-			}
-		}
-	}
-
-	freezer_state_entry = entry;
-	/* Path is not null terminated at path_len */
-	strncpy(freezer_path, path, path_len);
-	freezer_path[path_len] = 0;
+	list_add_tail(&freezer_entry->l, &freezer_state_entries);
 }
 
 /*
