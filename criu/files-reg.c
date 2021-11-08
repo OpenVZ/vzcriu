@@ -2761,23 +2761,32 @@ static bool validate_file(const int fd, const struct stat *fd_status, const stru
 	return true;
 }
 
-#define IS_RFI_RELATIVE_PATH(rfi) (rfi->rfe->has_vz_use_relative_path && rfi->rfe->vz_use_relative_path)
-
 int open_path(struct file_desc *d, int (*open_cb)(int mntns_root, struct reg_file_info *, void *), void *arg)
 {
 	int tmp = -1, rf_path_root = -1, level = 0;
 	struct reg_file_info *rfi;
-	char *orig_path = NULL;
-	char path[PATH_MAX];
+	char path[PATH_MAX], *rpath;
+	char *orig_path;
 	int inh_fd = -1;
+	bool use_rpath;
 	int ret;
 
 	if (inherited_fd(d, &tmp))
 		return tmp;
 
 	rfi = container_of(d, struct reg_file_info, d);
+	orig_path = rfi->path;
 
-	if (rfi->rfe->ext && !IS_RFI_RELATIVE_PATH(rfi)) {
+	use_rpath = rfi->rfe->has_vz_use_relative_path && rfi->rfe->vz_use_relative_path;
+	if (use_rpath) {
+		if (opts.mntns_compat_mode) {
+			pr_err("Unable to restore file %s. Mounts-v2 is needed to restore files with relative path\n",
+			       rfi->path);
+			goto err;
+		}
+	}
+
+	if (rfi->rfe->ext) {
 		tmp = inherit_fd_lookup_id(rfi->rfe->name);
 		if (tmp >= 0) {
 			inh_fd = tmp;
@@ -2787,13 +2796,12 @@ int open_path(struct file_desc *d, int (*open_cb)(int mntns_root, struct reg_fil
 			 */
 			rf_path_root = open_pid_proc(getpid());
 			snprintf(path, sizeof(path), "fd/%d", tmp);
-			orig_path = rfi->path;
 			rfi->path = path;
 			goto ext;
 		}
 	}
 
-	if (rfi->remap && !IS_RFI_RELATIVE_PATH(rfi)) {
+	if (rfi->remap) {
 		if (fault_injected(FI_RESTORE_OPEN_LINK_REMAP)) {
 			pr_info("fault: Open link-remap failure!\n");
 			kill(getpid(), SIGKILL);
@@ -2805,7 +2813,6 @@ int open_path(struct file_desc *d, int (*open_cb)(int mntns_root, struct reg_fil
 			 * FIXME Can't make directory under new name.
 			 * Will have to open it under the ghost one :(
 			 */
-			orig_path = rfi->path;
 			rfi->path = rfi->remap->rpath;
 		} else if ((ret = rfi_remap(rfi, &level)) == 1) {
 			static char tmp_path[PATH_MAX];
@@ -2820,7 +2827,6 @@ int open_path(struct file_desc *d, int (*open_cb)(int mntns_root, struct reg_fil
 			 * its silly-rename doesn't care, why should we?
 			 */
 
-			orig_path = rfi->path;
 			rfi->path = tmp_path;
 			snprintf(tmp_path, sizeof(tmp_path), "%s.cr_link", orig_path);
 			pr_debug("Fake %s -> %s link\n", rfi->remap->rpath, rfi->path);
@@ -2835,33 +2841,12 @@ int open_path(struct file_desc *d, int (*open_cb)(int mntns_root, struct reg_fil
 		}
 	}
 
-	if (IS_RFI_RELATIVE_PATH(rfi)) {
-		char *rpath;
-
-		if (opts.mntns_compat_mode) {
-			pr_err("Unable to restore file %s. Mounts-v2 is needed to restore files with relative path\n",
-			       rfi->path);
-			goto err;
-		}
-
-		if (rfi->remap) {
-			pr_err("Restoring remapped files with relative path is not supported\n");
-			goto err;
-		}
-
-		if (rfi->rfe->ext) {
-			pr_err("Restoring files with relative path on external mount is not supported\n");
-			goto err;
-		}
-
-		pr_info("Restoring file with relative path\n");
-
+	if (use_rpath) {
 		if (resolve_mntfd_and_rpath(rfi->rfe->mnt_id, rfi->path, true, &rf_path_root, &rpath)) {
 			pr_err("Unable to get rpath or open mount\n");
 			goto err;
 		}
 
-		orig_path = rfi->path;
 		rfi->path = rpath;
 	} else {
 		rf_path_root = mntns_get_root_by_mnt_id(rfi->rfe->mnt_id);
@@ -2951,20 +2936,20 @@ ext:
 
 		mutex_unlock(remap_open_lock);
 	}
-	if (orig_path)
-		rfi->path = orig_path;
+
+	rfi->path = orig_path;
 
 	if (restore_fown(tmp, rfi->rfe->fown)) {
 		close(tmp);
 		return -1;
 	}
 
-	if (IS_RFI_RELATIVE_PATH(rfi))
+	if (use_rpath)
 		close_safe(&rf_path_root);
 
 	return tmp;
 err:
-	if (IS_RFI_RELATIVE_PATH(rfi) && rf_path_root > -1)
+	if (use_rpath && rf_path_root > -1)
 		close_safe(&rf_path_root);
 	if (rfi->remap)
 		mutex_unlock(remap_open_lock);
