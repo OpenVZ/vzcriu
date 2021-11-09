@@ -2064,7 +2064,10 @@ def do_run_test(tname, tdesc, flavs, opts):
     if opts['sbs']:
         init_sbs()
 
-    fcg = get_freezer(opts['freezecg'])
+    if opts['freezecg']:
+        fcg = get_freezer(opts['freezecg'])
+    else:
+        fcg = get_freezer(tdesc.get('freezecg', ''))
 
     for f in flavs:
         print_sep("Run %s in %s" % (tname, f))
@@ -2211,7 +2214,7 @@ class Launcher:
         '''
         link_remap_excl = '--link-remap' in desc.get('opts', '').split() + desc.get('dopts', '').split() + desc.get('ropts', '').split()
 
-        if test_flag(desc, 'excl') or link_remap_excl or 've' in flavor:
+        if test_flag(desc, 'excl') or link_remap_excl or 've' in flavor or desc.get('freezecg', ''):
             self.wait_all()
 
         self.__nr += 1
@@ -2255,7 +2258,7 @@ class Launcher:
         if log:
             log.close()
 
-        if test_flag(desc, 'excl') or link_remap_excl or 've' in flavor:
+        if test_flag(desc, 'excl') or link_remap_excl or 've' in flavor or desc.get('freezecg', ''):
             self.wait()
 
     def __wait_one(self, flags):
