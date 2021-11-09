@@ -1982,7 +1982,10 @@ def do_run_test(tname, tdesc, flavs, opts):
     if opts['sbs']:
         init_sbs()
 
-    fcg = get_freezer(opts['freezecg'])
+    if opts['freezecg']:
+        fcg = get_freezer(opts['freezecg'])
+    else:
+        fcg = get_freezer(tdesc.get('freezecg', ''))
 
     for f in flavs:
         print_sep("Run %s in %s" % (tname, f))
@@ -2114,7 +2117,7 @@ class Launcher:
             raise Exception("The kernel is tainted: %r (%r)" %
                             (taint, self.__taint))
 
-        if test_flag(desc, 'excl') or 've' in flavor:
+        if test_flag(desc, 'excl') or 've' in flavor or desc.get('freezecg', ''):
             self.wait_all()
 
         self.__nr += 1
@@ -2151,7 +2154,7 @@ class Launcher:
             "start": time.time()
         }
 
-        if test_flag(desc, 'excl') or 've' in flavor:
+        if test_flag(desc, 'excl') or 've' in flavor or desc.get('freezecg', ''):
             self.wait()
 
     def __wait_one(self, flags):
