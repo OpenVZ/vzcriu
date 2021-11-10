@@ -1216,6 +1216,17 @@ int criu_set_ve(const char *ve)
 	return criu_local_set_ve(global_opts, ve);
 }
 
+void criu_local_set_skip_freezer_state(criu_opts *opts, bool val)
+{
+	opts->rpc->has_vz_skip_freezer_state = true;
+	opts->rpc->vz_skip_freezer_state = val;
+}
+
+void criu_set_skip_freezer_state(bool val)
+{
+	criu_local_set_skip_freezer_state(global_opts, val);
+}
+
 static CriuResp *recv_resp(int socket_fd)
 {
 	struct msghdr msg_hdr = { 0 };
