@@ -438,6 +438,7 @@ usage:
 	       "     --exec-cmd         execute the command specified after '--' on successful\n"
 	       "                        restore making it the parent of the restored process\n"
 	       "  --freeze-cgroup       use cgroup freezer to collect processes\n"
+	       "  --skip-freezer-state  skip restoring/dumping 'freezer.state'\n"
 	       "  --weak-sysctls        skip restoring sysctls that are not available\n"
 	       "  --lazy-pages          restore pages on demand\n"
 	       "                        this requires running a second instance of criu\n"

@@ -142,6 +142,7 @@ message criu_opts {
 	optional bool			unprivileged		= 67;
 /*	optional bool			check_mounts		= 128;	*/
 	optional string			vz_ve			= 1002;
+	optional bool			vz_skip_freezer_state	= 1003;
 }
 
 message criu_dump_resp {
