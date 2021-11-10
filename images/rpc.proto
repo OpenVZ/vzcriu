@@ -131,6 +131,7 @@ message criu_opts {
 
 	optional bool			vz_mounts_compat	= 1001;
 	optional string			vz_ve			= 1002;
+	optional bool			vz_skip_freezer_state	= 1003;
 }
 
 message criu_dump_resp {

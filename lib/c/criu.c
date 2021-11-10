@@ -1155,6 +1155,17 @@ void criu_set_check_mounts(bool val)
 	criu_local_set_check_mounts(global_opts, val);
 }
 
+void criu_local_set_skip_freezer_state(criu_opts *opts, bool val)
+{
+	opts->rpc->has_vz_skip_freezer_state = true;
+	opts->rpc->vz_skip_freezer_state = val;
+}
+
+void criu_set_skip_freezer_state(bool val)
+{
+	criu_local_set_skip_freezer_state(global_opts, val);
+}
+
 void criu_local_set_mounts_compat(criu_opts *opts, bool val)
 {
 	opts->rpc->has_vz_mounts_compat = true;

@@ -393,6 +393,7 @@ usage:
 "  --mounts-compat       switch from version 2 mount engine to the old one\n"
 "                        new mount engine uses more reliable algorithm but it\n"
 "                        requires Virtuozzo specific kernel hack - MS_SET_GROUP.\n"
+"  --skip-freezer-state  skip restoring/dumping 'freezer.state'\n"
 "  --ve VEID             VEID of Virtuozzo container\n"
 "\n"
 "* External resources support:\n"

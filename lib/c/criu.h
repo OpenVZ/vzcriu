@@ -103,6 +103,7 @@ int criu_add_external(const char *key);
 int criu_set_page_server_address_port(const char *address, int port);
 int criu_set_pre_dump_mode(enum criu_pre_dump_mode mode);
 void criu_set_check_mounts(bool val);
+void criu_set_skip_freezer_state(bool val);
 void criu_set_mounts_v2(bool val);
 int criu_set_ve(const char *ve);
 
@@ -264,6 +265,7 @@ int criu_local_add_external(criu_opts *opts, const char *key);
 int criu_local_set_page_server_address_port(criu_opts *opts, const char *address, int port);
 int criu_local_set_pre_dump_mode(criu_opts *opts, enum criu_pre_dump_mode mode);
 void criu_local_set_check_mounts(criu_opts *opts, bool val);
+void criu_local_set_skip_freezer_state(criu_opts *opts, bool val);
 void criu_local_set_mounts_v2(criu_opts *opts, bool val);
 int criu_local_set_ve(criu_opts *opts, const char *ve);
 

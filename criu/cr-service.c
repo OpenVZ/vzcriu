@@ -734,6 +734,9 @@ static int setup_opts_from_req(int sk, CriuOpts *req)
 	if (req->vz_ve)
 		SET_CHAR_OPTS(ve, req->vz_ve);
 
+	if (req->vz_skip_freezer_state)
+		opts.skip_freezer_state = true;
+
 	log_set_loglevel(opts.log_level);
 	if (check_options())
 		goto err;
