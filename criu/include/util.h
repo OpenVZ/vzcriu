@@ -445,5 +445,6 @@ static inline void vz_ensure_ve0(void)
 
 extern int resolve_mntfd_and_rpath(unsigned int mnt_id, char *abspath, bool is_restore, int *mntfd_out,
 				   char **rpath_out);
+extern int open_opath_at_mount(int fd, int mnt_fd);
 
 #endif /* __CR_UTIL_H__ */

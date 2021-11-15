@@ -2424,3 +2424,45 @@ int resolve_mntfd_and_rpath(unsigned int mnt_id, char *abspath, bool is_restore,
 
 	return 0;
 }
+
+/*
+ * Some file operations, namely linkat() require dest and src to be on the same mount
+ * If there are several mount that share superblock (e.g. bindmounts, mount namespace clones, etc.)
+ * we can actually reopen O_PATH descriptor at the desired mount
+ */
+int open_opath_at_mount(int fd, int mnt_fd)
+{
+	int fh_size, mnt_id, res_fd;
+	struct file_handle *fhp;
+
+	fhp = xzalloc(sizeof(struct file_handle));
+	if (!fhp)
+		return -1;
+
+	if (name_to_handle_at(fd, "", fhp, &mnt_id, AT_EMPTY_PATH) != -1 || errno != EOVERFLOW) {
+		pr_warn("Unable to get fhandle size with name_to_handle_at()\n");
+		xfree(fhp);
+		return -1;
+	}
+
+	fh_size = sizeof(struct file_handle) + fhp->handle_bytes;
+	if (xrealloc_safe(&fhp, fh_size)) {
+		free(fhp);
+		return -1;
+	}
+
+	if (name_to_handle_at(fd, "", fhp, &mnt_id, AT_EMPTY_PATH)) {
+		pr_perror("Unable to get fhandle size with name_to_handle_at()");
+		xfree(fhp);
+		return -1;
+	}
+
+	res_fd = open_by_handle_at(mnt_fd, fhp, O_PATH);
+	xfree(fhp);
+	if (res_fd < 0) {
+		pr_perror("Unable to open_by_handle_at()");
+		return -1;
+	}
+
+	return res_fd;
+}
