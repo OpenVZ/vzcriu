@@ -21,6 +21,7 @@ struct pstree_item {
 	struct pid		*pgid;
 	struct pid		*sid;
 	pid_t			born_sid;
+	int			can_inherit_sid;
 
 	pid_t			tty_pgrp;
 
@@ -41,6 +42,17 @@ struct pstree_item {
 	struct pstree_item	*my_child_subreaper;
 	struct list_head	child_subreaper_list;
 };
+
+static inline void set_inherit_sid(struct pstree_item *item, bool can)
+{
+	if (item->can_inherit_sid == 1)
+		return;
+
+	if (can)
+		item->can_inherit_sid = 1;
+	else
+		item->can_inherit_sid = -1;
+}
 
 #define vpid(item)	(item->pid->ns[0].virt)
 #define vsid(item)	(item->sid->ns[0].virt)
@@ -160,4 +172,6 @@ extern int preorder_pstree_traversal(struct pstree_item *item, int (*f)(struct p
 extern int __set_next_pid(pid_t pid);
 extern TaskKobjIdsEntry *dup_helper_ids(TaskKobjIdsEntry *ids);
 extern struct pstree_item *has_subreaper(struct pstree_item *item);
+
+extern int handle_pstree_sessions(void);
 #endif /* __CR_PSTREE_H__ */

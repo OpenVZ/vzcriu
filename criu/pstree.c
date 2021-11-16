@@ -2048,3 +2048,187 @@ int pid_to_virt(pid_t real)
 		return vpid(item);
 	return 0;
 }
+
+static int handle_init_sessions(struct ns_id *ns)
+{
+	struct pstree_item *init, *item;
+
+	init = __pstree_item_by_virt(ns, INIT_PID);
+	if (!init) {
+		pr_err("No init for pidns %d\n", ns->id);
+		return -1;
+	}
+
+	pr_info("Handle init sessions to %d\n", vpid(init));
+
+	for_each_pssubtree_item(item, init) {
+		struct pstree_item *leader;
+
+skip:
+		if (!item)
+			break;
+
+		if (item == init)
+			continue;
+
+		if (is_session_leader(item)) {
+			/*
+			 * Stop on pidns init, it's descendants
+			 * will be handled from it's pidns.
+			 */
+			if (last_level_pid(item->pid) == INIT_PID)
+				goto skip_descendants;
+			continue;
+		}
+
+		if (can_inherit_sid(item))
+			goto skip_descendants;
+
+		/* No leader case can't be checked on dump easily */
+		leader = pstree_item_by_virt(vsid(item));
+		if (leader) {
+			if (leader->child_subreaper) {
+				pr_err("Can't init-reparent %d from leader %d as leader is subreaper\n", vpid(item), vpid(leader));
+				return -1;
+			}
+
+			if (has_subreaper(leader)) {
+				pr_warn("Can't init-reparent %d from leader %d as leader has subreaper\n", vpid(item), vpid(leader));
+				set_inherit_sid(item, false);
+			} else {
+				set_inherit_sid(item, true);
+			}
+		}
+skip_descendants:
+		/* Descendants of non-leader should be fine, skip them */
+		item = pssubtree_item_next(item, init, true);
+		goto skip;
+	}
+
+	return 0;
+}
+
+static int handle_subreaper_sessions(struct pstree_item *subreaper)
+{
+	struct pstree_item *item, *leader;
+
+	pr_info("Handle subreaper sessions to %d\n", vpid(subreaper));
+
+	for_each_pssubtree_item(item, subreaper) {
+skip:
+		if (!item)
+			break;
+
+		/* Skip sub-reaper */
+		if (item == subreaper)
+			continue;
+
+		/* Session leaders do setsid() */
+		if (is_session_leader(item)) {
+			/*
+			 * Stop on pidns init, it's descendants
+			 * will be handled from it's pidns.
+			 */
+			if (last_level_pid(item->pid) == INIT_PID)
+				goto skip_descendants;
+			continue;
+		}
+
+		if (can_inherit_sid(item))
+			goto skip_descendants;
+
+		/* No leader case can't be checked on dump easily */
+		leader = pstree_item_by_virt(vsid(item));
+		if (leader) {
+			if (leader->child_subreaper) {
+				pr_err("Can't subpreaper-reparent %d from leader %d as leader is subreaper\n", vpid(item), vpid(leader));
+				return -1;
+			}
+
+			if (has_subreaper(leader) != subreaper) {
+				pr_warn("Can't subreaper-reparent %d from leader %d as leader has different subreaper\n", vpid(item), vpid(leader));
+				set_inherit_sid(item, false);
+			} else {
+				set_inherit_sid(item, true);
+			}
+		}
+skip_descendants:
+		/* Descendants of non-leader should be fine, skip them */
+		item = pssubtree_item_next(item, subreaper, true);
+		goto skip;
+	}
+
+	return 0;
+}
+
+static int handle_subreapers_sessions(struct ns_id *ns)
+{
+	struct pstree_item *init, *item, *subreaper;
+	LIST_HEAD(subreapers);
+
+	init = __pstree_item_by_virt(ns, INIT_PID);
+	if (!init) {
+		pr_err("No init for pidns %d\n", ns->id);
+		return -1;
+	}
+
+	for_each_pssubtree_item(item, init) {
+skip:
+		if (!item)
+			break;
+
+		if (item == init)
+			continue;
+
+		if (last_level_pid(item->pid) == INIT_PID) {
+			item = pssubtree_item_next(item, init, true);
+			goto skip;
+		}
+
+		if (item->child_subreaper)
+			list_add(&item->child_subreaper_list, &subreapers);
+	}
+
+	list_for_each_entry(subreaper, &subreapers, child_subreaper_list) {
+		if (handle_subreaper_sessions(subreaper))
+			return -1;
+	}
+
+	return 0;
+
+}
+
+static int handle_sessions(struct ns_id *ns, void *unused)
+{
+	if (handle_init_sessions(ns))
+		return -1;
+
+	if (handle_subreapers_sessions(ns))
+		return -1;
+
+	return 0;
+}
+
+int handle_pstree_sessions(void)
+{
+	struct pstree_item *item;
+
+	prepare_pstree_my_child_subreaper();
+
+	if (root_ns_mask & CLONE_NEWPID &&
+	    walk_namespaces(&pid_ns_desc, handle_sessions, NULL))
+		return -1;
+
+	/*
+	 * If at least one process of the tree can not inherit sid,
+	 * we can not restore this pstree in future and shouldn't dump it.
+	 */
+	for_each_pstree_item(item) {
+		if (item->can_inherit_sid == -1) {
+			pr_err("Can't inherit sid for %d\n", vpid(item));
+			return -1;
+		}
+	}
+
+	return 0;
+}
