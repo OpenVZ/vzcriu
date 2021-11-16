@@ -2767,6 +2767,9 @@ int cr_dump_tasks(pid_t pid)
 	if (dump_pstree(root_item))
 		goto err;
 
+	if (handle_pstree_sessions())
+		goto err;
+
 	/*
 	 * TODO: cr_dump_shmem has to be called before dump_namespaces(),
 	 * because page_ids is a global variable and it is used to dump
