@@ -605,7 +605,7 @@ static int do_internal_yard_mount_v2(struct mount_info *mi)
 
 	list_for_each_entry(c, &mi->children, siblings) {
 		rel_path = get_relative_path(c->ns_mountpoint, mi->ns_mountpoint);
-		if (!rel_path && !rel_path[0]) {
+		if (!rel_path || *rel_path == '\0') {
 			pr_err("Failed to find %s in %s\n",
 			       c->ns_mountpoint, mi->ns_mountpoint);
 			return -1;
