@@ -506,6 +506,7 @@ TST_DIR		=				\
 		mqueue_inotify			\
 		bridge_port_settings		\
 		bridge_fdb			\
+		overmounted_remap		\
 
 TST_DIR_FILE	=				\
 		chroot				\
