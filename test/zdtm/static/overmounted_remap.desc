@@ -1,0 +1,1 @@
+{'flags': 'suid', 'opts': '--link-remap', 'flavor': 'ns uns', 'ropts': '--no-mntns-compat-mode'}
