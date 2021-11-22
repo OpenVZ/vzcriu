@@ -2302,6 +2302,13 @@ int dump_one_reg_file(int lfd, u32 id, const struct fd_parms *p)
 	}
 
 	if (!skip_for_shell_job && path_is_overmounted(link->name, mi)) {
+		if (!(root_ns_mask & CLONE_NEWNS)) {
+			pr_err("Unable to dump overmouned file %s. Processes need to be in dedicated mount namespace\n",
+			       link->name);
+			return -1;
+		}
+		BUG_ON(p->mnt_id < 0);
+
 		rfe.has_vz_use_relative_path = true;
 		rfe.vz_use_relative_path = true;
 
