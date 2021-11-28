@@ -19,7 +19,6 @@ static const char *nested_fzname1 = "cgfz1_nested_test";
 static const char *nested_fzname2 = "cgfz2_nested_test";
 
 static const char frozen[]	= "FROZEN";
-static const char freezing[]	= "FREEZING";
 static const char thawed[]	= "THAWED";
 
 enum freezer_index {
@@ -107,7 +106,10 @@ static pid_t create_task_and_add(struct freezer *fz)
 			sleep(1);
 
 	fz->pid = pid;
-	sprintf(fz->task, "%d", pid);
+	if (snprintf(fz->task, sizeof(fz->task), "%d", pid) >= sizeof(fz->task)) {
+		pr_perror("Path truncation error");
+		return -1;
+	}
 	if (put_string_to_file(fz->tasks_path, fz->task) < 0)
 		return -1;
 
@@ -122,11 +124,20 @@ static int create_freezer(struct freezer *fz, const char *path, const char *name
 		return -1;
 	}
 
-	sprintf(fz->state_path, "%s/freezer.state", fz->dir);
-	sprintf(fz->self_freezing_path, "%s/freezer.self_freezing", fz->dir);
-	sprintf(fz->tasks_path, "%s/tasks", fz->dir);
+	if (snprintf(fz->state_path, sizeof(fz->state_path), "%s/freezer.state", fz->dir) >= sizeof(fz->state_path))
+		goto err_trunc;
+
+	if (snprintf(fz->self_freezing_path, sizeof(fz->self_freezing_path), "%s/freezer.self_freezing", fz->dir) >= sizeof(fz->self_freezing_path))
+		goto err_trunc;
+
+	if (snprintf(fz->tasks_path, sizeof(fz->tasks_path), "%s/tasks", fz->dir) >= sizeof(fz->tasks_path))
+		goto err_trunc;
 
 	return 0;
+
+err_trunc:
+	pr_perror("Path truncation error");
+	return -1;
 }
 
 static void delete_freezer(const struct freezer *fz)
