@@ -1726,7 +1726,7 @@ static int check_path_remap(struct fd_link *link, const struct fd_parms *parms,
 {
 	char *rpath = link->name;
 	int plen = link->len;
-	int ret, rf_mnt_root;
+	int ret, rf_mnt_root = -1;
 	struct stat pst;
 	const struct stat *ost = &parms->stat;
 	int flags = 0;
@@ -1853,20 +1853,10 @@ static int check_path_remap(struct fd_link *link, const struct fd_parms *parms,
 		return dump_linked_remap(rpath + 1, plen - 1, parms, lfd, id, mi, NULL);
 	}
 
-	if (is_overmounted) {
-		pr_info("Resolving relative path. Mountpoint %d path '%s', original file path '%s'\n",
-			mi->mnt_id, mi->ns_mountpoint, link->name);
-		rpath = get_relative_path_noempty(link->name, mi->ns_mountpoint);
-		if (!rpath) {
-			pr_err("Unable to resolve relative path to mount path\n");
-			return -1;
-		}
-		pr_info("Resolved path to %s\n", rpath);
-
-		rf_mnt_root = open_mountpoint(mi);
-	} else {
+	if (is_overmounted)
+		resolve_mntfd_and_rpath(mi->mnt_id, link->name, false, &rf_mnt_root, &rpath);
+	else
 		rf_mnt_root = mntns_get_root_fd(mi->nsid);
-	}
 
 	if (rf_mnt_root < 0) {
 		pr_err("Unable to open mount to dump file\n");
@@ -1877,6 +1867,14 @@ static int check_path_remap(struct fd_link *link, const struct fd_parms *parms,
 		flags = AT_SYMLINK_NOFOLLOW;
 
 	ret = fstatat(rf_mnt_root, rpath, &pst, flags);
+
+	if (is_overmounted) {
+		int errno_save = errno;
+
+		close(rf_mnt_root);
+		errno = errno_save;
+	}
+
 	if (ret < 0) {
 		/*
 		 * Linked file, but path is not accessible (unless any
