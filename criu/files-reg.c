@@ -1756,11 +1756,6 @@ static int check_path_remap(struct fd_link *link, const struct fd_parms *parms,
 	}
 
 	if (spfs_file(parms, mi->nsid)) {
-		if (is_overmounted) {
-			pr_err("overmounted nfs files are not supported\n");
-			return -1;
-		}
-
 		if (dump_spfs_remap(rpath + 1, ost, lfd, id, mi->nsid))
 			return -1;
 	}
