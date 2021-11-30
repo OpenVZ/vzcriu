@@ -1672,21 +1672,18 @@ static int check_path_remap(struct fd_link *link, const struct fd_parms *parms,
 		 * on restore.
 		 */
 		pid_t pid;
-		char *start, *end;
+		char *pid_str, *end;
 
-		if (is_overmounted) {
-			pr_err("overmounted procfs files are not supported\n");
+		pid_str = get_relative_path(rpath, mi->ns_mountpoint);
+		if (!pid_str) {
+			pr_err("Can't resolve rpath (%s, %s)\n", rpath, mi->ns_mountpoint);
 			return -1;
 		}
 
-		/* skip "./proc/" */
-		start = strstr(rpath, "/");
-		if (!start)
-			return -1;
-		start = strstr(start + 1, "/");
-		if (!start) /* it's /proc */
+		if (*pid_str == '\0') /* it's /proc */
 			return 0;
-		pid = strtol(start + 1, &end, 10);
+
+		pid = strtol(pid_str, &end, 10);
 
 		/* If strtol didn't convert anything, then we are looking at
 		 * something like /proc/kmsg, which we shouldn't mess with.
@@ -1696,7 +1693,13 @@ static int check_path_remap(struct fd_link *link, const struct fd_parms *parms,
 		 */
 		if (pid != 0) {
 			bool is_dead = link_strip_deleted(link);
-			rf_mnt_root = mntns_get_root_fd(mi->nsid);
+
+			if (is_overmounted) {
+				rf_mnt_root = open_mountpoint(mi);
+				rpath = pid_str;
+			} else {
+				rf_mnt_root = mntns_get_root_fd(mi->nsid);
+			}
 			if (rf_mnt_root < 0)
 				return -1;
 
@@ -1713,6 +1716,9 @@ static int check_path_remap(struct fd_link *link, const struct fd_parms *parms,
 				is_dead = faccessat(rf_mnt_root, rpath, F_OK, 0);
 				*end = '/';
 			}
+
+			if (is_overmounted)
+				close(rf_mnt_root);
 
 			if (is_dead) {
 				pr_info("Dumping dead process remap of %d\n", pid);
