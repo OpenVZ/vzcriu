@@ -450,6 +450,7 @@ TST_DIR		=				\
 		bridge_port_settings		\
 		bridge_fdb			\
 		overmounted_remap		\
+		overmounted_ghost		\
 
 TST_DIR_FILE	=				\
 		chroot				\
