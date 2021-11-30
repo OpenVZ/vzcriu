@@ -508,6 +508,9 @@ TST_DIR		=				\
 		bridge_fdb			\
 		overmounted_remap		\
 		overmounted_ghost		\
+		overmounted_proc00		\
+		overmounted_proc01		\
+		overmounted_proc02		\
 
 TST_DIR_FILE	=				\
 		chroot				\
@@ -790,6 +793,9 @@ file_fown_reuse:	CFLAGS += -DZDTM_FILE_FOWN_REUSE
 bridge_fdb:		CFLAGS += -DBRIDGE_FDB
 
 thp_disable01:		CFLAGS += -DZDTM_FMAP_THP_DISABLE
+
+overmounted_proc01:	CFLAGS += -DZDTM_DEAD_PID_REMAP
+overmounted_proc02:	CFLAGS += -DZDTM_DEAD_PID_REMAP_FILE
 
 $(LIB):	force
 	$(Q) $(MAKE) -C $(LIBDIR)
