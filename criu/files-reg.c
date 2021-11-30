@@ -1768,10 +1768,6 @@ static int check_path_remap(struct fd_link *link, const struct fd_parms *parms,
 		 * linked-remap file (NFS will allow us to create more hard
 		 * links on it) to have some persistent name at hands.
 		 */
-		if (is_overmounted) {
-			pr_err("overmounted silly-renamed files on NFS are not supported\n\n");
-			return -1;
-		}
 
 		pr_debug("Dump silly-rename linked remap for %x [%s]\n", id, rpath + 1);
 		return dump_linked_remap(rpath + 1, plen - 1, ost, lfd, id, mi, parms);
