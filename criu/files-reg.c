@@ -1860,10 +1860,6 @@ static int check_path_remap(struct fd_link *link, const struct fd_parms *parms,
 		 * be careful whether anybody still has any of its hardlinks
 		 * also open.
 		 */
-		if (is_overmounted) {
-			pr_err("overmounted ghost files are not supported\n");
-			return -1;
-		}
 
 		link_strip_deleted(link);
 		return dump_ghost_remap(rpath + 1, ost, lfd, id, mi->nsid);
