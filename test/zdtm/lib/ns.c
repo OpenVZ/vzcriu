@@ -19,6 +19,7 @@
 #include <sys/prctl.h>
 
 #include "zdtmtst.h"
+#include "fs.h"
 #include "ns.h"
 
 int criu_status_in = -1, criu_status_in_peer = -1, criu_status_out = -1;
@@ -125,6 +126,11 @@ static int prepare_mntns(void)
 
 	criu_path = getenv("ZDTM_CRIU");
 	if (criu_path) {
+		if (get_path_check_perm(criu_path)) {
+			pr_err("failed to get criu_path directory with valid permissions.\n");
+			return -1;
+		}
+
 		snprintf(path, sizeof(path), "%s%s", root, criu_path);
 		if (mount(criu_path, path, NULL, MS_BIND, NULL) ||
 		    mount(NULL, path, NULL, MS_PRIVATE, NULL)) {
