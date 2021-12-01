@@ -97,6 +97,26 @@ err:
 	goto out;
 }
 
+int get_path_check_perm(const char *path)
+{
+	if (!path) {
+		pr_err("bad path");
+		return -1;
+	}
+
+	if (access(path, X_OK)) {
+		pr_err("access check for bit X for dir path '%s' "
+			   "failed for uid:%d,gid:%d, error: %d(%s). "
+			   "Bit 'x' should be set in all path components of "
+			   "this directory\n",
+			   path, getuid(), getgid(), errno, strerror(errno)
+		);
+		return -1;
+	}
+
+	return 0;
+}
+
 int get_cwd_check_perm(char **result)
 {
 	char *cwd;
@@ -107,13 +127,7 @@ int get_cwd_check_perm(char **result)
 		return -1;
 	}
 
-	if (access(cwd, X_OK)) {
-		pr_err("access check for bit X for current dir path '%s' "
-		       "failed for uid:%d,gid:%d, error: %d(%s). "
-		       "Bit 'x' should be set in all path components of "
-		       "this directory\n",
-		       cwd, getuid(), getgid(), errno, strerror(errno)
-		);
+	if (get_path_check_perm(cwd)) {
 		free(cwd);
 		return -1;
 	}
