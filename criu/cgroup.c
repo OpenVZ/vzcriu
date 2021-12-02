@@ -1721,11 +1721,13 @@ static int prepare_cgroup_dir_properties(char *path, int off, CgroupDirEntry **e
 		CgroupDirEntry *e = ents[i];
 		size_t off2 = off;
 
-		pr_info("prepare_cgroup_dir_properties: dir_name: %s/%s\n", path, e->dir_name);
 		if (strcmp(e->dir_name, "") == 0)
 			goto skip; /* skip root cgroups */
 
 		off2 += sprintf(path + off, "/%s", e->dir_name);
+
+		pr_info("Preparing cg properties in: %s\n", path);
+
 		for (j = 0; j < e->n_properties; ++j) {
 			CgroupPropEntry *p = e->properties[j];
 
