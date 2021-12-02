@@ -114,6 +114,7 @@ int get_cwd_check_perm(char **result)
 		       "this directory\n",
 		       cwd, getuid(), getgid(), errno, strerror(errno)
 		);
+		free(cwd);
 		return -1;
 	}
 
