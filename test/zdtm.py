@@ -731,8 +731,24 @@ class zdtm_test:
     def ns(self):
         return self.__flavor.ns
 
-    def blocking(self):
-        return test_flag(self.__desc, 'crfail')
+    def blocking_dump(self):
+        return test_flag(self.__desc, 'crfail:dump')
+
+    def blocking_restore(self):
+        return test_flag(self.__desc, 'crfail:restore')
+
+    def blocking(self, action):
+        # "crfail" flag is general for all types of action
+        if test_flag(self.__desc, 'crfail'):
+            return True
+        if self.blocking_dump() and action == "dump":
+            return True
+        if self.blocking_restore() and action == "restore":
+            return True
+        # If action is "None" so check for any crfail flag (crfail, crfail:dump, crfail:restore)
+        if action is None:
+            return (test_flag(self.__desc, 'crfail') or
+                    self.blocking_dump() or self.blocking_restore())
 
     @staticmethod
     def available():
@@ -1318,7 +1334,7 @@ class criu:
             os.close(status_fds[1])
             if os.read(status_fds[0], 1) != b'\0':
                 ret = ret.wait()
-                if self.__test.blocking():
+                if self.__test.blocking(action):
                     raise test_fail_expected_exc(action)
                 else:
                     raise test_fail_exc("criu %s exited with %s" %
@@ -1352,8 +1368,8 @@ class criu:
                     return
             rst_succeeded = os.access(
                 os.path.join(__ddir, "restore-succeeded"), os.F_OK)
-            if self.__test.blocking() or (self.__sat and action == 'restore' and
-                                          rst_succeeded):
+            if self.__test.blocking(action) or (self.__sat and action == 'restore' and
+                                                rst_succeeded):
                 raise test_fail_expected_exc(action)
             else:
                 raise test_fail_exc("CRIU %s" % action)
@@ -2092,7 +2108,7 @@ def do_run_test(tname, tdesc, flavs, opts):
                 t.stop()
                 cr_api.fini()
                 try_run_hook(t, ["--clean"])
-                if t.blocking():
+                if t.blocking(None):
                     raise test_fail_exc("unexpected success")
         except test_fail_exc as e:
             print_sep("Test %s FAIL at %s" % (tname, e.step), '#')
