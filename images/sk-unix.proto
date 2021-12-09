@@ -19,6 +19,7 @@ enum unix_uflags {
 	CALLBACK	= 4;
 	INHERIT		= 8;
 	BINDMOUNT	= 16;
+	VZ_OVERMOUNTED	= 1024;
 }
 
 message unix_sk_entry {
