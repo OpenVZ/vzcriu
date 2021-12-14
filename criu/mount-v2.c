@@ -1097,26 +1097,16 @@ static int remove_sources_of_deleted_mounts(void)
 	return ret;
 }
 
-int prepare_mnt_ns_v2(void)
+static int create_mount_namespaces(void)
 {
-	int ret = -1, rst = -1, fd;
+	int fd, service_mntns_fd = -1, ret = -1;
 	struct ns_id *nsid;
 
-	if (!(root_ns_mask & CLONE_NEWNS))
-		return 0;
-
-	ret = populate_mnt_ns_v2();
-	if (ret)
+	service_mntns_fd = open_proc(PROC_SELF, "ns/mnt");
+	if (service_mntns_fd < 0)
 		return -1;
 
-	rst = open_proc(PROC_SELF, "ns/mnt");
-	if (rst < 0)
-		return -1;
-
-	/* restore non-root namespaces */
 	for (nsid = ns_ids; nsid != NULL; nsid = nsid->next) {
-		char path[PATH_MAX];
-
 		if (nsid->nd != &mnt_ns_desc)
 			continue;
 		/* Create the new mount namespace */
@@ -1138,11 +1128,11 @@ int prepare_mnt_ns_v2(void)
 			 * namespace, because there are file descriptors
 			 * linked with it (e.g. to bind-mount slave pty-s).
 			 */
-			if (setns(rst, CLONE_NEWNS)) {
+			if (setns(service_mntns_fd, CLONE_NEWNS)) {
 				pr_perror("Can't restore mntns back");
 				goto err;
 			}
-			SWAP(rst, fd);
+			SWAP(service_mntns_fd, fd);
 		}
 
 		/* Pin one with a file descriptor */
@@ -1152,11 +1142,42 @@ int prepare_mnt_ns_v2(void)
 			pr_err("Can't add ns fd\n");
 			goto err;
 		}
+	}
+
+	ret = 0;
+err:
+	if (restore_ns(service_mntns_fd, &mnt_ns_desc))
+		ret = -1;
+	return ret;
+}
+
+static int assemble_mount_namespaces(void)
+{
+	int fd, mntns_fd, service_mntns_fd = -1, ret = -1;
+	char path[PATH_MAX];
+	struct ns_id *nsid;
+
+	for (nsid = ns_ids; nsid != NULL; nsid = nsid->next) {
+		if (nsid->nd != &mnt_ns_desc)
+			continue;
+
+		mntns_fd = fdstore_get(nsid->mnt.nsfd_id);
+		if (mntns_fd < 0) {
+			pr_perror("Can't get mntns_fd for nsid %d", nsid->id);
+			goto err;
+		}
+
+		if (switch_ns_by_fd(mntns_fd, &mnt_ns_desc, service_mntns_fd == -1 ? &service_mntns_fd : NULL)) {
+			pr_perror("Can't restore mntns for nsid %d", nsid->id);
+			close(mntns_fd);
+			goto err;
+		}
+		close(mntns_fd);
 
 		if (assemble_tree_from_plain_mounts(nsid))
 			goto err;
 
-		/* Set its root */
+		/* Set root */
 		print_ns_root(nsid, 0, path, sizeof(path) - 1);
 		if (cr_pivot_root(path))
 			goto err;
@@ -1172,22 +1193,32 @@ int prepare_mnt_ns_v2(void)
 			goto err;
 		}
 		close(fd);
-
-		/* And return back to regain the access to the roots yard */
-		if (setns(rst, CLONE_NEWNS)) {
-			pr_perror("Can't restore mntns back");
-			goto err;
-		}
 	}
-	close(rst);
+
+	ret = 0;
+err:
+	if (service_mntns_fd >= 0 && restore_ns(service_mntns_fd, &mnt_ns_desc))
+		ret = -1;
+	return ret;
+}
+
+int prepare_mnt_ns_v2(void)
+{
+	if (!(root_ns_mask & CLONE_NEWNS))
+		return 0;
+
+	if (populate_mnt_ns_v2() < 0)
+		return -1;
+
+	if (create_mount_namespaces() < 0)
+		return -1;
+
+	if (assemble_mount_namespaces() < 0)
+		return -1;
 
 	extract_internal_yards();
 
 	return remove_sources_of_deleted_mounts();
-err:
-	if (rst >= 0)
-		restore_ns(rst, &mnt_ns_desc);
-	return -1;
 }
 
 LIST_HEAD(nested_pidns_procs);
