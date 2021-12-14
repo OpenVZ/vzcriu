@@ -460,6 +460,9 @@ TST_DIR		=				\
 		overmounted_proc00		\
 		overmounted_proc01		\
 		overmounted_proc02		\
+		overmounted_unix00		\
+		overmounted_unix01		\
+		overmounted_unix02		\
 
 TST_DIR_FILE	=				\
 		chroot				\
@@ -712,6 +715,8 @@ thp_disable01:		CFLAGS += -DZDTM_FMAP_THP_DISABLE
 
 overmounted_proc01:	CFLAGS += -DZDTM_DEAD_PID_REMAP
 overmounted_proc02:	CFLAGS += -DZDTM_DEAD_PID_REMAP_FILE
+
+overmounted_unix01:	CFLAGS += -DZDTM_OVM_UNIX_CONNECT
 
 $(LIB):	force
 	$(Q) $(MAKE) -C $(LIBDIR)
