@@ -1202,15 +1202,65 @@ err:
 	return ret;
 }
 
+static int do_postponed_unix_bindmounts(struct list_head *mounts)
+{
+	int mntns_fd, service_mntns_fd = -1, ret = -1;
+	struct mount_info *mi, *t;
+
+	if (list_empty(mounts))
+		return 0;
+
+	list_for_each_entry_safe(mi, t, mounts, mnt_usk_bind) {
+		list_add(&mi->siblings, &mi->parent->children);
+
+		mntns_fd = fdstore_get(mi->nsid->mnt.nsfd_id);
+		if (mntns_fd < 0) {
+			pr_perror("Can't get mntns_fd for nsid %d", mi->nsid->id);
+			goto out;
+		}
+
+		if (switch_ns_by_fd(mntns_fd, &mnt_ns_desc, service_mntns_fd == -1 ? &service_mntns_fd : NULL)) {
+			pr_perror("Can't restore mntns for nsid %d", mi->nsid->id);
+			close(mntns_fd);
+			goto out;
+		}
+		close(mntns_fd);
+
+		if (mnt_tree_for_each(mi, do_mount_one_v2)) {
+			pr_err("Can't do late unix bindmount mnt_id %d\n", mi->mnt_id);
+			goto out;
+		}
+
+		list_del(&mi->mnt_usk_bind);
+	}
+
+	ret = 0;
+out:
+	if (service_mntns_fd >= 0 && restore_ns(service_mntns_fd, &mnt_ns_desc))
+		ret = -1;
+	return ret;
+}
+
 int prepare_mnt_ns_v2(void)
 {
+	LIST_HEAD(postponed_unix_bindmounts);
+	struct mount_info *mi;
+
 	if (!(root_ns_mask & CLONE_NEWNS))
 		return 0;
+
+	unix_note_bindmounts(&postponed_unix_bindmounts);
+
+	list_for_each_entry(mi, &postponed_unix_bindmounts, mnt_usk_bind)
+		list_del_init(&mi->siblings);
 
 	if (populate_mnt_ns_v2() < 0)
 		return -1;
 
 	if (create_mount_namespaces() < 0)
+		return -1;
+
+	if (do_postponed_unix_bindmounts(&postponed_unix_bindmounts) < 0)
 		return -1;
 
 	if (assemble_mount_namespaces() < 0)

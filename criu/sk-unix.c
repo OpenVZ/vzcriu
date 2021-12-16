@@ -2422,6 +2422,35 @@ static int sk_has_bindmount(struct unix_sk_info *ui, struct mount_info *mi)
 	return 0;
 }
 
+void unix_note_bindmounts(struct list_head *head)
+{
+	struct unix_sk_info *ui;
+	struct mount_info *mi;
+	int i;
+
+	list_for_each_entry(ui, &unix_mnt_sockets, mnt_list) {
+		for (i = 0; i < ui->ue->n_vz_bind_mnt_ids; i++) {
+			mi = lookup_mnt_id(ui->ue->vz_bind_mnt_ids[i]);
+			BUG_ON(!mi);
+
+			list_add(&mi->mnt_usk_bind, head);
+		}
+
+		/*
+		 * When n_vz_bind_mount_ids is 0 for UNIX_UFLAGS__BINDMOUNT socket
+		 * ui->ue->mnt_id contains bindmount mnt_id
+		 */
+		if (ui->ue->n_vz_bind_mnt_ids == 0) {
+			mi = lookup_mnt_id(ui->ue->mnt_id);
+			BUG_ON(!mi);
+
+			list_add(&mi->mnt_usk_bind, head);
+
+			continue;
+		}
+	}
+}
+
 int unix_prepare_bindmount(struct mount_info *mi)
 {
 	int prev_cwd_fd = -1, prev_root_fd = -1;
