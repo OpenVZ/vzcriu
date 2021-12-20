@@ -102,6 +102,7 @@ static mutex_t *mutex_ghost;
 static LIST_HEAD(unix_sockets);
 static LIST_HEAD(unix_ghost_addr);
 static LIST_HEAD(unix_mnt_sockets);
+static LIST_HEAD(unix_overmounted_sockets);
 
 static int unix_resolve_name(int lfd, uint32_t id, struct unix_sk_desc *d, UnixSkEntry *ue, const struct fd_parms *p);
 
@@ -2142,7 +2143,7 @@ static int open_unixsk_standalone(struct unix_sk_info *ui, int *new_fd)
 		close_safe(&sks[1]);
 	}
 
-	if (!(ui->ue->uflags & UNIX_UFLAGS__BINDMOUNT)) {
+	if (!(ui->ue->uflags & (UNIX_UFLAGS__BINDMOUNT | UNIX_UFLAGS__VZ_OVERMOUNTED))) {
 		if (bind_unix_sk(sks[0], ui, true)) {
 			close(sks[0]);
 			return -1;
@@ -2280,6 +2281,20 @@ static bool addr_prepared_for_bindmount(struct unix_sk_info *ui)
 		if (rel && !rel[0])
 			return true;
 	}
+
+	list_for_each_entry(tmp, &unix_overmounted_sockets, mnt_list) {
+		char *rel;
+
+		if (sk_to_mnt_id(ui) != sk_to_mnt_id(tmp))
+			continue;
+
+		print_sk_full_path(tmp_path, sizeof(tmp_path), tmp);
+
+		rel = get_relative_path(tmp_path, path);
+		if (rel && !rel[0])
+			return true;
+	}
+
 
 	return false;
 }
@@ -2469,6 +2484,11 @@ static int collect_one_unixsk(void *o, ProtobufCMessage *base, struct cr_img *i)
 
 	hlist_add_head(&ui->hash, &sk_info_hash[ui->ue->ino % SK_INFO_HASH_SIZE]);
 
+	if (ui->ue->uflags & UNIX_UFLAGS__VZ_OVERMOUNTED && opts.mntns_compat_mode) {
+		pr_err("Unable to restore overmounted unix socket without mounts-v2\n");
+		return -1;
+	}
+
 	if (ui->ue->uflags & UNIX_UFLAGS__BINDMOUNT) {
 		/*
 		 * Make sure it is supported socket!
@@ -2484,6 +2504,8 @@ static int collect_one_unixsk(void *o, ProtobufCMessage *base, struct cr_img *i)
 			return -1;
 		}
 		list_add_tail(&ui->mnt_list, &unix_mnt_sockets);
+	} else if (ui->ue->uflags & UNIX_UFLAGS__VZ_OVERMOUNTED) {
+		list_add_tail(&ui->mnt_list, &unix_overmounted_sockets);
 	}
 
 	list_add_tail(&ui->list, &unix_sockets);
@@ -2758,6 +2780,13 @@ int prepare_unix_sockets(struct mount_info *mi)
 	struct unix_sk_info *ui;
 
 	list_for_each_entry(ui, &unix_mnt_sockets, mnt_list) {
+		if (sk_to_mnt_id(ui) == mi->mnt_id) {
+			if (prepare_unix_socket(ui, mi, NULL))
+				return -1;
+		}
+	}
+
+	list_for_each_entry(ui, &unix_overmounted_sockets, mnt_list) {
 		if (sk_to_mnt_id(ui) == mi->mnt_id) {
 			if (prepare_unix_socket(ui, mi, NULL))
 				return -1;
