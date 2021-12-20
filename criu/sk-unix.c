@@ -954,7 +954,7 @@ struct scm_fle {
 #define USK_PAIR_MASTER		0x1
 #define USK_PAIR_SLAVE		0x2
 #define USK_GHOST_FDSTORE	0x4	/* bound but removed address */
-#define USK_BINDMOUNT		0x8	/* socket is pre-openeded for bindmount reason */
+#define USK_EARLY_BIND		0x8	/* socket is pre-openeded for bindmount or overmount */
 #define USK_NOCWD		0x10	/* no cwd switch */
 
 #define SK_INFO_HASH_SIZE	32
@@ -1859,13 +1859,13 @@ static int break_connected(struct unix_sk_info *ui, int sk)
 
 static int make_socket(struct unix_sk_info *ui, int sks[2], bool pair, bool disjoin_master)
 {
-	if (unlikely(ui->flags & USK_BINDMOUNT)) {
+	if (unlikely(ui->flags & USK_EARLY_BIND)) {
 		sks[0] = fdstore_get(ui->fdstore_mnt_id[0]);
 		sks[1] = fdstore_get(ui->fdstore_mnt_id[1]);
-		pr_debug("bindmount: Fetch socket pair id %#x ino %d\n",
+		pr_debug("Fetching early-binded socket pair id %#x ino %d\n",
 			 ui->ue->id, ui->ue->ino);
 		if (sks[0] < 0 || sks[1] < 0) {
-			pr_err("bindmount: Can't fetch id %#x socketpair from the store\n",
+			pr_err("Can't fetch id %#x socketpair from the store\n",
 			       ui->ue->id);
 			return -1;
 		}
@@ -2130,25 +2130,25 @@ static void print_sk_full_path(char *buf, size_t bufsize, struct unix_sk_info *u
 }
 
 /*
- * We need to skip unlinking socket when it's bindmounted
+ * We need to skip unlinking socket when it's early binded
  * socket (because we create them in unix_early_bind).
  * The problem here is that connection sockets has the same
- * addr as listening socket, so, checking USK_BINDMOUNT flag
+ * addr as listening socket, so, checking USK_EARLY_BIND flag
  * is not sufficient, we should also check that name is not
- * used in *any* bindmounted socket.
+ * used in *any* early-binded socket.
  *
  * Analogical problem exists for ghost sockets. Imagine
- * we have ghost socket with some addr and bindmounted
+ * we have ghost socket with some addr and early-binded
  * socket with the same addr -> unix_prepare_root_shared()
  * function is called *after* unix_early_bind()
  * and also calls unlink_sk().
  */
-static bool addr_prepared_for_bindmount(struct unix_sk_info *ui)
+static bool addr_prepared_for_early_bind(struct unix_sk_info *ui)
 {
 	char path[PATH_MAX], tmp_path[PATH_MAX];
 	struct unix_sk_info *tmp;
 
-	if (ui->flags & USK_BINDMOUNT)
+	if (ui->flags & USK_EARLY_BIND)
 		return true;
 
 	print_sk_full_path(path, sizeof(path), ui);
@@ -2183,7 +2183,7 @@ static int unlink_sk(struct unix_sk_info *ui)
 	struct stat statbuf;
 
 	if (!ui->name || ui->name[0] == '\0' ||
-	    addr_prepared_for_bindmount(ui) ||
+	    addr_prepared_for_early_bind(ui) ||
 	    (ui->ue->uflags & UNIX_UFLAGS__EXTERN))
 		return 0;
 
@@ -2493,7 +2493,7 @@ static int unix_early_bind(struct unix_sk_info *ui)
 	if (ui->fdstore_mnt_id[0] > 0 || ui->fdstore_mnt_id[1] > 0)
 		return 0;
 
-	pr_info("bindmount: id %#x ino %d type %s state %s (queuer id %#x ino %d) peer %d (name %.*s dir %s)\n",
+	pr_info("early bind: id %#x ino %d type %s state %s (queuer id %#x ino %d) peer %d (name %.*s dir %s)\n",
 		ui->ue->id, ui->ue->ino,
 		__socket_type_name(ui->ue->type, type_name),
 		__tcp_state_name(ui->ue->state, state_name),
@@ -2503,12 +2503,12 @@ static int unix_early_bind(struct unix_sk_info *ui)
 		ui->ue->name.data, ui->name_dir ? ui->name_dir : "-");
 
 	/*
-	 * Mark it as bindmount so when need to use we
+	 * Mark it as early binded so when need to use we
 	 * would fetch it from the fdstore, and point
 	 * out that no need to cwd change since we
 	 * already opened it in proper place.
 	 */
-	ui->flags |= USK_BINDMOUNT | USK_NOCWD;
+	ui->flags |= USK_EARLY_BIND | USK_NOCWD;
 
 	BUG_ON(!ui->ue->has_mnt_id);
 	sk_mi = lookup_mnt_id(sk_to_mnt_id(ui));
@@ -2531,7 +2531,7 @@ static int unix_early_bind(struct unix_sk_info *ui)
 		int mntns_fd;
 
 		if (!sk_mi->rmi->mounted) {
-			pr_err("bindmount: The mount %d is not mounted for unix sk id %#x\n",
+			pr_err("early bind: The mount %d is not mounted for unix sk id %#x\n",
 			       sk_mi->mnt_id, ui->ue->id);
 			return -1;
 		}
@@ -2551,58 +2551,58 @@ static int unix_early_bind(struct unix_sk_info *ui)
 
 		print_sk_root(ui, path, sizeof(path));
 		if (mkdir(path, 0600)) {
-			pr_perror("bindmount: Unable to create fake nsroot %s", path);
+			pr_perror("early bind: Unable to create fake nsroot %s", path);
 			return -1;
 		}
 
 		if (snprintf(plain_mount_tmp, sizeof(plain_mount_tmp), "%s/%s",
 			     path, sk_mi->ns_mountpoint) >=
 		    sizeof(plain_mount_tmp)) {
-			pr_perror("bindmount: Unable to create fake nsroot %s", path);
+			pr_perror("early bind: Unable to create fake nsroot %s", path);
 			return -1;
 		}
 
 		if (mkdirpat(AT_FDCWD, plain_mount_tmp, 0755)) {
-			pr_perror("bindmount: Unable to create %s", plain_mount_tmp);
+			pr_perror("early bind: Unable to create %s", plain_mount_tmp);
 			return -1;
 		}
 
 		pr_debug("Move mount %d from %s to %s\n", sk_mi->mnt_id,
 			sk_mi->plain_mountpoint, plain_mount_tmp);
 		if (mount(sk_mi->plain_mountpoint, plain_mount_tmp, NULL, MS_MOVE, NULL)) {
-			pr_perror("bindmount: Failed to move mount %d from %s to %s",
+			pr_perror("early bind: Failed to move mount %d from %s to %s",
 				  sk_mi->mnt_id, sk_mi->plain_mountpoint, plain_mount_tmp);
 			return -1;
 		}
 	} else {
 		if (rst_get_mnt_root(sk_mi->mnt_id, path, sizeof(path)) < 0) {
-			pr_err("bindmount: Can't setup mnt_root for %s\n", sk_mi->ns_mountpoint);
+			pr_err("early bind: Can't setup mnt_root for %s\n", sk_mi->ns_mountpoint);
 			return -1;
 		}
 	}
 
 	prev_cwd_fd = open(".", O_RDONLY);
 	if (prev_cwd_fd < 0) {
-		pr_perror("bindmount: Can't save current cwd");
+		pr_perror("early bind: Can't save current cwd");
 		goto out;
 	}
 
 	prev_root_fd = open("/", O_RDONLY);
 	if (prev_root_fd < 0) {
-		pr_perror("bindmount: Can't save current root");
+		pr_perror("early bind: Can't save current root");
 		goto out;
 	}
 
 	if (chdir(path)) {
-		pr_perror("bindmount: Can't chdir to %s", path);
+		pr_perror("early bind: Can't chdir to %s", path);
 		goto out;
 	} else if (chroot(".")) {
-		pr_perror("bindmount: Can't chroot");
+		pr_perror("early bind: Can't chroot");
 		goto out;
 	}
 
 	if (ui->name_dir && chdir(ui->name_dir)) {
-		pr_perror("bindmount: Can't chdir to %s", ui->name_dir);
+		pr_perror("early bind: Can't chdir to %s", ui->name_dir);
 		goto out;
 	}
 
@@ -2623,13 +2623,13 @@ static int unix_early_bind(struct unix_sk_info *ui)
 	if (ui->ue->state == TCP_LISTEN) {
 		sks[0] = socket(PF_UNIX, ui->ue->type, 0);
 		if (sks[0] < 0) {
-			pr_perror("bindmount: Can't create socket id %#x",
+			pr_perror("early bind: Can't create socket id %#x",
 				  ui->ue->id);
 			goto out;
 		}
 	} else {
 		if (socketpair(PF_UNIX, ui->ue->type, 0, sks)) {
-			pr_perror("bindmount: Can't create socketpair id %#x",
+			pr_perror("early bind: Can't create socketpair id %#x",
 				  ui->ue->id);
 			goto out;
 		}
@@ -2664,27 +2664,27 @@ static int unix_early_bind(struct unix_sk_info *ui)
 		ui->fdstore_mnt_id[1] = fdstore_add(sks[1]);
 
 	if (ui->fdstore_mnt_id[0] < 0 || (ui->ue->state != TCP_LISTEN && ui->fdstore_mnt_id[1] < 0)) {
-		pr_err("bindmount: Can't add socketpair id %#x into fdstore\n",
+		pr_err("early bind: Can't add socketpair id %#x into fdstore\n",
 			ui->ue->id);
 		goto out;
 	}
 
 	if (fchdir(prev_root_fd)) {
-		pr_perror("bindmount: Can't revert root directory");
+		pr_perror("early bind: Can't revert root directory");
 		goto out;
 	} else if (chroot(".")) {
-		pr_perror("bindmount: Can't revert chroot ");
+		pr_perror("early bind: Can't revert chroot ");
 		goto out;
 	} else if (fchdir(prev_cwd_fd)) {
-		pr_perror("bindmount: Can't revert working dir");
+		pr_perror("early bind: Can't revert working dir");
 		goto out;
 	}
 
 	if (use_mounts_v2()) {
-		pr_debug("bindmount: Move mount %d back from %s to %s\n", sk_mi->mnt_id,
+		pr_debug("early bind: Move mount %d back from %s to %s\n", sk_mi->mnt_id,
 			plain_mount_tmp, sk_mi->plain_mountpoint);
 		if (mount(plain_mount_tmp, sk_mi->plain_mountpoint, NULL, MS_MOVE, NULL)) {
-			pr_perror("bindmount: Failed to move mount %d back from %s to %s",
+			pr_perror("early bind: Failed to move mount %d back from %s to %s",
 				  sk_mi->mnt_id, plain_mount_tmp, sk_mi->plain_mountpoint);
 			goto out;
 		}
@@ -2704,7 +2704,7 @@ out:
 	close_safe(&sks[1]);
 
 	if (ret == 0)
-		pr_debug("bindmount: Standalone socket moved into fdstore (id %#x ino %d peer %d)\n",
+		pr_debug("early bind: Standalone socket moved into fdstore (id %#x ino %d peer %d)\n",
 			 ui->ue->id, ui->ue->ino, ui->ue->peer);
 
 	return ret;
