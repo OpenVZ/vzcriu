@@ -2773,7 +2773,7 @@ static int do_bind_mount(struct mount_info *mi)
 		mnt_path = mnt_fd_path;
 	}
 
-	if (unix_prepare_bindmount(mi)) {
+	if (mountv1_unix_prepare_bindmount(mi)) {
 		pr_err("Failed to prepare bindmount on unix at %s\n",
 		       service_mountpoint(mi));
 		return -1;

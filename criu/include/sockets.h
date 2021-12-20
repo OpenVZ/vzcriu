@@ -47,7 +47,8 @@ extern int fix_external_unix_sockets(void);
 extern int prepare_scms(void);
 extern int unix_note_scm_rights(int id_for, uint32_t *file_ids, int *fds, int n_ids);
 extern int collect_unix_bindmounts(void);
-extern int unix_prepare_bindmount(struct mount_info *mi);
+extern int mountv1_unix_prepare_bindmount(struct mount_info *mi);
+extern int unix_do_early_binds(void);
 extern void unix_note_bindmounts(struct list_head *head);
 
 extern struct collect_image_info netlink_sk_cinfo;

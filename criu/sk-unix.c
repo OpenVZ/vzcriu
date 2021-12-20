@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <dlfcn.h>
 #include <libgen.h>
+#include <sched.h>
 
 #include "libnetlink.h"
 #include "cr_options.h"
@@ -2130,7 +2131,7 @@ static void print_sk_full_path(char *buf, size_t bufsize, struct unix_sk_info *u
 
 /*
  * We need to skip unlinking socket when it's bindmounted
- * socket (because we create them in unix_prepare_bindmount).
+ * socket (because we create them in unix_early_bind).
  * The problem here is that connection sockets has the same
  * addr as listening socket, so, checking USK_BINDMOUNT flag
  * is not sufficient, we should also check that name is not
@@ -2139,7 +2140,7 @@ static void print_sk_full_path(char *buf, size_t bufsize, struct unix_sk_info *u
  * Analogical problem exists for ghost sockets. Imagine
  * we have ghost socket with some addr and bindmounted
  * socket with the same addr -> unix_prepare_root_shared()
- * function is called *after* unix_prepare_bindmount()
+ * function is called *after* unix_early_bind()
  * and also calls unlink_sk().
  */
 static bool addr_prepared_for_bindmount(struct unix_sk_info *ui)
@@ -2481,37 +2482,25 @@ void unix_note_bindmounts(struct list_head *head)
 	}
 }
 
-int unix_prepare_bindmount(struct mount_info *mi)
+static int unix_early_bind(struct unix_sk_info *ui)
 {
 	int prev_cwd_fd = -1, prev_root_fd = -1;
 	int ret = -1, sks[2] = { -1, -1 };
-	struct unix_sk_info *ui;
 	char path[PATH_MAX], plain_mount_tmp[PATH_MAX];
 	struct mount_info *sk_mi = NULL;
+	char type_name[64], state_name[64];
 
-	list_for_each_entry(ui, &unix_mnt_sockets, mnt_list) {
-		if (sk_has_bindmount(ui, mi)) {
-			char type_name[64], state_name[64];
-			pr_info("bindmount: id %#x ino %d type %s state %s (queuer id %#x ino %d) peer %d (name %.*s dir %s)\n",
-				ui->ue->id, ui->ue->ino,
-				__socket_type_name(ui->ue->type, type_name),
-				__tcp_state_name(ui->ue->state, state_name),
-				ui->queuer ? ui->queuer->ue->id : -1,
-				ui->queuer ? ui->queuer->ue->ino : -1,
-				ui->ue->peer, (int)ui->ue->name.len,
-				ui->ue->name.data, ui->name_dir ? ui->name_dir : "-");
-			break;
-		}
-	}
-
-	if (&ui->mnt_list == &unix_mnt_sockets)
+	if (ui->fdstore_mnt_id[0] > 0 || ui->fdstore_mnt_id[1] > 0)
 		return 0;
 
-	if (ui->fdstore_mnt_id[0] > 0 || ui->fdstore_mnt_id[1] > 0) {
-		pr_debug("bindmount: sk id %#x already in fdstore. skipping\n",
-			 ui->ue->id);
-		return 0;
-	}
+	pr_info("bindmount: id %#x ino %d type %s state %s (queuer id %#x ino %d) peer %d (name %.*s dir %s)\n",
+		ui->ue->id, ui->ue->ino,
+		__socket_type_name(ui->ue->type, type_name),
+		__tcp_state_name(ui->ue->state, state_name),
+		ui->queuer ? ui->queuer->ue->id : -1,
+		ui->queuer ? ui->queuer->ue->ino : -1,
+		ui->ue->peer, (int)ui->ue->name.len,
+		ui->ue->name.data, ui->name_dir ? ui->name_dir : "-");
 
 	/*
 	 * Mark it as bindmount so when need to use we
@@ -2521,8 +2510,15 @@ int unix_prepare_bindmount(struct mount_info *mi)
 	 */
 	ui->flags |= USK_BINDMOUNT | USK_NOCWD;
 
+	BUG_ON(!ui->ue->has_mnt_id);
+	sk_mi = lookup_mnt_id(sk_to_mnt_id(ui));
+	if (!sk_mi) {
+		pr_err("Unable to locate mnt_id %d for socket %d\n", sk_to_mnt_id(ui), ui->ue->id);
+		return -1;
+	}
+
 	/*
-	 * This is unix_prepare_bindmount() part for mounts-v2 engine.
+	 * This is unix_early_bind() part for mounts-v2 engine.
 	 * If you want to get some extra details, please also check and read
 	 * test/zdtm/static/bind-mount-unix.c testcases.
 	 *
@@ -2532,18 +2528,26 @@ int unix_prepare_bindmount(struct mount_info *mi)
 	 * -> bind socket
 	 */
 	if (use_mounts_v2()) {
-		BUG_ON(!ui->ue->has_mnt_id);
-		sk_mi = lookup_mnt_id(sk_to_mnt_id(ui));
-		if (!sk_mi) {
-			pr_err("Unable to locate mnt_id %d for socket %d", sk_to_mnt_id(ui), ui->ue->id);
-			return -1;
-		}
+		int mntns_fd;
 
 		if (!sk_mi->rmi->mounted) {
 			pr_err("bindmount: The mount %d is not mounted for unix sk id %#x\n",
 			       sk_mi->mnt_id, ui->ue->id);
 			return -1;
 		}
+
+		mntns_fd = fdstore_get(sk_mi->nsid->mnt.nsfd_id);
+		if (mntns_fd < 0) {
+			pr_perror("Can't get mntns_fd for nsid %d", sk_mi->nsid->id);
+			return -1;
+		}
+
+		if (setns(mntns_fd, CLONE_NEWNS) < 0) {
+			pr_perror("Can't restore mntns for nsid %d", sk_mi->nsid->id);
+			close(mntns_fd);
+			return -1;
+		}
+		close(mntns_fd);
 
 		print_sk_root(ui, path, sizeof(path));
 		if (mkdir(path, 0600)) {
@@ -2571,8 +2575,8 @@ int unix_prepare_bindmount(struct mount_info *mi)
 			return -1;
 		}
 	} else {
-		if (rst_get_mnt_root(mi->mnt_id, path, sizeof(path)) < 0) {
-			pr_err("bindmount: Can't setup mnt_root for %s\n", mi->ns_mountpoint);
+		if (rst_get_mnt_root(sk_mi->mnt_id, path, sizeof(path)) < 0) {
+			pr_err("bindmount: Can't setup mnt_root for %s\n", sk_mi->ns_mountpoint);
 			return -1;
 		}
 	}
@@ -2703,6 +2707,42 @@ out:
 		pr_debug("bindmount: Standalone socket moved into fdstore (id %#x ino %d peer %d)\n",
 			 ui->ue->id, ui->ue->ino, ui->ue->peer);
 
+	return ret;
+}
+
+int mountv1_unix_prepare_bindmount(struct mount_info *mi)
+{
+	struct unix_sk_info *ui;
+
+	list_for_each_entry(ui, &unix_mnt_sockets, mnt_list)
+		if (sk_has_bindmount(ui, mi))
+			break;
+
+	if (&ui->mnt_list == &unix_mnt_sockets)
+		return 0;
+
+	return unix_early_bind(ui);
+}
+
+int unix_do_early_binds(void)
+{
+	struct unix_sk_info *ui;
+	int service_mntns_fd, ret = -1;
+
+	service_mntns_fd = open_proc(PROC_SELF, "ns/mnt");
+	if (service_mntns_fd < 0)
+		return -1;
+
+	list_for_each_entry(ui, &unix_mnt_sockets, mnt_list)
+		if (unix_early_bind(ui)) {
+			pr_err("Unable to bind socket %d\n", ui->ue->id);
+			goto out;
+		}
+
+	ret = 0;
+out:
+	if (restore_ns(service_mntns_fd, &mnt_ns_desc))
+		ret = -1;
 	return ret;
 }
 

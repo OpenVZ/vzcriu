@@ -297,12 +297,6 @@ static int do_bind_mount_v2(struct mount_info *mi)
 		goto do_bind_fd;
 	}
 
-	if (unix_prepare_bindmount(mi)) {
-		pr_err("Failed to prepare bindmount on unix at %s\n",
-		       service_mountpoint(mi));
-		return -1;
-	}
-
 	cut_root = get_relative_path(mi->root, mi->bind->root);
 	if (!cut_root) {
 		pr_err("Failed to find root for %d in our supposed bind %d\n",
@@ -1258,6 +1252,9 @@ int prepare_mnt_ns_v2(void)
 		return -1;
 
 	if (create_mount_namespaces() < 0)
+		return -1;
+
+	if (unix_do_early_binds() < 0)
 		return -1;
 
 	if (do_postponed_unix_bindmounts(&postponed_unix_bindmounts) < 0)
