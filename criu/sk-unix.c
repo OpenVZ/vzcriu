@@ -2561,16 +2561,12 @@ int unix_prepare_bindmount(struct mount_info *mi)
 	 * -> bind socket
 	 */
 	if (!opts.mntns_compat_mode) {
-		/*
-		 * We need to know on which mount socket was
-		 * bounded. We could determine that by taking
-		 * mi->bind - is source mount for our bindmount.
-		 *
-		 * It's also good to check that mi->bind is already
-		 * mounted.
-		 */
-		BUG_ON(!mi->bind);
-		sk_mi = mi->bind;
+		BUG_ON(!ui->ue->has_mnt_id);
+		sk_mi = lookup_mnt_id(sk_to_mnt_id(ui));
+		if (!sk_mi) {
+			pr_err("Unable to locate mnt_id %d for socket %d\n", sk_to_mnt_id(ui), ui->ue->id);
+			return -1;
+		}
 
 		if (!sk_mi->rmi->mounted) {
 			pr_err("bindmount: The mount %d is not mounted for unix sk id %#x\n",
