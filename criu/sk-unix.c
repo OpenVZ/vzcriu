@@ -103,6 +103,7 @@ static mutex_t *mutex_ghost;
 static LIST_HEAD(unix_sockets);
 static LIST_HEAD(unix_ghost_addr);
 static LIST_HEAD(unix_mnt_sockets);
+static LIST_HEAD(unix_overmounted_sockets);
 
 static int unix_resolve_name(int lfd, uint32_t id, struct unix_sk_desc *d,
 			     UnixSkEntry *ue, const struct fd_parms *p);
@@ -912,7 +913,8 @@ int collect_unix_bindmounts(void)
 struct unix_sk_info {
 	UnixSkEntry		*ue;
 	struct list_head	list;
-	struct list_head	mnt_list;
+	/* To link in unix_overmounted_sockets OR unix_mnt_sockets */
+	struct list_head	early_list;
 	char			*name;
 	char			*name_dir;
 	unsigned		flags;
@@ -1992,7 +1994,7 @@ static int open_unixsk_standalone(struct unix_sk_info *ui, int *new_fd)
 		close_safe(&sks[1]);
 	}
 
-	if (!(ui->ue->uflags & UNIX_UFLAGS__BINDMOUNT)) {
+	if (!(ui->ue->uflags & (UNIX_UFLAGS__BINDMOUNT | UNIX_UFLAGS__VZ_OVERMOUNTED))) {
 		if (bind_unix_sk(sks[0], ui, true)) {
 			close(sks[0]);
 			return -1;
@@ -2151,7 +2153,7 @@ static bool addr_prepared_for_early_bind(struct unix_sk_info *ui)
 
 	print_sk_full_path(path, sizeof(path), ui);
 
-	list_for_each_entry(tmp, &unix_mnt_sockets, mnt_list) {
+	list_for_each_entry(tmp, &unix_mnt_sockets, early_list) {
 		char *rel;
 
 		if (sk_to_mnt_id(ui) != sk_to_mnt_id(tmp))
@@ -2167,6 +2169,20 @@ static bool addr_prepared_for_early_bind(struct unix_sk_info *ui)
 		if (rel && !rel[0])
 			return true;
 	}
+
+	list_for_each_entry(tmp, &unix_overmounted_sockets, early_list) {
+		char *rel;
+
+		if (sk_to_mnt_id(ui) != sk_to_mnt_id(tmp))
+			continue;
+
+		print_sk_full_path(tmp_path, sizeof(tmp_path), tmp);
+
+		rel = get_relative_path(tmp_path, path);
+		if (rel && !rel[0])
+			return true;
+	}
+
 
 	return false;
 }
@@ -2294,7 +2310,7 @@ static int init_unix_sk_info(struct unix_sk_info *ui, UnixSkEntry *ue)
 	memzero(&ui->d, sizeof(ui->d));
 
 	INIT_LIST_HEAD(&ui->list);
-	INIT_LIST_HEAD(&ui->mnt_list);
+	INIT_LIST_HEAD(&ui->early_list);
 	INIT_LIST_HEAD(&ui->connected);
 	INIT_LIST_HEAD(&ui->node);
 	INIT_LIST_HEAD(&ui->scm_fles);
@@ -2399,6 +2415,11 @@ static int collect_one_unixsk(void *o, ProtobufCMessage *base, struct cr_img *i)
 
 	hlist_add_head(&ui->hash, &sk_info_hash[ui->ue->ino % SK_INFO_HASH_SIZE]);
 
+	if (ui->ue->uflags & UNIX_UFLAGS__VZ_OVERMOUNTED && !use_mounts_v2()) {
+		pr_err("Unable to restore overmounted unix socket without mounts-v2\n");
+		return -1;
+	}
+
 	if (ui->ue->uflags & UNIX_UFLAGS__BINDMOUNT) {
 		/*
 		 * Make sure it is supported socket!
@@ -2413,7 +2434,9 @@ static int collect_one_unixsk(void *o, ProtobufCMessage *base, struct cr_img *i)
 			       ___tcp_state_name(ui->ue->state));
 			return -1;
 		}
-		list_add_tail(&ui->mnt_list, &unix_mnt_sockets);
+		list_add_tail(&ui->early_list, &unix_mnt_sockets);
+	} else if (ui->ue->uflags & UNIX_UFLAGS__VZ_OVERMOUNTED) {
+		list_add_tail(&ui->early_list, &unix_overmounted_sockets);
 	}
 
 	list_add_tail(&ui->list, &unix_sockets);
@@ -2458,7 +2481,7 @@ void unix_note_bindmounts(struct list_head *head)
 	struct mount_info *mi;
 	int i;
 
-	list_for_each_entry(ui, &unix_mnt_sockets, mnt_list) {
+	list_for_each_entry(ui, &unix_mnt_sockets, early_list) {
 		for (i = 0; i < ui->ue->n_vz_bind_mnt_ids; i++) {
 			mi = lookup_mnt_id(ui->ue->vz_bind_mnt_ids[i]);
 			BUG_ON(!mi);
@@ -2721,11 +2744,11 @@ int mountv1_unix_prepare_bindmount(struct mount_info *mi)
 {
 	struct unix_sk_info *ui;
 
-	list_for_each_entry(ui, &unix_mnt_sockets, mnt_list)
+	list_for_each_entry(ui, &unix_mnt_sockets, early_list)
 		if (sk_has_bindmount(ui, mi))
 			break;
 
-	if (&ui->mnt_list == &unix_mnt_sockets)
+	if (&ui->early_list == &unix_mnt_sockets)
 		return 0;
 
 	return unix_early_bind(ui);
@@ -2786,7 +2809,13 @@ static int early_cleanup(void)
 {
 	struct unix_sk_info *ui;
 
-	list_for_each_entry(ui, &unix_mnt_sockets, mnt_list)
+	list_for_each_entry(ui, &unix_mnt_sockets, early_list)
+		if (early_unlink_sk(ui)) {
+			pr_err("Unable to cleanup socket %d\n", ui->ue->id);
+			return -1;
+		}
+
+	list_for_each_entry(ui, &unix_overmounted_sockets, early_list)
 		if (early_unlink_sk(ui)) {
 			pr_err("Unable to cleanup socket %d\n", ui->ue->id);
 			return -1;
@@ -2807,7 +2836,13 @@ int unix_do_early_binds(void)
 	if (service_mntns_fd < 0)
 		return -1;
 
-	list_for_each_entry(ui, &unix_mnt_sockets, mnt_list)
+	list_for_each_entry(ui, &unix_mnt_sockets, early_list)
+		if (unix_early_bind(ui)) {
+			pr_err("Unable to bind socket %d\n", ui->ue->id);
+			goto out;
+		}
+
+	list_for_each_entry(ui, &unix_overmounted_sockets, early_list)
 		if (unix_early_bind(ui)) {
 			pr_err("Unable to bind socket %d\n", ui->ue->id);
 			goto out;
