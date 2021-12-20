@@ -322,6 +322,11 @@ static int dump_one_unix_fd(int lfd, uint32_t id, const struct fd_parms *p)
 		struct mount_info *mi;
 		int i = 0;
 
+		if (!ue->has_mnt_id) {
+			pr_err("Can't dump bindmounted unix socket #%d: mnt_id is absent\n", ue->id);
+			return -1;
+		}
+
 		ue->uflags |= UNIX_UFLAGS__BINDMOUNT;
 
 		ue->n_vz_bind_mnt_ids = sk->mnt_usk_bind_list_size;
