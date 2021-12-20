@@ -2185,6 +2185,44 @@ static int setup_current_pid_ns(void)
 	return create_pid_ns_helper(ns);
 }
 
+static int check_curr_born_sid(void)
+{
+	struct pstree_item *born_leader = NULL;
+	pid_t current_sid, expected_sid;
+
+	if (current->born_sid == -1)
+		return 0;
+
+	current_sid = getsid(0);
+
+	born_leader = pstree_item_by_virt(current->born_sid);
+	if (!born_leader) {
+		pr_err("Can't find born leader for sid %d\n", current->born_sid);
+		return -1;
+	}
+
+	if (born_leader->pid->level > current->pid->level) {
+		pr_err("Process %d(%d) can't be in %d(%d) born session with bigger pidns level",
+		       vpid(current), current->pid->level,
+		       vpid(born_leader), born_leader->pid->level);
+		return -1;
+	}
+
+	if (born_leader->pid->level == current->pid->level) {
+		expected_sid = last_level_pid(born_leader->pid);
+	} else {
+		expected_sid = 0;
+	}
+
+	if (expected_sid != current_sid) {
+		pr_err("Born sid missmatch %d != %d\n",
+		       expected_sid, current_sid);
+		return -1;
+	}
+
+	return 0;
+}
+
 /*
  * Tasks cannot change sid (session id) arbitrary, but can either
  * inherit one from ancestor, or create a new one with id equal to
@@ -2196,12 +2234,13 @@ static int create_children_and_session(void)
 	int ret;
 	struct pstree_item *child;
 
+	if (check_curr_born_sid())
+		return -1;
+
 	pr_info("Restoring children in alien sessions:\n");
 	list_for_each_entry(child, &current->children, sibling) {
 		if (!restore_before_setsid(child))
 			continue;
-
-		BUG_ON(child->born_sid != -1 && getsid(0) != child->born_sid);
 
 		ret = fork_with_pid(child);
 		if (ret < 0)
