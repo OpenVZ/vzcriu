@@ -320,6 +320,31 @@ static int dump_one_unix_fd(int lfd, uint32_t id, const struct fd_parms *p)
 	if (unix_resolve_name(lfd, id, sk, ue, p))
 		goto err;
 
+	if (sk->namelen && *sk->name) {
+		char _abspath[PATH_MAX], *abspath = _abspath;
+		struct mount_info *mi;
+
+		if (!ue->has_mnt_id) {
+			pr_warn("Can't check if unix socket #%d is overmounted: mnt_id is absent\n", ue->id);
+			goto skip_overmount_check;
+		}
+
+		mi = lookup_mnt_id(ue->mnt_id);
+		if (!mi) {
+			pr_err("Can't find mnt_id %d\n", ue->mnt_id);
+			return -1;
+		}
+
+		if (sk->name[0] == '/')
+			abspath = sk->name;
+		else
+			snprintf(abspath, PATH_MAX, "%s/%s", ue->name_dir, sk->name);
+
+		if (path_is_overmounted(abspath, mi))
+			ue->uflags |= UNIX_UFLAGS__VZ_OVERMOUNTED;
+	}
+
+skip_overmount_check:
 	if (sk->bindmount) {
 		struct mount_info *mi;
 		int i = 0;
