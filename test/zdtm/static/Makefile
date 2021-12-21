@@ -265,6 +265,11 @@ TST_NOFILE	:=				\
 		child_subreaper			\
 		child_subreaper_existing_child	\
 		child_subreaper_and_reparent	\
+		child_subreaper_and_reparent01	\
+		child_subreaper_and_reparent02	\
+		child_subreaper_and_reparent03	\
+		child_subreaper_and_reparent04	\
+		child_subreaper_and_reparent05	\
 		memfd00				\
 		memfd01				\
 		memfd02				\
@@ -626,6 +631,11 @@ wait_stop:
 $(TST):	| $(LIB)
 
 aio00:			LDLIBS += -laio
+child_subreaper_and_reparent01: CFLAGS += -D ZDTM_CHILD_SUBREAPER_AND_REPARENT01
+child_subreaper_and_reparent02: CFLAGS += -D ZDTM_CHILD_SUBREAPER_AND_REPARENT02
+child_subreaper_and_reparent03: CFLAGS += -D ZDTM_CHILD_SUBREAPER_AND_REPARENT03
+child_subreaper_and_reparent04: CFLAGS += -D ZDTM_CHILD_SUBREAPER_AND_REPARENT04
+child_subreaper_and_reparent05: CFLAGS += -D ZDTM_CHILD_SUBREAPER_AND_REPARENT05
 different_creds:	LDLIBS += -lcap
 file_locks06 file_locks07 file_locks08:	ofd_file_locks.o
 fpu03:			CFLAGS += -pthread -D ZDTM_FPU00_RUN_IN_THREAD
