@@ -1291,13 +1291,17 @@ int mnt_is_dir(struct mount_info *pm)
 	return 0;
 }
 
-int __check_mountpoint_fd(struct mount_info *pm, int mnt_fd, bool parse_mountinfo)
+int __check_mountpoint_fd(struct mount_info *pm, int mnt_fd, bool parse_mountinfo, int flags)
 {
+	int follow = (flags & O_NOFOLLOW) ? AT_SYMLINK_NOFOLLOW : 0;
 	struct stat st;
 	unsigned int dev;
 	int ret;
 
-	ret = fstat(mnt_fd, &st);
+	if (flags & O_PATH)
+		ret = fstatat(mnt_fd, "", &st, AT_EMPTY_PATH | follow);
+	else
+		ret = fstat(mnt_fd, &st);
 	if (ret < 0) {
 		pr_perror("fstat(%s) failed", pm->ns_mountpoint);
 		return -1;
@@ -1332,16 +1336,16 @@ int __check_mountpoint_fd(struct mount_info *pm, int mnt_fd, bool parse_mountinf
 	return 0;
 }
 
-int check_mountpoint_fd(struct mount_info *pm, int mnt_fd)
+int check_mountpoint_fd(struct mount_info *pm, int mnt_fd, int flags)
 {
-	return __check_mountpoint_fd(pm, mnt_fd, false);
+	return __check_mountpoint_fd(pm, mnt_fd, false, flags);
 }
 
 /*
  * mnt_fd is a file descriptor on the mountpoint, which is closed in an error case.
  * If mnt_fd is -1, the mountpoint will be opened by this function.
  */
-int __open_mountpoint(struct mount_info *pm)
+int __open_mountpoint(struct mount_info *pm, int flags)
 {
 	int mntns_root, mnt_fd;
 
@@ -1349,13 +1353,13 @@ int __open_mountpoint(struct mount_info *pm)
 	if (mntns_root < 0)
 		return -1;
 
-	mnt_fd = openat(mntns_root, pm->ns_mountpoint, O_RDONLY);
+	mnt_fd = openat(mntns_root, pm->ns_mountpoint, flags);
 	if (mnt_fd < 0) {
 		pr_perror("Can't open %s", pm->ns_mountpoint);
 		return -1;
 	}
 
-	if (check_mountpoint_fd(pm, mnt_fd)) {
+	if (check_mountpoint_fd(pm, mnt_fd, flags)) {
 		close(mnt_fd);
 		return -1;
 	}
@@ -1371,7 +1375,7 @@ int open_mount(unsigned int s_dev)
 	if (!m)
 		return -ENOENT;
 
-	return __open_mountpoint(m);
+	return __open_mountpoint(m, O_RDONLY | O_NOFOLLOW);
 }
 
 /* Bind-mount a mount point in a temporary place without children */
@@ -1411,7 +1415,7 @@ static int get_clean_fd(struct mount_info *mi)
 	if (fd < 0) {
 		pr_perror("Can't open directory %s", mnt_path);
 	} else {
-		if (__check_mountpoint_fd(mi, fd, true))
+		if (__check_mountpoint_fd(mi, fd, true, 0))
 			goto err_close;
 	}
 
@@ -1660,6 +1664,7 @@ static int umount_overmounts(struct mount_info *m)
 struct clone_arg {
 	struct mount_info *mi;
 	int *fd;
+	int flags;
 };
 
 /*
@@ -1707,13 +1712,13 @@ int ns_open_mountpoint(void *arg)
 	 * explicitly as when last process exits mntns all mounts in it are
 	 * cleaned from their children, and we are exactly the last process.
 	 */
-	*fd = open(mi->ns_mountpoint, O_DIRECTORY | O_RDONLY);
+	*fd = open(mi->ns_mountpoint, ca->flags);
 	if (*fd < 0) {
 		pr_perror("Unable to open %s(%d)", mi->ns_mountpoint, mi->mnt_id);
 		goto err;
 	}
 
-	if (__check_mountpoint_fd(mi, *fd, true)) {
+	if (__check_mountpoint_fd(mi, *fd, true, ca->flags)) {
 		close(*fd);
 		goto err;
 	}
@@ -1725,11 +1730,16 @@ err:
 
 int open_mountpoint(struct mount_info *pm)
 {
+	return open_mountpoint_with_flags(pm, O_RDONLY | O_NOFOLLOW);
+}
+
+int open_mountpoint_with_flags(struct mount_info *pm, int flags)
+{
 	int fd = -1, cwd_fd, ns_old = -1;
 
 	/* No overmounts and children - the entire mount is visible */
 	if (list_empty(&pm->children) && !mnt_is_overmounted(pm))
-		return __open_mountpoint(pm);
+		return __open_mountpoint(pm, flags);
 
 	pr_info("Mount is not fully visible %s(%d)\n", pm->ns_mountpoint, pm->mnt_id);
 
@@ -1759,7 +1769,11 @@ int open_mountpoint(struct mount_info *pm)
 	 */
 	if (fd < 0) {
 		int pid, status;
-		struct clone_arg ca = { .mi = pm, .fd = &fd };
+		struct clone_arg ca = {
+			.mi = pm,
+			.fd = &fd,
+			.flags = flags
+		};
 
 		pr_info("\tmount is overmounted or has children %s(%d)\n", pm->ns_mountpoint, pm->mnt_id);
 
@@ -1792,7 +1806,7 @@ int open_mountpoint(struct mount_info *pm)
 		goto err;
 	}
 
-	return fd < 0 ? __open_mountpoint(pm) : fd;
+	return fd < 0 ? __open_mountpoint(pm, flags) : fd;
 err:
 	if (ns_old >= 0)
 		/* coverity[check_return] */
