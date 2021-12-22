@@ -520,6 +520,8 @@ TST_DIR		=				\
 		overmounted_unix00		\
 		overmounted_unix01		\
 		overmounted_unix02		\
+		overmounted_unix03		\
+		overmounted_unix04		\
 
 TST_DIR_FILE	=				\
 		chroot				\
@@ -812,6 +814,8 @@ overmounted_proc01:	CFLAGS += -DZDTM_DEAD_PID_REMAP
 overmounted_proc02:	CFLAGS += -DZDTM_DEAD_PID_REMAP_FILE
 
 overmounted_unix01:	CFLAGS += -DZDTM_OVM_UNIX_CONNECT
+overmounted_unix03:	CFLAGS += -DZDTM_OVM_UNIX_BIND
+overmounted_unix04:	CFLAGS += -DZDTM_OVM_UNIX_BIND -DZDTM_OVM_UNIX_STREAM
 
 $(LIB):	force
 	$(Q) $(MAKE) -C $(LIBDIR)
