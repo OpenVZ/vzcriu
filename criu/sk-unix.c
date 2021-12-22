@@ -1056,27 +1056,37 @@ int collect_unix_bindmounts(void)
 
 	for (mi = mntinfo; mi; mi = mi->next) {
 		struct unix_sk_desc *sk, *unsupported = NULL;
-		int mntns_root;
+		int path_root, flags = AT_NO_AUTOMOUNT | AT_SYMLINK_NOFOLLOW;
+		char *path;
+		bool ovm;
 
 		if (list_empty(&mi->mnt_bind))
 			continue;
 
-		/**
-		 * FIXME to stat overmounted mountpoints we need something like
-		 * open_mountpoint, but unix sockets can be open only with
-		 * O_PATH, also we don't reeally need to open it only stat it.
-		 */
-		if (mnt_is_overmounted(mi))
-			continue;
+		ovm = mnt_is_overmounted(mi);
+		if (ovm) {
+			path_root = open_mountpoint_with_flags(mi, O_PATH | O_NOFOLLOW);
+			if (path_root < 0) {
+				pr_err("Unable to open mounpotint mnt_id %d\n", mi->mnt_id);
+				return -1;
+			}
+			path = "";
+			flags |= AT_EMPTY_PATH;
+		} else {
+			path_root = mntns_get_root_fd(mi->nsid);
+			if (path_root < 0)
+				return -1;
+			path = mi->ns_mountpoint;
+		}
 
-		mntns_root = mntns_get_root_fd(mi->nsid);
-		if (mntns_root < 0)
-			return -1;
-
-		if (fstatat(mntns_root, mi->ns_mountpoint, &st, AT_NO_AUTOMOUNT | AT_SYMLINK_NOFOLLOW)) {
-			pr_warn("Can't stat on %s: %s\n", mi->ns_mountpoint, strerror(errno));
+		if (fstatat(path_root, path, &st, flags)) {
+			pr_warn("Can't stat on %s(is overmount: %d): %s\n", mi->ns_mountpoint, ovm, strerror(errno));
+			if (ovm)
+				close(path_root);
 			continue;
 		}
+		if (ovm)
+			close(path_root);
 
 		if (!S_ISSOCK(st.st_mode))
 			continue;
@@ -2519,7 +2529,7 @@ static int collect_one_unixsk(void *o, ProtobufCMessage *base, struct cr_img *i)
 		 * Make sure it is supported socket!
 		 * DGRAM, STREAM, SEQPACKET sockets supported now
 		 */
-		if ((ui->ue->uflags & ~UNIX_UFLAGS__BINDMOUNT) ||
+		if ((ui->ue->uflags & ~(UNIX_UFLAGS__BINDMOUNT | UNIX_UFLAGS__VZ_OVERMOUNTED)) ||
 		    !sk_bindmount_supported(ui->ue->type, ui->ue->state)) {
 			pr_err("bindmount: Unsupported socket id %#x "
 			       "(got %x:%s:%s)\n",
