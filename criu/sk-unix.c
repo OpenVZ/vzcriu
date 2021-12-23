@@ -989,6 +989,28 @@ static struct unix_sk_info *find_queuer_for(int id)
 	return NULL;
 }
 
+static int sk_to_mnt_id(struct unix_sk_info *ui)
+{
+	struct mount_info *mi;
+
+	if (!ui->ue->has_mnt_id)
+		return -1;
+
+	if (!(ui->ue->uflags & UNIX_UFLAGS__BINDMOUNT))
+		return ui->ue->mnt_id;
+
+	if (ui->ue->n_vz_bind_mnt_ids)
+		return ui->ue->mnt_id;
+
+	pr_warn_once("Processing old criu image with bindmount mnt_id stored instead of unix socket mnt_id\n");
+
+	mi = lookup_mnt_id(ui->ue->mnt_id);
+	BUG_ON(mi);
+	BUG_ON(mi->bind);
+
+	return mi->bind->mnt_id;
+}
+
 static struct fdinfo_list_entry *get_fle_for_task(struct file_desc *tgt,
 		struct pstree_item *owner, bool force_master)
 {
@@ -2127,6 +2149,9 @@ static bool addr_prepared_for_bindmount(struct unix_sk_info *ui)
 
 	list_for_each_entry(tmp, &unix_mnt_sockets, mnt_list) {
 		char *rel;
+
+		if (sk_to_mnt_id(ui) != sk_to_mnt_id(tmp))
+			continue;
 
 		print_sk_full_path(tmp_path, sizeof(tmp_path), tmp);
 		/*
