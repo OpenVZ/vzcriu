@@ -69,26 +69,26 @@ static struct sharing_group *alloc_sharing_group(int shared_id, int master_id)
 static int resolve_shared_mounts_v2(struct mount_info *info)
 {
 	struct sharing_group *sg;
-	struct mount_info *m;
+	struct mount_info *mi;
 
 
 	/* Create sharing groups for each unique shared_id+master_id pair */
-	for (m = info; m; m = m->next) {
-		if (!m->shared_id && !m->master_id)
+	for (mi = info; mi; mi = mi->next) {
+		if (!mi->shared_id && !mi->master_id)
 			continue;
 
 		pr_debug("Inspecting sharing on %2d shared_id %d master_id %d (@%s)\n",
-			 m->mnt_id, m->shared_id, m->master_id, m->ns_mountpoint);
+			 mi->mnt_id, mi->shared_id, mi->master_id, mi->ns_mountpoint);
 
-		sg = get_sharing_group(m->shared_id, m->master_id);
+		sg = get_sharing_group(mi->shared_id, mi->master_id);
 		if (!sg) {
-			sg = alloc_sharing_group(m->shared_id, m->master_id);
+			sg = alloc_sharing_group(mi->shared_id, mi->master_id);
 			if (!sg)
 				return -1;
 		}
 
-		list_add(&m->mnt_sharing, &sg->mnt_list);
-		m->sg = sg;
+		list_add(&mi->mnt_sharing, &sg->mnt_list);
+		mi->sg = sg;
 	}
 
 	/* Lookup dependant groups */
@@ -107,7 +107,7 @@ static int resolve_shared_mounts_v2(struct mount_info *info)
 
 			/* External slavery */
 			if (!sg->parent && list_empty(&sg->siblings)) {
-				struct mount_info *mi, *ext;
+				struct mount_info *ext;
 				struct sharing_group *s;
 				char *source = NULL;
 
@@ -119,8 +119,8 @@ static int resolve_shared_mounts_v2(struct mount_info *info)
 				list_for_each_entry(s, &sharing_groups, list) {
 					if (s->master_id != sg->master_id)
 						continue;
-					BUG_ON(sg->parent ||
-					       !list_empty(&sg->siblings));
+					BUG_ON(s->parent ||
+					       !list_empty(&s->siblings));
 					list_add(&s->siblings, &sg->siblings);
 				}
 
@@ -137,7 +137,7 @@ static int resolve_shared_mounts_v2(struct mount_info *info)
 				if (!source) {
 					pr_err("Sharing group (%d, %d) "
 					       "has unreachable sharing. Try --enable-external-masters.\n",
-					       m->master_id, m->shared_id);
+					       sg->master_id, sg->shared_id);
 					return -1;
 				}
 
