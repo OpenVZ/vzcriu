@@ -916,10 +916,8 @@ struct unix_sk_info {
 	char			*name;
 	char			*name_dir;
 	unsigned		flags;
-	union {
-		int		fdstore_id;
-		int		fdstore_mnt_id[2];
-	};
+	int			early_bind_id[2];
+	int			ghost_id;
 	struct unix_sk_info	*peer;
 	struct pprep_head	peer_resolve; /* XXX : union with the above? */
 	struct file_desc	d;
@@ -1383,7 +1381,7 @@ static int post_open_standalone(struct file_desc *d, int fd)
 
 	if (peer->flags & USK_GHOST_FDSTORE) {
 		procfs_self_dir = open_proc(getpid(), "fd");
-		fdstore_fd = fdstore_get(peer->fdstore_id);
+		fdstore_fd = fdstore_get(peer->ghost_id);
 
 		if (fdstore_fd < 0 || procfs_self_dir < 0)
 			goto err_revert_and_exit;
@@ -1475,11 +1473,11 @@ static int keep_deleted(struct unix_sk_info *ui)
 			  ui->ue->id, ui->ue->ino, ui->name);
 		return -1;
 	}
-	ui->fdstore_id = fdstore_add(fd);
-	pr_debug("ghost: id %#x %d fdstore_id %d %s\n",
-		 ui->ue->id, ui->ue->ino, ui->fdstore_id, ui->name);
+	ui->ghost_id = fdstore_add(fd);
+	pr_debug("ghost: id %#x %d ghost_id %d %s\n",
+		 ui->ue->id, ui->ue->ino, ui->ghost_id, ui->name);
 	close(fd);
-	return ui->fdstore_id;
+	return ui->ghost_id;
 }
 
 
@@ -1860,8 +1858,8 @@ static int break_connected(struct unix_sk_info *ui, int sk)
 static int make_socket(struct unix_sk_info *ui, int sks[2], bool pair, bool disjoin_master)
 {
 	if (unlikely(ui->flags & USK_EARLY_BIND)) {
-		sks[0] = fdstore_get(ui->fdstore_mnt_id[0]);
-		sks[1] = fdstore_get(ui->fdstore_mnt_id[1]);
+		sks[0] = fdstore_get(ui->early_bind_id[0]);
+		sks[1] = fdstore_get(ui->early_bind_id[1]);
 		pr_debug("Fetching early-binded socket pair id %#x ino %d\n",
 			 ui->ue->id, ui->ue->ino);
 		if (sks[0] < 0 || sks[1] < 0) {
@@ -2281,8 +2279,9 @@ static int init_unix_sk_info(struct unix_sk_info *ui, UnixSkEntry *ue)
 	ui->name_dir = (void *)ue->name_dir;
 
 	ui->flags		= 0;
-	ui->fdstore_mnt_id[0]	= -1; /* fdstore_id in union */
-	ui->fdstore_mnt_id[1]	= -1;
+	ui->early_bind_id[0]	= -1;
+	ui->early_bind_id[1]	= -1;
+	ui->ghost_id		= -1;
 	ui->ghost_dir_pos	= 0;
 	ui->peer		= NULL;
 	ui->queuer		= NULL;
@@ -2490,7 +2489,7 @@ static int unix_early_bind(struct unix_sk_info *ui)
 	struct mount_info *sk_mi = NULL;
 	char type_name[64], state_name[64];
 
-	if (ui->fdstore_mnt_id[0] > 0 || ui->fdstore_mnt_id[1] > 0)
+	if (ui->early_bind_id[0] > 0 || ui->early_bind_id[1] > 0)
 		return 0;
 
 	pr_info("early bind: id %#x ino %d type %s state %s (queuer id %#x ino %d) peer %d (name %.*s dir %s)\n",
@@ -2657,16 +2656,21 @@ static int unix_early_bind(struct unix_sk_info *ui)
 	if (bind_unix_sk(sks[0], ui, false))
 		goto out;
 
-	ui->fdstore_mnt_id[0] = fdstore_add(sks[0]);
+	ui->early_bind_id[0] = fdstore_add(sks[0]);
 	if (ui->ue->state == TCP_LISTEN)
-		ui->fdstore_mnt_id[1] = -1;
+		ui->early_bind_id[1] = -1;
 	else
-		ui->fdstore_mnt_id[1] = fdstore_add(sks[1]);
+		ui->early_bind_id[1] = fdstore_add(sks[1]);
 
-	if (ui->fdstore_mnt_id[0] < 0 || (ui->ue->state != TCP_LISTEN && ui->fdstore_mnt_id[1] < 0)) {
+	if (ui->early_bind_id[0] < 0 || (ui->ue->state != TCP_LISTEN && ui->early_bind_id[1] < 0)) {
 		pr_err("early bind: Can't add socketpair id %#x into fdstore\n",
 			ui->ue->id);
 		goto out;
+	}
+
+	if (ui->ue->uflags & UNIX_UFLAGS__VZ_OVERMOUNTED && !(ui->flags & USK_GHOST_FDSTORE)) {
+		keep_deleted(ui);
+		ui->flags |= USK_GHOST_FDSTORE;
 	}
 
 	if (fchdir(prev_root_fd)) {
