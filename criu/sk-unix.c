@@ -2637,20 +2637,23 @@ static int unix_early_bind(struct unix_sk_info *ui)
 	/*
 	 * We should cleanup FS from leftover socket files.
 	 * See also unlink_sk() function.
+	 * For mntv2 we already cleaned everything via early_cleanup()
 	 */
-	ret = unlinkat(AT_FDCWD, ui->name, 0) ? -1 : 0;
-	if (ret < 0 && errno != ENOENT) {
-		pr_perror("Can't unlink socket %u peer %u (name %s dir %s)\n",
-			ui->ue->ino, ui->ue->peer,
-			ui->name ? (ui->name[0] ? ui->name : &ui->name[1]) : "-",
-			ui->name_dir ? ui->name_dir : "-");
-		ret = -1;
-		goto out;
-	} else if (ret == 0) {
-		pr_debug("Unlinked socket %u peer %u (name %s dir %s)\n",
-			 ui->ue->ino, ui->ue->peer,
-			 ui->name ? (ui->name[0] ? ui->name : &ui->name[1]) : "-",
-			 ui->name_dir ? ui->name_dir : "-");
+	if (!use_mounts_v2()) {
+		ret = unlinkat(AT_FDCWD, ui->name, 0) ? -1 : 0;
+		if (ret < 0 && errno != ENOENT) {
+			pr_perror("Can't unlink socket %u peer %u (name %s dir %s)",
+				ui->ue->ino, ui->ue->peer,
+				ui->name ? (ui->name[0] ? ui->name : &ui->name[1]) : "-",
+				ui->name_dir ? ui->name_dir : "-");
+			ret = -1;
+			goto out;
+		} else if (ret == 0) {
+			pr_debug("Unlinked socket %u peer %u (name %s dir %s)\n",
+				ui->ue->ino, ui->ue->peer,
+				ui->name ? (ui->name[0] ? ui->name : &ui->name[1]) : "-",
+				ui->name_dir ? ui->name_dir : "-");
+		}
 	}
 
 	if (bind_unix_sk(sks[0], ui, false))
@@ -2728,10 +2731,77 @@ int mountv1_unix_prepare_bindmount(struct mount_info *mi)
 	return unix_early_bind(ui);
 }
 
+static int early_unlink_sk(struct unix_sk_info *ui)
+{
+	char ns_abspath[PATH_MAX], abspath[PATH_MAX], *rpath;
+	struct mount_info *mi;
+	struct stat st;
+
+	if (ui->ue->uflags & UNIX_UFLAGS__EXTERN || (ui->ue->has_deleted && ui->ue->deleted))
+		return 0;
+
+	print_sk_full_path(ns_abspath, PATH_MAX, ui);
+
+	BUG_ON(!ui->ue->has_mnt_id);
+	mi = lookup_mnt_id(sk_to_mnt_id(ui));
+	if (!mi) {
+		pr_err("Unable to locate mnt_id %d for socket %d\n", sk_to_mnt_id(ui), ui->ue->id);
+		return -1;
+	}
+
+	rpath = get_relative_path(ns_abspath, mi->ns_mountpoint);
+	if (!rpath) {
+		pr_err("Unable to get rpath for (%s, %s)\n", ns_abspath, mi->ns_mountpoint);
+		return -1;
+	}
+
+	snprintf(abspath, PATH_MAX, "%s/%s", service_mountpoint(mi), rpath);
+
+	/*
+	 * Several sockets may have the same name, so we may already cleaned it up
+	 */
+	if (lstat(abspath, &st))
+		return 0;
+
+	if (!S_ISSOCK(st.st_mode)) {
+		pr_err("Inconsistent fs and criu image. Non-socket file in place of non-deleted socket\n");
+		return -1;
+	}
+
+	if (unlink(abspath)) {
+		pr_perror("Unable to unlink leftover socket");
+		return -1;
+	}
+
+	return 0;
+}
+
+/*
+ * Unlink all sockets we want to bind early
+ * Actually we should unlink all sockets right here to not duplicate
+ * unlink_sk(), but we still support mntv1 code which do not have
+ * access to service mountnamespace
+ */
+static int early_cleanup(void)
+{
+	struct unix_sk_info *ui;
+
+	list_for_each_entry(ui, &unix_mnt_sockets, mnt_list)
+		if (early_unlink_sk(ui)) {
+			pr_err("Unable to cleanup socket %d\n", ui->ue->id);
+			return -1;
+		}
+
+	return 0;
+}
+
 int unix_do_early_binds(void)
 {
 	struct unix_sk_info *ui;
 	int service_mntns_fd, ret = -1;
+
+	if (early_cleanup())
+		return -1;
 
 	service_mntns_fd = open_proc(PROC_SELF, "ns/mnt");
 	if (service_mntns_fd < 0)
