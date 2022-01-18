@@ -183,6 +183,7 @@ TST_NOFILE	:=				\
 		stopped01			\
 		stopped02			\
 		stopped12			\
+		stopped03			\
 		rtc				\
 		clean_mntns			\
 		mntns_rw_ro_rw			\
