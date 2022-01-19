@@ -1,1 +1,1 @@
-{'flags': 'suid', 'opts': '--link-remap', 'flavor': 'ns uns'}
+{'flags': 'suid', 'opts': '--link-remap', 'flavor': 'ns uns', 'ropts': '--no-mounts-compat'}
