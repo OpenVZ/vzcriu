@@ -40,6 +40,10 @@ struct pid {
 	pid_t real_sid;
 
 	int state;	/* TASK_XXX constants */
+	/* If an item is in the stopped state it has a signal number
+	 * that caused the task to stop.
+	 */
+	int stop_signo;
 
 	/*
 	 * The @virt pid is one which used in the image itself and keeps

@@ -257,6 +257,7 @@ struct pstree_item *__alloc_pstree_item(bool rst, int level)
 	item->pid->real_pgid = -1;
 	item->pid->real_sid = -1;
 	item->pid->state = TASK_UNDEF;
+	item->pid->stop_signo = -1;
 	item->born_sid = -1;
 	item->tty_pgrp = -1;
 	item->pid->item = item;
