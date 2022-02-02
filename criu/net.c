@@ -2754,14 +2754,27 @@ static inline int dump_ipset(struct cr_imgset *fds)
 static inline int dump_iptables(struct cr_imgset *fds)
 {
 	struct cr_img *img;
+	char *cmd4, *cmd6;
+
+	/*
+	 * FIXME: temporary hack for VZ9
+	 * We have beancounters for VZ7 (and not for VZ9), so we can detect release.
+	 */
+	if (kdat.has_beancounters) {
+		cmd4 = "iptables-save";
+		cmd6 = "ip6tables-save";
+	} else {
+		cmd4 = "iptables-legacy-save";
+		cmd6 = "ip6tables-legacy-save";
+	}
 
 	img = img_from_set(fds, CR_FD_IPTABLES);
-	if (iptables_tool_dump("iptables-save", -1, img_raw_fd(img)))
+	if (iptables_tool_dump(cmd4, -1, img_raw_fd(img)))
 		return -1;
 
 	if (kdat.ipv6) {
 		img = img_from_set(fds, CR_FD_IP6TABLES);
-		if (iptables_tool_dump("ip6tables-save", -1, img_raw_fd(img)))
+		if (iptables_tool_dump(cmd6, -1, img_raw_fd(img)))
 			return -1;
 	}
 
@@ -3065,6 +3078,19 @@ static inline int restore_iptables(int pid)
 {
 	int ret = -1;
 	struct cr_img *img;
+	char *cmd4, *cmd6;
+
+	/*
+	 * FIXME: temporary hack for VZ9
+	 * We have beancounters for VZ7 (and not for VZ9), so we can detect release.
+	 */
+	if (kdat.has_beancounters) {
+		cmd4 = "iptables-restore -w";
+		cmd6 = "ip6tables-restore -w";
+	} else {
+		cmd4 = "iptables-legacy-restore -w";
+		cmd6 = "ip6tables-legacy-restore -w";
+	}
 
 	img = open_image(CR_FD_IPTABLES, O_RSTR, pid);
 	if (img == NULL)
@@ -3075,7 +3101,7 @@ static inline int restore_iptables(int pid)
 		goto ipt6;
 	}
 
-	ret = iptables_tool_restore("iptables-restore -w", img_raw_fd(img), -1);
+	ret = iptables_tool_restore(cmd4, img_raw_fd(img), -1);
 	close_image(img);
 	if (ret)
 		return ret;
@@ -3086,7 +3112,7 @@ ipt6:
 	if (empty_image(img))
 		goto out;
 
-	ret = iptables_tool_restore("ip6tables-restore -w", img_raw_fd(img), -1);
+	ret = iptables_tool_restore(cmd6, img_raw_fd(img), -1);
 out:
 	close_image(img);
 
@@ -3839,8 +3865,20 @@ static int do_iptables_restore(bool ipv6, char *buf, int size)
 	int pfd[2], ret = -1;
 	char *cmd4[] = {"iptables-restore", "-w", "--noflush", NULL};
 	char *cmd6[] = {"ip6tables-restore", "-w", "--noflush", NULL};
-	char **cmd = ipv6 ? cmd6 : cmd4;
+	char *cmd4_legacy[] = {"iptables-legacy-restore", "-w", "--noflush", NULL};
+	char *cmd6_legacy[] = {"ip6tables-legacy-restore", "-w", "--noflush", NULL};
+	char **cmd;
 	int userns_pid = -1;
+
+	/*
+	 * FIXME: temporary hack for VZ9
+	 * We have beancounters for VZ7 (and not for VZ9), so we can detect release.
+	 */
+	if (kdat.has_beancounters) {
+		cmd = ipv6 ? cmd6 : cmd4;
+	} else {
+		cmd = ipv6 ? cmd6_legacy : cmd4_legacy;
+	}
 
 	if (pipe(pfd) < 0) {
 		pr_perror("Unable to create pipe");
