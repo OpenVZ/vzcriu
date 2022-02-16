@@ -22,8 +22,7 @@ extern void std_log_set_gettimeofday(gettimeofday_t gtod);
 extern int std_gettimeofday(struct timeval *tv, struct timezone *tz);
 
 extern int std_vprint_num(char *buf, int blen, int num, char **ps);
-extern void std_sprintf(char output[STD_LOG_SIMPLE_CHUNK], const char *format, ...)
-	__attribute__((__format__(__printf__, 2, 3)));
+extern void std_sprintf(char *output, const char *format, ...) __attribute__((__format__(__printf__, 2, 3)));
 extern void print_on_level(unsigned int loglevel, const char *format, ...)
 	__attribute__((__format__(__printf__, 2, 3)));
 
