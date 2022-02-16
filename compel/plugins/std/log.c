@@ -378,7 +378,7 @@ void print_on_level(unsigned int loglevel, const char *format, ...)
 	sbuf_log_flush(&b);
 }
 
-void std_sprintf(char output[STD_LOG_SIMPLE_CHUNK], const char *format, ...)
+void std_sprintf(char *output, const char *format, ...)
 {
 	va_list args;
 	struct simple_buf b;
