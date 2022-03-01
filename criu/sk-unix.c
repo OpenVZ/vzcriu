@@ -2416,7 +2416,7 @@ static int sk_has_bindmount(struct unix_sk_info *ui, struct mount_info *mi)
 	}
 
 	/* compatibility with old images */
-	if (ui->ue->mnt_id == mi->mnt_id)
+	if (ui->ue->n_vz_bind_mnt_ids == 0 && ui->ue->mnt_id == mi->mnt_id)
 		return 1;
 
 	return 0;
