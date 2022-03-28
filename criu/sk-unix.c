@@ -1529,7 +1529,7 @@ static int bind_on_deleted(int sk, struct unix_sk_info *ui)
 	char path[PATH_MAX], path_parked[PATH_MAX], *pos;
 	struct sockaddr_un addr;
 	bool renamed = false;
-	int ret;
+	int ret, exit_code = -1;
 
 	if (ui->ue->name.len >= UNIX_PATH_MAX) {
 		pr_err("ghost: Too long name for socket id %#x ino %u name %s\n",
@@ -1553,10 +1553,9 @@ static int bind_on_deleted(int sk, struct unix_sk_info *ui)
 		}
 
 		if (errno != ENOENT) {
-			ret = -errno;
 			pr_perror("ghost: Can't access %s for socket id %#x ino %u name %s",
 				  path, ui->ue->id, ui->ue->ino, ui->name);
-			return ret;
+			return -1;
 		}
 	}
 
@@ -1568,9 +1567,8 @@ static int bind_on_deleted(int sk, struct unix_sk_info *ui)
 		 ui->ue->id, ui->ue->ino, ui->name, pos);
 	ret = mkdirpat(AT_FDCWD, pos, 0755);
 	if (ret) {
-		errno = -ret;
 		pr_perror("ghost: Can't create %s", pos);
-		return ret;
+		return -1;
 	}
 
 	memset(&addr, 0, sizeof(addr));
@@ -1589,10 +1587,9 @@ static int bind_on_deleted(int sk, struct unix_sk_info *ui)
 			pr_debug("ghost: Unlinked stale socket id %#x ino %d name %s\n",
 				 ui->ue->id, ui->ue->ino, path_parked);
 		if (rename(ui->name, path_parked)) {
-			ret = -errno;
 			pr_perror("ghost: Can't rename id %#x ino %u addr %s -> %s",
 				  ui->ue->id, ui->ue->ino, ui->name, path_parked);
-			return ret;
+			return -1;
 		}
 		pr_debug("ghost: id %#x ino %d renamed %s -> %s\n",
 			 ui->ue->id, ui->ue->ino, ui->name, path_parked);
@@ -1602,7 +1599,6 @@ static int bind_on_deleted(int sk, struct unix_sk_info *ui)
 	ret = bind(sk, (struct sockaddr *)&addr,
 		   sizeof(addr.sun_family) + ui->ue->name.len);
 	if (ret < 0) {
-		ret = -errno;
 		pr_perror("ghost: Can't bind on socket id %#x ino %d addr %s",
 			  ui->ue->id, ui->ue->ino, ui->name);
 		goto out_rename;
@@ -1616,9 +1612,10 @@ static int bind_on_deleted(int sk, struct unix_sk_info *ui)
 	if (ret < 0) {
 		pr_err("ghost: Can't save socket %#x ino %u addr %s into fdstore\n",
 		       ui->ue->id, ui->ue->ino, ui->name);
-		ret = -EIO;
+		goto out;
 	}
 
+	exit_code = 0;
 out:
 	/*
 	 * Once everything is ready, just remove the socket from the
@@ -1626,7 +1623,7 @@ out:
 	 */
 	ret = unlinkat(AT_FDCWD, ui->name, 0);
 	if (ret < 0) {
-		ret = -errno;
+		exit_code = -1;
 		pr_perror("ghost: Can't unlink socket %#x ino %u addr %s",
 			  ui->ue->id, ui->ue->ino, ui->name);
 	}
@@ -1634,7 +1631,7 @@ out:
 out_rename:
 	if (renamed) {
 		if (rename(path_parked, ui->name)) {
-			ret = -errno;
+			exit_code = -1;
 			pr_perror("ghost: Can't rename id %#x ino %u addr %s -> %s",
 				  ui->ue->id, ui->ue->ino, path_parked, ui->name);
 		} else {
@@ -1666,7 +1663,7 @@ out_rename:
 		}
 	}
 
-	return 0;
+	return exit_code;
 }
 
 static int bind_unix_sk(int sk, struct unix_sk_info *ui, bool notify)
@@ -1713,8 +1710,6 @@ static int bind_unix_sk(int sk, struct unix_sk_info *ui, bool notify)
 		pr_debug("ghost: bind id %#x ino %u addr %s\n",
 			 ui->ue->id, ui->ue->ino, ui->name);
 		ret = bind_on_deleted(sk, ui);
-		if (ret)
-			errno = -ret;
 	} else {
 		pr_debug("bind id %#x ino %u addr %s\n",
 			 ui->ue->id, ui->ue->ino, ui->name);
