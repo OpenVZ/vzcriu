@@ -52,6 +52,7 @@
 
 #include "protobuf.h"
 #include "util.h"
+#include "images/mnt.pb-c.h"
 #include "images/regfile.pb-c.h"
 #include "images/remap-file-path.pb-c.h"
 
@@ -2235,6 +2236,11 @@ int dump_one_reg_file(int lfd, u32 id, const struct fd_parms *p)
 		if (m)
 			pr_err("Hint: Other mount %d with same sdev\n",
 			       m->mnt_id);
+		return -1;
+	}
+
+	if (mi->fstype->code == FSTYPE__VZ_NFSD) {
+		pr_err("Open files on nfsd(%d) are not supported\n", mi->mnt_id);
 		return -1;
 	}
 

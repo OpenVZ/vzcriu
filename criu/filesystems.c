@@ -1370,6 +1370,9 @@ static struct fstype fstypes[] = {
 		.name = "nsfs",
 		.code = FSTYPE__VZ_NSFS,
 		.after_parse = nsfs_after_parse,
+	}, {
+		.name = "nfsd",
+		.code = FSTYPE__VZ_NFSD,
 	},
 };
 
