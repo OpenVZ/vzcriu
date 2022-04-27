@@ -2228,7 +2228,8 @@ static int cr_lazy_mem_dump(void)
 
 static int cr_dump_finish(int ret)
 {
-	int post_dump_ret = 0;
+	int post_dump_ret = 0, dump_alive_ret = 0;
+	int state;
 
 	ve_bc_finish(&bc_set);
 
@@ -2280,7 +2281,8 @@ static int cr_dump_finish(int ret)
 	 *    consistency of the FS and other resources, we simply
 	 *    start rollback procedure and cleanup everything.
 	 */
-	if (ret || post_dump_ret || opts.final_state == TASK_ALIVE) {
+	state = (ret || post_dump_ret) ? TASK_ALIVE : opts.final_state;
+	if (state == TASK_ALIVE) {
 		network_unlock();
 		delete_link_remaps();
 		clean_cr_time_mounts();
@@ -2291,12 +2293,16 @@ static int cr_dump_finish(int ret)
 
 	if (arch_set_thread_regs(root_item, true) < 0)
 		return -1;
-	pstree_switch_state(root_item,
-			    (ret || post_dump_ret) ?
-			    TASK_ALIVE : opts.final_state);
+	pstree_switch_state(root_item, state);
 
 	if (stats_initialized())
 		timing_stop(TIME_FROZEN);
+
+	if (state == TASK_ALIVE) {
+		dump_alive_ret |= run_scripts(ACT_DUMP_ALIVE);
+		if (dump_alive_ret)
+			pr_err("Dump alive script exited with %d\n", dump_alive_ret);
+	}
 
 	free_freezer_real_states();
 	free_pstree(root_item);
@@ -2311,13 +2317,13 @@ static int cr_dump_finish(int ret)
 	close_service_fd(CR_PROC_FD_OFF);
 	close_image_dir();
 
-	if (ret || post_dump_ret) {
+	if (ret || post_dump_ret || dump_alive_ret) {
 		pr_err("Dumping FAILED.\n");
 	} else {
 		write_stats(DUMP_STATS);
 		pr_info("Dumping finished successfully\n");
 	}
-	return post_dump_ret ? : (ret != 0);
+	return post_dump_ret | dump_alive_ret ? : (ret != 0);
 }
 
 int cr_dump_tasks(pid_t pid)
