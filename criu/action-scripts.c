@@ -22,6 +22,7 @@
 static const char *action_names[ACT_MAX] = {
 	[ACT_PRE_DUMP] = "pre-dump",
 	[ACT_POST_DUMP] = "post-dump",
+	[ACT_DUMP_ALIVE] = "dump-alive",
 	[ACT_PRE_RESTORE] = "pre-restore",
 	[ACT_POST_RESTORE] = "post-restore",
 	[ACT_NET_LOCK] = "network-lock",
