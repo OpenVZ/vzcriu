@@ -1391,7 +1391,7 @@ int open_mount(unsigned int s_dev)
 	if (!m)
 		return -ENOENT;
 
-	return __open_mountpoint(m, -1, O_DIRECTORY | O_RDONLY | O_NOFOLLOW);
+	return __open_mountpoint(m, -1, O_RDONLY | O_NOFOLLOW);
 }
 
 /* Bind-mount a mount point in a temporary place without children */
@@ -1720,7 +1720,7 @@ err:
 
 int open_mountpoint(struct mount_info *pm)
 {
-	return open_mountpoint_with_flags(pm, O_DIRECTORY | O_RDONLY | O_NOFOLLOW);
+	return open_mountpoint_with_flags(pm, O_RDONLY | O_NOFOLLOW);
 }
 
 int open_mountpoint_with_flags(struct mount_info *pm, int flags)
