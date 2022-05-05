@@ -338,6 +338,11 @@ err:
 	return -ENOENT;
 }
 
+static inline bool will_bind_sk(UnixSkEntry *ue)
+{
+	return !((ue->type != SOCK_DGRAM) && (ue->state == TCP_ESTABLISHED));
+}
+
 static int dump_one_unix_fd(int lfd, uint32_t id, const struct fd_parms *p)
 {
 	struct unix_sk_desc *sk, *peer;
@@ -391,7 +396,7 @@ static int dump_one_unix_fd(int lfd, uint32_t id, const struct fd_parms *p)
 	if (unix_resolve_name(lfd, id, sk, ue, p))
 		goto err;
 
-	if (sk->namelen && *sk->name) {
+	if (sk->namelen && *sk->name && will_bind_sk(ue)) {
 		char _abspath[PATH_MAX], *abspath = _abspath;
 		struct mount_info *mi;
 
@@ -1831,7 +1836,7 @@ static int bind_unix_sk(int sk, struct unix_sk_info *ui, bool notify)
 	if (ui->ue->name.len == 0)
 		return 0;
 
-	if ((ui->ue->type != SOCK_DGRAM) && (ui->ue->state == TCP_ESTABLISHED)) {
+	if (!will_bind_sk(ui->ue)) {
 		/*
 		 * FIXME this can be done, but for doing this properly we
 		 * need to bind socket to its name, then rename one to
@@ -2590,6 +2595,9 @@ static int prepare_unix_socket(struct unix_sk_info *ui, struct mount_info *sk_mi
 			 ui->ue->id);
 		return 0;
 	}
+
+	if (!will_bind_sk(ui->ue))
+		return 0;
 
 	/*
 	 * Mark it as bindmount so when need to use we
