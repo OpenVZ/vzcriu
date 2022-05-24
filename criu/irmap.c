@@ -369,10 +369,9 @@ int irmap_predump_run(void)
 
 	for (ip = predump_queue; ip; ip = ip->next) {
 		pr_debug("\tchecking %x:%lx\n", ip->dev, ip->ino);
-		ret = check_open_handle(ip->dev, ip->ino, &ip->fh);
-		if (ret) {
-			pr_err("Failed to resolve %x:%lx\n", ip->dev, ip->ino);
-			break;
+		if (check_open_handle(ip->dev, ip->ino, &ip->fh)) {
+			pr_warn("Failed to resolve %x:%lx\n", ip->dev, ip->ino);
+			continue;
 		}
 
 		if (ip->fh.path) {
