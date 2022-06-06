@@ -407,10 +407,99 @@ static int dump_packet_cmsg(struct msghdr *mh, SkPacketEntry *pe, int flags)
 	return ret;
 }
 
-int dump_sk_queue(int sock_fd, int sock_id, int flags, int *val)
+static int dump_sk_queue_packet(int sock_fd, int sock_id, void *data, int size, int flags, int *val)
 {
 	SkPacketEntry pe = SK_PACKET_ENTRY__INIT;
+	int ret, exit_code = -1;
+	char cmsg[CMSG_MAX_SIZE];
+	unsigned char addr[_K_SS_MAXSIZE];
+	struct iovec iov = {
+		.iov_base = data,
+		.iov_len = size,
+	};
+	struct msghdr msg = {
+		.msg_iov = &iov,
+		.msg_iovlen = 1,
+		.msg_control = &cmsg,
+		.msg_controllen = sizeof(cmsg),
+	};
+
+	pe.id_for = sock_id;
+
+	if (flags & SK_QUEUE_DUMP_ADDR) {
+		msg.msg_name = addr;
+		msg.msg_namelen = _K_SS_MAXSIZE;
+	}
+
+	ret = pe.length = recvmsg(sock_fd, &msg, MSG_DONTWAIT | MSG_PEEK);
+	if (!ret) {
+		/*
+		 * It means, that peer has performed an
+		 * orderly shutdown, so we're done.
+		 */
+		return 1;
+	} else if (ret < 0) {
+		if (errno == EAGAIN)
+			return 1;
+
+		if (errno == ENOBUFS && flags & SK_QUEUE_TRACK_ENOBUFS && val) {
+			*val = ENOBUFS;
+			pr_debug("Detected ENOBUFS in socket\n");
+			return 0;
+		}
+
+		pr_perror("recvmsg fail: error");
+		return -1;
+	}
+
+	if (msg.msg_flags & MSG_TRUNC) {
+		/*
+		 * DGRAM truncated. This should not happen. But we have
+		 * to check...
+		 */
+		pr_err("recvmsg failed: truncated\n");
+		return -1;
+	}
+
+	ret = dump_packet_cmsg(&msg, &pe, flags);
+	if (ret < 0)
+		goto cleanup_packet;
+
+	if (flags & SK_QUEUE_DUMP_ADDR && msg.msg_namelen) {
+		pe.has_addr = true;
+		pe.addr.data = msg.msg_name;
+		pe.addr.len = msg.msg_namelen;
+	}
+
+	if (ret > 0) {
+		if (ret == 1) {
+			if (queue_packet_entry(&pe, data, pe.length))
+				goto cleanup_packet;
+		}
+		exit_code = 0;
+		goto cleanup_packet;
+	}
+
+	ret = pb_write_one(img_from_set(glob_imgset, CR_FD_SK_QUEUES), &pe, PB_SK_QUEUES);
+	if (ret < 0)
+		goto cleanup_packet;
+
+	ret = write_img_buf(img_from_set(glob_imgset, CR_FD_SK_QUEUES), data, pe.length);
+	if (ret < 0)
+		goto cleanup_packet;
+
+	exit_code = 0;
+cleanup_packet:
+	if (pe.scm)
+		release_cmsg(&pe);
+	xfree(pe.ucred);
+	return exit_code;
+}
+
+int dump_sk_queue(int sock_fd, int sock_id, int flags, int *val)
+{
 	int ret, size, orig_peek_off;
+	int exit_code = -1;
 	void *data;
 	socklen_t tmp;
 
@@ -422,7 +511,7 @@ int dump_sk_queue(int sock_fd, int sock_id, int flags, int *val)
 	ret = getsockopt(sock_fd, SOL_SOCKET, SO_PEEK_OFF, &orig_peek_off, &tmp);
 	if (ret < 0) {
 		pr_perror("getsockopt failed");
-		return ret;
+		return -1;
 	}
 	/*
 	 * Discover max DGRAM size
@@ -432,7 +521,7 @@ int dump_sk_queue(int sock_fd, int sock_id, int flags, int *val)
 	ret = getsockopt(sock_fd, SOL_SOCKET, SO_SNDBUF, &size, &tmp);
 	if (ret < 0) {
 		pr_perror("getsockopt failed");
-		return ret;
+		return -1;
 	}
 
 	/* Note: 32 bytes will be used by kernel for protocol header. */
@@ -451,95 +540,17 @@ int dump_sk_queue(int sock_fd, int sock_id, int flags, int *val)
 	ret = setsockopt(sock_fd, SOL_SOCKET, SO_PEEK_OFF, &ret, sizeof(int));
 	if (ret < 0) {
 		pr_perror("setsockopt fail");
-		goto err_brk;
+		goto err_free;
 	}
-
-	pe.id_for = sock_id;
 
 	while (1) {
-		char cmsg[CMSG_MAX_SIZE];
-		unsigned char addr[_K_SS_MAXSIZE];
-		struct iovec iov = {
-			.iov_base = data,
-			.iov_len = size,
-		};
-		struct msghdr msg = {
-			.msg_iov = &iov,
-			.msg_iovlen = 1,
-			.msg_control = &cmsg,
-			.msg_controllen = sizeof(cmsg),
-		};
-
-		if (flags & SK_QUEUE_DUMP_ADDR) {
-			msg.msg_name = addr;
-			msg.msg_namelen = _K_SS_MAXSIZE;
-		}
-
-		ret = pe.length = recvmsg(sock_fd, &msg, MSG_DONTWAIT | MSG_PEEK);
-		if (!ret)
-			/*
-			 * It means, that peer has performed an
-			 * orderly shutdown, so we're done.
-			 */
+		ret = dump_sk_queue_packet(sock_fd, sock_id, data, size, flags, val);
+		if (ret == 1)
 			break;
-		else if (ret < 0) {
-			if (errno == EAGAIN)
-				break; /* we're done */
-
-			if (errno == ENOBUFS && flags & SK_QUEUE_TRACK_ENOBUFS && val) {
-				*val = ENOBUFS;
-				pr_debug("Detected ENOBUFS in socket\n");
-				continue;
-			}
-
-			pr_perror("recvmsg fail: error");
+		else if (ret == -1)
 			goto err_set_sock;
-		}
-		if (msg.msg_flags & MSG_TRUNC) {
-			/*
-			 * DGRAM truncated. This should not happen. But we have
-			 * to check...
-			 */
-			pr_err("sys_recvmsg failed: truncated\n");
-			ret = -E2BIG;
-			goto err_set_sock;
-		}
-
-		ret = dump_packet_cmsg(&msg, &pe, flags);
-		if (ret < 0)
-			goto err_set_sock;
-
-		if (msg.msg_namelen) {
-			pe.has_addr = true;
-			pe.addr.data = addr;
-			pe.addr.len = msg.msg_namelen;
-		}
-
-		if (ret > 0) {
-			if (ret == 1) {
-				ret = -1;
-				if (queue_packet_entry(&pe, data, pe.length))
-					goto err_set_sock;
-			}
-			continue;
-		}
-
-		ret = pb_write_one(img_from_set(glob_imgset, CR_FD_SK_QUEUES), &pe, PB_SK_QUEUES);
-		if (ret < 0) {
-			ret = -EIO;
-			goto err_set_sock;
-		}
-
-		ret = write_img_buf(img_from_set(glob_imgset, CR_FD_SK_QUEUES), data, pe.length);
-		if (ret < 0) {
-			ret = -EIO;
-			goto err_set_sock;
-		}
-
-		if (pe.scm)
-			release_cmsg(&pe);
 	}
-	ret = 0;
+	exit_code = 0;
 
 err_set_sock:
 	/*
@@ -549,12 +560,9 @@ err_set_sock:
 		pr_perror("setsockopt failed on restore");
 		ret = -1;
 	}
-	if (pe.scm)
-		release_cmsg(&pe);
-err_brk:
-	xfree(pe.ucred);
+err_free:
 	xfree(data);
-	return ret;
+	return exit_code;
 }
 
 static int send_one_pkt(int fd, struct sk_packet *pkt)
