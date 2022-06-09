@@ -20,6 +20,7 @@ static int do_infection(int pid, int *stolen_fd)
 #define err_and_ret(msg) do { fprintf(stderr, msg); return -1; } while (0)
 
 	int state;
+	int stop_signo = -1;
 	struct parasite_ctl *ctl;
 	struct infect_ctx *ictx;
 
@@ -29,6 +30,9 @@ static int do_infection(int pid, int *stolen_fd)
 	state = compel_stop_task(pid);
 	if (state < 0)
 		err_and_ret("Can't stop task");
+
+	if (state == COMPEL_TASK_STOPPED)
+		stop_signo = compel_parse_stop_signo(pid);
 
 	printf("Preparing parasite ctl\n");
 	ctl = compel_prepare(pid);
@@ -71,7 +75,7 @@ static int do_infection(int pid, int *stolen_fd)
 	if (compel_cure(ctl))
 		err_and_ret("Can't cure victim");
 
-	if (compel_resume_task(pid, state, state))
+	if (compel_resume_task(pid, state, state, stop_signo))
 		err_and_ret("Can't unseize task");
 
 	printf("Done\n");

@@ -1155,6 +1155,11 @@ static int dump_task_core_all(struct parasite_ctl *ctl,
 	core->tc->task_state = item->pid->state;
 	core->tc->exit_code = 0;
 
+	if (core->tc->task_state == TASK_STOPPED) {
+		core->tc->has_vz_stop_signo = true;
+		core->tc->vz_stop_signo = item->pid->stop_signo;
+	}
+
 	if (stat->tty_nr) {
 		struct pstree_item *p = item;
 
