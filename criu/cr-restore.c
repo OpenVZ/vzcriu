@@ -2813,6 +2813,7 @@ static int restore_root_task(struct pstree_item *init)
 	struct pstree_item *item;
 	bool spfs_is_running = false;
 	int spfs_sock = -1;
+	bool in_veX = false;
 
 	ret = run_scripts(ACT_PRE_RESTORE);
 	if (ret != 0) {
@@ -2885,6 +2886,7 @@ static int restore_root_task(struct pstree_item *init)
 	ret = join_veX(root_item->pid->real);
 	if (ret)
 		goto out;
+	in_veX = true;
 
 	ret = fork_with_pid(init);
 	if (ret < 0)
@@ -3085,6 +3087,7 @@ skip_ns_bouncing:
 
 	if (join_ve0(getpid()))
 		goto out_kill_network_unlocked;
+	in_veX = false;
 
 	ret = compel_stop_on_syscall(task_entries->nr_threads,
 		__NR(rt_sigreturn, 0), __NR(rt_sigreturn, 1), flag);
@@ -3169,6 +3172,20 @@ out:
 	depopulate_roots_yard(mnt_ns_fd, true);
 	stop_usernsd();
 	__restore_switch_stage(CR_STATE_FAIL);
+
+	/*
+	 * At this point container is failed to restore, it means that
+	 * corresponding ve cgroup (veX) will be destroyed. Let's leave
+	 * this cgroup and enter to the ve0 just not to associate CRIU
+	 * master process with the container cgroup.
+	 * It's important because criu plugins such as reporter-vz-criu-plugin
+	 * can do fork()/clone() syscalls and create daemon processes,
+	 * and these processes will inherit container cgroup and then getting
+	 * killed by the vzctl during CT forced stop procedure.
+	 */
+	if (in_veX && join_ve0(getpid()))
+		pr_warn("join_ve0 failed\n");
+
 	pr_err("Restoring FAILED.\n");
 	return -1;
 }
