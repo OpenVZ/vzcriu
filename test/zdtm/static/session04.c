@@ -29,7 +29,7 @@ struct process
 };
 
 struct process *processes;
-int nr_processes = 37;
+int nr_processes = 42;
 int current = 0;
 
 static void cleanup(void)
@@ -455,6 +455,20 @@ int main(int argc, char ** argv)
 	send_command(35, TEST_FORK,	36, 0);
 	send_command(35, TEST_DIE,	0, 0);
 	send_command(34, TEST_WAIT,	35, 0);
+
+	/*
+	 * Test reaper and helper parent with different mntns/pidns
+	 */
+	send_command(1, TEST_FORK,      37, CLONE_NEWPID);
+	send_command(37, TEST_SETSID,   0, 0);
+	send_command(37, TEST_FORK,     38, CLONE_NEWPID|CLONE_NEWNS);
+	send_command(37, TEST_FORK,     39, 0);
+	send_command(39, TEST_SETSID,   0, 0);
+	send_command(39, TEST_SETNS,    38, CLONE_NEWPID);
+	send_command(39, TEST_FORK,     40, 0);
+	send_command(40, TEST_FORK,     41, 0);
+	send_command(40, TEST_DIE,      0, 0);
+	send_command(39, TEST_WAIT,     40, 0);
 
 	for (i = 0; i < nr_processes; i++) {
 		if (processes[i].dead)
