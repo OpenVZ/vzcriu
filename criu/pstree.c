@@ -1104,7 +1104,7 @@ pid_t *get_free_pids(struct ns_id *ns, pid_t *pids, int *level)
 	return &pids[i];
 }
 
-TaskKobjIdsEntry *dup_helper_ids(TaskKobjIdsEntry *ids)
+TaskKobjIdsEntry *__dup_helper_ids(TaskKobjIdsEntry *ns_ids, TaskKobjIdsEntry *pidns_ids)
 {
 	TaskKobjIdsEntry *copy;
 
@@ -1115,23 +1115,33 @@ TaskKobjIdsEntry *dup_helper_ids(TaskKobjIdsEntry *ids)
 	}
 	task_kobj_ids_entry__init(copy);
 
-#define COPY_NS_ID(copy, name)				\
+#define COPY_NS_ID(ids, copy, name)				\
 	if (ids->has_##name##_ns_id) {			\
 		copy->has_##name##_ns_id = true;	\
 		copy->name##_ns_id = ids->name##_ns_id;	\
 	}
 	/* Helpers inherit all namespaces */
-	COPY_NS_ID(copy, mnt);
-	COPY_NS_ID(copy, net);
-	COPY_NS_ID(copy, user);
-	COPY_NS_ID(copy, pid);
-	COPY_NS_ID(copy, ipc);
-	COPY_NS_ID(copy, uts);
-	COPY_NS_ID(copy, cgroup);
-	COPY_NS_ID(copy, pid);
+	COPY_NS_ID(ns_ids, copy, mnt);
+	COPY_NS_ID(ns_ids, copy, net);
+	COPY_NS_ID(ns_ids, copy, user);
+	COPY_NS_ID(ns_ids, copy, pid);
+	COPY_NS_ID(ns_ids, copy, ipc);
+	COPY_NS_ID(ns_ids, copy, uts);
+	COPY_NS_ID(ns_ids, copy, cgroup);
+	COPY_NS_ID(pidns_ids, copy, pid);
 #undef COPY_NS_ID
 
 	return copy;
+}
+
+TaskKobjIdsEntry *dup_helper_ids(TaskKobjIdsEntry *ids)
+{
+	return __dup_helper_ids(ids, ids);
+}
+
+TaskKobjIdsEntry *dup_helper_ids_other_pidns(TaskKobjIdsEntry *ids, TaskKobjIdsEntry *pidns_ids)
+{
+	return __dup_helper_ids(ids, pidns_ids);
 }
 
 int is_group_leader(struct pstree_item *item)
@@ -1251,7 +1261,7 @@ skip_sessions:
 			 */
 			memcpy(group_leader->sid, item->sid, PID_SIZE(group_leader->sid->level));
 			memcpy(group_leader->pgid, item->pgid, PID_SIZE(group_leader->pgid->level));
-			group_leader->ids = dup_helper_ids(init->ids);
+			group_leader->ids = dup_helper_ids_other_pidns(parent->ids, init->ids);
 			if (!group_leader->ids)
 				return -1;
 			group_leader->parent = parent;
@@ -1530,7 +1540,7 @@ skip:
 
 			memcpy(helper->sid, item->sid, PID_SIZE(helper->sid->level));
 			memcpy(helper->pgid, item->sid, PID_SIZE(helper->pgid->level));
-			helper->ids = dup_helper_ids(init->ids);
+			helper->ids = dup_helper_ids_other_pidns(leader->ids, init->ids);
 			if (!helper->ids)
 				return -1;
 			helper->parent = leader;
