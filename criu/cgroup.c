@@ -1619,12 +1619,23 @@ static LIST_HEAD(freezer_state_entries);
 
 int restore_freezer_state(void)
 {
+	char path[PATH_MAX];
 	struct freezer_state_entry *it;
 	int ret = 0;
 
 	list_for_each_entry(it, &freezer_state_entries, l) {
-		if (restore_cgroup_prop(it->entry, it->path, strlen(it->path),
-								false, false) < 0) {
+		/*
+		 * The restore_cgroup_prop() want's to modify it's path
+		 * argument by appending it, assuming it is of PATH_MAX size,
+		 * and it->path is to short for this.
+		 */
+		if (snprintf(path, PATH_MAX, "%s", it->path) >= PATH_MAX) {
+			pr_err("snprintf output was truncated for %s\n", it->path);
+			ret = -1;
+			goto out;
+		}
+
+		if (restore_cgroup_prop(it->entry, path, strlen(path), false, false) < 0) {
 			ret = -1;
 			goto out;
 		}
