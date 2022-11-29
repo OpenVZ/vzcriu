@@ -420,6 +420,8 @@ static int dump_ip_opts(int sk, int family, int type, int proto, IpOptsEntry *io
 		/* Due to kernel code we can use SOL_IP instead of SOL_IPV6 */
 		ret |= dump_opt(sk, SOL_IP, IP_FREEBIND, &ioe->freebind);
 		ioe->has_freebind = ioe->freebind;
+		ret |= dump_opt(sk, SOL_IP, IP_PKTINFO, &ioe->vz_pktinfo);
+		ioe->has_vz_pktinfo= !!ioe->vz_pktinfo;
 	}
 
 	return ret;
@@ -813,6 +815,8 @@ int restore_ip_opts(int sk, int family, int proto, IpOptsEntry *ioe)
 
 	if (ioe->has_freebind)
 		ret |= restore_opt(sk, SOL_IP, IP_FREEBIND, &ioe->freebind);
+	if (ioe->has_vz_pktinfo)
+		ret |= restore_opt(sk, SOL_IP, IP_PKTINFO, &ioe->vz_pktinfo);
 
 	if (ioe->raw)
 		ret |= restore_ip_raw_opts(sk, family, proto, ioe->raw);

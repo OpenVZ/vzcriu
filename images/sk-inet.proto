@@ -17,6 +17,8 @@ message ip_opts_entry {
 	optional bool			vz7_hdrincl	= 2;
 	optional bool			vz7_nodefrag	= 3;
 	optional ip_opts_raw_entry	raw		= 4;
+
+	optional bool			vz_pktinfo		= 1001;
 }
 
 message inet_sk_entry {
