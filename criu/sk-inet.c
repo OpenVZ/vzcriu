@@ -808,11 +808,17 @@ int restore_ip_opts(int sk, int family, int proto, IpOptsEntry *ioe)
 			ret |= restore_opt(sk, SOL_IPV6, IPV6_FREEBIND, &ioe->freebind);
 		if (ioe->has_pktinfo)
 			ret |= restore_opt(sk, SOL_IPV6, IPV6_RECVPKTINFO, &ioe->pktinfo);
+		else if (ioe->has_vz_pktinfo)
+			/* Backward compatibility with vz7-u19 */
+			ret |= restore_opt(sk, SOL_IP, IPV6_RECVPKTINFO, &ioe->vz_pktinfo);
 	} else {
 		if (ioe->has_freebind)
 			ret |= restore_opt(sk, SOL_IP, IP_FREEBIND, &ioe->freebind);
 		if (ioe->has_pktinfo)
 			ret |= restore_opt(sk, SOL_IP, IP_PKTINFO, &ioe->pktinfo);
+		else if (ioe->has_vz_pktinfo)
+			/* Backward compatibility with vz7-u19 */
+			ret |= restore_opt(sk, SOL_IP, IP_PKTINFO, &ioe->vz_pktinfo);
 	}
 
 	if (ioe->raw)
