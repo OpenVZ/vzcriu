@@ -36,6 +36,7 @@ TST_NOFILE	:=				\
 		socket_udp_shutdown		\
 		sk-freebind			\
 		sk-freebind-false		\
+		sk-pktinfo			\
 		socket_udplite			\
 		socket_aio			\
 		socket_close_data		\
