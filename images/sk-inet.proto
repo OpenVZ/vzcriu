@@ -19,6 +19,9 @@ message ip_opts_entry {
 	optional ip_opts_raw_entry	raw		= 4;
 
 	optional bool			pktinfo		= 5;
+
+	/* Backward compatibility with vz7-u19 */
+	optional bool			vz_pktinfo		= 1001;
 }
 
 message inet_sk_entry {
