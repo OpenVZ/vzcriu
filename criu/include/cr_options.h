@@ -98,6 +98,13 @@ enum FILE_VALIDATION_OPTIONS {
 /* This constant dictates that criu use fiemap to copy ghost file by default.*/
 #define FIEMAP_DEFAULT 1
 
+enum {
+	NFTABLES_MODE_IPT,
+	NFTABLES_MODE_NFT,
+	NFTABLES_MODE_ALL,
+};
+#define NFTABLES_MODE_DEFAULT NFTABLES_MODE_ALL
+
 struct irmap;
 
 struct irmap_path_opt {
@@ -240,6 +247,7 @@ struct cr_options {
 	char *ve;
 	char *ve_clock_fallback;
 	int cgroup_force_create_ns;
+	int nftables_mode;
 };
 
 extern struct cr_options opts;
