@@ -281,6 +281,7 @@ void init_opts(void)
 	opts.log_level = DEFAULT_LOGLEVEL;
 	opts.pre_dump_mode = PRE_DUMP_SPLICE;
 	opts.file_validation_method = FILE_VALIDATION_DEFAULT;
+	opts.nftables_mode = NFTABLES_MODE_DEFAULT;
 }
 
 bool deprecated_ok(char *what)
@@ -547,6 +548,7 @@ int parse_options(int argc, char **argv, bool *usage_error,
 		{ "ve",				required_argument,	0, 2001},
 		BOOL_OPT("cgroup-force-create-ns", &opts.cgroup_force_create_ns),
 		{ "ve-clock-fallback",		required_argument,	0, 2002},
+		{ "nftables-mode",		required_argument,	0, 2003},
 		{ },
 	};
 
@@ -885,6 +887,18 @@ int parse_options(int argc, char **argv, bool *usage_error,
 			break;
 		case 2002:
 			SET_CHAR_OPTS(ve_clock_fallback, optarg);
+			break;
+		case 2003:
+			if (!strcmp("ipt", optarg)) {
+				opts.nftables_mode = NFTABLES_MODE_IPT;
+			} else if (!strcmp("nft", optarg)) {
+				opts.nftables_mode = NFTABLES_MODE_NFT;
+			} else if (!strcmp("all", optarg)) {
+				opts.nftables_mode = NFTABLES_MODE_ALL;
+			} else {
+				pr_err("Unable to parse value of --nftables-mode\n");
+				return 1;
+			}
 			break;
 		case 'V':
 			pr_msg("Version: %s\n", CRIU_VERSION);

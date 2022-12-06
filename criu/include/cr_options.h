@@ -81,6 +81,13 @@ enum FILE_VALIDATION_OPTIONS
 /* This constant dictates which file validation method should be tried by default. */
 #define FILE_VALIDATION_DEFAULT			FILE_VALIDATION_BUILD_ID
 
+enum {
+	NFTABLES_MODE_IPT,
+	NFTABLES_MODE_NFT,
+	NFTABLES_MODE_ALL,
+};
+#define NFTABLES_MODE_DEFAULT NFTABLES_MODE_ALL
+
 struct irmap;
 
 struct irmap_path_opt {
@@ -181,6 +188,7 @@ struct cr_options {
 	int			cgroup_force_create_ns;
 
 	char			*ve_clock_fallback;
+	int			nftables_mode;
 };
 
 extern struct cr_options opts;

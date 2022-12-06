@@ -3203,6 +3203,16 @@ static inline int dump_nftables(struct cr_imgset *fds)
 {
 	struct cr_img *img;
 
+	img = img_from_set(fds, CR_FD_IPTABLES_NFT);
+	if (nftables_tool_dump("xtables-nft-multi iptables-save", -1, img_raw_fd(img)))
+		return -1;
+
+	if (kdat.ipv6) {
+		img = img_from_set(fds, CR_FD_IP6TABLES_NFT);
+		if (nftables_tool_dump("xtables-nft-multi ip6tables-save", -1, img_raw_fd(img)))
+			return -1;
+	}
+
 	img = img_from_set(fds, CR_FD_NFTABLES);
 	if (nftables_tool_dump("nft list ruleset", -1, img_raw_fd(img)))
 		return -1;
@@ -3217,23 +3227,59 @@ static int nftables_tool_restore(char *def_cmd, int fdin, int fdout)
 
 static inline int restore_nftables(int pid)
 {
-	int ret = -1;
+	int ret;
 	struct cr_img *img;
+
+	if (opts.nftables_mode == NFTABLES_MODE_IPT)
+		goto ipt;
 
 	img = open_image(CR_FD_NFTABLES, O_RSTR, pid);
 	if (img == NULL)
 		return -1;
 	if (empty_image(img)) {
 		/* Backward compatibility */
-		pr_info("Skipping nft restore, no image");
-		ret = 0;
-		goto out;
+		pr_info("Skipping nft restore, no image\n");
+		close_image(img);
+		goto ipt;
 	}
 
 	ret = nftables_tool_restore("nft -f /proc/self/fd/0", img_raw_fd(img), -1);
-out:
 	close_image(img);
-	return ret;
+	if (ret)
+		return -1;
+
+	if (opts.nftables_mode == NFTABLES_MODE_NFT)
+		return 0;
+ipt:
+	img = open_image(CR_FD_IPTABLES_NFT, O_RSTR, pid);
+	if (img == NULL)
+		return -1;
+	if (empty_image(img)) {
+		/* Backward compatibility */
+		pr_info("Skipping ipt-nft restore, no image\n");
+		close_image(img);
+		return 0;
+	}
+
+	ret = nftables_tool_restore("xtables-nft-multi iptables-restore -w", img_raw_fd(img), -1);
+	close_image(img);
+	if (ret)
+		return -1;
+
+	img = open_image(CR_FD_IP6TABLES_NFT, O_RSTR, pid);
+	if (img == NULL)
+		return -1;
+	if (empty_image(img)) {
+		pr_info("Skipping ip6t-nft restore, no image\n");
+		close_image(img);
+		return 0;
+	}
+
+	ret = nftables_tool_restore("xtables-nft-multi ip6tables-restore -w", img_raw_fd(img), -1);
+	close_image(img);
+	if (ret)
+		return -1;
+	return 0;
 }
 
 int read_net_ns_img(void)
