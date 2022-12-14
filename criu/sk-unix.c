@@ -2958,6 +2958,8 @@ int add_fake_unix_queuers(void)
 {
 	struct unix_sk_info *ui;
 
+	pr_info("Adding fake unix queuers\n");
+
 	list_for_each_entry(ui, &unix_sockets, list) {
 		if ((ui->ue->uflags & (UNIX_UFLAGS__EXTERN | UNIX_UFLAGS__CALLBACK)) || ui->queuer)
 			continue;
