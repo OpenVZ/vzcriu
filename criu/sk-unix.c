@@ -2911,7 +2911,6 @@ static void set_peer(struct unix_sk_info *ui, struct unix_sk_info *peer)
 static int add_fake_queuer(struct unix_sk_info *ui)
 {
 	struct unix_sk_info *peer;
-	struct pstree_item *task;
 	UnixSkEntry *peer_ue;
 	SkOptsEntry *skopts;
 	FownEntry *fown;
@@ -2949,9 +2948,14 @@ static int add_fake_queuer(struct unix_sk_info *ui)
 	file_desc_add(&peer->d, peer_ue->id, &unix_desc_ops);
 	list_del_init(&peer->d.fake_master_list);
 	list_add(&peer->list, &unix_sockets);
-	task = file_master(&ui->d)->task;
+	return 0;
+}
 
-	return (get_fle_for_task(&peer->d, task, true) == NULL);
+static int add_fake_queuer_finish(struct unix_sk_info *queuer)
+{
+	struct pstree_item *task = file_master(&queuer->peer->d)->task;
+
+	return get_fle_for_task(&queuer->d, task, true) == NULL;
 }
 
 int add_fake_unix_queuers(void)
@@ -2967,6 +2971,22 @@ int add_fake_unix_queuers(void)
 		    !(ui->ue->type == SOCK_DGRAM  && !ui->peer))
 			continue;
 		if (add_fake_queuer(ui))
+			return -1;
+	}
+	return 0;
+}
+
+int add_fake_unix_queuers_finish(void)
+{
+	struct unix_sk_info *ui;
+
+	pr_info("Adding fake unix queuers (finish)\n");
+
+	list_for_each_entry(ui, &unix_sockets, list) {
+		if (ui->ue->ino != FAKE_INO)
+			continue;
+
+		if (add_fake_queuer_finish(ui))
 			return -1;
 	}
 	return 0;
