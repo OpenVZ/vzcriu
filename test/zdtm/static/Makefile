@@ -201,6 +201,7 @@ TST_NOFILE	:=				\
 		scm07				\
 		scm08				\
 		scm09				\
+		scm10				\
 		aio00				\
 		aio01				\
 		fd				\
@@ -637,6 +638,7 @@ scm02:			CFLAGS += -DSEND_BOTH
 scm04:			CFLAGS += -DSEPARATE
 scm08:			CFLAGS += -DSEND_ANOTHER_FD
 scm09:			CFLAGS += -DCLOSE_SENDER_FD
+scm10:			CFLAGS += -DCLOSE_SENDER_FD
 mntns_link_remap:	CFLAGS += -DZDTM_LINK_REMAP
 mntns_shared_bind02:	CFLAGS += -DSHARED_BIND02
 mntns_root_bind02:	CFLAGS += -DROOT_BIND02
