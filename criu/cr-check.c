@@ -1370,6 +1370,14 @@ static int check_sockopt_buf_lock(void)
 	return 0;
 }
 
+static int check_cgroup_kmem_limit(void)
+{
+	if (!kdat.has_cgroup_kmem_limit)
+		return -1;
+
+	return 0;
+}
+
 static int (*chk_feature)(void);
 
 /*
@@ -1488,6 +1496,7 @@ int cr_check(void)
 		ret |= check_mount_set_group();
 		ret |= check_beancounters();
 		ret |= check_sockopt_buf_lock();
+		ret |= check_cgroup_kmem_limit();
 	}
 
 	/*
@@ -1602,6 +1611,7 @@ static struct feature_list feature_list[] = {
 	{ "mount_set_group", check_mount_set_group},
 	{ "beancounters", check_beancounters},
 	{ "sockopt_buf_lock", check_sockopt_buf_lock },
+	{ "cgroup_kmem_limit", check_cgroup_kmem_limit },
 	{ NULL, NULL },
 };
 

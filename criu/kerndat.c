@@ -1007,6 +1007,44 @@ err:
 	return exit_code;
 }
 
+#define MAX_KMEM_LIMIT_PATH 80
+
+int kerndat_cgroup_kmem_limit(void)
+{
+	char tmpdir[] = "/sys/fs/cgroup/memory/.criu.kmem_limit_check.XXXXXX";
+	char kmem_limit_path[MAX_KMEM_LIMIT_PATH];
+	char *zero = "0";
+	int fd, exit_code = -1;
+
+	if (mkdtemp(tmpdir) == NULL) {
+		pr_perror("Fail to make dir %s", tmpdir);
+		return -1;
+	}
+
+	snprintf(kmem_limit_path, MAX_KMEM_LIMIT_PATH, "%s/memory.kmem.limit_in_bytes", tmpdir);
+	fd = open(kmem_limit_path, O_WRONLY);
+	if (fd == -1) {
+		pr_perror("Fail to open path %s", kmem_limit_path);
+		goto err;
+	}
+
+	if (write(fd, zero, strlen(zero) + 1) == -1) {
+		if (EOPNOTSUPP != errno) {
+			pr_perror("Fail to write %s to %s", zero, kmem_limit_path);
+			goto err;
+		}
+		kdat.has_cgroup_kmem_limit = false;
+	} else {
+		kdat.has_cgroup_kmem_limit = true;
+	}
+
+	exit_code = 0;
+err:
+	close(fd);
+	rmdir(tmpdir);
+	return exit_code;
+}
+
 #define KERNDAT_CACHE_FILE	KDAT_RUNDIR"/criu.kdat"
 #define KERNDAT_CACHE_FILE_TMP	KDAT_RUNDIR"/.criu.kdat"
 
@@ -1470,6 +1508,10 @@ int kerndat_init(void)
 	}
 	if (!ret && kerndat_sockopt_buf_lock()) {
 		pr_err("kerndat_sockopt_buf_lock failed when initializing kerndat.\n");
+		ret = -1;
+	}
+	if (!ret && kerndat_cgroup_kmem_limit()) {
+		pr_err("kerndat_cgroup_kmem_limit failed when initializing kerndat.\n");
 		ret = -1;
 	}
 

@@ -79,6 +79,7 @@ struct kerndat_s {
 	bool has_mount_set_group;
 	bool has_beancounters;
 	bool has_sockopt_buf_lock;
+	bool has_cgroup_kmem_limit;
 };
 
 extern struct kerndat_s kdat;

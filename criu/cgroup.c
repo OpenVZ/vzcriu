@@ -440,6 +440,9 @@ static int dump_cg_props_array(const char *fpath, struct cgroup_dir *ncd, const 
 	struct cgroup_prop *prop;
 
 	for (j = 0; cgp && j < cgp->nr_props; j++) {
+		if (!strcmp("memory.kmem.limit_in_bytes", cgp->props[j]) && !kdat.has_cgroup_kmem_limit)
+			continue;
+
 		if (!strcmp("devices.list", cgp->props[j])) {
 			/* Try devices.extra_list first */
 			if (snprintf(buf, PATH_MAX, "%s/devices.extra_list", fpath) >= PATH_MAX) {
