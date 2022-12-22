@@ -83,6 +83,10 @@ static int enter_cgroup_set(char *ve_name)
 	return 0;
 }
 
+#ifndef CLONE_NEWCGROUP
+#define CLONE_NEWCGROUP 0x02000000
+#endif
+
 static int prepare_ve(char *ve_str)
 {
 	if (enter_cgroup_set(ve_str))
@@ -90,6 +94,11 @@ static int prepare_ve(char *ve_str)
 
 	if (cgroup_write_val("ve", ve_str, "tasks", "0", 0))
 		return -1;
+
+	if (unshare(CLONE_NEWCGROUP) && errno != EINVAL) {
+		pr_perror("Failed to unshare cgroup namespace.\n");
+		return -1;
+	}
 
 	if (cgroup_write_val("ve", ve_str, "ve.state", "START", 0))
 		return -1;
