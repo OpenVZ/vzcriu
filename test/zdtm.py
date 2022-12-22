@@ -529,7 +529,7 @@ class zdtm_test:
             os.path.basename(tpath)
         ]
 
-        if env:
+        if isinstance(env, dict):
             env = dict(os.environ, **env)
 
         s = subprocess.Popen(
