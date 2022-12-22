@@ -77,6 +77,8 @@ static int enter_cgroup_set(char *ve_name)
 
 	if (!access("/sys/fs/cgroup/beancounter", F_OK) && cgroup_write_val("beancounter", ve_name, "tasks", "0", 0))
 		return -1;
+	if (!access("/sys/fs/cgroup/rdma", F_OK) && cgroup_write_val("rdma", ve_name, "tasks", "0", 0))
+		return -1;
 
 	return 0;
 }

@@ -349,6 +349,8 @@ class ve_flavor(ns_flavor):
                 os.rmdir("/sys/fs/cgroup/ve/{}".format(ZDTM_VEID))
         if os.access("/sys/fs/cgroup/beancounter/{}".format(ZDTM_VEID), os.F_OK):
                 os.rmdir("/sys/fs/cgroup/beancounter/{}".format(ZDTM_VEID))
+        if os.access("/sys/fs/cgroup/rdma/{}".format(ZDTM_VEID), os.F_OK):
+                os.rmdir("/sys/fs/cgroup/rdma/{}".format(ZDTM_VEID))
 
     @staticmethod
     def cpuset_init(path):
@@ -384,6 +386,8 @@ class ve_flavor(ns_flavor):
 
         if os.access("/sys/fs/cgroup/beancounter/", os.F_OK):
             ve_flavor.mkcgroup("beancounter", ZDTM_VEID)
+        if os.access("/sys/fs/cgroup/rdma/", os.F_OK):
+            ve_flavor.mkcgroup("rdma", ZDTM_VEID)
 
         ve_flavor.mkcgroup("ve", ZDTM_VEID)
 
@@ -413,6 +417,9 @@ class ve_flavor(ns_flavor):
 
         if os.access("/sys/fs/cgroup/beancounter/", os.F_OK):
             with open("/sys/fs/cgroup/beancounter/{}/tasks".format(ZDTM_VEID), "w") as f:
+                f.write("0")
+        if os.access("/sys/fs/cgroup/rdma/", os.F_OK):
+            with open("/sys/fs/cgroup/rdma/{}/tasks".format(ZDTM_VEID), "w") as f:
                 f.write("0")
 
 
