@@ -389,7 +389,9 @@ class ve_flavor(ns_flavor):
 
     @staticmethod
     def prepare_ve(need_pseudosuper=True):
-        config = [ ('veid', ZDTM_VEID), ('features', '5'), ('iptables_mask', '18446744073709551615')]
+        config = [('veid', ZDTM_VEID), ('features', '5')]
+        if os.access("/sys/fs/cgroup/ve/{}/ve.iptables_mask".format(ZDTM_VEID), os.F_OK):
+            config.append(('iptables_mask', '18446744073709551615'))
         if need_pseudosuper:
             config.append(('pseudosuper', "1"))
 
