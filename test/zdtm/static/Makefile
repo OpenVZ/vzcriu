@@ -159,6 +159,8 @@ TST_NOFILE	:=				\
 		netns				\
 		netns-ipset			\
 		netns-dev			\
+		netns-route			\
+		netns-route-ipv6		\
 		session01			\
 		session02			\
 		session03			\
