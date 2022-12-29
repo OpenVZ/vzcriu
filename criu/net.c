@@ -2706,16 +2706,9 @@ static inline int dump_route(struct cr_imgset *fds)
 {
 	struct cr_img *img;
 
+	/* "ip route save table all" dumps ipv4 and ipv6 routes */
 	img = img_from_set(fds, CR_FD_ROUTE);
-	if (run_ip_tool("route", "save", NULL, NULL, -1, img_raw_fd(img), 0))
-		return -1;
-
-	/* If ipv6 is disabled, "ip -6 route dump" dumps all routes */
-	if (!kdat.ipv6)
-		return 0;
-
-	img = img_from_set(fds, CR_FD_ROUTE6);
-	if (run_ip_tool("-6", "route", "save", NULL, -1, img_raw_fd(img), 0))
+	if (run_ip_tool("route", "save", "table", "all", -1, img_raw_fd(img), 0))
 		return -1;
 
 	return 0;
@@ -2974,6 +2967,10 @@ static inline int restore_route(int pid)
 	if (restore_ip_dump(CR_FD_ROUTE, pid, "route"))
 		return -1;
 
+	/* 
+	 * Image CR_FD_ROUTE now contains ipv4 and ipv6 routes, but CR_FD_ROUTE6 is still present
+	 * only for backward compatibility.
+	 */
 	if (restore_ip_dump(CR_FD_ROUTE6, pid, "route"))
 		return -1;
 
