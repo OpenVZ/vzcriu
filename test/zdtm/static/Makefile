@@ -266,6 +266,7 @@ TST_NOFILE	:=				\
 		sigtrap01			\
 		change_mnt_context		\
 		ve				\
+		ve_clock_fallback		\
 #		jobctl00			\
 
 PKG_CONFIG ?= pkg-config
