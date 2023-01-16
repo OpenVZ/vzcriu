@@ -1771,11 +1771,6 @@ static __maybe_unused int mount_and_open_binfmt_misc(unsigned int *s_dev)
 	struct stat st;
 	int mnt_fd;
 
-	if (!opts.ve) {
-		pr_debug("Skipping binfmt_misc as --ve was not specifided\n");
-		return BINFMT_MOUNT_SKIPPED;
-	}
-
 	if (join_veX())
 		return BINFMT_MOUNT_FAILED;
 
@@ -4100,9 +4095,13 @@ int collect_mnt_namespaces(bool for_dump)
 
 #ifdef CONFIG_BINFMT_MISC_VIRTUALIZED
 	if (for_dump) {
-		ret = call_in_child_process(mount_and_dump_binfmt_misc, NULL);
-		if (ret)
-			goto err;
+		if (!opts.ve) {
+			pr_debug("Skipping binfmt_misc as --ve was not specifided\n");
+		} else {
+			ret = call_in_child_process(mount_and_dump_binfmt_misc, NULL);
+			if (ret)
+				goto err;
+		}
 	}
 #endif
 
