@@ -2597,9 +2597,17 @@ static inline int dump_nftables_vz(struct cr_imgset *fds)
 	return 0;
 }
 
+/*
+ * NFTABLES_MODE_NFT - try to restore nftables with nft tool only, if no image
+ * just silently skip in case we restore from really old criu dump.
+ * NFTABLES_MODE_IPT - try to restore nftables with iptables-nft tool only,
+ * fail if no image.
+ * NFTABLES_MODE_ALL - try to restore nftables with both nft and iptables-nft,
+ * if one or both succeed we are good.
+ */
 static inline int restore_nftables_vz(int pid)
 {
-	int ret;
+	int ret, exit_code = -1;
 	struct cr_img *img;
 
 	if (opts.nftables_mode == NFTABLES_MODE_IPT)
@@ -2612,46 +2620,50 @@ static inline int restore_nftables_vz(int pid)
 		/* Backward compatibility */
 		pr_info("Skipping nft restore, no image\n");
 		close_image(img);
-		goto ipt;
+		return 0;
 	}
 
 	ret = run_nftables_tool("nft -f /proc/self/fd/0", img_raw_fd(img), -1);
 	close_image(img);
-	if (ret)
-		return -1;
+	if (!ret)
+		exit_code = 0;
 
 	if (opts.nftables_mode == NFTABLES_MODE_NFT)
-		return 0;
+		goto out;
 ipt:
 	img = open_image(CR_FD_IPTABLES_NFT, O_RSTR, pid);
 	if (img == NULL)
 		return -1;
 	if (empty_image(img)) {
+		if (opts.nftables_mode == NFTABLES_MODE_IPT) {
+			pr_err("Missing ipt-nft image. Maybe you should not use --nftables-mode=ipt.\n");
+			return -1;
+		}
 		/* Backward compatibility */
 		pr_info("Skipping ipt-nft restore, no image\n");
 		close_image(img);
-		return 0;
+		goto out;
 	}
 
 	ret = run_nftables_tool("xtables-nft-multi iptables-restore -w", img_raw_fd(img), -1);
 	close_image(img);
 	if (ret)
-		return -1;
+		goto out;
 
 	img = open_image(CR_FD_IP6TABLES_NFT, O_RSTR, pid);
 	if (img == NULL)
 		return -1;
 	if (empty_image(img)) {
-		pr_info("Skipping ip6t-nft restore, no image\n");
-		close_image(img);
-		return 0;
+		pr_err("Missing ip6t-nft image. Try using --nftables-mode=nft.\n");
+		return -1;
 	}
 
 	ret = run_nftables_tool("xtables-nft-multi ip6tables-restore -w", img_raw_fd(img), -1);
 	close_image(img);
-	if (ret)
-		return -1;
-	return 0;
+	if (!ret)
+		exit_code = 0;
+out:
+	return exit_code;
 }
 
 int read_net_ns_img(void)
