@@ -362,6 +362,7 @@ TST_FILE	=				\
 		netns-nf			\
 		netns-nft			\
 		netns-nft-ipt			\
+		iptables-nft-icmpv6-type	\
 		maps_file_prot			\
 		socket_close_data01		\
 		fifo_upon_unix_socket00		\
