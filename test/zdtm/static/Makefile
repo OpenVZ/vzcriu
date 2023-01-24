@@ -342,7 +342,8 @@ TST_FILE	=				\
 		file_locks07			\
 		file_locks08			\
 		netns-nf			\
-		netns-nft				\
+		netns-nft			\
+		iptables-nft-icmpv6-type	\
 		maps_file_prot			\
 		socket_close_data01		\
 		file_fown_dead			\
