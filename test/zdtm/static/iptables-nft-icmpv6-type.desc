@@ -1,0 +1,9 @@
+{'deps': ['/bin/sh',
+	  '/usr/sbin/ip6tables-nft',
+	  '/usr/sbin/xtables-nft-multi',
+	  '/lib64/libxtables.so.12',
+	  '/usr/lib64/xtables/libxt_standard.so',
+	  '/usr/lib64/xtables/libip6t_icmp6.so',
+	  '/usr/bin/diff'],
+'flags': 'suid',
+'flavor': 'ns uns'}
