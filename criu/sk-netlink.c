@@ -252,7 +252,7 @@ static int dump_one_netlink_fd(int lfd, u32 id, const struct fd_parms *p)
 	fe.id = ne.id;
 	fe.nlsk = &ne;
 
-	if (kdat.has_nl_repair && dump_sk_queue(lfd, id, true))
+	if (kdat.has_nl_repair && dump_sk_queue(lfd, id, SK_QUEUE_DUMP_ADDR))
 		goto err;
 
 	if (pb_write_one(img_from_set(glob_imgset, CR_FD_FILES), &fe, PB_FILE))
