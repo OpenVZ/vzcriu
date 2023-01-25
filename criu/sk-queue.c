@@ -162,7 +162,7 @@ static void release_cmsg(SkPacketEntry *pe)
 	pe->scm = NULL;
 }
 
-int dump_sk_queue(int sock_fd, int sock_id, bool dump_addr)
+int dump_sk_queue(int sock_fd, int sock_id, int flags)
 {
 	SkPacketEntry pe = SK_PACKET_ENTRY__INIT;
 	int ret, size, orig_peek_off;
@@ -225,7 +225,7 @@ int dump_sk_queue(int sock_fd, int sock_id, bool dump_addr)
 			.msg_controllen = sizeof(cmsg),
 		};
 
-		if (dump_addr) {
+		if (flags & SK_QUEUE_DUMP_ADDR) {
 			msg.msg_name = addr;
 			msg.msg_namelen = _K_SS_MAXSIZE;
 		}
