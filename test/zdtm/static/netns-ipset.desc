@@ -1,5 +1,5 @@
 {
-	'flavor': 'h ns uns',
+	'flavor': 've',
 	'flags': 'suid',
 	'deps': [
 			'/usr/bin/rm',
