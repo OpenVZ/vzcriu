@@ -2352,6 +2352,11 @@ int make_parent_dirs_if_need(int mntns_root, char *path)
 	}
 
 	p = path;
+
+	/* when used for absolute paths we need to skip 1-st '/' */
+	if (p[0] == '/')
+		p++;
+
 	do {
 		p = strchr(p, '/');
 		if (p)
