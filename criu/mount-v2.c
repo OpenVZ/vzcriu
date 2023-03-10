@@ -311,17 +311,17 @@ static int do_new_mount_v2(struct mount_info *mi)
  * Does simple bindmount, but via new kernel mount api,
  * which also handles autofs and symlink without resolving.
  */
-static int __do_bind_mount_v2(char *from, char *to)
+static int __do_bind_mount_v2(int from_fd, char *from, int from_flags, int to_fd, char *to, int to_flags)
 {
 	int detached_fd;
 
-	detached_fd = sys_open_tree(AT_FDCWD, from, AT_NO_AUTOMOUNT | AT_SYMLINK_NOFOLLOW | OPEN_TREE_CLONE);
+	detached_fd = sys_open_tree(from_fd, from, AT_NO_AUTOMOUNT | AT_SYMLINK_NOFOLLOW | OPEN_TREE_CLONE | from_flags);
 	if (detached_fd == -1) {
 		pr_perror("Failed to open_tree %s", from);
 		return -1;
 	}
 
-	if (sys_move_mount(detached_fd, "", AT_FDCWD, to, MOVE_MOUNT_F_EMPTY_PATH)) {
+	if (sys_move_mount(detached_fd, "", to_fd, to, MOVE_MOUNT_F_EMPTY_PATH | to_flags)) {
 		pr_perror("Failed to move_mount from %s to %s", from, to);
 		close(detached_fd);
 		return -1;
@@ -407,7 +407,7 @@ do_bind:
 		}
 	}
 
-	if (__do_bind_mount_v2(root, mi->plain_mountpoint))
+	if (__do_bind_mount_v2(AT_FDCWD, root, 0, AT_FDCWD, mi->plain_mountpoint, 0))
 		goto err;
 
 	/*
