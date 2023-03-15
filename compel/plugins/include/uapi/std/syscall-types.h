@@ -41,6 +41,7 @@ struct iocb;
 struct pollfd;
 struct clone_args;
 struct open_how;
+struct mount_attr;
 
 typedef unsigned long aio_context_t;
 
