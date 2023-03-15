@@ -1,6 +1,8 @@
 #ifndef _CRIU_LINUX_MOUNT_H
 #define _CRIU_LINUX_MOUNT_H
 
+#include <linux/types.h>
+
 #include "common/config.h"
 #include "compel/plugins/std/syscall-codes.h"
 
@@ -38,6 +40,32 @@ enum fsconfig_command {
 /* Magic mount flag number. Has to be or-ed to the flag values.  */
 #define MS_MGC_VAL 0xc0ed0000 /* Magic flag number to indicate "new" flags */
 #define MS_MGC_MSK 0xffff0000 /* Magic flag number mask */
+#endif
+
+#ifndef MOUNT_ATTR_SIZE_VER0
+#define MOUNT_ATTR_SIZE_VER0    32
+
+#define MOUNT_ATTR_RDONLY      0x00000001 /* Mount read-only */
+#define MOUNT_ATTR_NOSUID      0x00000002 /* Ignore suid and sgid bits */
+#define MOUNT_ATTR_NODEV       0x00000004 /* Disallow access to device special files */
+#define MOUNT_ATTR_NOEXEC      0x00000008 /* Disallow program execution */
+#define MOUNT_ATTR__ATIME      0x00000070 /* Setting on how atime should be updated */
+#define MOUNT_ATTR_RELATIME    0x00000000 /* - Update atime relative to mtime/ctime. */
+#define MOUNT_ATTR_NOATIME     0x00000010 /* - Do not update access times. */
+#define MOUNT_ATTR_STRICTATIME 0x00000020 /* - Always perform atime updates */
+#define MOUNT_ATTR_NODIRATIME  0x00000080 /* Do not update directory access times */
+#define MOUNT_ATTR_IDMAP       0x00100000 /* Idmap mount to @userns_fd in struct mount_attr. */
+#define MOUNT_ATTR_NOSYMFOLLOW 0x00200000 /* Do not follow symlinks */
+
+/*
+ * mount_setattr()
+ */
+struct mount_attr {
+	__u64 attr_set;
+	__u64 attr_clr;
+	__u64 propagation;
+	__u64 userns_fd;
+};
 #endif
 
 #endif

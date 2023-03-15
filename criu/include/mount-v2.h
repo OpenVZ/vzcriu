@@ -57,6 +57,12 @@ static inline long sys_openat2(int dirfd, const char *pathname, struct open_how 
 	return syscall(__NR_openat2, dirfd, pathname, how, size);
 }
 
+static inline long sys_mount_setattr(int dfd, const char *path, unsigned int flags, struct mount_attr *uattr,
+				     size_t usize)
+{
+	return syscall(__NR_mount_setattr, dfd, path, flags, uattr, usize);
+}
+
 extern int check_mount_v2(void);
 
 struct sharing_group {
