@@ -2035,7 +2035,7 @@ void util_init(void)
  * 	get_relative_path("./a/b", "a/") would be "b"
  * 5) Note ".." in paths are not supported and handled as normal directory name
  */
-char *get_relative_path(char *path, char *sub_path)
+const char *__get_relative_path(const char *path, const char *sub_path)
 {
 	bool skip_slashes = true;
 
@@ -2069,6 +2069,11 @@ char *get_relative_path(char *path, char *sub_path)
 
 	/* will never get here */
 	return NULL;
+}
+
+char *get_relative_path(char *path, char *sub_path)
+{
+	return (char *)__get_relative_path(path, sub_path);
 }
 
 bool is_sub_path(char *path, char *sub_path)
