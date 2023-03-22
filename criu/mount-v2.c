@@ -693,8 +693,8 @@ static int detect_is_dir(struct mount_info *mi)
 
 	snprintf(mountpoint, sizeof(mountpoint), "%s%s%s", mi->parent->plain_mountpoint, rel_path[0] ? "/" : "",
 		 rel_path);
-	if (stat(mountpoint, &st)) {
-		pr_perror("Can't stat mountpoint %s", mountpoint);
+	if (lstat(mountpoint, &st)) {
+		pr_perror("Can't lstat mountpoint %s", mountpoint);
 		return -1;
 	}
 
