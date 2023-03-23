@@ -33,6 +33,9 @@ message sk_opts_entry {
 	optional uint32		so_linger	= 24;
 
 	optional uint32		so_buf_lock	= 25;
+
+	/* Backward compatibility to vz7-u19 */
+	optional uint32		vz_so_buf_lock	= 1001;
 }
 
 enum sk_shutdown {
