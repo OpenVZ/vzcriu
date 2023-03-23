@@ -544,6 +544,9 @@ int restore_socket_opts(int sk, SkOptsEntry *soe)
 	if (soe->has_so_buf_lock) {
 		pr_debug("\trestore buf_lock %d for socket\n", soe->so_buf_lock);
 		ret |= restore_opt(sk, SOL_SOCKET, SO_BUF_LOCK, &soe->so_buf_lock);
+	} else if (soe->has_vz_so_buf_lock) {
+		pr_debug("\trestore buf_lock %d for socket\n", soe->vz_so_buf_lock);
+		ret |= restore_opt(sk, SOL_SOCKET, SO_BUF_LOCK, &soe->vz_so_buf_lock);
 	}
 	if (soe->has_so_priority) {
 		pr_debug("\trestore priority %d for socket\n", soe->so_priority);
