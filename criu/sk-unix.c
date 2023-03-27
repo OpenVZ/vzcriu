@@ -2491,6 +2491,7 @@ int unix_prepare_bindmount(struct mount_info *mi)
 	struct unix_sk_info *ui;
 	char path[PATH_MAX], plain_mount_tmp[PATH_MAX];
 	struct mount_info *sk_mi = NULL;
+	int nsfd = -1, orig_nsfd = -1;
 
 	list_for_each_entry(ui, &unix_mnt_sockets, mnt_list) {
 		if (sk_has_bindmount(ui, mi)) {
@@ -2552,21 +2553,28 @@ int unix_prepare_bindmount(struct mount_info *mi)
 			return -1;
 		}
 
+		nsfd = fdstore_get(sk_mi->nsid->mnt.nsfd_id);
+		if (nsfd < 0)
+			return -1;
+
+		if (switch_ns_by_fd(nsfd, &mnt_ns_desc, &orig_nsfd))
+			goto out_ns;
+
 		print_sk_root(ui, path, sizeof(path));
 		if (mkdir(path, 0600)) {
 			pr_perror("bindmount: Unable to create fake nsroot %s", path);
-			return -1;
+			goto out_ns;
 		}
 
 		if (snprintf(plain_mount_tmp, sizeof(plain_mount_tmp), "%s/%s",
 			     path, sk_mi->ns_mountpoint) >= sizeof(plain_mount_tmp)) {
 			pr_perror("bindmount: Unable to create fake nsroot %s", path);
-			return -1;
+			goto out_ns;
 		}
 
 		if (mkdirpat(AT_FDCWD, plain_mount_tmp, 0755)) {
 			pr_perror("bindmount: Unable to create %s", plain_mount_tmp);
-			return -1;
+			goto out_ns;
 		}
 
 		pr_debug("Move mount %d from %s to %s\n",
@@ -2574,12 +2582,12 @@ int unix_prepare_bindmount(struct mount_info *mi)
 		if (mount(sk_mi->plain_mountpoint, plain_mount_tmp, NULL, MS_MOVE, NULL)) {
 			pr_perror("bindmount: Failed to move mount %d from %s to %s",
 				  sk_mi->mnt_id, sk_mi->plain_mountpoint, plain_mount_tmp);
-			return -1;
+			goto out_ns;
 		}
 	} else {
 		if (rst_get_mnt_root(mi->mnt_id, path, sizeof(path)) < 0) {
 			pr_err("bindmount: Can't setup mnt_root for %s\n", mi->ns_mountpoint);
-			return -1;
+			goto out_ns;
 		}
 	}
 
@@ -2703,6 +2711,10 @@ out:
 	close_safe(&prev_root_fd);
 	close_safe(&sks[0]);
 	close_safe(&sks[1]);
+out_ns:
+	if (orig_nsfd >= 0 && restore_ns(orig_nsfd, &mnt_ns_desc))
+		ret = -1;
+	close_safe(&nsfd);
 
 	if (ret == 0)
 		pr_debug("bindmount: Standalone socket moved into fdstore (id %#x ino %d peer %d)\n",
