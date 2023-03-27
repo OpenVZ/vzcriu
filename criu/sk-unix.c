@@ -1042,7 +1042,7 @@ int collect_unix_bindmounts(void)
 		if (mntns_root < 0)
 			return -1;
 
-		if (fstatat(mntns_root, mi->ns_mountpoint, &st, 0)) {
+		if (fstatat(mntns_root, mi->ns_mountpoint, &st, AT_NO_AUTOMOUNT | AT_SYMLINK_NOFOLLOW)) {
 			pr_warn("Can't stat on %s: %s\n", mi->ns_mountpoint, strerror(errno));
 			continue;
 		}
