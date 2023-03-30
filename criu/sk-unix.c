@@ -1092,10 +1092,8 @@ struct unix_sk_info {
 	char *name;
 	char *name_dir;
 	unsigned flags;
-	union {
-		int fdstore_id;
-		int fdstore_mnt_id[2];
-	};
+	int fdstore_id;
+	int fdstore_mnt_id[2];
 	struct unix_sk_info *peer;
 	struct pprep_head peer_resolve; /* XXX : union with the above? */
 	struct file_desc d;
@@ -1553,7 +1551,8 @@ static int post_open_standalone(struct file_desc *d, int fd)
 	if (prep_unix_sk_cwd(peer, &cwd_fd, &root_fd, &ns_fd))
 		return -1;
 
-	if (peer->flags & USK_GHOST_FDSTORE) {
+	if (peer->flags & USK_GHOST_FDSTORE ||
+	    peer->ue->uflags & UNIX_UFLAGS__VZ_OVERMOUNTED) {
 		procfs_self_dir = open_proc(getpid(), "fd");
 		fdstore_fd = fdstore_get(peer->fdstore_id);
 
@@ -1637,7 +1636,7 @@ static int restore_file_perms(struct unix_sk_info *ui)
 	return 0;
 }
 
-static int keep_deleted(struct unix_sk_info *ui)
+static int keep_unix_file(struct unix_sk_info *ui)
 {
 	int fd = open(ui->name, O_PATH);
 	if (fd < 0) {
@@ -1734,7 +1733,7 @@ static int bind_on_deleted(int sk, struct unix_sk_info *ui)
 	if (ret < 0)
 		goto out;
 
-	ret = keep_deleted(ui);
+	ret = keep_unix_file(ui);
 	if (ret < 0) {
 		pr_err("ghost: Can't save socket %#x ino %u addr %s into fdstore\n", ui->ue->id, ui->ue->ino, ui->name);
 		goto out;
@@ -1832,8 +1831,16 @@ static int bind_unix_sk(int sk, struct unix_sk_info *ui, bool notify)
 	} else {
 		pr_debug("bind id %#x ino %u addr %s\n", ui->ue->id, ui->ue->ino, ui->name);
 		ret = bind(sk, (struct sockaddr *)&addr, sizeof(addr.sun_family) + ui->ue->name.len);
-		if (ret == 0 && restore_file_perms(ui))
-			goto done;
+		if (ret == 0) {
+			if (restore_file_perms(ui))
+				goto done;
+
+			if (ui->name[0] && keep_unix_file(ui) < 0) {
+				pr_err("ghost: Can't save socket %#x ino %u addr %s into fdstore\n",
+				       ui->ue->id, ui->ue->ino, ui->name);
+				goto done;
+			}
+		}
 	}
 	if (ret < 0) {
 		pr_perror("Can't bind id %#x ino %u addr %s", ui->ue->id, ui->ue->ino, ui->name);
@@ -2347,7 +2354,8 @@ static int init_unix_sk_info(struct unix_sk_info *ui, UnixSkEntry *ue)
 	ui->name_dir = (void *)ue->name_dir;
 
 	ui->flags = 0;
-	ui->fdstore_mnt_id[0] = -1; /* fdstore_id in union */
+	ui->fdstore_id = -1;
+	ui->fdstore_mnt_id[0] = -1;
 	ui->fdstore_mnt_id[1] = -1;
 	ui->ghost_dir_pos = 0;
 	ui->peer = NULL;
