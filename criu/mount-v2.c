@@ -357,12 +357,6 @@ static int do_bind_mount_v2(struct mount_info *mi)
 		goto do_bind;
 	}
 
-	if (unix_prepare_bindmount(mi)) {
-		pr_err("Failed to prepare bindmount on unix at %s\n",
-		       mi->plain_mountpoint);
-		return -1;
-	}
-
 	if (mi->ns_bind_id) {
 		struct ns_desc *ns_d;
 		struct ns_id *nsid;
@@ -583,6 +577,11 @@ static bool can_mount_now_v2(struct mount_info *mi)
 		return false;
 	}
 
+	if (!check_unix_bindmount_ready(mi)) {
+		pr_debug("%s: false as %d is unix sk bindmount and it's socket is not ready\n", __func__, mi->mnt_id);
+		return false;
+	}
+
 	if (mi->fstype->can_mount) {
 		int can_mount = mi->fstype->can_mount(mi);
 
@@ -769,6 +768,9 @@ static int do_mount_in_right_mntns(struct mount_info *mi)
 		pr_perror("Failed to cross-mntns move_mount plain mount %d", mi->mnt_id);
 		goto err;
 	}
+
+	if (prepare_unix_sockets(mi))
+		goto err;
 
 	exit_code = 0;
 err:

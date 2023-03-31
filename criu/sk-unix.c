@@ -2522,32 +2522,11 @@ static int sk_has_bindmount(struct unix_sk_info *ui, struct mount_info *mi)
 	return 0;
 }
 
-int unix_prepare_bindmount(struct mount_info *mi)
+static int prepare_unix_socket(struct unix_sk_info *ui, struct mount_info *sk_mi, struct mount_info *mi)
 {
 	int prev_cwd_fd = -1, prev_root_fd = -1;
-	int ret = -1, sks[2] = { -1, -1 };
-	struct unix_sk_info *ui;
+	int ret, exit_code = -1, sks[2] = { -1, -1 };
 	char path[PATH_MAX], plain_mount_tmp[PATH_MAX];
-	struct mount_info *sk_mi = NULL;
-	int nsfd = -1, orig_nsfd = -1;
-
-	list_for_each_entry(ui, &unix_mnt_sockets, mnt_list) {
-		if (sk_has_bindmount(ui, mi)) {
-			char type_name[64], state_name[64];
-			pr_info("bindmount: id %#x ino %d type %s state %s (queuer id %#x ino %d) peer %d (name %.*s dir %s)\n",
-				ui->ue->id, ui->ue->ino,
-				__socket_type_name(ui->ue->type, type_name),
-				__tcp_state_name(ui->ue->state, state_name),
-				ui->queuer ? ui->queuer->ue->id : -1,
-				ui->queuer ? ui->queuer->ue->ino : -1,
-				ui->ue->peer, (int)ui->ue->name.len,
-				ui->ue->name.data, ui->name_dir ? ui->name_dir : "-");
-			break;
-		}
-	}
-
-	if (&ui->mnt_list == &unix_mnt_sockets)
-		return 0;
 
 	if (ui->fdstore_mnt_id[0] > 0 || ui->fdstore_mnt_id[1] > 0) {
 		pr_debug("bindmount: sk id %#x already in fdstore. skipping\n",
@@ -2573,42 +2552,22 @@ int unix_prepare_bindmount(struct mount_info *mi)
 	 * chroot(fake_mntns_root(=path)) -> chdir(ui->name_dir)
 	 * -> bind socket
 	 */
-	if (!opts.mntns_compat_mode) {
-		BUG_ON(!ui->ue->has_mnt_id);
-		sk_mi = lookup_mnt_id(sk_to_mnt_id(ui));
-		if (!sk_mi) {
-			pr_err("Unable to locate mnt_id %d for socket %d\n", sk_to_mnt_id(ui), ui->ue->id);
-			return -1;
-		}
-
-		if (!sk_mi->rmi->mounted) {
-			pr_err("bindmount: The mount %d is not mounted for unix sk id %#x\n",
-			       sk_mi->mnt_id, ui->ue->id);
-			return -1;
-		}
-
-		nsfd = fdstore_get(sk_mi->nsid->mnt.nsfd_id);
-		if (nsfd < 0)
-			return -1;
-
-		if (switch_ns_by_fd(nsfd, &mnt_ns_desc, &orig_nsfd))
-			goto out_ns;
-
+	if (sk_mi) {
 		print_sk_root(ui, path, sizeof(path));
 		if (mkdir(path, 0600)) {
 			pr_perror("bindmount: Unable to create fake nsroot %s", path);
-			goto out_ns;
+			return -1;
 		}
 
 		if (snprintf(plain_mount_tmp, sizeof(plain_mount_tmp), "%s/%s",
 			     path, sk_mi->ns_mountpoint) >= sizeof(plain_mount_tmp)) {
 			pr_perror("bindmount: Unable to create fake nsroot %s", path);
-			goto out_ns;
+			return -1;
 		}
 
 		if (mkdirpat(AT_FDCWD, plain_mount_tmp, 0755)) {
 			pr_perror("bindmount: Unable to create %s", plain_mount_tmp);
-			goto out_ns;
+			return -1;
 		}
 
 		pr_debug("Move mount %d from %s to %s\n",
@@ -2616,13 +2575,16 @@ int unix_prepare_bindmount(struct mount_info *mi)
 		if (mount(sk_mi->plain_mountpoint, plain_mount_tmp, NULL, MS_MOVE, NULL)) {
 			pr_perror("bindmount: Failed to move mount %d from %s to %s",
 				  sk_mi->mnt_id, sk_mi->plain_mountpoint, plain_mount_tmp);
-			goto out_ns;
+			return -1;
 		}
-	} else {
+	} else if (mi) {
 		if (rst_get_mnt_root(mi->mnt_id, path, sizeof(path)) < 0) {
 			pr_err("bindmount: Can't setup mnt_root for %s\n", mi->ns_mountpoint);
-			goto out_ns;
+			return -1;
 		}
+	} else {
+		pr_err("prepare_unix_socket should not be called with both sk_mi and mi equal to NULL\n");
+		return -1;
 	}
 
 	prev_cwd_fd = open(".", O_RDONLY);
@@ -2663,7 +2625,6 @@ int unix_prepare_bindmount(struct mount_info *mi)
 	 * it will never have one - new sockets with pairs are
 	 * generated via accept() while this stays alone
 	 */
-
 	if (ui->ue->state == TCP_LISTEN) {
 		sks[0] = socket(PF_UNIX, ui->ue->type, 0);
 		if (sks[0] < 0) {
@@ -2679,23 +2640,26 @@ int unix_prepare_bindmount(struct mount_info *mi)
 		}
 	}
 
-	/*
-	 * We should cleanup FS from leftover socket files.
-	 * See also unlink_sk() function.
-	 */
-	ret = unlinkat(AT_FDCWD, ui->name, 0) ? -1 : 0;
-	if (ret < 0 && errno != ENOENT) {
-		pr_perror("Can't unlink socket %u peer %u (name %s dir %s)",
-			ui->ue->ino, ui->ue->peer,
-			ui->name ? (ui->name[0] ? ui->name : &ui->name[1]) : "-",
-			ui->name_dir ? ui->name_dir : "-");
-		ret = -1;
-		goto out;
-	} else if (ret == 0) {
-		pr_debug("Unlinked socket %u peer %u (name %s dir %s)\n",
-			 ui->ue->ino, ui->ue->peer,
-			 ui->name ? (ui->name[0] ? ui->name : &ui->name[1]) : "-",
-			 ui->name_dir ? ui->name_dir : "-");
+	if (!(ui->ue->uflags & UNIX_UFLAGS__EXTERN) &&
+	    !(ui->ue->has_deleted && ui->ue->deleted)) {
+		/*
+		 * We should cleanup FS from leftover socket files.
+		 * See also unlink_sk() function.
+		 */
+		ret = unlinkat(AT_FDCWD, ui->name, 0) ? -1 : 0;
+		if (ret < 0 && errno != ENOENT) {
+			pr_perror("Can't unlink socket %u peer %u (name %s dir %s)",
+				ui->ue->ino, ui->ue->peer,
+				ui->name ? (ui->name[0] ? ui->name : &ui->name[1]) : "-",
+				ui->name_dir ? ui->name_dir : "-");
+			ret = -1;
+			goto out;
+		} else if (ret == 0) {
+			pr_debug("Unlinked socket %u peer %u (name %s dir %s)\n",
+				 ui->ue->ino, ui->ue->peer,
+				 ui->name ? (ui->name[0] ? ui->name : &ui->name[1]) : "-",
+				 ui->name_dir ? ui->name_dir : "-");
+		}
 	}
 
 	if (bind_unix_sk(sks[0], ui, false))
@@ -2724,7 +2688,7 @@ int unix_prepare_bindmount(struct mount_info *mi)
 		goto out;
 	}
 
-	if (!opts.mntns_compat_mode) {
+	if (sk_mi) {
 		pr_debug("bindmount: Move mount %d back from %s to %s\n",
 			 sk_mi->mnt_id, plain_mount_tmp, sk_mi->plain_mountpoint);
 		if (mount(plain_mount_tmp, sk_mi->plain_mountpoint, NULL, MS_MOVE, NULL)) {
@@ -2739,22 +2703,84 @@ int unix_prepare_bindmount(struct mount_info *mi)
 	 * other sockets might connect to us via relative name.
 	 */
 	ui->flags &= ~USK_NOCWD;
-	ret = 0;
+	exit_code = 0;
+
 out:
 	close_safe(&prev_cwd_fd);
 	close_safe(&prev_root_fd);
 	close_safe(&sks[0]);
 	close_safe(&sks[1]);
-out_ns:
-	if (orig_nsfd >= 0 && restore_ns(orig_nsfd, &mnt_ns_desc))
-		ret = -1;
-	close_safe(&nsfd);
 
-	if (ret == 0)
+	if (exit_code == 0)
 		pr_debug("bindmount: Standalone socket moved into fdstore (id %#x ino %d peer %d)\n",
 			 ui->ue->id, ui->ue->ino, ui->ue->peer);
 
-	return ret;
+	return exit_code;
+}
+
+static struct unix_sk_info *lookup_unix_bindmount(struct mount_info *mi)
+{
+	struct unix_sk_info *ui;
+
+	list_for_each_entry(ui, &unix_mnt_sockets, mnt_list)
+		if (sk_has_bindmount(ui, mi))
+			break;
+
+	if (&ui->mnt_list == &unix_mnt_sockets)
+		return NULL;
+
+	return ui;
+}
+
+int unix_prepare_bindmount(struct mount_info *mi)
+{
+	struct unix_sk_info *ui;
+	char type_name[64], state_name[64];
+
+	ui = lookup_unix_bindmount(mi);
+	if (!ui)
+		return 0;
+
+	pr_info("bindmount: id %#x ino %d type %s state %s (queuer id %#x ino %d) peer %d (name %.*s dir %s)\n",
+		ui->ue->id, ui->ue->ino,
+		__socket_type_name(ui->ue->type, type_name),
+		__tcp_state_name(ui->ue->state, state_name),
+		ui->queuer ? ui->queuer->ue->id : -1,
+		ui->queuer ? ui->queuer->ue->ino : -1,
+		ui->ue->peer, (int)ui->ue->name.len,
+		ui->ue->name.data, ui->name_dir ? ui->name_dir : "-");
+
+	return prepare_unix_socket(ui, NULL, mi);
+}
+
+int prepare_unix_sockets(struct mount_info *mi)
+{
+	struct unix_sk_info *ui;
+
+	list_for_each_entry(ui, &unix_mnt_sockets, mnt_list) {
+		if (sk_to_mnt_id(ui) == mi->mnt_id) {
+			if (prepare_unix_socket(ui, mi, NULL))
+				return -1;
+		}
+	}
+
+	return 0;
+}
+
+bool check_unix_bindmount_ready(struct mount_info *mi)
+{
+	struct mount_info *sk_mi;
+	struct unix_sk_info *ui;
+
+	ui = lookup_unix_bindmount(mi);
+	if (!ui)
+		return true;
+
+	sk_mi = lookup_mnt_id(sk_to_mnt_id(ui));
+	if (!sk_mi || !sk_mi->rmi->mounted)
+		return false;
+
+	return true;
 }
 
 static void set_peer(struct unix_sk_info *ui, struct unix_sk_info *peer)
