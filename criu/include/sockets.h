@@ -48,6 +48,8 @@ extern int prepare_scms(void);
 extern int unix_note_scm_rights(int id_for, uint32_t *file_ids, int *fds, int n_ids);
 extern int collect_unix_bindmounts(void);
 extern int unix_prepare_bindmount(struct mount_info *mi);
+extern int prepare_unix_sockets(struct mount_info *mi);
+extern bool check_unix_bindmount_ready(struct mount_info *mi);
 
 extern struct collect_image_info netlink_sk_cinfo;
 
