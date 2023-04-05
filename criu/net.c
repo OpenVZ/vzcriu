@@ -3021,6 +3021,12 @@ int netns_keep_nsfd(void)
 	return ret >= 0 ? 0 : -1;
 }
 
+struct ipt_restore_arg {
+	bool ipv6;
+	char *buf;
+	int size;
+};
+
 /*
  * If we want to modify iptables, we need to received the current
  * configuration, change it and load a new one into the kernel.
@@ -3028,12 +3034,13 @@ int netns_keep_nsfd(void)
  * iptables-restore allows to make a few changes for one iteration,
  * so it works faster.
  */
-static int iptables_restore(bool ipv6, char *buf, int size)
+int __iptables_restore(void *arg)
 {
+	struct ipt_restore_arg *iptra = (struct ipt_restore_arg *)arg;
 	int pfd[2], ret = -1;
 	char *cmd4[] = { "iptables-restore", "-w", "--noflush", NULL };
 	char *cmd6[] = { "ip6tables-restore", "-w", "--noflush", NULL };
-	char **cmd = ipv6 ? cmd6 : cmd4;
+	char **cmd = iptra->ipv6 ? cmd6 : cmd4;
 	int userns_pid = -1;
 
 	if (pipe(pfd) < 0) {
@@ -3041,7 +3048,7 @@ static int iptables_restore(bool ipv6, char *buf, int size)
 		return -1;
 	}
 
-	if (write(pfd[1], buf, size) < size) {
+	if (write(pfd[1], iptra->buf, iptra->size) < iptra->size) {
 		pr_perror("Unable to write iptables configugration");
 		goto err;
 	}
@@ -3060,6 +3067,17 @@ err:
 	close_safe(&pfd[1]);
 	close_safe(&pfd[0]);
 	return ret;
+}
+
+static int iptables_restore(bool ipv6, char *buf, int size)
+{
+	struct ipt_restore_arg iptra = {
+		.ipv6 = ipv6,
+		.buf = buf,
+		.size = size
+	};
+
+	return call_in_child_process(__iptables_restore, (void *)&iptra);
 }
 
 static inline int nftables_lock_network_internal(void)
