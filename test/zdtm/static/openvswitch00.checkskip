@@ -1,0 +1,3 @@
+#!/bin/bash
+
+[ -f /bin/ovs-dpctl ] || exit 1
