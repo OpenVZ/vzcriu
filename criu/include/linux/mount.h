@@ -57,6 +57,10 @@ enum fsconfig_command {
 #define MOUNT_ATTR_IDMAP       0x00100000 /* Idmap mount to @userns_fd in struct mount_attr. */
 #define MOUNT_ATTR_NOSYMFOLLOW 0x00200000 /* Do not follow symlinks */
 
+#ifndef MS_NOSYMFOLLOW
+#define MS_NOSYMFOLLOW 256 /* Do not follow symlinks */
+#endif
+
 /*
  * mount_setattr()
  */
