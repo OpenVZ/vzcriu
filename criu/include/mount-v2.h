@@ -8,6 +8,11 @@
 
 #include <compel/plugins/std/syscall-codes.h>
 
+/* Fallback for vz7 without openat2 */
+#ifndef MS_SET_GROUP
+#define MS_SET_GROUP (1 << 26)
+#endif
+
 #ifndef MOVE_MOUNT_SET_GROUP
 #define MOVE_MOUNT_SET_GROUP 0x00000100 /* Set sharing group instead */
 #endif
