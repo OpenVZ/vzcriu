@@ -39,11 +39,6 @@ int check_mount_v2(void)
 		return -1;
 	}
 
-	if (!kdat.has_openat2) {
-		pr_debug("Mounts-v2 requires openat2 support\n");
-		return -1;
-	}
-
 	return 0;
 }
 
@@ -1040,6 +1035,26 @@ struct set_group_arg {
 	int dst_id;
 };
 
+static int __old_mount_set_group(struct set_group_arg *sga)
+{
+	char dst_path[PATH_MAX];
+	int dst_fd;
+
+	pr_debug("Use deprecated mount(MS_SET_GROUP) for %s\n", sga->source);
+
+	dst_fd = fdstore_get(sga->dst_id);
+	BUG_ON(dst_fd < 0);
+
+	snprintf(dst_path, sizeof(dst_path), "/proc/self/fd/%d", dst_fd);
+
+	if (mount(sga->source, dst_path, NULL, MS_SET_GROUP, NULL)) {
+		pr_perror("Failed to copy sharing from %s", sga->source);
+		return -1;
+	}
+
+	return 0;
+}
+
 static int __move_mount_set_group(void *arg, int dfd, int pid)
 {
 	struct set_group_arg *sga = (struct set_group_arg *)arg;
@@ -1052,6 +1067,11 @@ static int __move_mount_set_group(void *arg, int dfd, int pid)
 		char *source_mp;
 
 		BUG_ON(sga->source[0] == '\0');
+
+		/* Fallback for vz7 kernel */
+		if (!kdat.has_openat2)
+			return __old_mount_set_group(sga);
+
 		/*
 		 * Source path should not always be a mountpoint as we
 		 * automatically resolve it to mountpoint below.
