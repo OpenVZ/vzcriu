@@ -38,6 +38,10 @@ int check_mount_v2(void)
 		pr_debug("Mounts-v2 requires MOVE_MOUNT_SET_GROUP support\n");
 		return -1;
 	}
+	if (!kdat.has_mount_setattr) {
+		pr_debug("Mounts-v2 requires mount_setattr support\n");
+		return -1;
+	}
 
 	return 0;
 }

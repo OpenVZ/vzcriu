@@ -1425,6 +1425,14 @@ static int check_pid_for_children_ns(void)
 	return 0;
 }
 
+static int check_mount_setattr(void)
+{
+	if (!kdat.has_mount_setattr)
+		return -1;
+
+	return 0;
+}
+
 static int (*chk_feature)(void);
 
 /*
@@ -1549,6 +1557,7 @@ int cr_check(void)
 		ret |= check_ns_get_userns();
 		ret |= check_ns_get_parent();
 		ret |= check_pid_for_children_ns();
+		ret |= check_mount_setattr();
 
 		if (kdat.lsm == LSMTYPE__APPARMOR)
 			ret |= check_apparmor_stacking();
@@ -1676,6 +1685,7 @@ static struct feature_list feature_list[] = {
 	{ "ns_get_userns", check_ns_get_userns },
 	{ "ns_get_parent", check_ns_get_parent },
 	{ "pid_for_children_ns", check_pid_for_children_ns },
+	{ "mount_setattr", check_mount_setattr },
 	{ NULL, NULL },
 };
 
