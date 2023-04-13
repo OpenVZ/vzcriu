@@ -93,6 +93,7 @@ struct kerndat_s {
 	bool has_ns_get_userns;
 	bool has_ns_get_parent;
 	bool has_pid_for_children_ns;
+	bool has_mount_setattr;
 };
 
 extern struct kerndat_s kdat;

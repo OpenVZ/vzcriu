@@ -1190,6 +1190,42 @@ int kerndat_has_pid_for_children_ns(void)
 	return 0;
 }
 
+int kerndat_has_mount_setattr(void)
+{
+	char tmpdir[] = "/tmp/.criu.mount_setattr.XXXXXX";
+	struct mount_attr attr = {};
+	int exit_code = -1;
+
+	if (mkdtemp(tmpdir) == NULL) {
+		pr_perror("Fail to make dir %s", tmpdir);
+		return -1;
+	}
+
+	if (mount("criu.mount_setattr", tmpdir, "tmpfs", 0, NULL)) {
+		pr_perror("Fail to mount tmfps to %s", tmpdir);
+		goto out_rmdir;
+	}
+
+	attr.propagation = MS_PRIVATE;
+	if (sys_mount_setattr(AT_FDCWD, tmpdir, 0, &attr, sizeof(attr))) {
+		if (errno != ENOSYS) {
+			pr_perror("Fail to set MS_PRIVATE with mount_setattr to %s", tmpdir);
+			goto out;
+		}
+		kdat.has_mount_setattr = false;
+	} else {
+		kdat.has_mount_setattr = true;
+	}
+	exit_code = 0;
+out:
+	if (umount2(tmpdir, MNT_DETACH))
+		pr_warn("Fail to umount2 %s: %s\n", tmpdir, strerror(errno));
+out_rmdir:
+	if (rmdir(tmpdir))
+		pr_warn("Fail to rmdir %s: %s\n", tmpdir, strerror(errno));
+	return exit_code;
+}
+
 #define KERNDAT_CACHE_NAME "criu.kdat"
 #define KERNDAT_CACHE_FILE KDAT_RUNDIR "/" KERNDAT_CACHE_NAME
 
@@ -1986,6 +2022,10 @@ int kerndat_init(void)
 	}
 	if (!ret && kerndat_has_pid_for_children_ns()) {
 		pr_err("kerndat_has_pid_for_children_ns failed when initializing kerndat.\n");
+		ret = -1;
+	}
+	if (!ret && kerndat_has_mount_setattr()) {
+		pr_err("kerndat_has_mount_setattr failed when initializing kerndat.\n");
 		ret = -1;
 	}
 
