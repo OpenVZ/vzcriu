@@ -2373,6 +2373,11 @@ static int cgroupd(int sk)
 {
 	pr_info("cgroud: Daemon started\n");
 
+	if (signal(SIGTERM, SIG_DFL) == SIG_ERR) {
+		pr_perror("cgroupd: failed to unblock SIGTERM");
+		return -1;
+	}
+
 	while (1) {
 		struct unsc_msg um;
 		uns_call_t call;
