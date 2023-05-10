@@ -678,6 +678,9 @@ static int detect_is_dir(struct mount_info *mi)
 	if (mi->is_dir != -1)
 		return 0;
 
+	if (mi->detect_is_dir)
+		return mi->detect_is_dir(mi);
+
 	if (mi->hmt != HMT_NONE) {
 		pr_err("Helper %s should have is_dir pre-set\n", mi->ns_mountpoint);
 		return -1;

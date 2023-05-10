@@ -167,6 +167,8 @@ struct mount_info {
 
 	enum helper_mount_type hmt;
 
+	int (*detect_is_dir)(struct mount_info *mi);
+
 	void *private; /* associated filesystem data */
 };
 
