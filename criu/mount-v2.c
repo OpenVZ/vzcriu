@@ -570,32 +570,43 @@ static bool can_mount_now_v2(struct mount_info *mi)
 		return true;
 	}
 
-	/* Non fsroot mounts can not be mounted without bind-mount */
-	if (!fsroot_mounted(mi) && !mi->bind && !mi->need_plugin) {
-		pr_debug("%s: false as %d is non-root without bind or plugin\n", __func__, mi->mnt_id);
-		return false;
+	if (mi->need_plugin) {
+		pr_debug("%s: true as %d is plugin mount\n", __func__, mi->mnt_id);
+		return true;
 	}
 
-	if (!check_unix_bindmount_ready(mi)) {
-		pr_debug("%s: false as %d is unix sk bindmount and it's socket is not ready\n", __func__, mi->mnt_id);
-		return false;
-	}
-
-	if (mi->fstype->can_mount) {
-		int can_mount = mi->fstype->can_mount(mi);
-
-		if (can_mount == -1) {
-			pr_err("fstype->can_mount error. mnt_id %d\n", mi->mnt_id);
+	if (mi->bind) {
+		if (!check_unix_bindmount_ready(mi)) {
+			pr_debug("%s: false as %d is unix sk bindmount and it's socket is not ready\n",
+				 __func__, mi->mnt_id);
 			return false;
 		}
 
-		if (can_mount == 0) {
-			pr_debug("mnt_id %d isn't mountable yet\n", mi->mnt_id);
-			return false;
-		}
+		pr_debug("%s: true as %d is bind mount\n", __func__, mi->mnt_id);
+		return true;
 	}
 
-	return true;
+	if (fsroot_mounted(mi)) {
+		if (mi->fstype->can_mount) {
+			int can_mount = mi->fstype->can_mount(mi);
+
+			if (can_mount == -1) {
+				pr_err("fstype->can_mount error. mnt_id %d\n", mi->mnt_id);
+				return false;
+			}
+
+			if (can_mount == 0) {
+				pr_debug("mnt_id %d isn't mountable yet\n", mi->mnt_id);
+				return false;
+			}
+		}
+
+		pr_debug("%s: true as %d is fsroot mount\n", __func__, mi->mnt_id);
+		return true;
+	}
+
+	pr_debug("%s: false as %d requires bind\n", __func__, mi->mnt_id);
+	return false;
 }
 
 static int __set_unbindable_v2(struct mount_info *mi)
