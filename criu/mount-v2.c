@@ -678,7 +678,7 @@ static int detect_is_dir(struct mount_info *mi)
 	if (mi->is_dir != -1)
 		return 0;
 
-	if (mi->mnt_id == HELPER_MNT_ID) {
+	if (mi->hmt != HMT_NONE) {
 		pr_err("Helper %s should have is_dir pre-set\n", mi->ns_mountpoint);
 		return -1;
 	}
@@ -1607,6 +1607,8 @@ int setup_internal_yards(void)
 		if (!yard->root)
 			return -1;
 
+		yard->mnt_id = HELPER_MNT_ID;
+		yard->hmt = HMT_INTERNAL_YARD;
 		yard->fstype = find_fstype_by_name("tmpfs");
 		yard->is_dir = true;
 
@@ -1666,6 +1668,7 @@ int handle_nested_pidns_proc(void)
 
 			h->nsid = c->nsid;
 			h->mnt_id = c->mnt_id;
+			h->hmt = HMT_PROC_RELATED;
 			print_plain_helper_mountpoint(h, path, sizeof(path));
 			h->plain_mountpoint = xstrdup(path);
 			if (!h->plain_mountpoint)

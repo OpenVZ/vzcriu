@@ -1870,6 +1870,7 @@ struct mount_info __maybe_unused *add_cr_time_mount(struct mount_info *root, cha
 			goto err;
 	}
 	mi->mnt_id = HELPER_MNT_ID;
+	mi->hmt = HMT_CR_TIME;
 	mi->is_dir = true;
 	mi->flags = mi->sb_flags = 0;
 	mi->root = xstrdup("/");
@@ -2066,7 +2067,7 @@ static int dump_one_mountpoint(struct mount_info *pm, struct cr_img *img)
 	    pm->fstype->check_bindmount(pm))
 		return -1;
 
-	if (pm->mnt_id == HELPER_MNT_ID) {
+	if (pm->hmt != HMT_NONE) {
 		pr_info("Skip dumping helper mountpoint: %s\n", pm->ns_mountpoint);
 		return 0;
 	}
@@ -3691,6 +3692,7 @@ static int merge_mount_trees(void)
 	root_yard_mp->mnt_bind_is_populated = true;
 	root_yard_mp->is_overmounted = false;
 	root_yard_mp->mnt_id = HELPER_MNT_ID;
+	root_yard_mp->hmt = HMT_ROOT_YARD;
 
 	/* Merge mount trees together under root_yard_mp */
 	for (nsid = ns_ids; nsid; nsid = nsid->next) {
@@ -4416,7 +4418,7 @@ void clean_cr_time_mounts(void)
 	for (mi = mntinfo; mi; mi = mi->next) {
 		int cwd_fd;
 
-		if (mi->mnt_id != HELPER_MNT_ID)
+		if (mi->hmt != HMT_CR_TIME)
 			continue;
 		ret = switch_mnt_ns(mi->nsid->ns_pid, &ns_old, &cwd_fd);
 		if (ret) {

@@ -79,6 +79,14 @@ struct mount_namespaces {
 	unsigned int netns_id;
 };
 
+enum helper_mount_type {
+	HMT_NONE,
+	HMT_ROOT_YARD,
+	HMT_INTERNAL_YARD,
+	HMT_CR_TIME,
+	HMT_PROC_RELATED,
+};
+
 struct mount_info {
 	int mnt_id;
 	int parent_mnt_id;
@@ -156,6 +164,8 @@ struct mount_info {
 
 	struct rst_mount_info *rmi;
 	struct mount_info *helper;
+
+	enum helper_mount_type hmt;
 
 	void *private; /* associated filesystem data */
 };
