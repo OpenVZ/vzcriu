@@ -5,6 +5,7 @@
 #include "linux/openat2.h"
 
 #include "common/list.h"
+#include "covering-mounts.h"
 
 #include <compel/plugins/std/syscall-codes.h>
 
@@ -98,6 +99,8 @@ struct sharing_group {
 	struct sharing_group *parent;
 
 	char *source;
+
+	struct covering_mounts cms;
 };
 
 extern struct list_head nested_pidns_procs;

@@ -24,6 +24,7 @@
 #include "common/bug.h"
 #include "common/compiler.h"
 #include "rst-malloc.h"
+#include "covering-mounts.h"
 
 #include "images/mnt.pb-c.h"
 
@@ -73,10 +74,34 @@ static struct sharing_group *alloc_sharing_group(int shared_id, int master_id)
 	INIT_LIST_HEAD(&sg->mnt_list);
 	INIT_LIST_HEAD(&sg->children);
 	INIT_LIST_HEAD(&sg->siblings);
+	INIT_LIST_HEAD(&sg->cms.list);
 
 	list_add(&sg->list, &sharing_groups);
 
 	return sg;
+}
+
+static int sg_resolve_covering_mounts(struct sharing_group *sg)
+{
+	struct sharing_group *child;
+	struct mount_info *mi;
+
+	list_for_each_entry(mi, &sg->mnt_list, mnt_sharing)
+		if (update_covering_mounts(&sg->cms, mi))
+			return -1;
+
+	list_for_each_entry(child, &sg->children, siblings) {
+		struct covering_mount *cm;
+
+		if (sg_resolve_covering_mounts(child))
+			return -1;
+
+		list_for_each_entry(cm, &child->cms.list, siblings)
+			if (update_covering_mounts(&sg->cms, cm->mnt))
+				return -1;
+	}
+
+	return 0;
 }
 
 int resolve_shared_mounts_v2(void)
@@ -209,6 +234,14 @@ int resolve_shared_mounts_v2(void)
 					 sg->shared_id, sg->master_id, source);
 			}
 		}
+	}
+
+	list_for_each_entry(sg, &sharing_groups, list) {
+		if (sg->parent)
+			continue;
+
+		if (sg_resolve_covering_mounts(sg))
+			return -1;
 	}
 
 	return 0;
