@@ -112,5 +112,6 @@ extern int handle_nested_pidns_proc(void);
 extern int prepare_mnt_ns_v2(void);
 extern int fini_restore_mntns_v2(void);
 extern int cleanup_internal_yards(void);
+extern int add_wide_mounts_for_sharing_groups(void);
 
 #endif /* __CR_MOUNT_V2_H__ */

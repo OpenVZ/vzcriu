@@ -3796,6 +3796,11 @@ int read_mnt_ns_img(void)
 	if (merge_mount_trees())
 		return -1;
 
+	if (!opts.mntns_compat_mode) {
+		if (add_wide_mounts_for_sharing_groups())
+			return -1;
+	}
+
 	return 0;
 }
 

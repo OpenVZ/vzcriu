@@ -86,6 +86,7 @@ enum helper_mount_type {
 	HMT_INTERNAL_YARD,
 	HMT_CR_TIME,
 	HMT_PROC_RELATED,
+	HMT_SHARING_GROUP,
 };
 
 struct mount_info {

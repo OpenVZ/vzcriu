@@ -247,6 +247,251 @@ int resolve_shared_mounts_v2(void)
 	return 0;
 }
 
+char *sg_helper_mountpoint(struct sharing_group *sg, int index)
+{
+	static char tmp[PATH_MAX];
+	int ret;
+
+	if (!mnt_roots)
+		return NULL;
+
+	ret = snprintf(tmp, sizeof(tmp), "%s/sg-%010d-%010d-%010d", mnt_roots, sg->master_id, sg->shared_id, index);
+	if (ret >= sizeof(tmp)) {
+		pr_err("Sharing group %d:%d helper mountpoint truncated\n", sg->master_id, sg->shared_id);
+		return NULL;
+	}
+
+	return xstrdup(tmp);
+}
+
+int detect_is_dir_from_bind(struct mount_info *mi)
+{
+	static char mountpoint[PATH_MAX];
+	char *rel_path;
+	struct stat st;
+
+	if (!mi->bind) {
+		pr_err("Have no bind for %s\n", mi->plain_mountpoint);
+		return -1;
+	}
+
+	rel_path = get_relative_path(mi->root, mi->bind->root);
+	if (!rel_path) {
+		pr_err("Bind root should be subpath %d:%s %d:%s\n",
+		       mi->mnt_id, mi->root, mi->bind->mnt_id, mi->bind->root);
+		return -1;
+	}
+
+	if (snprintf(mountpoint, sizeof(mountpoint), "%s%s%s",
+		     mi->bind->plain_mountpoint, rel_path[0] ? "/" : "", rel_path) >= sizeof(mountpoint)) {
+		pr_err("Appending %s to %s truncated\n", rel_path, mi->bind->plain_mountpoint);
+		return -1;
+	}
+
+	if (lstat(mountpoint, &st)) {
+		pr_perror("Can't lstat mountpoint %s", mountpoint);
+		return -1;
+	}
+
+	if (S_ISLNK(st.st_mode)) {
+		pr_perror("Unsupported mount with symlink mountpoint detected");
+		return -1;
+	}
+
+	if (S_ISDIR(st.st_mode))
+		mi->is_dir = true;
+	else
+		mi->is_dir = false;
+
+	pr_debug("Mount %s is detected as %s-mount\n", mi->plain_mountpoint, mi->is_dir ? "dir" : "file");
+	return 0;
+}
+
+static struct mount_info *sg_add_helper_bindmount(struct sharing_group *sg, struct mount_info *mi)
+{
+	struct mount_info *new;
+
+	new = mnt_entry_alloc(true);
+	if (!new)
+		return NULL;
+
+	new->plain_mountpoint = sg_helper_mountpoint(sg, mi->mnt_id);
+	if (!new->plain_mountpoint)
+		goto err;
+
+	new->root = xstrdup(mi->root);
+	if (!new->root)
+		goto err;
+
+	new->mnt_id = HELPER_MNT_ID;
+	new->hmt = HMT_SHARING_GROUP;
+	new->detect_is_dir = detect_is_dir_from_bind;
+	new->flags = new->sb_flags = 0;
+	new->fstype = mi->fstype;
+
+	new->parent = root_yard_mp;
+	list_add(&new->siblings, &root_yard_mp->children);
+
+	list_add(&new->mnt_bind, &mi->mnt_bind);
+	new->mnt_bind_is_populated = true;
+
+	list_add(&new->mnt_sharing, &sg->mnt_list);
+
+	return new;
+err:
+	mnt_entry_free(new);
+	return NULL;
+}
+
+static int __add_wide_mounts_for_sharing_group(struct sharing_group *sg)
+{
+	struct covering_mount *cm;
+
+	if (sg->cms.count < 1) {
+		pr_err("No covering mount for sharing group %d:%d\n", sg->master_id, sg->shared_id);
+		return -1;
+	}
+
+	cm = list_first_entry(&sg->cms.list , struct covering_mount, siblings);
+	if (sg->cms.count == 1) {
+		struct mount_info *mi;
+		bool found = false;
+
+		list_for_each_entry(mi, &sg->mnt_list, mnt_sharing) {
+			if (is_same_path(cm->mnt->root, mi->root)) {
+				found = true;
+				break;
+			}
+		}
+
+		/* Has covering mount in our group */
+		if (found)
+			return 0;
+
+		/* Simple case: don't need to update covering mounts */
+		if (!sg_add_helper_bindmount(sg, cm->mnt))
+			return -1;
+
+		return 0;
+	} else {
+		struct sharing_group *parent = sg->parent;
+		struct covering_mount *sb_cm;
+
+		while (parent) {
+			struct covering_mount *p_cm;
+
+			p_cm = get_covering_mount(&parent->cms, cm->mnt->root);
+			if (!p_cm) {
+				pr_err("No covering mount for sharing group %d:%d in parent\n", sg->master_id, sg->shared_id);
+				return -1;
+			}
+
+			if (cms_fully_covered(&sg->cms, p_cm->mnt->root)) {
+				struct sharing_group *tsg = sg;
+
+				if (!sg_add_helper_bindmount(sg, p_cm->mnt))
+					return -1;
+
+				while (tsg && tsg != parent) {
+					if (update_covering_mounts(&tsg->cms, p_cm->mnt))
+						return -1;
+
+					tsg = tsg->parent;
+				}
+
+				return 0;
+			}
+			parent = parent->parent;
+		}
+
+		sb_cm = get_covering_mount(&cm->mnt->sb->cms, cm->mnt->root);
+		if (!sb_cm) {
+			pr_err("No covering mount for sharing group %d:%d in superblock\n", sg->master_id, sg->shared_id);
+			return -1;
+		}
+
+		if (cms_fully_covered(&sg->cms, sb_cm->mnt->root)) {
+			struct sharing_group *tsg = sg;
+
+			if (!sg_add_helper_bindmount(sg, sb_cm->mnt))
+				return -1;
+
+			while (tsg) {
+				if (update_covering_mounts(&tsg->cms, sb_cm->mnt))
+					return -1;
+
+				tsg = tsg->parent;
+			}
+
+			return 0;
+		} else {
+			if (sg->parent || sg->shared_id) {
+				pr_err("No covering mount for sharing group %d:%d anywhere\n", sg->master_id, sg->shared_id);
+				return -1;
+			} else {
+				/* Same external slavery from different external sources */
+				list_for_each_entry(cm, &sg->cms.list, siblings) {
+					struct mount_info *mi;
+					bool found = false;
+
+					list_for_each_entry(mi, &sg->mnt_list, mnt_sharing) {
+						if (is_same_path(cm->mnt->root, mi->root)) {
+							found = true;
+							break;
+						}
+					}
+
+					/* Has covering mount in our group */
+					if (found)
+						continue;
+
+					/* Simple case: don't need to update covering mounts */
+					if (!sg_add_helper_bindmount(sg, cm->mnt))
+						return -1;
+
+				}
+
+				return 0;
+			}
+		}
+	}
+
+	return -1;
+}
+
+static int add_wide_mounts_for_sharing_group(struct sharing_group *sg)
+{
+	struct sharing_group *child;
+
+	/* First handle children recursively */
+	list_for_each_entry(child, &sg->children, siblings) {
+		if (add_wide_mounts_for_sharing_group(child))
+			return -1;
+	}
+
+	/* Second handle ourselves */
+	if (__add_wide_mounts_for_sharing_group(sg))
+		return -1;
+
+	return 0;
+}
+
+int add_wide_mounts_for_sharing_groups(void)
+{
+	struct sharing_group *sg;
+
+	/* Iterate over all top sharing groups */
+	list_for_each_entry(sg, &sharing_groups, list) {
+		if (sg->parent)
+			continue;
+
+		if (add_wide_mounts_for_sharing_group(sg))
+			return -1;
+	}
+
+	return 0;
+}
+
 /*
  * When first mount from superblock is mounted, give other mounts
  * a hint that they can now just bindmount from the first one.
@@ -619,6 +864,11 @@ static bool can_mount_now_v2(struct mount_info *mi)
 		return true;
 	}
 
+	if (mi->hmt == HMT_SHARING_GROUP) {
+		pr_debug("%s: false as sg helper %s requires bind\n", __func__, mi->plain_mountpoint);
+		return false;
+	}
+
 	if (fsroot_mounted(mi)) {
 		if (mi->fstype->can_mount) {
 			int can_mount = mi->fstype->can_mount(mi);
@@ -917,6 +1167,23 @@ static int do_mount_one_v2(struct mount_info *mi)
 
 	if (ret == 0 && do_mount_in_right_mntns(mi))
 		return -1;
+
+	if (mi->hmt == HMT_SHARING_GROUP) {
+		int fd;
+
+		fd = open(mi->plain_mountpoint, O_PATH | O_NOFOLLOW);
+		if (fd == -1) {
+			pr_perror("Failed to open %s", mi->plain_mountpoint);
+			return -1;
+		}
+
+		mi->rmi->mnt_fd_id = fdstore_add(fd);
+		close(fd);
+		if (mi->rmi->mnt_fd_id < 0) {
+			pr_err("Can't add %s fd to fdstore\n", mi->plain_mountpoint);
+			return -1;
+		}
+	}
 
 	return ret;
 }
