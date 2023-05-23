@@ -32,6 +32,7 @@
 #include "crtools.h"
 #include "kerndat.h"
 #include "sockets.h"
+#include "covering-mounts.h"
 
 #include "images/mnt.pb-c.h"
 
@@ -44,6 +45,8 @@
 struct mount_info *root_yard_mp = NULL;
 
 static LIST_HEAD(delayed_unbindable);
+
+LIST_HEAD(super_blocks);
 
 char *service_mountpoint(const struct mount_info *mi)
 {
@@ -1102,6 +1105,20 @@ static int same_propagation_group(struct mount_info *a, struct mount_info *b)
 	return 0;
 }
 
+static struct super_block *sb_alloc(struct mount_info *mi)
+{
+	struct super_block *sb;
+
+	sb = xzalloc(sizeof(struct super_block));
+	if (!sb)
+		return NULL;
+
+	INIT_LIST_HEAD(&sb->cms.list);
+	list_add(&sb->list, &super_blocks);
+
+	return sb;
+}
+
 /*
  * Note: Only valid if called consequently on all mounts in mntinfo list.
  *
@@ -1112,15 +1129,28 @@ static int same_propagation_group(struct mount_info *a, struct mount_info *b)
  * ->mnt_bind. (As ->mnt_bind list can validly be empty when mount has no
  *  bindmounts we need separate field to indicate population.)
  */
-static void __search_bindmounts(struct mount_info *mi)
+static int __search_bindmounts(struct mount_info *mi)
 {
+	struct super_block *sb;
 	struct mount_info *t;
 
 	if (mi->mnt_bind_is_populated)
-		return;
+		return 0;
+
+	sb = sb_alloc(mi);
+	if (!sb)
+		return -1;
+
+	if (update_covering_mounts(&sb->cms, mi))
+		return -1;
+	mi->sb = sb;
 
 	for (t = mi->next; t; t = t->next) {
 		if (mounts_sb_equal(mi, t)) {
+			if (update_covering_mounts(&sb->cms, t))
+				return -1;
+			t->sb = sb;
+
 			list_add(&t->mnt_bind, &mi->mnt_bind);
 			t->mnt_bind_is_populated = true;
 			pr_debug("\t"
@@ -1130,14 +1160,18 @@ static void __search_bindmounts(struct mount_info *mi)
 	}
 
 	mi->mnt_bind_is_populated = true;
+	return 0;
 }
 
-static void search_bindmounts(void)
+static int search_bindmounts(void)
 {
 	struct mount_info *mi;
 
 	for (mi = mntinfo; mi; mi = mi->next)
-		__search_bindmounts(mi);
+		if (__search_bindmounts(mi))
+			return -1;
+
+	return 0;
 }
 
 struct mount_info *mnt_bind_pick(struct mount_info *mi, bool (*pick)(struct mount_info *mi, struct mount_info *bind))
@@ -3743,7 +3777,8 @@ int read_mnt_ns_img(void)
 
 	mntinfo = pms;
 
-	search_bindmounts();
+	if (search_bindmounts())
+		return -1;
 	prepare_is_overmounted();
 
 	if (!opts.mntns_compat_mode) {
@@ -4354,7 +4389,8 @@ int collect_mnt_namespaces(bool for_dump)
 	if (ret)
 		goto err;
 
-	search_bindmounts();
+	if (search_bindmounts())
+		goto err;
 
 #ifdef CONFIG_BINFMT_MISC_VIRTUALIZED
 	if (for_dump) {

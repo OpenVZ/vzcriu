@@ -4,6 +4,7 @@
 #include <sys/types.h>
 
 #include "common/list.h"
+#include "covering-mounts.h"
 
 struct proc_mountinfo;
 struct pstree_item;
@@ -169,12 +170,21 @@ struct mount_info {
 
 	int (*detect_is_dir)(struct mount_info *mi);
 
+	struct super_block *sb;
+
 	void *private; /* associated filesystem data */
 };
 
 extern struct mount_info *mntinfo;
 
 extern void mntinfo_add_list_before(struct mount_info **head, struct mount_info *new);
+
+struct super_block {
+	struct list_head list;
+	struct covering_mounts cms;
+};
+
+extern struct list_head super_blocks;
 
 /*
  * Put a : in here since those are invalid on
