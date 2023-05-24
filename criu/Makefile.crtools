@@ -42,6 +42,7 @@ obj-y			+= mem.o
 obj-y			+= memfd.o
 obj-y			+= mount.o
 obj-y			+= mount-v2.o
+obj-y			+= covering-mounts.o
 obj-y			+= filesystems.o
 obj-y			+= namespaces.o
 obj-y			+= netfilter.o
