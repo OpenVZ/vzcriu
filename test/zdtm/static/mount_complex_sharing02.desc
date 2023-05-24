@@ -1,0 +1,5 @@
+{   'dopts': '--external mnt[/mount_complex_sharing02.test/dst_a]:MNT_A --external mnt[/mount_complex_sharing02.test/dst_b]:MNT_B --external mnt[/mount_complex_sharing02.test/dst_c]:MNT_C --external mnt[/mount_complex_sharing02.test/dst_d]:MNT_D',
+    'flavor': 'ns',
+    'flags': 'suid',
+    'feature': 'move_mount_set_group',
+    'ropts': '--external mnt[MNT_A]:/tmp/zdtm_mount_complex_sharing02.tmp/src/a --external mnt[MNT_B]:/tmp/zdtm_mount_complex_sharing02.tmp/src/b --external mnt[MNT_C]:/tmp/zdtm_mount_complex_sharing02.tmp/src/c --external mnt[MNT_D]:/tmp/zdtm_mount_complex_sharing02.tmp/src/d --no-mntns-compat-mode'}
