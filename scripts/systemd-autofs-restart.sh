@@ -154,7 +154,7 @@ function restore_mountpoint {
 function restart_service {
 	local service=$1
 	local mountpoint
-	if mountpoint=$($JOIN_CT "$SYSTEMCTL" show "$service" -p Where </dev/null | sed 's/.*=//g'); then
+	if ! mountpoint=$($JOIN_CT "$SYSTEMCTL" show "$service" -p Where </dev/null | sed 's/.*=//g'); then
 		echo "Failed to get mountpoint for $service service"
 		return 1
 	fi
