@@ -1031,30 +1031,18 @@ int create_plain_mountpoint(struct mount_info *mi)
 	return 0;
 }
 
-/*
- * At this point we already have a mount in service mount namespace now we
- * bind-mount it to the final restored mount namespace via new kernel mount
- * API.
- */
-static int do_mount_in_right_mntns(struct mount_info *mi)
+int bind_plain_to_other_mntns(struct mount_info *mi, int dst_nsfd, int *orig_nsfd)
 {
-	int nsfd = -1, orig_nsfd = -1, detached_fd = -1, exit_code = -1;
+	int detached_fd = -1, exit_code = -1;
 
-	if (!mi->nsid)
-		return 0;
-
-	detached_fd =
-		sys_open_tree(AT_FDCWD, mi->plain_mountpoint, AT_NO_AUTOMOUNT | AT_SYMLINK_NOFOLLOW | OPEN_TREE_CLONE);
+	detached_fd = sys_open_tree(AT_FDCWD, mi->plain_mountpoint,
+				    AT_NO_AUTOMOUNT | AT_SYMLINK_NOFOLLOW | OPEN_TREE_CLONE);
 	if (detached_fd == -1) {
 		pr_perror("Failed to open_tree %s", mi->plain_mountpoint);
-		goto err;
+		return -1;
 	}
 
-	nsfd = fdstore_get(mi->nsid->mnt.nsfd_id);
-	if (nsfd < 0)
-		goto err;
-
-	if (switch_ns_by_fd(nsfd, &mnt_ns_desc, &orig_nsfd))
+	if (switch_ns_by_fd(dst_nsfd, &mnt_ns_desc, orig_nsfd))
 		goto err;
 
 	if (create_plain_mountpoint(mi))
@@ -1065,6 +1053,31 @@ static int do_mount_in_right_mntns(struct mount_info *mi)
 		goto err;
 	}
 
+	exit_code = 0;
+err:
+	close_safe(&detached_fd);
+	return exit_code;
+}
+
+/*
+ * At this point we already have a mount in service mount namespace now we
+ * bind-mount it to the final restored mount namespace via new kernel mount
+ * API.
+ */
+static int do_mount_in_right_mntns(struct mount_info *mi)
+{
+	int nsfd, orig_nsfd = -1, exit_code = -1;
+
+	if (!mi->nsid)
+		return 0;
+
+	nsfd = fdstore_get(mi->nsid->mnt.nsfd_id);
+	if (nsfd < 0)
+		return -1;
+
+	if (bind_plain_to_other_mntns(mi, nsfd, &orig_nsfd))
+		goto err;
+
 	if (prepare_unix_sockets(mi))
 		goto err;
 
@@ -1072,8 +1085,7 @@ static int do_mount_in_right_mntns(struct mount_info *mi)
 err:
 	if (orig_nsfd >= 0 && restore_ns(orig_nsfd, &mnt_ns_desc))
 		exit_code = -1;
-	close_safe(&nsfd);
-	close_safe(&detached_fd);
+	close(nsfd);
 	return exit_code;
 }
 
