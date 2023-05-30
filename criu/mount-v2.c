@@ -1031,6 +1031,26 @@ int create_plain_mountpoint(struct mount_info *mi)
 	return 0;
 }
 
+int remove_plain_mountpoint(struct mount_info *mi)
+{
+	BUG_ON(mi->is_dir == -1);
+
+	pr_debug("Remove plain mountpoint %s for %d\n", mi->plain_mountpoint, mi->mnt_id);
+	if (mi->is_dir) {
+		if (rmdir(mi->plain_mountpoint)) {
+			pr_perror("Can't rmdir %d mountpoint", mi->mnt_id);
+			return -1;
+		}
+	} else {
+		if (unlink(mi->plain_mountpoint)) {
+			pr_perror("Can't unlink %d mountpoint", mi->mnt_id);
+			return -1;
+		}
+	}
+
+	return 0;
+}
+
 int bind_plain_to_other_mntns(struct mount_info *mi, int dst_nsfd, int *orig_nsfd)
 {
 	int detached_fd = -1, exit_code = -1;
