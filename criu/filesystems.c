@@ -1130,7 +1130,7 @@ static int __overlayfs_mount(void *arg)
 	overlayfs_info_t *ofsi = oma->mi->private;
 	int i, ret = -1;
 	char *lower_opt = NULL, *upper_opt = NULL, *work_opt = NULL;
-	int rel_mnt_id = -1, prev_cwd = -1;
+	int rel_mnt_id = -1;
 	struct mount_info *rel_mnt;
 
 	if (!ofsi) {
@@ -1166,12 +1166,6 @@ static int __overlayfs_mount(void *arg)
 			goto exit;
 		}
 		mountpoint = service_mountpoint(rel_mnt);
-
-		prev_cwd = open(".", O_PATH);
-		if (prev_cwd < 0) {
-			pr_perror("Unable to open cwd");
-			goto exit;
-		}
 
 		pr_debug("Chdir to %s to make overlay %d paths shorter\n",
 			 mountpoint, oma->mi->mnt_id);
@@ -1224,14 +1218,6 @@ static int __overlayfs_mount(void *arg)
 	ret = mount(oma->src, service_mountpoint(oma->mi), oma->fstype, oma->mountflags, ofsi->options + 1);
 
 exit:
-	if (prev_cwd != -1) {
-		if (fchdir(prev_cwd)) {
-			pr_perror("Can't fchdir back from temporary cwd");
-			ret = -1;
-		}
-		close(prev_cwd);
-	}
-
 	xfree(work_opt);
 	xfree(upper_opt);
 	xfree(lower_opt);
