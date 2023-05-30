@@ -114,4 +114,5 @@ extern int fini_restore_mntns_v2(void);
 extern int cleanup_internal_yards(void);
 extern int add_wide_mounts_for_sharing_groups(void);
 
+extern int create_plain_mountpoint(struct mount_info *mi);
 #endif /* __CR_MOUNT_V2_H__ */

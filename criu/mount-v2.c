@@ -1007,7 +1007,7 @@ static int detect_is_dir(struct mount_info *mi)
 	return 0;
 }
 
-static int create_plain_mountpoint(struct mount_info *mi)
+int create_plain_mountpoint(struct mount_info *mi)
 {
 	BUG_ON(mi->is_dir == -1);
 
