@@ -1117,10 +1117,17 @@ exit:
 	return ret;
 }
 
-static int overlayfs_mount(struct mount_info *mi, const char *src, const
-			   char *fstype, unsigned long mountflags)
+struct overlayfs_mount_args {
+	struct mount_info *mi;
+	const char *src;
+	const char *fstype;
+	unsigned long mountflags;
+};
+
+static int __overlayfs_mount(void *arg)
 {
-	overlayfs_info_t *ofsi = mi->private;
+	struct overlayfs_mount_args *oma = (struct overlayfs_mount_args *)arg;
+	overlayfs_info_t *ofsi = oma->mi->private;
 	int i, ret = -1;
 	char *lower_opt = NULL, *upper_opt = NULL, *work_opt = NULL;
 	int rel_mnt_id = -1, prev_cwd = -1;
@@ -1167,7 +1174,7 @@ static int overlayfs_mount(struct mount_info *mi, const char *src, const
 		}
 
 		pr_debug("Chdir to %s to make overlay %d paths shorter\n",
-			 mountpoint, mi->mnt_id);
+			 mountpoint, oma->mi->mnt_id);
 
 		if (chdir(mountpoint)) {
 			pr_perror("Can't chdir to %s", mountpoint);
@@ -1214,7 +1221,7 @@ static int overlayfs_mount(struct mount_info *mi, const char *src, const
 		}
 	}
 
-	ret = mount(src, service_mountpoint(mi), fstype, mountflags, ofsi->options + 1);
+	ret = mount(oma->src, service_mountpoint(oma->mi), oma->fstype, oma->mountflags, ofsi->options + 1);
 
 exit:
 	if (prev_cwd != -1) {
@@ -1229,9 +1236,25 @@ exit:
 	xfree(upper_opt);
 	xfree(lower_opt);
 
-	free_overlayfs_info(mi);
+	free_overlayfs_info(oma->mi);
 
 	return ret;
+}
+
+static int overlayfs_mount(struct mount_info *mi, const char *src, const
+			   char *fstype, unsigned long mountflags)
+{
+	struct overlayfs_mount_args oma;
+
+	oma.mi = mi;
+	oma.src = src;
+	oma.fstype = fstype;
+	oma.mountflags = mountflags;
+
+	if (call_in_child_process(__overlayfs_mount, &oma))
+		return -1;
+
+	return 0;
 }
 
 static struct fstype fstypes[] = {
