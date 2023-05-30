@@ -1128,7 +1128,7 @@ static int __overlayfs_mount(void *arg)
 {
 	struct overlayfs_mount_args *oma = (struct overlayfs_mount_args *)arg;
 	overlayfs_info_t *ofsi = oma->mi->private;
-	int i, ret = -1;
+	int i, exit_code = 1;
 	char *lower_opt = NULL, *upper_opt = NULL, *work_opt = NULL;
 	int rel_mnt_id = -1;
 	struct mount_info *rel_mnt;
@@ -1215,8 +1215,12 @@ static int __overlayfs_mount(void *arg)
 		}
 	}
 
-	ret = mount(oma->src, service_mountpoint(oma->mi), oma->fstype, oma->mountflags, ofsi->options + 1);
+	if (mount(oma->src, service_mountpoint(oma->mi), oma->fstype, oma->mountflags, ofsi->options + 1)) {
+		pr_err("Failed to mount overlayfs %d\n", oma->mi->mnt_id);
+		goto exit;
+	}
 
+	exit_code = 0;
 exit:
 	xfree(work_opt);
 	xfree(upper_opt);
@@ -1224,7 +1228,7 @@ exit:
 
 	free_overlayfs_info(oma->mi);
 
-	return ret;
+	return exit_code;
 }
 
 static int overlayfs_mount(struct mount_info *mi, const char *src, const
