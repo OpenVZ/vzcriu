@@ -13,6 +13,7 @@
 #include "filesystems.h"
 #include "namespaces.h"
 #include "mount.h"
+#include "mount-v2.h"
 #include "pstree.h"
 #include "kerndat.h"
 #include "protobuf.h"
@@ -1131,11 +1132,46 @@ static int __overlayfs_mount(void *arg)
 	int i, exit_code = 1;
 	char *lower_opt = NULL, *upper_opt = NULL, *work_opt = NULL;
 	int rel_mnt_id = -1;
+	int nsfd = -1, orig_nsfd = -1;
 	struct mount_info *rel_mnt;
 
 	if (!ofsi) {
 		pr_err("Overlayfs info is uninitiallized!\n");
 		BUG();
+	}
+
+	/*
+	 * Switch to mntns of lower/upper/workdir mounts, so that we have their
+	 * mount ids from restored mntns and not from service mntns.
+	 */
+	if (!opts.mntns_compat_mode) {
+		struct mount_info *t;
+
+		if (remove_plain_mountpoint(oma->mi))
+			goto exit;
+
+		if (ofsi->nr_lower_paths < 1) {
+			pr_err("Overlayfs should have at least one lower path\n");
+			return 1;
+		}
+
+		t = lookup_mnt_id(ofsi->lower_mnt_ids[0]);
+		if (!t) {
+			pr_err("The %d mount is not found\n", ofsi->lower_mnt_ids[0]);
+			return 1;
+		}
+
+		nsfd = fdstore_get(t->nsid->mnt.nsfd_id);
+		if (nsfd < 0)
+			return 1;
+
+		if (switch_ns_by_fd(nsfd, &mnt_ns_desc, &orig_nsfd)) {
+			close(nsfd);
+			return 1;
+		}
+
+		if (create_plain_mountpoint(oma->mi))
+			return 1;
 	}
 
 	/*
@@ -1220,8 +1256,31 @@ static int __overlayfs_mount(void *arg)
 		goto exit;
 	}
 
+	/*
+	 * Move overlayfs mount back to service mntns.
+	 */
+	if (!opts.mntns_compat_mode) {
+		if (bind_plain_to_other_mntns(oma->mi, orig_nsfd, NULL)) {
+			pr_err("Failed to move mount %d to service mntns\n", oma->mi->mnt_id);
+			goto exit;
+		}
+
+		if (switch_ns_by_fd(nsfd, &mnt_ns_desc, NULL))
+			goto exit;
+
+		if (umount(service_mountpoint(oma->mi))) {
+			pr_err("Failed to umount %d\n", oma->mi->mnt_id);
+			goto exit;
+		}
+
+		if (remove_plain_mountpoint(oma->mi))
+			goto exit;
+	}
 	exit_code = 0;
 exit:
+	close_safe(&nsfd);
+	close_safe(&orig_nsfd);
+
 	xfree(work_opt);
 	xfree(upper_opt);
 	xfree(lower_opt);
