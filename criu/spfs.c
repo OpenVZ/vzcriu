@@ -13,8 +13,10 @@
 #include <sys/un.h>
 #include <sys/stat.h>
 #include <sys/xattr.h>
+#include <sys/mount.h>
 
 #include "mount.h"
+#include "mount-v2.h"
 #include "log.h"
 #include "util.h"
 #include "cr_options.h"
@@ -380,28 +382,73 @@ out:
 int spfs_mount(struct mount_info *mi, const char *source,
 	       const char *filesystemtype, unsigned long mountflags)
 {
-	int ret;
-	int sock;
+	int nsfd = -1, orig_nsfd = -1;
+	int ret, exit_code = 1;
+	int sock = -1;
 
 	sock = start_spfs_mngr();
 	if (sock < 0) {
 		pr_err("failed to connect to SPFS manager: %d\n", sock);
-		ret = sock;
 		goto err;
 	}
+
+	/*
+	 * Switch to mntns of nfs mount, so that spfs saves right mntns from us
+	 */
+	if (!opts.mntns_compat_mode) {
+		if (remove_plain_mountpoint(mi))
+			goto err;
+
+		nsfd = fdstore_get(mi->nsid->mnt.nsfd_id);
+		if (nsfd < 0)
+			goto err;
+
+		if (switch_ns_by_fd(nsfd, &mnt_ns_desc, &orig_nsfd))
+			goto err;
+
+		if (create_plain_mountpoint(mi))
+			goto err;
+	}
+
 	ret = spfs_request_mount(sock, mi, source, filesystemtype, mountflags);
-	close(sock);
+	close_safe(&sock);
 	if (ret) {
 		pr_err("mount request for %s (%s) failed: %d\n",
 		       source, filesystemtype, ret);
 		goto err;
 	}
 
-	return 0;
+	/*
+	 * Move spfs mount back to service mntns
+	 */
+	if (!opts.mntns_compat_mode) {
+		if (bind_plain_to_other_mntns(mi, orig_nsfd, NULL)) {
+			pr_err("Failed to move mount %d to service mntns\n", mi->mnt_id);
+			goto err;
+		}
 
+		if (switch_ns_by_fd(nsfd, &mnt_ns_desc, NULL))
+			goto err;
+
+		if (umount2(service_mountpoint(mi), MNT_DETACH)) {
+			pr_perror("Failed to umount %d\n", mi->mnt_id);
+			goto err;
+		}
+
+		if (remove_plain_mountpoint(mi))
+			goto err;
+	}
+
+	exit_code = 0;
 err:
-	pr_err("failed to mount NFS to path %s\n", service_mountpoint(mi));
-	return ret;
+	if (orig_nsfd >= 0 && restore_ns(orig_nsfd, &mnt_ns_desc))
+                exit_code = -1;
+	close_safe(&nsfd);
+	close_safe(&sock);
+
+	if (exit_code)
+		pr_err("failed to mount NFS to path %s\n", service_mountpoint(mi));
+	return exit_code;
 }
 
 int spfs_set_env(void)
