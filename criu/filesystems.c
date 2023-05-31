@@ -1171,7 +1171,7 @@ static int __overlayfs_mount(void *arg)
 		}
 
 		if (create_plain_mountpoint(oma->mi))
-			return 1;
+			goto exit;
 	}
 
 	/*
