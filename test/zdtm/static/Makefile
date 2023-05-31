@@ -406,6 +406,7 @@ TST_DIR		=				\
 		overmount_fifo			\
 		overmount_sock			\
 		overlayfs			\
+		overlayfs_nestedns		\
 		overlayfs_fanotify00		\
 		overlayfs_fsnotify00		\
 		overlayfs_fsnotify01		\
