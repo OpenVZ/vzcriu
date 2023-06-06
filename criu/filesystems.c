@@ -306,9 +306,14 @@ bad_dump:
 
 static int binfmt_misc_restore(struct mount_info *mi)
 {
+	static bool once = false;
 	struct cr_img *img;
 	char *buf;
 	int ret = -1;
+
+	if (once)
+		return 0;
+	once = true;
 
 	buf = xmalloc(BINFMT_MISC_STR);
 	if (!buf)
