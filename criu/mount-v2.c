@@ -326,7 +326,8 @@ static struct mount_info *sg_add_helper_bindmount(struct sharing_group *sg, stru
 	new->mnt_id = HELPER_MNT_ID;
 	new->hmt = HMT_SHARING_GROUP;
 	new->detect_is_dir = detect_is_dir_from_bind;
-	new->flags = new->sb_flags = 0;
+	new->sb_flags = mi->sb_flags;
+	new->flags = mi->flags;
 	new->fstype = mi->fstype;
 
 	new->parent = root_yard_mp;
