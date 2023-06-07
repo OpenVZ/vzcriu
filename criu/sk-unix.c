@@ -567,7 +567,7 @@ skip_overmount_check:
 			 * now is to fail the migration.
 			 */
 			pr_err("Non-empty write queue on an in-flight socket %#x\n", ue->ino);
-			goto err;
+			/* FIXME for now we ignore this */
 		}
 
 		ue->peer = e->sk_desc->sd.ino;
@@ -586,7 +586,7 @@ skip_overmount_check:
 				 * the migration.
 				 */
 				pr_err("Found a closed in-flight socket to %#x\n", ue->ino);
-				goto err;
+				/* FIXME for now we ignore this */
 			}
 	}
 dump:
