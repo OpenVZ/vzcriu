@@ -874,12 +874,12 @@ static int libsoccr_restore_queue(struct libsoccr_sk *sk, struct libsoccr_sk_dat
 			/*
 			 * The second part of data have never been sent to outside, so
 			 * they can be restored without any tricks.
-			 *
-			 * FIXME removed tcp_repair_off/tcp_repair_on to w/a
-			 * https://jira.vzint.dev/browse/PSBM-147346
 			 */
+			tcp_repair_off(sk->fd);
 			if (__send_queue(sk, TCP_SEND_QUEUE, buf + len, ulen))
 				return -3;
+			if (tcp_repair_on(sk->fd))
+				return -4;
 		}
 
 		return 0;
