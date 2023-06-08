@@ -410,7 +410,10 @@ static bool mounts_sb_equal(struct mount_info *a, struct mount_info *b)
 			return b->fstype->sb_equal(a, b);
 	}
 
-	if (strcmp(a->options, b->options))
+	/*
+	 * Autofs mounts can sometimes change options in autofs_revisit_options
+	 */
+	if (strcmp(a->options, b->options) && a->fstype->code != FSTYPE__AUTOFS)
 		return false;
 
 	return true;
