@@ -1685,6 +1685,28 @@ static int remove_sources_of_deleted_mounts(void)
 	return ret;
 }
 
+static int bind_to_empty_mntns(char *path)
+{
+	static char dst[PATH_MAX];
+
+	if (snprintf(dst, sizeof(dst), "%s%s", mnt_roots, path) >= sizeof(dst)) {
+		pr_err("Bind to empty mntns %s: truncated dst\n", path);
+		return -1;
+	}
+
+	if (mkdirpat(AT_FDCWD, dst, 0777)) {
+		pr_err("Bind to empty mntns %s: failed mkdirpat dst\n", path);
+		return -1;
+	}
+
+	if (__do_bind_mount_v2(AT_FDCWD, path, AT_RECURSIVE, AT_FDCWD, dst, 0)) {
+		pr_err("Bind to empty mntns %s: failed to bind\n", path);
+		return -1;
+	}
+
+	return 0;
+}
+
 static int get_empty_mntns(void)
 {
 	int orig_nsfd, nsfd = -1;
@@ -1706,6 +1728,14 @@ static int get_empty_mntns(void)
 	}
 
 	if (make_yard(mnt_roots))
+		goto err;
+
+	/* Do dev, sys and proc mounts in case spfs will need them */
+	if (bind_to_empty_mntns("/dev"))
+		goto err;
+	if (bind_to_empty_mntns("/proc"))
+		goto err;
+	if (bind_to_empty_mntns("/sys"))
 		goto err;
 
 	if (cr_pivot_root(mnt_roots))
