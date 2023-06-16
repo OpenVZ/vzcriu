@@ -173,6 +173,8 @@ struct mount_info {
 
 	struct super_block *sb;
 
+	bool plain_mounted_in_right_mntns;
+
 	void *private; /* associated filesystem data */
 };
 

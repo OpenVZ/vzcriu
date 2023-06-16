@@ -426,17 +426,9 @@ int spfs_mount(struct mount_info *mi, const char *source,
 			pr_err("Failed to move mount %d to service mntns\n", mi->mnt_id);
 			goto err;
 		}
-
-		if (switch_ns_by_fd(nsfd, &mnt_ns_desc, NULL))
-			goto err;
-
-		if (umount2(service_mountpoint(mi), MNT_DETACH)) {
-			pr_perror("Failed to umount %d\n", mi->mnt_id);
-			goto err;
-		}
-
-		if (remove_plain_mountpoint(mi))
-			goto err;
+		/* bind_plain_to_other_mntns already switched us to orig_nsfd */
+		close_safe(&orig_nsfd);
+		mi->plain_mounted_in_right_mntns = true;
 	}
 
 	exit_code = 0;

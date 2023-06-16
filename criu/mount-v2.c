@@ -1096,8 +1096,13 @@ static int do_mount_in_right_mntns(struct mount_info *mi)
 	if (nsfd < 0)
 		return -1;
 
-	if (bind_plain_to_other_mntns(mi, nsfd, &orig_nsfd))
-		goto err;
+	if (mi->plain_mounted_in_right_mntns) {
+		if (switch_ns_by_fd(nsfd, &mnt_ns_desc, &orig_nsfd))
+			goto err;
+	} else {
+		if (bind_plain_to_other_mntns(mi, nsfd, &orig_nsfd))
+			goto err;
+	}
 
 	if (prepare_unix_sockets(mi))
 		goto err;
