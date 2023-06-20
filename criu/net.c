@@ -4127,7 +4127,7 @@ int restore_task_net_ns(struct pstree_item *current)
 
 	nsid = lookup_ns_by_id(id, &net_ns_desc);
 	if (nsid == NULL) {
-		pr_err("Can't find mount namespace %d\n", id);
+		pr_err("Can't find net namespace %d\n", id);
 		return -1;
 	}
 
