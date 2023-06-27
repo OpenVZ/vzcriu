@@ -540,6 +540,7 @@ int main(int argc, char **argv)
 
 	pass();
 
+	cleanup();
 	return 0;
 err:
 	cleanup();
