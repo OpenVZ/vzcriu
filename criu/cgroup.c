@@ -2373,11 +2373,6 @@ static int cgroupd(int sk)
 {
 	pr_info("cgroud: Daemon started\n");
 
-	if (signal(SIGTERM, SIG_DFL) == SIG_ERR) {
-		pr_perror("cgroupd: failed to unblock SIGTERM");
-		return -1;
-	}
-
 	while (1) {
 		struct unsc_msg um;
 		uns_call_t call;
@@ -2481,11 +2476,23 @@ int stop_cgroupd(void)
 
 static int prepare_cgroup_thread_sfd(void)
 {
+	struct sigaction old_sa, sa = { .sa_handler = SIG_DFL };
 	int sk;
+
+	/* We kill cgroupd with SIGTERM, ensure it can get it delivered */
+	if (sigaction(SIGTERM, &sa, &old_sa)) {
+		pr_perror("Unable to set default sigaction for SIGTERM");
+		return -1;
+	}
 
 	sk = start_unix_cred_daemon(&cgroupd_pid, cgroupd);
 	if (sk < 0) {
 		pr_err("failed to start cgroupd\n");
+		goto err;
+	}
+
+	if (sigaction(SIGTERM, &old_sa, NULL)) {
+		pr_perror("Unable to restore sigaction for SIGTERM");
 		return -1;
 	}
 
@@ -2496,6 +2503,9 @@ static int prepare_cgroup_thread_sfd(void)
 	}
 
 	return 0;
+err:
+	sigaction(SIGTERM, &old_sa, NULL);
+	return -1;
 }
 
 static int rewrite_cgsets(CgroupEntry *cge, char **controllers, int n_controllers, char **dir_name, char *newroot)
