@@ -1712,77 +1712,92 @@ static int bind_to_empty_mntns(char *path)
 	return 0;
 }
 
-static int get_empty_mntns(void)
+static int make_mntns_empty(void)
 {
-	int orig_nsfd, nsfd = -1;
-
-	orig_nsfd = open_proc(PROC_SELF, "ns/mnt");
-	if (orig_nsfd < 0)
-		return -1;
-
-	/* Create the new mount namespace */
-	if (unshare(CLONE_NEWNS)) {
-		pr_perror("Unable to create a new mntns");
-		close(orig_nsfd);
-		return -1;
-	}
-
 	if (mount("none", "/", NULL, MS_REC | MS_PRIVATE, NULL)) {
 		pr_perror("Can't remount \"/\" with MS_PRIVATE");
-		goto err;
+		return -1;
 	}
 
 	if (make_yard(mnt_roots))
-		goto err;
+		return -1;
 
 	/* Do dev, sys and proc mounts in case spfs will need them */
 	if (bind_to_empty_mntns("/dev"))
-		goto err;
+		return -1;
 	if (bind_to_empty_mntns("/proc"))
-		goto err;
+		return -1;
 	if (bind_to_empty_mntns("/sys"))
-		goto err;
+		return -1;
 
 	if (cr_pivot_root(mnt_roots))
-		goto err;
+		return -1;
 
 	if (mkdirpat(AT_FDCWD, mnt_roots, 0777)) {
 		pr_err("Failed to setup root yard in empty mntns\n");
-		goto err;
+		return -1;
 	}
 
-	nsfd = open_proc(PROC_SELF, "ns/mnt");
-err:
-	if (restore_ns(orig_nsfd, &mnt_ns_desc))
-		close_safe(&nsfd);
-	return nsfd;
+	return 0;
 }
 
 /* Create almost empty mount namespaces only with root yard precreated */
 static int pre_create_mount_namespaces(void)
 {
-	int orig_nsfd = -1, nsfd = -1, empty_mntns, exit_code = -1;
+	int root_mntns, service_mntns = -1, empty_mntns = -1;
 	char path[PATH_MAX];
 	struct ns_id *nsid;
+	int exit_code = -1;
 
-	empty_mntns = get_empty_mntns();
-	if (empty_mntns == -1) {
-		pr_err("Failed to create empty mntns\n");
+	root_mntns = open_proc(PROC_SELF, "ns/mnt");
+	if (root_mntns < 0)
+		return -1;
+
+	if (unshare(CLONE_NEWNS)) {
+		pr_perror("Unable to create a service mntns");
+		goto err;
+	}
+
+	if (switch_ns_by_fd(root_mntns, &mnt_ns_desc, &service_mntns)) {
+		pr_perror("Unable to switch back to root mntns");
+		goto err;
+	}
+
+	if (make_mntns_empty()) {
+		pr_perror("Unable to make root mntns empty");
+		goto err;
+	}
+
+	if (unshare(CLONE_NEWNS)) {
+		pr_perror("Unable to create an empty mntns");
+		goto err;
+	}
+
+	if (switch_ns_by_fd(service_mntns, &mnt_ns_desc, &empty_mntns)) {
+		pr_perror("Unable to switch back to service mntns");
 		goto err;
 	}
 
 	/* restore mount namespaces */
 	for (nsid = ns_ids; nsid != NULL; nsid = nsid->next) {
+		int nsfd;
+
 		if (nsid->nd != &mnt_ns_desc)
 			continue;
 
-		if (switch_ns_by_fd(empty_mntns, &mnt_ns_desc, orig_nsfd == -1 ? &orig_nsfd : NULL))
-			goto err;
+		if (nsid->type == NS_ROOT) {
+			if (switch_ns_by_fd(root_mntns, &mnt_ns_desc, NULL))
+				goto err;
+			close_safe(&root_mntns);
+		} else {
+			if (switch_ns_by_fd(empty_mntns, &mnt_ns_desc, NULL))
+				goto err;
 
-		/* Create the new mount namespace */
-		if (unshare(CLONE_NEWNS)) {
-			pr_perror("Unable to create a new mntns");
-			goto err;
+			/* Create the new mount namespace */
+			if (unshare(CLONE_NEWNS)) {
+				pr_perror("Unable to create a new mntns");
+				goto err;
+			}
 		}
 
 		nsfd = open_proc(PROC_SELF, "ns/mnt");
@@ -1806,12 +1821,12 @@ static int pre_create_mount_namespaces(void)
 			goto err;
 		}
 	}
-
 	exit_code = 0;
 err:
-	if (orig_nsfd >= 0 && restore_ns(orig_nsfd, &mnt_ns_desc))
-		exit_code = -1;
 	close_safe(&empty_mntns);
+	if (service_mntns >= 0 && restore_ns(service_mntns, &mnt_ns_desc))
+		exit_code = -1;
+	close_safe(&root_mntns);
 	return exit_code;
 }
 

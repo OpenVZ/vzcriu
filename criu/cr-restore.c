@@ -2419,6 +2419,7 @@ static int restore_task_with_children(void *_arg)
 		if (prepare_cgroup_namespace(current) < 0)
 			goto err;
 
+		make_root_ns(&mnt_ns_desc);
 		/**
 		 * Note: previousely we were starting VE from action
 		 * scripts ACT_SETUP_NS (setup-namespaces), it happened just
