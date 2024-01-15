@@ -1,2 +1,2 @@
-criu dist-vz7-u20
-criu dist-vz9-beta
+criu.vzspecs dist-vz7-u20
+criu.vzspecs dist-vz9-beta
