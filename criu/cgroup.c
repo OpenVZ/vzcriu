@@ -1730,8 +1730,8 @@ static int restore_cgroup_prop(const CgroupPropEntry *cg_prop_entry_p, char *pat
 	exit_code = 0;
 
 fallback:
-	if (need_fallback && fallback_property_restore(cg_prop_entry_p, fd))
-		exit_code = -1;
+	if (need_fallback)
+		exit_code = fallback_property_restore(cg_prop_entry_p, fd);
 
 out:
 	if (close(fd) != 0)
