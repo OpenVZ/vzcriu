@@ -207,6 +207,33 @@ static uint32_t x86_ins_capability_mask[NCAPINTS] = {
 
 #undef __ins_bit
 
+static const char* cpuid_leaf_name(enum cpuid_leafs leaf)
+{
+	static const char *names[NCAPINTS] = {
+		[CPUID_1_EDX] = __stringify(CPUID_1_EDX),
+		[CPUID_8000_0001_EDX] = __stringify(CPUID_8000_0001_EDX),
+		[CPUID_8086_0001_EDX] = __stringify(CPUID_8086_0001_EDX),
+		[CPUID_LNX_1] = __stringify(CPUID_LNX_1),
+		[CPUID_1_ECX] = __stringify(CPUID_1_ECX),
+		[CPUID_C000_0001_EDX] = __stringify(CPUID_C000_0001_EDX),
+		[CPUID_8000_0001_ECX] = __stringify(CPUID_8000_0001_ECX),
+		[CPUID_LNX_2] = __stringify(CPUID_LNX_2),
+		[CPUID_LNX_3] = __stringify(CPUID_LNX_3),
+		[CPUID_7_0_EBX] = __stringify(CPUID_7_0_EBX),
+		[CPUID_D_1_EAX] = __stringify(CPUID_D_1_EAX),
+		[CPUID_7_0_ECX] = __stringify(CPUID_7_0_ECX),
+		[CPUID_F_1_EDX] = __stringify(CPUID_F_1_EDX),
+		[CPUID_8000_0008_EBX] = __stringify(CPUID_8000_0008_EBX),
+		[CPUID_6_EAX] = __stringify(CPUID_6_EAX),
+		[CPUID_8000_000A_EDX] = __stringify(CPUID_8000_000A_EDX),
+		[CPUID_F_0_EDX] = __stringify(CPUID_F_0_EDX),
+		[CPUID_8000_0007_EBX] = __stringify(CPUID_8000_0007_EBX),
+		[CPUID_7_0_EDX] = __stringify(CPUID_7_0_EDX),
+	};
+
+	return names[leaf] ? : "UNKNOWN";
+}
+
 static int cpu_validate_ins_features(compel_cpuinfo_t *cpu_info)
 {
 	size_t i;
@@ -221,6 +248,9 @@ static int cpu_validate_ins_features(compel_cpuinfo_t *cpu_info)
 		 */
 		if (s & ~d) {
 			pr_err("CPU instruction capabilities do not match run time\n");
+			pr_err("hint: Consider masking %s:0x%08x on source\n",
+			       cpuid_leaf_name(i),
+			       cpu_info->x86_capability[i] - s + (s & d));
 			return -1;
 		}
 	}
@@ -260,6 +290,7 @@ static int cpu_validate_features(compel_cpuinfo_t *cpu_info)
 		 */
 		if ((m = cpu_info->xfeatures_mask & ~rt_cpu_info.xfeatures_mask)) {
 			pr_err("CPU xfeatures has unsupported bits (%#" PRIx64 ")\n", m);
+			pr_err("hint: Consider masking xsave CPUID_1_ECX:0x04000000 on both sides\n");
 			return -1;
 		}
 
@@ -272,11 +303,13 @@ static int cpu_validate_features(compel_cpuinfo_t *cpu_info)
 		 */
 		if (cpu_info->xsave_size != rt_cpu_info.xsave_size) {
 			pr_err("CPU xsave size mismatch (%u/%u)\n", cpu_info->xsave_size, rt_cpu_info.xsave_size);
+			pr_err("hint: Consider masking xsave CPUID_1_ECX:0x04000000 on both sides\n");
 			return -1;
 		}
 		if (cpu_info->xsave_size_max != rt_cpu_info.xsave_size_max) {
 			pr_err("CPU xsave max size mismatch (%u/%u)\n", cpu_info->xsave_size_max,
 			       rt_cpu_info.xsave_size_max);
+			pr_err("hint: Consider masking xsave CPUID_1_ECX:0x04000000 on both sides\n");
 			return -1;
 		}
 	}
