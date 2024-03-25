@@ -127,6 +127,8 @@ TST_NOFILE	:=				\
 		sock_opts02			\
 		sock_ip_opts00			\
 		sock_ip_opts01			\
+		sock_ip_opts02			\
+		sock_ip_opts03			\
 		sk-unix-unconn			\
 		sk-unix-unconn-seqpacket	\
 		ipc_namespace			\
@@ -693,6 +695,8 @@ socket-tcp6-closed:	CFLAGS += -D ZDTM_IPV4V6
 socket-tcp-closed-last-ack:	CFLAGS += -D ZDTM_TCP_LAST_ACK
 socket-tcp-skip-in-flight:	CFLAGS += -D ZDTM_IPV4V6
 sock_ip_opts01:		CFLAGS += -DZDTM_VAL_ZERO
+sock_ip_opts02:		CFLAGS += -DZDTM_FREEBIND_FALLBACK
+sock_ip_opts03:		CFLAGS += -DZDTM_FREEBIND_FALLBACK -DZDTM_VAL_ZERO
 ipc_namespace_sub:		CFLAGS += -D IPC_SUB
 overlayfs_fsnotify00:	CFLAGS += -D ZDTM_OVL_FSNOTIFY_FANOTIFY
 overlayfs_fsnotify01:	CFLAGS += -D ZDTM_OVL_FSNOTIFY_INOTIFY

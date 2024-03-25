@@ -31,8 +31,12 @@ struct sk_opt sk_opts_v4[] = {
 #endif
 
 struct sk_opt sk_opts_v6[] = {
+#ifdef ZDTM_FREEBIND_FALLBACK
+	{ SOL_IP, IP_FREEBIND },
+#else
 	{ SOL_IPV6, IPV6_FREEBIND },
 	{ SOL_IPV6, IPV6_RECVPKTINFO },
+#endif
 };
 
 struct sk_conf {
@@ -41,10 +45,14 @@ struct sk_conf {
 	int protocol;
 	int sk;
 } sk_confs[] = {
+#ifndef ZDTM_FREEBIND_FALLBACK
 	{ AF_INET, SOCK_DGRAM, IPPROTO_UDP },
 	{ AF_INET, SOCK_RAW, IPPROTO_UDP },
+#endif
 	{ AF_INET6, SOCK_DGRAM, IPPROTO_UDP },
+#ifndef ZDTM_FREEBIND_FALLBACK
 	{ AF_INET6, SOCK_RAW, IPPROTO_UDP },
+#endif
 };
 
 int main(int argc, char **argv)
