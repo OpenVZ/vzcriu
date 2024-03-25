@@ -799,13 +799,21 @@ static int restore_ip_raw_opts(int sk, int family, int proto, IpOptsRawEntry *r)
 	return ret;
 }
 
-int restore_ip_opts(int sk, int family, int proto, IpOptsEntry *ioe)
+int restore_ip_opts(int sk, int family, int type, int proto, IpOptsEntry *ioe)
 {
 	int ret = 0;
 
 	if (family == AF_INET6) {
-		if (ioe->has_freebind)
-			ret |= restore_opt(sk, SOL_IPV6, IPV6_FREEBIND, &ioe->freebind);
+		if (ioe->has_freebind) {
+			if (kdat.has_ipv6_freebind) {
+				ret |= restore_opt(sk, SOL_IPV6, IPV6_FREEBIND, &ioe->freebind);
+			} else if (type != SOCK_RAW) {
+				ret |= restore_opt(sk, SOL_IP, IP_FREEBIND, &ioe->freebind);
+			} else {
+				pr_err("Can't restore SOL_IPV6 + IPV6_FREEBIND on RAW socket\n");
+				ret |= -1;
+			}
+		}
 		if (ioe->has_pktinfo)
 			ret |= restore_opt(sk, SOL_IPV6, IPV6_RECVPKTINFO, &ioe->pktinfo);
 		else if (ioe->has_vz_pktinfo)
@@ -931,7 +939,7 @@ done:
 	if (rst_file_params(sk, ie->fown, ie->flags))
 		goto err;
 
-	if (ie->ip_opts && restore_ip_opts(sk, ie->family, ie->proto, ie->ip_opts))
+	if (ie->ip_opts && restore_ip_opts(sk, ie->family, ie->type, ie->proto, ie->ip_opts))
 		goto err;
 
 	if (restore_socket_opts(sk, ie->opts))
